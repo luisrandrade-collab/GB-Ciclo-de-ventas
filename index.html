@@ -7,6 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1a1a1a">
 <title>Gourmet Bites - Cotizador</title>
+<!-- VERSION: 2026-04-17-v2-firebase-fixed -->
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
@@ -29,7 +30,7 @@ const db = getFirestore(app);
 
 // Expose Firebase to global scope so the non-module script below can use it
 window.fb = {db, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy, limit, runTransaction, serverTimestamp, writeBatch};
-window.fbReady = true;
+window.fbLoaded = true;
 window.dispatchEvent(new Event("fbready"));
 </script>
 <style>
@@ -654,7 +655,7 @@ function setCloudStatus(online){
 
 // ─── FIRESTORE DATA LAYER ──────────────────────────────────
 async function fbReady(){
-  if(window.fbReady)return true;
+  if(window.fbLoaded)return true;
   return new Promise(r=>window.addEventListener("fbready",()=>r(true),{once:true}));
 }
 
