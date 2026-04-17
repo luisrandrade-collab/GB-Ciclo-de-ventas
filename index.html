@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1a1a1a">
 <title>Gourmet Bites - Cotizador</title>
-<!-- VERSION: 2026-04-17-v2-firebase-fixed -->
+<!-- VERSION: 2026-04-17-v4-entrega2-condiciones -->
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
@@ -148,6 +148,39 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
 .menaje-item{display:flex;gap:8px;align-items:center;padding:6px 0;font-size:12px}
 .menaje-item input{width:100px;padding:4px 8px;border:1.5px solid var(--lt);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px}
 .menaje-item .mi-price{width:80px;padding:4px 8px;border:1.5px solid var(--lt);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;text-align:right}
+.menaje-item .mi-price.sug{background:var(--gdl);border-color:var(--gd)}
+/* Personal de Servicio */
+.personal-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
+.personal-row{background:var(--cl);border-radius:8px;padding:10px 12px;margin-bottom:8px;border:1.5px solid var(--lt)}
+.personal-row-title{font-weight:700;font-size:12px;margin-bottom:6px;color:var(--bk);display:flex;justify-content:space-between;align-items:center}
+.personal-row-title .sugg{font-size:10px;color:var(--bl);font-weight:500}
+.pf-field{display:flex;gap:6px;align-items:center;margin-bottom:4px;font-size:11px}
+.pf-field label{flex:1;color:var(--mid)}
+.pf-field input{width:90px;padding:5px 8px;border:1.5px solid var(--lt);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;text-align:right}
+.pf-sub{display:flex;justify-content:space-between;padding-top:6px;margin-top:4px;border-top:1px dashed var(--lt);font-size:11px;font-weight:700;color:var(--gr)}
+.tipo-serv{display:flex;gap:6px;margin-bottom:10px}
+.tipo-serv-opt{flex:1;padding:8px;border:1.5px solid var(--lt);border-radius:8px;background:var(--wh);font-size:12px;font-weight:600;color:var(--mid);cursor:pointer;text-align:center;transition:all .2s}
+.tipo-serv-opt.act{background:var(--bk);color:var(--wh);border-color:var(--bk)}
+/* Condiciones editables */
+.cond-sec{background:var(--cl);border:1.5px solid var(--lt);border-radius:10px;padding:12px;margin-bottom:10px}
+.cond-sec-tit{font-weight:700;font-size:12px;color:var(--bk);margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.cond-sec-tit .num{background:var(--gd);color:var(--wh);width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
+.cond-textarea{width:100%;min-height:70px;padding:8px;border:1.5px solid var(--lt);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:11px;resize:vertical;line-height:1.5;color:var(--bk)}
+.cond-textarea:focus{border-color:var(--gd);outline:none}
+.cond-reset{font-size:10px;color:var(--bl);background:none;border:none;cursor:pointer;padding:0;margin-left:auto}
+.cond-reset:hover{text-decoration:underline}
+/* Tabla de reposición */
+.repo-item{display:flex;gap:8px;align-items:center;margin-bottom:6px;padding:6px 8px;background:var(--wh);border-radius:6px;border:1px solid var(--lt)}
+.repo-item .r-name{flex:1;font-size:12px;font-weight:600}
+.repo-item .r-input{width:100px;padding:5px 8px;border:1.5px solid var(--lt);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;text-align:right}
+.repo-item .r-input.sug{background:var(--gdl);border-color:var(--gd)}
+.repo-hint{font-size:10px;color:var(--bl);margin-left:6px}
+/* Apertura y fechas */
+.apertura-field{margin-bottom:12px}
+.apertura-field textarea{width:100%;min-height:55px;padding:8px;border:1.5px solid var(--lt);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:12px;font-style:italic;resize:vertical}
+.fecha-venc-row{display:flex;gap:10px;align-items:center;margin-bottom:12px;padding:8px 10px;background:var(--cl);border-radius:8px;border:1px solid var(--lt)}
+.fecha-venc-row label{flex:1;font-size:11px;color:var(--mid);font-weight:600}
+.fecha-venc-row input{width:140px;padding:5px 8px;border:1.5px solid var(--lt);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px}
 /* Product picker modal */
 .modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:flex-end;justify-content:center;animation:fadeIn .2s}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
@@ -382,7 +415,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
   <div style="background:var(--bll);border:1.5px solid #90CAF9;border-radius:var(--r);padding:14px;margin-bottom:14px">
     <div style="font-weight:700;font-size:13px;color:var(--bl);margin-bottom:10px">📋 Datos del Evento</div>
     <div class="frow" style="margin-bottom:12px">
-      <div class="fld"><label class="flbl">Número de personas *</label><input class="fin" id="fp-pers" type="number" placeholder="35" min="1"></div>
+      <div class="fld"><label class="flbl">Número de personas *</label><input class="fin" id="fp-pers" type="number" placeholder="35" min="1" oninput="onPaxChange()"></div>
       <div class="fld"><label class="flbl">Momento</label><input class="fin" id="fp-momento" placeholder="Ej: Almuerzo"></div>
     </div>
     <div class="fld" style="margin-bottom:0"><label class="flbl">Fecha del evento</label><input class="fin" id="fp-date" type="date"></div>
@@ -409,17 +442,54 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
 
   <div style="font-size:11px;color:var(--mid);margin-bottom:16px;text-align:center;padding:8px;background:var(--cl);border-radius:8px">💡 El cliente se guarda automáticamente al generar el PDF de la propuesta</div>
 
+  <div class="fecha-venc-row">
+    <label>Propuesta válida hasta</label>
+    <input type="date" id="fp-fecha-venc" onchange="onFechaVencChange()">
+    <span style="font-size:10px;color:var(--soft)">(default: hoy + 15 días)</span>
+  </div>
+
+  <div class="apertura-field">
+    <label class="flbl">Frase de apertura (editable)</label>
+    <textarea id="fp-apertura" placeholder="Una experiencia culinaria diseñada a medida para su evento.">Una experiencia culinaria diseñada a medida para su evento.</textarea>
+  </div>
+
   <div id="prop-sections"></div>
 
   <div style="margin:16px 0">
     <button class="btn bbl bf" onclick="addPropSection()">+ Agregar Sección</button>
   </div>
 
+  <!-- Personal de Servicio -->
+  <div class="prop-sec" style="border-left-color:#6A1B9A">
+    <div class="sec-head"><span class="sec-title">👔 Personal de Servicio</span></div>
+    <div style="font-size:11px;color:var(--mid);margin-bottom:10px">Tipo de servicio del evento (sugiere cantidad de meseros)</div>
+    <div class="tipo-serv" id="tipo-serv-sel">
+      <div class="tipo-serv-opt" data-val="Bufé" onclick="setTipoServ('Bufé')">Bufé<br><span style="font-size:9px;opacity:.7">1 c/40 pax</span></div>
+      <div class="tipo-serv-opt" data-val="Emplatado" onclick="setTipoServ('Emplatado')">Emplatado<br><span style="font-size:9px;opacity:.7">1 c/22 pax</span></div>
+      <div class="tipo-serv-opt" data-val="Coctel" onclick="setTipoServ('Coctel')">Coctel<br><span style="font-size:9px;opacity:.7">1 c/30 pax</span></div>
+    </div>
+    <div id="personal-content"></div>
+  </div>
+
   <!-- Menaje -->
   <div class="prop-sec" style="border-left-color:var(--gd)">
-    <div class="sec-head"><span class="sec-title">🍽 Menaje y Servicios</span></div>
+    <div class="sec-head"><span class="sec-title">🍽 Menaje</span></div>
     <div id="menaje-list"></div>
     <button class="btn bo" style="font-size:11px;margin-top:8px" onclick="addMenajeItem()">+ Agregar ítem</button>
+  </div>
+
+  <!-- Tabla de Reposición -->
+  <div class="prop-sec" style="border-left-color:var(--rd)" id="repo-sec">
+    <div class="sec-head"><span class="sec-title">⚠️ Valores de Reposición</span></div>
+    <div style="font-size:11px;color:var(--mid);margin-bottom:8px">Precio por reposición de menaje en caso de pérdida o daño. Aparece automáticamente en el PDF. <strong>Los valores en dorado son sugerencias de propuestas anteriores.</strong></div>
+    <div id="repo-list"></div>
+  </div>
+
+  <!-- Condiciones Comerciales -->
+  <div class="prop-sec" style="border-left-color:var(--bk)">
+    <div class="sec-head"><span class="sec-title">📋 Condiciones Comerciales</span><button class="cond-reset" onclick="resetAllConditions()">↻ Restablecer todas</button></div>
+    <div style="font-size:11px;color:var(--mid);margin-bottom:10px">7 cláusulas que van como anexo al final del PDF. Edítalas si este evento tiene condiciones especiales.</div>
+    <div id="cond-list"></div>
   </div>
 
   <div class="acts" style="margin-top:20px">
@@ -796,6 +866,7 @@ async function initApp(){
   try{
     await loadClientsFromCloud();
     await loadCustomProducts();
+    await loadPriceMemory();
     setCloudStatus(true);
     refreshCliSel();
     hideLoader();
@@ -851,8 +922,20 @@ function newProp(){
   ["fp-cli","fp-idnum","fp-att","fp-mail","fp-tel","fp-dir","fp-pers","fp-momento","fp-date","fp-city-custom","fp-tr-custom"].forEach(id=>{const el=$(id);if(el)el.value=""});
   $("fp-idtype").value="";$("fp-city").value="";$("sel-cli-p").value="";
   updTrP();
+  // Reset personal state but keep remembered rates
+  tipoServicio="";
+  personalData={meseros:{cantidad:"",valor4h:"",horasExtra:"",valorHoraExtra:""},auxiliares:{cantidad:"",valor4h:"",horasExtra:"",valorHoraExtra:""}};
+  loadLastPersonalRates();// restore last-used rates
+  document.querySelectorAll("#tipo-serv-sel .tipo-serv-opt").forEach(el=>el.classList.remove("act"));
   menajeItems=DEFAULT_MENAJE.map((n,i)=>({id:"m"+i,name:n,qty:"",price:""}));
-  renderMenaje();renderPropSections();
+  // Entrega 2: reset condiciones/reposicion/apertura/fecha to defaults
+  condicionesData={};initCondiciones();
+  reposicionData={};
+  aperturaFrase="Una experiencia culinaria diseñada a medida para su evento.";
+  if($("fp-apertura"))$("fp-apertura").value=aperturaFrase;
+  setDefaultFechaVenc();
+  applyPriceMemorySuggestions();
+  renderMenaje();renderPropSections();renderPersonal();renderCondiciones();renderReposicion();
 }
 
 // ─── GLOBAL SEARCH ─────────────────────────────────────────
@@ -1243,7 +1326,287 @@ let propSections=[];
 const DEFAULT_MENAJE=["Platos","Cubiertos","Vasos","Copas / Cristalería","Mantelería","Servilletas","Bandejas","Charoles","Hielera","Jarras"];
 let menajeItems=[];
 
-function initProp(){if(!propSections.length&&!menajeItems.length){menajeItems=DEFAULT_MENAJE.map((n,i)=>({id:"m"+i,name:n,qty:"",price:""}));renderMenaje()}}
+// Personal de Servicio
+let tipoServicio=""; // "Bufé" | "Emplatado" | "Coctel" | ""
+let personalData={
+  meseros:{cantidad:"",valor4h:"",horasExtra:"",valorHoraExtra:""},
+  auxiliares:{cantidad:"",valor4h:"",horasExtra:"",valorHoraExtra:""}
+};
+
+// Entrega 2: Condiciones, reposición, apertura, fecha vencimiento
+let reposicionData={}; // {itemName: precioStr}
+let condicionesData={}; // {c1:texto, c2:texto, ...}
+let aperturaFrase="Una experiencia culinaria diseñada a medida para su evento.";
+let fechaVencimiento=""; // YYYY-MM-DD
+
+const DEFAULT_CONDICIONES={
+  c1:"Cancelaciones con 7 o más días calendario de anticipación al evento tendrán derecho a la devolución del 50% del anticipo pagado. Cancelaciones entre 3 y 6 días antes del evento implican la pérdida total del anticipo. Cancelaciones con 48 horas o menos de anticipación implican el pago del 100% del valor total del evento.",
+  c2:"El cliente podrá modificar la cantidad de comensales hasta en un 10% (incremento o disminución) con máximo 48 horas antes del evento. La cantidad confirmada en esa fecha será la cantidad facturada, se consuma o no la totalidad de los alimentos.",
+  c3:"Por normas de manipulación y seguridad alimentaria, todos los alimentos remanentes del evento quedan en las instalaciones del cliente al momento del retiro. Gourmet Bites no transporta alimentos preparados después del servicio.",
+  c4:"Los tiempos de montaje se acuerdan directamente con el cliente según el tipo de evento. Para almuerzos de trabajo, el montaje típicamente se realiza con 2 horas de antelación al inicio del servicio, y el retiro se efectúa 1 hora después de finalizado el servicio.",
+  c5:"El menaje entregado queda bajo responsabilidad del cliente durante el evento. Al iniciar el servicio se entregará inventario firmado. Los daños causados por el personal de servicio de Gourmet Bites (meseros y auxiliares) serán asumidos por Gourmet Bites. Los daños causados por los invitados o por terceros ajenos al personal de Gourmet Bites serán cobrados al cliente conforme a la tabla de reposición.",
+  c6:"Para eventos de más de 100 personas, Gourmet Bites ofrece sin costo una prueba del menú seleccionado, una vez confirmado el evento y pagado el anticipo. Para eventos de menos de 100 personas, la prueba es opcional y tiene un costo equivalente al valor unitario del producto más el transporte, a coordinar con el cliente una vez confirmado el evento.",
+  c7:"Gourmet Bites by Andrade Matuk opera bajo Juan Pablo Andrade Matuk — Persona Natural No Responsable de IVA (C.C. 1.032.876.667). Los valores cotizados no incluyen IVA. Se emite factura electrónica sin discriminación del impuesto conforme al régimen tributario aplicable. Para reservar la fecha se requiere el pago de un anticipo del 50% del valor total del servicio. El 50% restante deberá ser cancelado a más tardar 24 horas después de finalizado el evento."
+};
+const CONDICIONES_TITULOS={
+  c1:"Política de Cancelación",
+  c2:"Confirmación de Comensales",
+  c3:"Manejo de Alimentos Remanentes",
+  c4:"Montaje y Retiro",
+  c5:"Responsabilidad por Menaje",
+  c6:"Prueba de Comida",
+  c7:"Responsable Tributario y Pagos"
+};
+
+// Cached price memory from Firestore
+let priceMemoryCache={reposicion:{},menaje:{},personal:{}};
+
+function initCondiciones(){
+  Object.keys(DEFAULT_CONDICIONES).forEach(k=>{
+    if(!condicionesData[k])condicionesData[k]=DEFAULT_CONDICIONES[k];
+  });
+}
+
+function renderCondiciones(){
+  initCondiciones();
+  $("cond-list").innerHTML=Object.keys(DEFAULT_CONDICIONES).map((k,i)=>{
+    const n=i+1;
+    return '<div class="cond-sec"><div class="cond-sec-tit"><span class="num">'+n+'</span>'+CONDICIONES_TITULOS[k]+'<button class="cond-reset" onclick="resetCondicion(\''+k+'\')">↻ Restablecer</button></div><textarea class="cond-textarea" onchange="condicionesData[\''+k+'\']=this.value">'+(condicionesData[k]||DEFAULT_CONDICIONES[k])+'</textarea></div>';
+  }).join("");
+}
+function resetCondicion(k){
+  condicionesData[k]=DEFAULT_CONDICIONES[k];
+  renderCondiciones();
+}
+function resetAllConditions(){
+  if(!confirm("¿Restablecer todas las cláusulas a sus valores por defecto?"))return;
+  Object.keys(DEFAULT_CONDICIONES).forEach(k=>condicionesData[k]=DEFAULT_CONDICIONES[k]);
+  renderCondiciones();
+}
+
+function renderReposicion(){
+  // Collect all unique menaje item names (only those with qty or price set)
+  const items=menajeItems.filter(m=>m.name&&(m.qty||m.price)).map(m=>m.name);
+  const uniqueItems=[...new Set(items)];
+  if(!uniqueItems.length){
+    $("repo-list").innerHTML='<div style="font-size:11px;color:var(--soft);padding:8px;text-align:center;font-style:italic">Agrega items al menaje arriba para que aparezcan aquí con sus precios de reposición.</div>';
+    return;
+  }
+  $("repo-list").innerHTML=uniqueItems.map(name=>{
+    const curVal=reposicionData[name]||"";
+    const sugVal=priceMemoryCache.reposicion[name]||"";
+    const isSugg=!curVal&&sugVal;
+    const displayVal=curVal||sugVal;
+    return '<div class="repo-item"><span class="r-name">'+name+'</span><input type="number" class="r-input'+(isSugg?' sug':'')+'" placeholder="0" value="'+displayVal+'" onchange="updReposicion(\''+name.replace(/'/g,"\\'")+'\',this.value)">'+(isSugg?'<span class="repo-hint">↑ sugerido</span>':'')+'</div>';
+  }).join("");
+}
+function updReposicion(name,val){
+  reposicionData[name]=val;
+  renderReposicion();
+}
+
+// Fecha vencimiento
+function onFechaVencChange(){
+  fechaVencimiento=$("fp-fecha-venc").value;
+}
+function setDefaultFechaVenc(){
+  const d=new Date();
+  d.setDate(d.getDate()+15);
+  const iso=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+  $("fp-fecha-venc").value=iso;
+  fechaVencimiento=iso;
+}
+
+// Price memory — load from Firestore
+async function loadPriceMemory(){
+  if(!cloudOnline)return;
+  try{
+    const {db,doc,getDoc}=window.fb;
+    const snap=await getDoc(doc(db,"config","price_memory"));
+    if(snap.exists()){
+      const d=snap.data();
+      priceMemoryCache={
+        reposicion:d.reposicion||{},
+        menaje:d.menaje||{},
+        personal:d.personal||{}
+      };
+    }
+  }catch(e){console.warn("loadPriceMemory failed",e)}
+}
+async function savePriceMemory(){
+  if(!cloudOnline)return;
+  try{
+    const {db,doc,setDoc,serverTimestamp}=window.fb;
+    await setDoc(doc(db,"config","price_memory"),{...priceMemoryCache,updatedAt:serverTimestamp()});
+  }catch(e){console.warn("savePriceMemory failed",e)}
+}
+// Remember prices from current proposal
+function rememberPricesFromProposal(){
+  // Menaje alquiler
+  menajeItems.forEach(m=>{
+    if(m.name&&m.price){priceMemoryCache.menaje[m.name]=m.price}
+  });
+  // Reposición
+  Object.keys(reposicionData).forEach(k=>{
+    if(reposicionData[k])priceMemoryCache.reposicion[k]=reposicionData[k];
+  });
+  // Personal
+  if(personalData.meseros.valor4h)priceMemoryCache.personal.mesero_4h=personalData.meseros.valor4h;
+  if(personalData.meseros.valorHoraExtra)priceMemoryCache.personal.mesero_hx=personalData.meseros.valorHoraExtra;
+  if(personalData.auxiliares.valor4h)priceMemoryCache.personal.auxiliar_4h=personalData.auxiliares.valor4h;
+  if(personalData.auxiliares.valorHoraExtra)priceMemoryCache.personal.auxiliar_hx=personalData.auxiliares.valorHoraExtra;
+  savePriceMemory();
+}
+// Remember last used values for meseros/auxiliares rates
+function loadLastPersonalRates(){
+  try{
+    const saved=JSON.parse(localStorage.getItem("gb_personal_rates")||"{}");
+    if(saved.meseros){Object.keys(saved.meseros).forEach(k=>{if(saved.meseros[k]&&!personalData.meseros[k])personalData.meseros[k]=saved.meseros[k]})}
+    if(saved.auxiliares){Object.keys(saved.auxiliares).forEach(k=>{if(saved.auxiliares[k]&&!personalData.auxiliares[k])personalData.auxiliares[k]=saved.auxiliares[k]})}
+  }catch(e){}
+}
+function savePersonalRates(){
+  try{
+    const toSave={
+      meseros:{valor4h:personalData.meseros.valor4h,valorHoraExtra:personalData.meseros.valorHoraExtra},
+      auxiliares:{valor4h:personalData.auxiliares.valor4h,valorHoraExtra:personalData.auxiliares.valorHoraExtra}
+    };
+    localStorage.setItem("gb_personal_rates",JSON.stringify(toSave));
+  }catch(e){}
+}
+
+// Suggest meseros count based on tipo and pax
+function suggestMeseros(){
+  const pax=parseInt($("fp-pers").value)||0;
+  if(!pax||!tipoServicio)return 0;
+  if(tipoServicio==="Bufé")return Math.ceil(pax/40);
+  if(tipoServicio==="Emplatado")return Math.ceil(pax/22);
+  if(tipoServicio==="Coctel")return Math.ceil(pax/30);
+  return 0;
+}
+
+function setTipoServ(v){
+  tipoServicio=v;
+  document.querySelectorAll("#tipo-serv-sel .tipo-serv-opt").forEach(el=>{
+    el.classList.toggle("act",el.dataset.val===v);
+  });
+  // Auto-suggest meseros if currently empty
+  if(!personalData.meseros.cantidad){
+    const sug=suggestMeseros();
+    if(sug)personalData.meseros.cantidad=sug;
+  }
+  renderPersonal();
+}
+
+// Refresh personal + smart qty when number of people changes
+function onPaxChange(){
+  // Update meseros suggestion if it was the suggested value
+  if(tipoServicio){
+    renderPersonal();// just refresh the "sugerencia" label
+  }
+}
+
+function renderPersonal(){
+  const pax=parseInt($("fp-pers").value)||0;
+  const sugM=suggestMeseros();
+  const m=personalData.meseros,a=personalData.auxiliares;
+  const mSub=(parseFloat(m.cantidad)||0)*((parseFloat(m.valor4h)||0)+(parseFloat(m.horasExtra)||0)*(parseFloat(m.valorHoraExtra)||0));
+  const aSub=(parseFloat(a.cantidad)||0)*((parseFloat(a.valor4h)||0)+(parseFloat(a.horasExtra)||0)*(parseFloat(a.valorHoraExtra)||0));
+  $("personal-content").innerHTML=`
+    <div class="personal-row">
+      <div class="personal-row-title"><span>👨‍💼 Meseros</span>${sugM&&tipoServicio?'<span class="sugg">sugerencia: '+sugM+'</span>':''}</div>
+      <div class="pf-field"><label>Cantidad</label><input type="number" step="1" min="0" value="${m.cantidad}" onchange="updPersonal('meseros','cantidad',this.value)"></div>
+      <div class="pf-field"><label>Valor 4 horas c/u</label><input type="number" value="${m.valor4h}" placeholder="80000" onchange="updPersonal('meseros','valor4h',this.value)"></div>
+      <div class="pf-field"><label>Horas extra</label><input type="number" step="0.5" value="${m.horasExtra}" onchange="updPersonal('meseros','horasExtra',this.value)"></div>
+      <div class="pf-field"><label>Valor hora extra c/u</label><input type="number" value="${m.valorHoraExtra}" onchange="updPersonal('meseros','valorHoraExtra',this.value)"></div>
+      ${mSub?'<div class="pf-sub"><span>Subtotal meseros</span><span>'+fm(mSub)+'</span></div>':''}
+    </div>
+    <div class="personal-row">
+      <div class="personal-row-title"><span>👷 Auxiliares</span></div>
+      <div class="pf-field"><label>Cantidad</label><input type="number" step="1" min="0" value="${a.cantidad}" onchange="updPersonal('auxiliares','cantidad',this.value)"></div>
+      <div class="pf-field"><label>Valor 4 horas c/u</label><input type="number" value="${a.valor4h}" onchange="updPersonal('auxiliares','valor4h',this.value)"></div>
+      <div class="pf-field"><label>Horas extra</label><input type="number" step="0.5" value="${a.horasExtra}" onchange="updPersonal('auxiliares','horasExtra',this.value)"></div>
+      <div class="pf-field"><label>Valor hora extra c/u</label><input type="number" value="${a.valorHoraExtra}" onchange="updPersonal('auxiliares','valorHoraExtra',this.value)"></div>
+      ${aSub?'<div class="pf-sub"><span>Subtotal auxiliares</span><span>'+fm(aSub)+'</span></div>':''}
+    </div>
+  `;
+}
+function updPersonal(kind,field,val){
+  personalData[kind][field]=val;
+  if(field==="valor4h"||field==="valorHoraExtra")savePersonalRates();
+  renderPersonal();
+}
+
+// Smart quantity suggester from unit string
+function suggestQty(unit,pax){
+  if(!pax)return 1;
+  const u=(unit||"").toLowerCase();
+  // Unique items
+  if(/charol|bandeja|evento|jarra/.test(u))return 1;
+  if(/^l$|^m$|^s$|42x26|33x22|15\.5x20/i.test(unit))return 1;
+  // Per-person items
+  if(/individual|porción|por plato|c\/u|1 unidad|1 pincho|2 pinchos/.test(u))return pax;
+  // Group packs
+  const m10=u.match(/10\s*(personas|unidades|porciones|porc|uds)/);
+  if(m10)return Math.round((pax/10)*10)/10;
+  const m12=u.match(/12\s*(personas|unidades|porciones|porc|uds)/);
+  if(m12)return Math.round((pax/12)*10)/10;
+  const m15=u.match(/15\s*(personas|unidades|porciones|porc|uds)/);
+  if(m15)return Math.round((pax/15)*10)/10;
+  const m20=u.match(/20\s*(personas|unidades|porciones|porc|uds)/);
+  if(m20)return Math.round((pax/20)*10)/10;
+  const m30=u.match(/30\s*(personas|unidades|porciones|porc|uds)/);
+  if(m30)return Math.round((pax/30)*10)/10;
+  const m6=u.match(/6\s*(personas|unidades|porciones|porc|uds)/);
+  if(m6)return Math.round((pax/6)*10)/10;
+  const m8=u.match(/8\s*(personas|unidades|porciones|porc|uds)/);
+  if(m8)return Math.round((pax/8)*10)/10;
+  // Weight-based
+  if(/libra|lb|kg|gr|media/.test(u))return 1;
+  // Default: per person
+  return pax;
+}
+
+function initProp(){
+  if(!propSections.length&&!menajeItems.length){
+    menajeItems=DEFAULT_MENAJE.map((n,i)=>({id:"m"+i,name:n,qty:"",price:""}));
+    renderMenaje();
+  }
+  loadLastPersonalRates();
+  renderPersonal();
+  initCondiciones();
+  renderCondiciones();
+  renderReposicion();
+  // Auto-apply suggested prices from memory
+  applyPriceMemorySuggestions();
+  // Set default vencimiento if empty
+  if(!$("fp-fecha-venc").value)setDefaultFechaVenc();
+  // Set default apertura if empty
+  if(!$("fp-apertura").value.trim())$("fp-apertura").value=aperturaFrase;
+}
+
+function applyPriceMemorySuggestions(){
+  // Suggest menaje alquiler prices
+  menajeItems.forEach(m=>{
+    if(!m.price&&priceMemoryCache.menaje[m.name]){
+      // Leave empty but it will be shown as placeholder suggestion
+    }
+  });
+  // Suggest personal rates
+  if(!personalData.meseros.valor4h&&priceMemoryCache.personal.mesero_4h){
+    personalData.meseros.valor4h=priceMemoryCache.personal.mesero_4h;
+  }
+  if(!personalData.meseros.valorHoraExtra&&priceMemoryCache.personal.mesero_hx){
+    personalData.meseros.valorHoraExtra=priceMemoryCache.personal.mesero_hx;
+  }
+  if(!personalData.auxiliares.valor4h&&priceMemoryCache.personal.auxiliar_4h){
+    personalData.auxiliares.valor4h=priceMemoryCache.personal.auxiliar_4h;
+  }
+  if(!personalData.auxiliares.valorHoraExtra&&priceMemoryCache.personal.auxiliar_hx){
+    personalData.auxiliares.valorHoraExtra=priceMemoryCache.personal.auxiliar_hx;
+  }
+  renderPersonal();
+}
 
 function addPropSection(){const name=prompt("Nombre de sección:\n(Ej: "+PROP_SECTION_NAMES.filter(n=>!propSections.find(s=>s.name===n)).join(", ")+")");if(!name)return;propSections.push({id:"ps"+Date.now(),name,options:[{id:"po"+Date.now(),label:"Opción A",items:[]}]});renderPropSections()}
 
@@ -1254,7 +1617,10 @@ $("prop-sections").innerHTML=propSections.map((sec,si)=>{
   sec.options.map((opt,oi)=>{
     const sub=opt.items.reduce((s,it)=>s+(it.price||0)*(it.qty||0),0);
     return'<div class="opt-card"><div class="opt-head"><span class="opt-label">'+opt.label+'</span><div><span class="opt-sub">'+fm(sub)+'</span><button class="del-btn" style="font-size:14px" onclick="delPropOpt('+si+','+oi+')">×</button></div></div>'+
-    opt.items.map((it,ii)=>'<div class="opt-item"><div style="flex:1;min-width:0"><div style="font-weight:600">'+it.name+'</div>'+(it.desc?'<div style="font-size:10px;color:var(--soft)">'+it.desc+'</div>':'')+'</div><input type="number" style="width:50px;padding:3px 6px;border:1px solid var(--lt);border-radius:4px;text-align:center;font-size:12px" value="'+(it.qty||"")+'" onchange="updPropItem('+si+','+oi+','+ii+',\'qty\',+this.value)"><span style="width:80px;text-align:right;font-size:11px">'+fm(it.price||0)+'</span><button class="del-btn" style="font-size:14px" onclick="delPropItem('+si+','+oi+','+ii+')">×</button></div>').join("")+
+    opt.items.map((it,ii)=>{
+      const itSub=(it.price||0)*(it.qty||0);
+      return '<div class="opt-item" style="flex-wrap:wrap"><div style="flex:1;min-width:120px"><div style="font-weight:600;font-size:12px">'+it.name+'</div>'+(it.desc?'<div style="font-size:10px;color:var(--soft)">'+it.desc+'</div>':'')+(it.unit?'<div style="font-size:9px;color:var(--mid);font-style:italic">'+it.unit+'</div>':'')+'</div><input type="number" step="0.1" min="0" style="width:50px;padding:3px 6px;border:1px solid var(--lt);border-radius:4px;text-align:center;font-size:12px" value="'+(it.qty||"")+'" title="Cantidad" onchange="updPropItem('+si+','+oi+','+ii+',\'qty\',+this.value)"><input type="number" style="width:75px;padding:3px 6px;border:1px solid var(--lt);border-radius:4px;text-align:right;font-size:11px" value="'+(it.price||0)+'" title="Precio unitario" onchange="updPropItem('+si+','+oi+','+ii+',\'price\',+this.value)"><span style="width:80px;text-align:right;font-size:12px;font-weight:700">'+fm(itSub)+'</span><button class="del-btn" style="font-size:14px" onclick="delPropItem('+si+','+oi+','+ii+')">×</button></div>';
+    }).join("")+
     '<div style="display:flex;gap:6px;margin-top:8px"><button class="btn bo" style="font-size:10px;padding:4px 10px" onclick="openPicker('+si+','+oi+')">+ Catálogo</button><button class="btn bo" style="font-size:10px;padding:4px 10px" onclick="addPropItemCustom('+si+','+oi+')">+ Custom</button></div></div>'
   }).join("")+
   '<button class="btn bo" style="font-size:11px;margin-top:8px" onclick="addPropOpt('+si+')">+ Opción '+(optLetters[sec.options.length]||sec.options.length+1)+'</button></div>'
@@ -1289,21 +1655,31 @@ function renderPicker(){
   $("pk-list").innerHTML=html;
 }
 function pickProduct(id){if(!pickerTarget)return;const p=C.find(x=>x.id===id);if(!p)return;const pers=parseInt($("fp-pers").value)||1;
-propSections[pickerTarget.si].options[pickerTarget.oi].items.push({name:p.n,desc:p.d||"",qty:pers,price:p.p,catId:p.id});
+const qty=suggestQty(p.u,pers);
+propSections[pickerTarget.si].options[pickerTarget.oi].items.push({name:p.n,desc:p.d||"",unit:p.u||"",qty,price:p.p,catId:p.id});
 closePicker();renderPropSections()}
 function pickCustomProduct(id){if(!pickerTarget)return;const p=customProductsCache.find(x=>x.id===id);if(!p)return;const pers=parseInt($("fp-pers").value)||1;
-propSections[pickerTarget.si].options[pickerTarget.oi].items.push({name:p.n,desc:p.d||"",qty:pers,price:p.p||0,customId:p.id});
+const qty=suggestQty(p.u||"",pers);
+propSections[pickerTarget.si].options[pickerTarget.oi].items.push({name:p.n,desc:p.d||"",unit:p.u||"",qty,price:p.p||0,customId:p.id});
 closePicker();renderPropSections()}
 
-function addPropItemCustom(si,oi){const name=prompt("Nombre del ítem:");if(!name)return;const desc=prompt("Descripción (opcional):")||"";const price=parseInt(prompt("Precio unitario:")||"0");const pers=parseInt($("fp-pers").value)||1;
-propSections[si].options[oi].items.push({name,desc,qty:pers,price});renderPropSections()}
+function addPropItemCustom(si,oi){const name=prompt("Nombre del ítem:");if(!name)return;const desc=prompt("Descripción (opcional):")||"";const price=parseInt(prompt("Precio unitario:")||"0");const unit=prompt("Unidad (Individual, 10 personas, Evento, etc):")||"Individual";const pers=parseInt($("fp-pers").value)||1;
+const qty=suggestQty(unit,pers);
+propSections[si].options[oi].items.push({name,desc,unit,qty,price});renderPropSections()}
 
 function updPropItem(si,oi,ii,field,val){propSections[si].options[oi].items[ii][field]=val;renderPropSections()}
 function delPropItem(si,oi,ii){propSections[si].options[oi].items.splice(ii,1);renderPropSections()}
 
 // ─── MENAJE ────────────────────────────────────────────────
 function renderMenaje(){
-$("menaje-list").innerHTML=menajeItems.map((m,i)=>'<div class="menaje-item"><span style="flex:1;font-weight:600">'+m.name+'</span><input type="number" placeholder="Cant." style="width:55px;padding:4px 6px;border:1px solid var(--lt);border-radius:4px;text-align:center;font-size:12px" value="'+m.qty+'" onchange="menajeItems['+i+'].qty=this.value"><input type="number" class="mi-price" placeholder="Precio" value="'+m.price+'" onchange="menajeItems['+i+'].price=this.value"><button class="del-btn" style="font-size:14px" onclick="menajeItems.splice('+i+',1);renderMenaje()">×</button></div>').join("")}
+$("menaje-list").innerHTML=menajeItems.map((m,i)=>{
+  const sugP=!m.price&&priceMemoryCache.menaje[m.name]?priceMemoryCache.menaje[m.name]:"";
+  const priceClass=sugP?"mi-price sug":"mi-price";
+  const priceTitle=sugP?'title="Sugerido de propuesta anterior"':"";
+  return '<div class="menaje-item"><span style="flex:1;font-weight:600">'+m.name+'</span><input type="number" placeholder="Cant." style="width:55px;padding:4px 6px;border:1px solid var(--lt);border-radius:4px;text-align:center;font-size:12px" value="'+m.qty+'" onchange="menajeItems['+i+'].qty=this.value;renderMenaje();renderReposicion()"><input type="number" class="'+priceClass+'" placeholder="'+(sugP?sugP+" (sug)":"Precio")+'" value="'+m.price+'" '+priceTitle+' onchange="menajeItems['+i+'].price=this.value;renderMenaje();renderReposicion()"><button class="del-btn" style="font-size:14px" onclick="menajeItems.splice('+i+',1);renderMenaje();renderReposicion()">×</button></div>';
+}).join("");
+if($("repo-list"))renderReposicion();
+}
 function addMenajeItem(){const name=prompt("Nombre del ítem de menaje:");if(!name)return;menajeItems.push({id:"m"+Date.now(),name,qty:"",price:""});renderMenaje()}
 
 let currentPropNumber=null;
@@ -1325,6 +1701,10 @@ async function savePropQuote(silent){
       }
     })));
 
+    // Read current UI values before saving
+    aperturaFrase=$("fp-apertura").value.trim()||aperturaFrase;
+    fechaVencimiento=$("fp-fecha-venc").value||fechaVencimiento;
+
     const pObj={
       quoteNumber:pNum,
       type:"prop",
@@ -1335,12 +1715,21 @@ async function savePropQuote(silent){
       att:$("fp-att").value,mail:$("fp-mail").value,tel:$("fp-tel").value,dir:$("fp-dir").value,
       city:getCityNameP(),
       pers:$("fp-pers").value,momento:$("fp-momento").value,eventDate:$("fp-date").value,
+      tipoServicio:tipoServicio||"",
+      personalData:JSON.parse(JSON.stringify(personalData)),
       sections:JSON.parse(JSON.stringify(propSections)),
-      menaje:JSON.parse(JSON.stringify(menajeItems))
+      menaje:JSON.parse(JSON.stringify(menajeItems)),
+      // Entrega 2 fields
+      aperturaFrase:aperturaFrase,
+      fechaVencimiento:fechaVencimiento,
+      condicionesData:JSON.parse(JSON.stringify(condicionesData)),
+      reposicionData:JSON.parse(JSON.stringify(reposicionData))
     };
     if(!silent)showLoader("Guardando en la nube...");
     await saveProposalToCloud(pObj);
     currentPropNumber=pNum;
+    // Remember prices globally for future proposals
+    rememberPricesFromProposal();
     if(!silent){
       hideLoader();
       alert("✅ Borrador guardado: "+pNum);
@@ -1363,8 +1752,33 @@ function loadPropQuote(q){
   }
   propSections=q.sections||[];
   menajeItems=q.menaje||[];
+  // Restore new fields (backward compatible)
+  tipoServicio=q.tipoServicio||"";
+  if(q.personalData){
+    personalData={
+      meseros:q.personalData.meseros||{cantidad:"",valor4h:"",horasExtra:"",valorHoraExtra:""},
+      auxiliares:q.personalData.auxiliares||{cantidad:"",valor4h:"",horasExtra:"",valorHoraExtra:""}
+    };
+  }else{
+    personalData={meseros:{cantidad:"",valor4h:"",horasExtra:"",valorHoraExtra:""},auxiliares:{cantidad:"",valor4h:"",horasExtra:"",valorHoraExtra:""}};
+  }
+  // Update tipo servicio UI
+  document.querySelectorAll("#tipo-serv-sel .tipo-serv-opt").forEach(el=>{
+    el.classList.toggle("act",el.dataset.val===tipoServicio);
+  });
+  // Entrega 2: restore apertura, fecha venc, condiciones, reposicion (backward compatible)
+  aperturaFrase=q.aperturaFrase||"Una experiencia culinaria diseñada a medida para su evento.";
+  fechaVencimiento=q.fechaVencimiento||"";
+  condicionesData=q.condicionesData?JSON.parse(JSON.stringify(q.condicionesData)):{};
+  reposicionData=q.reposicionData?JSON.parse(JSON.stringify(q.reposicionData)):{};
+  initCondiciones();// fill missing ones with defaults
+  if($("fp-apertura"))$("fp-apertura").value=aperturaFrase;
+  if($("fp-fecha-venc")){
+    if(fechaVencimiento){$("fp-fecha-venc").value=fechaVencimiento}
+    else{setDefaultFechaVenc()}
+  }
   currentPropNumber=q.quoteNumber||null;
-  renderPropSections();renderMenaje();
+  renderPropSections();renderMenaje();renderPersonal();renderCondiciones();renderReposicion();
 }
 
 
@@ -1460,12 +1874,20 @@ try{const li=new Image();li.src=LOGO_IW;doc.addImage(li,"JPEG",(W-65)/2,4,65,65*
 let y=4+65*(272/500)+2;
 doc.setDrawColor(201,169,110);doc.setLineWidth(0.4);doc.line(40,y,W-40,y);
 
-y+=5;doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(26,26,26);
-doc.text("PROPUESTA GASTRONÓMICA — GOURMETBITES BY ANDRADE MATUK",W/2,y,{align:"center"});
+y+=5;doc.setFont("helvetica","bold");doc.setFontSize(13);doc.setTextColor(26,26,26);
+doc.text("Propuesta de Catering",W/2,y,{align:"center"});
 
 // Proposal number
-y+=5;doc.setFontSize(9);doc.setTextColor(201,169,110);
+y+=5;doc.setFontSize(9);doc.setTextColor(201,169,110);doc.setFont("helvetica","bold");
 doc.text(currentPropNumber,W/2,y,{align:"center"});
+doc.setTextColor(26,26,26);
+
+// REF automatic line
+y+=5;doc.setFontSize(8);doc.setFont("helvetica","normal");doc.setTextColor(80,80,80);
+let refLine="REF: Propuesta servicio catering";
+if(eventDate){const p=eventDate.split("-");const ms=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];refLine+=" "+parseInt(p[2])+" de "+ms[parseInt(p[1])-1]+" de "+p[0]}
+if(cl&&cl!=="—")refLine+=", "+cl;
+doc.text(refLine,W/2,y,{align:"center"});
 doc.setTextColor(26,26,26);
 
 y+=6;doc.setFontSize(8.5);
@@ -1481,7 +1903,25 @@ let evLine="";if(pers)evLine+=pers+" personas";
 if(momento){if(evLine)evLine+=" — ";evLine+=momento}
 if(eventDate){const p=eventDate.split("-");const ms=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];if(evLine)evLine+=" — ";evLine+=parseInt(p[2])+" de "+ms[parseInt(p[1])-1]+" de "+p[0]}
 if(evLine)doc.text(evLine,W/2,y,{align:"center"});
+
+// Fecha propuesta + validez
 y+=4;doc.setFont("helvetica","normal");doc.setFontSize(8);doc.text("Fecha propuesta: "+dateStr(),W/2,y,{align:"center"});
+if(fechaVencimiento){
+  y+=4;doc.setTextColor(201,169,110);doc.setFont("helvetica","bold");
+  const fv=fechaVencimiento.split("-");const msv=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+  doc.text("Propuesta válida hasta: "+parseInt(fv[2])+" de "+msv[parseInt(fv[1])-1]+" de "+fv[0],W/2,y,{align:"center"});
+  doc.setTextColor(26,26,26);
+}
+
+// Frase de apertura
+const aperturaTxt=$("fp-apertura").value.trim()||aperturaFrase;
+if(aperturaTxt){
+  y+=7;doc.setFont("helvetica","italic");doc.setFontSize(9.5);doc.setTextColor(80,80,80);
+  const wrapped=doc.splitTextToSize(aperturaTxt,W-mg*2-10);
+  wrapped.forEach((line,idx)=>{doc.text(line,W/2,y+idx*4.5,{align:"center"})});
+  y+=wrapped.length*4.5;
+  doc.setTextColor(26,26,26);
+}
 
 y+=5;
 
@@ -1494,7 +1934,9 @@ propSections.forEach(sec=>{
     const td=[];
     td.push([{content:sec.name.toUpperCase()+" — "+opt.label,colSpan:4,styles:{fillColor:[26,26,26],textColor:[255,255,255],fontStyle:"bold",fontSize:8.5,halign:"left"}}]);
     opt.items.forEach(it=>{
-      td.push([it.name+(it.desc?"\n"+it.desc:""),String(it.qty||""),fm(it.price||0),fm((it.price||0)*(it.qty||0))]);
+      const qStr=it.qty%1===0?String(it.qty):it.qty.toFixed(1);
+      const nameCol=it.name+(it.desc?"\n"+it.desc:"")+(it.unit?"\n("+it.unit+")":"");
+      td.push([nameCol,qStr,fm(it.price||0),fm((it.price||0)*(it.qty||0))]);
     });
     const optSub=opt.items.reduce((s,it)=>s+(it.price||0)*(it.qty||0),0);
     td.push([{content:"",colSpan:2},{content:"Subtotal",styles:{fontStyle:"bold",halign:"right",fontSize:8}},{content:fm(optSub),styles:{fontStyle:"bold",halign:"right",fontSize:8,textColor:[76,175,80]}}]);
@@ -1516,6 +1958,44 @@ propSections.forEach(sec=>{
   });
   y+=2;
 });
+
+// Personal de Servicio (Meseros + Auxiliares)
+const pMes=personalData.meseros,pAux=personalData.auxiliares;
+const mCant=parseFloat(pMes.cantidad)||0,mV4=parseFloat(pMes.valor4h)||0,mHx=parseFloat(pMes.horasExtra)||0,mVhx=parseFloat(pMes.valorHoraExtra)||0;
+const aCant=parseFloat(pAux.cantidad)||0,aV4=parseFloat(pAux.valor4h)||0,aHx=parseFloat(pAux.horasExtra)||0,aVhx=parseFloat(pAux.valorHoraExtra)||0;
+const mSubTotal=mCant*(mV4+mHx*mVhx);
+const aSubTotal=aCant*(aV4+aHx*aVhx);
+const persTotal=mSubTotal+aSubTotal;
+if(mCant>0||aCant>0){
+  const ptd=[];
+  const headTxt="PERSONAL DE SERVICIO"+(tipoServicio?" — "+tipoServicio.toUpperCase():"");
+  ptd.push([{content:headTxt,colSpan:4,styles:{fillColor:[106,27,154],textColor:[255,255,255],fontStyle:"bold",fontSize:8.5,halign:"left"}}]);
+  if(mCant>0){
+    ptd.push([{content:"Meseros (servicio 4 horas)",colSpan:1},String(mCant),fm(mV4),fm(mCant*mV4)]);
+    if(mHx>0&&mVhx>0){
+      ptd.push([{content:"  Horas extra mesero ("+mHx+"h x "+mCant+" mesero"+(mCant>1?"s":"")+")",colSpan:1},String(mHx*mCant),fm(mVhx),fm(mCant*mHx*mVhx)]);
+    }
+  }
+  if(aCant>0){
+    ptd.push([{content:"Auxiliares de servicio (4 horas)",colSpan:1},String(aCant),fm(aV4),fm(aCant*aV4)]);
+    if(aHx>0&&aVhx>0){
+      ptd.push([{content:"  Horas extra auxiliar ("+aHx+"h x "+aCant+" aux.)",colSpan:1},String(aHx*aCant),fm(aVhx),fm(aCant*aHx*aVhx)]);
+    }
+  }
+  ptd.push([{content:"",colSpan:2},{content:"Subtotal Personal",styles:{fontStyle:"bold",halign:"right",fontSize:8}},{content:fm(persTotal),styles:{fontStyle:"bold",halign:"right",fontSize:8,textColor:[76,175,80]}}]);
+
+  const estP=estH(ptd.length);
+  if(y+estP>H-footerH){doc.addPage();y=20}
+
+  doc.autoTable({startY:y,margin:{left:mg,right:mg,bottom:footerH},body:ptd,theme:"grid",
+    columnStyles:{0:{halign:"left",cellWidth:tw*.50},1:{halign:"center",cellWidth:tw*.10},2:{halign:"right",cellWidth:tw*.20},3:{halign:"right",cellWidth:tw*.20}},
+    bodyStyles:{fontSize:8,cellPadding:{top:3.5,bottom:3.5,left:6,right:6},textColor:[60,60,60]},
+    alternateRowStyles:{fillColor:[250,245,250]},
+    styles:{cellPadding:{top:3.5,bottom:3.5,left:6,right:6}},
+    didParseCell:function(data){if(data.row.index===ptd.length-1&&data.section==="body"){data.cell.styles.fillColor=[255,255,255]}}
+  });
+  y=doc.lastAutoTable.finalY+4;
+}
 
 // Menaje as table
 const usedMenaje=menajeItems.filter(m=>m.qty||m.price);
@@ -1541,11 +2021,69 @@ if(usedMenaje.length){
   y=doc.lastAutoTable.finalY+5;
 }
 
-// ─── Payment box (same as cotización) ───
+// ─── Compute totals for "TOTAL DEL SERVICIO" summary ───
+let totMenu=0;
+propSections.forEach(sec=>sec.options.forEach(opt=>{
+  // For propuesta comercial (multiple options), only count Opción A in summary
+  if(opt.label==="Opción A"||sec.options.length===1){
+    opt.items.forEach(it=>{totMenu+=(it.price||0)*(it.qty||0)});
+  }
+}));
+let totMenajeVal=0;
+menajeItems.forEach(m=>{
+  const q=parseFloat(m.qty)||0,p=parseFloat(m.price)||0;
+  totMenajeVal+=q*p;
+});
+const totPersonal=persTotal;// from earlier calc
+const trP=getTrP();const totTransp=trP?trP.p:0;
+const totalServicio=totMenu+totMenajeVal+totPersonal+totTransp;
+
+// ─── RESUMEN "TOTAL DEL SERVICIO" ───
+const estR=estH(4)+14;
+if(y+estR>H-footerH){doc.addPage();y=20}
+const rtd=[];
+rtd.push([{content:"TOTAL DEL SERVICIO",colSpan:2,styles:{fillColor:[26,26,26],textColor:[255,255,255],fontStyle:"bold",fontSize:9.5,halign:"left"}}]);
+rtd.push(["Experiencia Gastronómica",fm(totMenu)]);
+if(totMenajeVal>0)rtd.push(["Menaje",fm(totMenajeVal)]);
+if(totPersonal>0)rtd.push(["Personal de Servicio",fm(totPersonal)]);
+if(totTransp>0)rtd.push(["Transporte "+(trP?trP.n.replace("Transporte ",""):""),fm(totTransp)]);
+rtd.push([{content:"TOTAL",styles:{fontStyle:"bold",fontSize:10,fillColor:[244,243,241]}},{content:fm(totalServicio),styles:{fontStyle:"bold",halign:"right",fontSize:11,textColor:[201,169,110],fillColor:[244,243,241]}}]);
+
+doc.autoTable({startY:y,margin:{left:mg,right:mg,bottom:footerH},body:rtd,theme:"grid",
+  columnStyles:{0:{halign:"left",cellWidth:tw*.60},1:{halign:"right",cellWidth:tw*.40}},
+  bodyStyles:{fontSize:9,cellPadding:{top:4,bottom:4,left:8,right:8},textColor:[40,40,40]},
+  styles:{cellPadding:{top:4,bottom:4,left:8,right:8}}
+});
+y=doc.lastAutoTable.finalY+6;
+
+// ─── TABLA DE REPOSICIÓN (only if there are menaje items) ───
+const repoItems=[];
+menajeItems.filter(m=>m.name&&(m.qty||m.price)).forEach(m=>{
+  if(reposicionData[m.name])repoItems.push({name:m.name,price:reposicionData[m.name]});
+});
+if(repoItems.length){
+  const estRep=estH(repoItems.length)+14;
+  if(y+estRep>H-footerH){doc.addPage();y=20}
+  const reptd=[];
+  reptd.push([{content:"VALORES DE REPOSICIÓN DE MENAJE",colSpan:2,styles:{fillColor:[211,47,47],textColor:[255,255,255],fontStyle:"bold",fontSize:8.5,halign:"left"}}]);
+  reptd.push([{content:"En caso de daño, rotura o pérdida del menaje durante el evento, los siguientes valores corresponden al costo de reposición:",colSpan:2,styles:{fontSize:7.5,fontStyle:"italic",textColor:[100,100,100],fillColor:[254,248,248]}}]);
+  repoItems.forEach(r=>{
+    reptd.push([r.name,fm(parseInt(r.price)||0)]);
+  });
+  doc.autoTable({startY:y,margin:{left:mg,right:mg,bottom:footerH},body:reptd,theme:"grid",
+    columnStyles:{0:{halign:"left",cellWidth:tw*.70},1:{halign:"right",cellWidth:tw*.30}},
+    bodyStyles:{fontSize:8,cellPadding:{top:3,bottom:3,left:6,right:6},textColor:[60,60,60]},
+    styles:{cellPadding:{top:3,bottom:3,left:6,right:6}}
+  });
+  y=doc.lastAutoTable.finalY+6;
+}
+
+// ─── Payment box with Personas / Empresas ───
 const pw=tw,px=mg;
 doc.setFont("helvetica","normal");doc.setFontSize(8);
-const nt="Para confirmar tu evento, te pedimos un abono del 50% del total acordado. Una vez realices el abono, envíanos el comprobante por WhatsApp para procesarlo. Recuerda: mínimo 48 horas de anticipación al evento. ¡Gracias por elegir Gourmet Bites!";
-const nl=doc.splitTextToSize(nt,pw-16);const ph=9+20+nl.length*3.8+8;
+const nt="Para reservar la fecha del evento, se requiere el pago de un anticipo del 50% del valor total. El 50% restante deberá ser cancelado a más tardar 24 horas después de finalizado el evento. Por favor envía el comprobante de pago por WhatsApp para procesar la confirmación.";
+const nl=doc.splitTextToSize(nt,pw-16);
+const ph=9+45+nl.length*3.8+8;
 if(y+ph>H-footerH){doc.addPage();y=20}
 
 doc.setDrawColor(220,220,220);doc.setLineWidth(0.4);doc.roundedRect(px,y,pw,ph,2,2,"S");
@@ -1553,12 +2091,78 @@ doc.setFillColor(244,243,241);doc.rect(px,y,pw,9,"F");
 doc.setTextColor(26,26,26);doc.setFont("helvetica","bold");doc.setFontSize(10);
 doc.text("INSTRUCCIONES DE PAGO",W/2,y+6.5,{align:"center"});
 doc.setDrawColor(220,220,220);doc.line(px,y+9,px+pw,y+9);
-let py=y+15;const cx=W/2;
-doc.setFontSize(9);doc.setFont("helvetica","bold");doc.setTextColor(26,26,26);
-doc.text("Nequi o Daviplata:",cx-2,py,{align:"right"});doc.setFont("helvetica","normal");doc.text("3176654635",cx+3,py);
-py+=4.5;doc.setFont("helvetica","bold");doc.text("Llave:",cx-2,py,{align:"right"});doc.setFont("helvetica","normal");doc.text("juanpandrade2005@gmail.com",cx+3,py);
-py+=4.5;doc.setFont("helvetica","bold");doc.text("Titular:",cx-2,py,{align:"right"});doc.setFont("helvetica","normal");doc.text("Juan Pablo Andrade",cx+3,py);
-py+=5;doc.setFontSize(8);doc.setTextColor(100,100,100);doc.text(nl,px+8,py);
+
+let py=y+14;
+// Personas Naturales (left half)
+doc.setFontSize(8.5);doc.setFont("helvetica","bold");doc.setTextColor(201,169,110);
+doc.text("PERSONAS NATURALES",px+8,py);
+py+=4;
+doc.setFontSize(8);doc.setTextColor(26,26,26);doc.setFont("helvetica","bold");
+doc.text("Nequi o Daviplata:",px+8,py);doc.setFont("helvetica","normal");doc.text("3176654635",px+42,py);
+py+=3.8;doc.setFont("helvetica","bold");doc.text("Llave:",px+8,py);doc.setFont("helvetica","normal");doc.text("juanpandrade2005@gmail.com",px+18,py);
+
+// Empresas
+py+=6;
+doc.setFontSize(8.5);doc.setFont("helvetica","bold");doc.setTextColor(201,169,110);
+doc.text("EMPRESAS (transferencia ACH)",px+8,py);
+py+=4;
+doc.setFontSize(8);doc.setTextColor(26,26,26);doc.setFont("helvetica","bold");
+doc.text("Banco Falabella:",px+8,py);doc.setFont("helvetica","normal");doc.text("Cuenta de Ahorros No. 111820028616",px+36,py);
+py+=3.8;doc.setFont("helvetica","bold");doc.text("Titular:",px+8,py);doc.setFont("helvetica","normal");doc.text("Juan Pablo Andrade Matuk — C.C. 1.032.876.667",px+22,py);
+
+py+=6;doc.setFontSize(7.5);doc.setTextColor(100,100,100);doc.setFont("helvetica","italic");
+doc.text(nl,px+8,py);
+y=y+ph+5;
+
+// ─── ANEXO DE CONDICIONES (new page) ───
+doc.addPage();y=20;
+doc.setFont("helvetica","bold");doc.setFontSize(13);doc.setTextColor(26,26,26);
+doc.text("CONDICIONES COMERCIALES",W/2,y,{align:"center"});
+y+=5;doc.setFontSize(10);doc.setTextColor(201,169,110);
+doc.text("Y POLÍTICAS DEL SERVICIO",W/2,y,{align:"center"});
+y+=4;doc.setDrawColor(201,169,110);doc.setLineWidth(0.4);doc.line(60,y,W-60,y);
+y+=7;doc.setTextColor(26,26,26);
+
+const condOrder=["c1","c2","c3","c4","c5","c6","c7"];
+condOrder.forEach((k,i)=>{
+  const titulo=CONDICIONES_TITULOS[k];
+  const texto=condicionesData[k]||DEFAULT_CONDICIONES[k];
+  const wrapped=doc.splitTextToSize(texto,W-mg*2-4);
+  const blockH=6+wrapped.length*3.6+5;
+  if(y+blockH>H-footerH){doc.addPage();y=20}
+  // Título cláusula
+  doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(26,26,26);
+  doc.text((i+1)+". "+titulo,mg,y);
+  y+=5;
+  // Texto
+  doc.setFont("helvetica","normal");doc.setFontSize(8.5);doc.setTextColor(60,60,60);
+  wrapped.forEach(line=>{doc.text(line,mg,y);y+=3.6});
+  y+=4;
+});
+
+// ─── Firma / Aceptación ───
+const firmaH=55;
+if(y+firmaH>H-footerH){doc.addPage();y=20}
+y+=6;
+doc.setFont("helvetica","normal");doc.setFontSize(9);doc.setTextColor(60,60,60);
+doc.text("Agradecemos su confianza en Gourmet Bites. Estamos listos para crear una experiencia culinaria memorable para usted y sus invitados.",mg,y,{maxWidth:W-mg*2});
+y+=10;
+doc.setFont("helvetica","italic");doc.setFontSize(9);doc.text("Cordialmente,",mg,y);
+y+=12;
+doc.setDrawColor(100,100,100);doc.setLineWidth(0.3);doc.line(mg,y,mg+70,y);
+y+=4;doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(26,26,26);
+doc.text("Juan Pablo Andrade Matuk",mg,y);
+y+=4;doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(80,80,80);
+doc.text("Chef y Fundador — Gourmet Bites",mg,y);
+
+// Aceptación del cliente (right column)
+let ay=y-20;
+doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(26,26,26);
+doc.text("Aceptado por:",W-mg-70,ay);
+ay+=6;doc.setFont("helvetica","normal");doc.setFontSize(8);
+doc.text("Nombre:",W-mg-70,ay);doc.setDrawColor(100,100,100);doc.line(W-mg-55,ay+0.5,W-mg,ay+0.5);
+ay+=5;doc.text("Firma:",W-mg-70,ay);doc.line(W-mg-55,ay+0.5,W-mg,ay+0.5);
+ay+=5;doc.text("Fecha:",W-mg-70,ay);doc.line(W-mg-55,ay+0.5,W-mg,ay+0.5);
 
 // Footer on all pages
 const pg=doc.getNumberOfPages();for(let i=1;i<=pg;i++){doc.setPage(i);doc.setDrawColor(201,169,110);doc.setLineWidth(0.3);doc.line(30,H-14,W-30,H-14);doc.setFontSize(14);doc.setTextColor(26,26,26);doc.text("WhatsApp +57 310 444 1588",mg,H-7);doc.text("@GourmetBitesbyAndradeMatuk",W-mg,H-7,{align:"right"})}
