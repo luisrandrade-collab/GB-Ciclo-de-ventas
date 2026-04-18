@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1a1a1a">
 <title>Gourmet Bites - Cotizador</title>
-<!-- VERSION: 2026-04-17-v4.2-firmas-digitales -->
+<!-- VERSION: 2026-04-17-v4.3-transporte-fix -->
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
@@ -1224,7 +1224,10 @@ async function saveCurrentQuote(silent){
       client:cl,
       idStr:getIdStr(),
       att:$("f-att").value,mail:$("f-mail").value,tel:$("f-tel").value,dir:$("f-dir").value,
-      city:getCityName(),deliv:getDelivStr(),
+      city:getCityName(),
+      cityType:$("f-city").value,
+      trCustom:$("f-tr-custom").value,
+      deliv:getDelivStr(),
       cart:cart.map(i=>({id:i.id,n:i.n,d:i.d||"",u:i.u||"",p:i.p,origP:i.origP||i.p,qty:i.qty,edited:!!i.edited})),
       cust:cust.map(i=>({n:i.n,p:i.p,d:i.d||"",u:i.u||"",qty:i.qty})),
       total:getTotal()
@@ -1277,8 +1280,15 @@ async function loadQuote(kind,id){
     $("f-att").value=q.att||"";$("f-mail").value=q.mail||"";$("f-tel").value=q.tel||"";$("f-dir").value=q.dir||"";
     if(q.city){
       const known=["La Calera","Bogotá","Chía","Cajicá"];
-      if(known.includes(q.city)){$("f-city").value=q.city}
-      else{$("f-city").value="Otra";$("f-city-custom").value=q.city}
+      if(q.cityType){
+        $("f-city").value=q.cityType;
+        if(q.cityType==="Otra"){$("f-city-custom").value=q.city||""}
+      }else if(known.includes(q.city)){
+        $("f-city").value=q.city;
+      }else{
+        $("f-city").value="Otra";$("f-city-custom").value=q.city;
+      }
+      if($("f-tr-custom"))$("f-tr-custom").value=q.trCustom||"";
       updTr();
     }
     currentQuoteNumber=q.quoteNumber||id;
@@ -1755,6 +1765,8 @@ async function savePropQuote(silent){
       idStr:getPropIdStr(),
       att:$("fp-att").value,mail:$("fp-mail").value,tel:$("fp-tel").value,dir:$("fp-dir").value,
       city:getCityNameP(),
+      cityType:$("fp-city").value,// "La Calera" | "Bogotá" | "Chía" | "Cajicá" | "Otra" | ""
+      trCustom:$("fp-tr-custom").value,// valor transporte cuando ciudad es "Otra"
       pers:$("fp-pers").value,momento:$("fp-momento").value,eventDate:$("fp-date").value,
       tipoServicio:tipoServicio||"",
       personalData:JSON.parse(JSON.stringify(personalData)),
@@ -1788,8 +1800,17 @@ function loadPropQuote(q){
   $("fp-pers").value=q.pers||"";$("fp-momento").value=q.momento||"";$("fp-date").value=q.eventDate||"";
   if(q.city){
     const known=["La Calera","Bogotá","Chía","Cajicá"];
-    if(known.includes(q.city)){$("fp-city").value=q.city}
-    else{$("fp-city").value="Otra";$("fp-city-custom").value=q.city}
+    // Priority: use cityType if saved (new format); otherwise infer from city name
+    if(q.cityType){
+      $("fp-city").value=q.cityType;
+      if(q.cityType==="Otra"){$("fp-city-custom").value=q.city||""}
+    }else if(known.includes(q.city)){
+      $("fp-city").value=q.city;
+    }else{
+      $("fp-city").value="Otra";$("fp-city-custom").value=q.city;
+    }
+    // Restore custom transport value (backward compatible)
+    if($("fp-tr-custom"))$("fp-tr-custom").value=q.trCustom||"";
     updTrP();
   }
   propSections=q.sections||[];
