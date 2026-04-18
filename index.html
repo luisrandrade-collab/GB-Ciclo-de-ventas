@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1a1a1a">
 <title>Gourmet Bites - Cotizador</title>
-<!-- VERSION: 2026-04-17-v4.4-catering-cedula -->
+<!-- VERSION: 2026-04-17-v4.5-botones-grandes -->
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
@@ -54,6 +54,12 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
 .nav-b{flex:1;padding:11px 6px;border:none;background:transparent;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;color:var(--soft);cursor:pointer;position:relative;transition:color .3s}
 .nav-b.act{color:var(--bk)}
 .nav-b.act::after{content:'';position:absolute;bottom:0;left:20%;right:20%;height:3px;background:var(--gr);border-radius:3px 3px 0 0}
+/* Botón grande "Nueva" — prominente arriba de cada modo */
+.new-action{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:14px 18px;border:none;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;transition:all .15s;box-shadow:0 2px 6px rgba(0,0,0,.12);margin:14px 0 18px 0;letter-spacing:.3px;-webkit-appearance:none}
+.new-action.cot{background:linear-gradient(135deg,#4CAF50,#388E3C);color:#fff}
+.new-action.prop{background:linear-gradient(135deg,#1976D2,#0D47A1);color:#fff}
+.new-action:active{transform:scale(.98);box-shadow:0 1px 3px rgba(0,0,0,.15)}
+.new-action .ic{font-size:20px;line-height:1}
 .badge{background:var(--gr);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px}
 .sec{padding:16px;max-width:600px;margin:0 auto}
 .stit{font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:700;margin-bottom:16px}
@@ -282,8 +288,10 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
   <button class="nav-b act" onclick="go('info')" id="nav-info">① Datos</button>
   <button class="nav-b" onclick="go('products')" id="nav-products">② Productos</button>
   <button class="nav-b" onclick="go('review')" id="nav-review">③ Cotización <span class="badge hidden" id="cbadge">0</span></button>
-  <button class="nav-b" onclick="newQuote()" style="flex:0 0 50px;color:var(--rd)" title="Nueva cotización">↻</button>
 </div>
+
+<!-- Big "Nueva Cotización" button -->
+<button class="new-action cot" onclick="newQuote()"><span class="ic">🧾</span> Nueva Cotización</button>
 
 <!-- STEP 1 -->
 <div class="sec" id="step-info">
@@ -395,11 +403,12 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
 
 <!-- ======== PROPOSAL MODE ======== -->
 <div id="mode-prop" class="hidden">
+
+<!-- Big "Nueva Propuesta" button -->
+<button class="new-action prop" onclick="newProp()"><span class="ic">🎪</span> Nueva Propuesta de Evento</button>
+
 <div class="sec" id="prop-builder">
-  <div class="stit" style="color:var(--bl);display:flex;justify-content:space-between;align-items:center">
-    <span>🎪 Propuesta Evento</span>
-    <button class="btn bo" style="font-size:11px;padding:5px 12px" onclick="newProp()">↻ Nueva</button>
-  </div>
+  <div class="stit" style="color:var(--bl)">🎪 Propuesta Evento</div>
 
   <!-- Client selector (shared logic) -->
   <div class="cli-sel" style="border-color:#90CAF9;background:var(--bll)">
