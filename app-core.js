@@ -6,7 +6,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v4.12.2";
+const BUILD_VERSION="v4.12.3";
 const BUILD_DATE="2026-04-19";
 const PIN_CODE="8421";
 const APP_YEAR=new Date().getFullYear();
@@ -678,7 +678,14 @@ function showClientHistoryPanel(name,modo){
 // ─── DATA: load/save quote (cotización + propuesta) ────────
 async function delHistItem(kind,id,ev){
   ev.stopPropagation();
-  if(!confirm("¿Eliminar "+id+"? (afecta a todos los usuarios)"))return;
+  // v4.12.3: bloquear borrado si ya pasó de "enviada" — un pedido confirmado se modifica, no se borra
+  const q=quotesCache.find(x=>x.id===id&&x.kind===kind);
+  const status=q?.status||"enviada";
+  if(status!=="enviada"){
+    alert("⚠️ No se puede eliminar.\n\n"+id+" ya está en estado \""+(STATUS_META[status]?.label||status)+"\".\n\nUna vez una cotización se confirma como pedido (o se aprueba, produce, entrega) queda como registro permanente.\n\nPara anularla:\n1. Ábrela y déjala en blanco (productos en 0 / cliente en 0).\n2. Anota en las notas el motivo de anulación.");
+    return;
+  }
+  if(!confirm("¿Eliminar "+id+"? Esta cotización está en estado ENVIADA — aún no se ha confirmado como pedido."))return;
   try{showLoader("Eliminando...");await deleteHistoryItem(kind,id);hideLoader();renderHist()}
   catch(e){hideLoader();alert("Error: "+e.message)}
 }

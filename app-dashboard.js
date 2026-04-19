@@ -374,7 +374,7 @@ function _icsFold(line){
 function _icsDateUtc(d){return d.toISOString().replace(/[-:]/g,"").split(".")[0]+"Z"}
 function _icsDateOnly(iso){return iso.replace(/-/g,"")}
 
-// Genera VEVENT producción (todo el día) + entrega (con hora si existe)
+// v4.12.3: Genera VEVENT producción (8 AM, alerta -1d) + entrega (hora real, alertas -1d y -3h)
 function _buildVeventsForDoc(q){
   const lines=[];
   const dtStamp=_icsDateUtc(new Date());
@@ -387,29 +387,33 @@ function _buildVeventsForDoc(q){
   baseDesc.push("Doc: "+(q.quoteNumber||q.id));
   const baseDescStr=baseDesc.join("\\n");
   const summaryBase=(q.client||"—")+(q.kind==="proposal"?" (Evento)":"");
-  // PRODUCCIÓN
+
+  // ─── PRODUCCIÓN ─── 8:00 AM (3 horas duración hasta 11 AM) + 1 alerta -1d
   if(q.productionDate){
     const notas=q.orderData?.notasProduccion||q.approvalData?.notasProduccion||"";
     const desc=baseDescStr+(notas?"\\n\\n🔪 NOTAS DE PRODUCCIÓN:\\n"+_icsEscape(notas):"");
+    const dateStr=q.productionDate.replace(/-/g,"");
+    const startLocal=dateStr+"T080000";
+    const endLocal=dateStr+"T110000";
     lines.push("BEGIN:VEVENT");
     lines.push(_icsFold("UID:"+_uid(q.id,"PRODUCCION")));
     lines.push("DTSTAMP:"+dtStamp);
-    lines.push("DTSTART;VALUE=DATE:"+_icsDateOnly(q.productionDate));
-    // DTEND es exclusivo: día siguiente
-    const pd=isoToDate(q.productionDate);pd.setDate(pd.getDate()+1);
-    lines.push("DTEND;VALUE=DATE:"+_icsDateOnly(dateToIso(pd)));
+    lines.push("DTSTART:"+startLocal);
+    lines.push("DTEND:"+endLocal);
     lines.push(_icsFold("SUMMARY:🔪 Producción "+_icsEscape(summaryBase)));
     lines.push(_icsFold("DESCRIPTION:"+desc));
     lines.push("CATEGORIES:GOURMET-BITES,PRODUCCION");
     lines.push("STATUS:CONFIRMED");
+    // Una sola alerta: 24 horas antes
     lines.push("BEGIN:VALARM");
     lines.push("TRIGGER:-P1D");
     lines.push("ACTION:DISPLAY");
-    lines.push("DESCRIPTION:Producción mañana — "+_icsEscape(q.client||"—"));
+    lines.push(_icsFold("DESCRIPTION:Mañana producción 8AM — "+_icsEscape(q.client||"—")));
     lines.push("END:VALARM");
     lines.push("END:VEVENT");
   }
-  // ENTREGA
+
+  // ─── ENTREGA ─── hora real (1 hora duración) + alertas -1d y -3h
   if(q.eventDate){
     const notas=q.entregaData?.notasEntrega||"";
     const desc=baseDescStr+(notas?"\\n\\n🎉 NOTAS DE ENTREGA:\\n"+_icsEscape(notas):"");
@@ -417,9 +421,8 @@ function _buildVeventsForDoc(q){
     lines.push(_icsFold("UID:"+_uid(q.id,"ENTREGA")));
     lines.push("DTSTAMP:"+dtStamp);
     if(q.horaEntrega){
-      // Evento con hora — usamos zona local Bogotá. Para portabilidad, lo mandamos en hora local SIN TZ (floating time).
+      // Hora local Bogotá (floating time, sin TZ — Outlook/Google la interpretan en local del usuario)
       const startLocal=q.eventDate.replace(/-/g,"")+"T"+q.horaEntrega.replace(":","")+"00";
-      // 60 min de duración
       const [h,m]=q.horaEntrega.split(":").map(Number);
       let endH=h+1,endM=m;
       if(endH>=24){endH-=24}
@@ -427,20 +430,30 @@ function _buildVeventsForDoc(q){
       lines.push("DTSTART:"+startLocal);
       lines.push("DTEND:"+endLocal);
     }else{
+      // Sin hora → all-day como fallback
       lines.push("DTSTART;VALUE=DATE:"+_icsDateOnly(q.eventDate));
       const ed=isoToDate(q.eventDate);ed.setDate(ed.getDate()+1);
       lines.push("DTEND;VALUE=DATE:"+_icsDateOnly(dateToIso(ed)));
     }
-    lines.push(_icsFold("SUMMARY:🎉 Entrega "+_icsEscape(summaryBase)));
+    lines.push(_icsFold("SUMMARY:🎉 Entrega "+_icsEscape(summaryBase)+(q.horaEntrega?" "+q.horaEntrega:"")));
     lines.push(_icsFold("DESCRIPTION:"+desc));
     if(q.dir)lines.push(_icsFold("LOCATION:"+_icsEscape(q.dir)));
     lines.push("CATEGORIES:GOURMET-BITES,ENTREGA");
     lines.push("STATUS:CONFIRMED");
+    // Alerta 1: 24 horas antes
     lines.push("BEGIN:VALARM");
     lines.push("TRIGGER:-P1D");
     lines.push("ACTION:DISPLAY");
-    lines.push("DESCRIPTION:Entrega mañana — "+_icsEscape(q.client||"—"));
+    lines.push(_icsFold("DESCRIPTION:Mañana entrega"+(q.horaEntrega?" "+q.horaEntrega:"")+" — "+_icsEscape(q.client||"—")));
     lines.push("END:VALARM");
+    // Alerta 2: 3 horas antes (solo si tiene hora — sin hora no tiene sentido)
+    if(q.horaEntrega){
+      lines.push("BEGIN:VALARM");
+      lines.push("TRIGGER:-PT3H");
+      lines.push("ACTION:DISPLAY");
+      lines.push(_icsFold("DESCRIPTION:Entrega en 3h ("+q.horaEntrega+") — "+_icsEscape(q.client||"—")));
+      lines.push("END:VALARM");
+    }
     lines.push("END:VEVENT");
   }
   return lines;
