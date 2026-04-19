@@ -6,10 +6,36 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v4.12.1";
+const BUILD_VERSION="v4.12.2";
 const BUILD_DATE="2026-04-19";
 const PIN_CODE="8421";
 const APP_YEAR=new Date().getFullYear();
+
+// ─── PDF SHARE/DOWNLOAD (v4.12.2) ──────────────────────────
+// Reemplaza doc.save() para evitar que en iPhone se filtre el blob URL al compartir.
+// En móviles (iOS/Android) usa Web Share API nativa: el PDF va al share sheet
+// directo como archivo, sin pegar el URL del sitio en WhatsApp.
+// En desktop cae al doc.save() clásico (descarga directa).
+async function savePdf(doc,filename){
+  try{
+    const blob=doc.output("blob");
+    const file=new File([blob],filename,{type:"application/pdf"});
+    // Si el navegador soporta compartir archivos, lo usamos (iOS/Android modernos)
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      try{
+        await navigator.share({files:[file],title:filename});
+        return;
+      }catch(e){
+        // Usuario canceló el share — no es un error, pero como no se compartió
+        // ofrecemos la descarga clásica para que no se quede sin el PDF
+        if(e&&e.name==="AbortError")return;
+        console.warn("Web Share falló, descargando:",e);
+      }
+    }
+  }catch(e){console.warn("savePdf blob falló, fallback a doc.save():",e)}
+  // Fallback: descarga directa (desktop o navegadores sin Web Share)
+  doc.save(filename);
+}
 
 // ─── CATÁLOGO DE PRODUCTOS ─────────────────────────────────
 const MX=12;
