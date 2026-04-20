@@ -97,6 +97,23 @@ async function saveCurrentQuote(silent){
   const items=allIt();
   if(!items.length){if(!silent)alert("Agrega productos primero");return}
   if(!cloudOnline){if(!silent)alert("Sin conexión. No se puede guardar.");return}
+  // v4.13.0: bloqueo extendido — cotizaciones en producción/entregadas son histórico
+  if(currentQuoteNumber){
+    try{
+      const {db,doc,getDoc}=window.fb;
+      const snap=await getDoc(doc(db,"quotes",currentQuoteNumber));
+      if(snap.exists()){
+        const _st=snap.data().status||"enviada";
+        if(["en_produccion","entregado"].includes(_st)){
+          if(!silent){
+            const _lbl=(STATUS_META[_st]||{}).label||_st;
+            alert("🔒 Esta cotización está \""+_lbl+"\" ("+currentQuoteNumber+").\n\nNo se puede modificar — es registro histórico.\n\nAjustes válidos:\n• Duplicar (📋) y arrancar una nueva\n• Si solo quieres ver, sigue adelante pero no toques Guardar");
+          }
+          return;
+        }
+      }
+    }catch(e){console.warn("No se pudo verificar status previo:",e)}
+  }
   try{
     if(!silent)showLoader("Generando consecutivo...");
     let qNum=currentQuoteNumber;

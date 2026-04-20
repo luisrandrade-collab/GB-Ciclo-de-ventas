@@ -6,7 +6,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v4.12.6";
+const BUILD_VERSION="v4.13.0";
 const BUILD_DATE="2026-04-19";
 const PIN_CODE="8421";
 const APP_YEAR=new Date().getFullYear();
@@ -180,7 +180,8 @@ const STATUS_META={
   propfinal:    {label:"Propuesta Final", cls:"propfinal",     desc:"Propuesta final lista para firma"},
   aprobada:     {label:"Aprobada",        cls:"aprobada",      desc:"Cliente firmó — evento reservado"},
   en_produccion:{label:"En producción",   cls:"en_produccion", desc:"Evento en curso — cocina en marcha"},
-  convertida:   {label:"Convertida",      cls:"convertida",    desc:"Convertida a Propuesta Final"}
+  convertida:   {label:"Convertida",      cls:"convertida",    desc:"Convertida a Propuesta Final"},
+  superseded:   {label:"Reemplazada",     cls:"superseded",    desc:"PF reemplazada por una versión nueva"}
 };
 
 // ─── PIN LOCK (v4.12: SOLO sessionStorage) ────────────────
@@ -357,7 +358,12 @@ async function loadAllHistory(){
     const qPF=query(collection(db,"propfinals"),orderBy("createdAt","desc"),limit(50));
     const [sQ,sP,sPF]=await Promise.all([getDocs(qQ),getDocs(qP),getDocs(qPF).catch(()=>({forEach:()=>{}}))]);
     sQ.forEach(d=>out.push({kind:"quote",id:d.id,...d.data()}));
-    sP.forEach(d=>out.push({kind:"proposal",id:d.id,...d.data()}));
+    // v4.12.7: marcar _wrongCollection si un GB-PF-* quedó guardado en proposals/
+    // (pasa cuando alguien edita una PF directamente y le da "Guardar borrador")
+    sP.forEach(d=>{
+      const isWrong=d.id&&d.id.startsWith("GB-PF-");
+      out.push({kind:"proposal",id:d.id,...d.data(),...(isWrong?{_wrongCollection:true}:{})});
+    });
     sPF.forEach(d=>out.push({kind:"proposal",id:d.id,...d.data(),_isPF:true}));
     out.sort((a,b)=>{const ta=a.createdAt?.toMillis?.()||0,tb=b.createdAt?.toMillis?.()||0;return tb-ta});
     quotesCache=out;
@@ -702,7 +708,24 @@ async function loadQuote(kind,id){
     hideLoader();
     if(!snap.exists()){alert("No se encontró");return}
     const q=snap.data();
-    if(kind==="proposal"){setMode("prop");loadPropQuote({...q,quoteNumber:id});return}
+    // v4.13.0: bloqueo extendido — docs en producción/entregados/convertidos/reemplazados
+    // son registro histórico. Se pueden VER pero no GUARDAR cambios encima.
+    // savePropQuote/saveCurrentQuote ya bloquean el guardado, pero avisamos aquí al abrir.
+    const _qStatus=q.status||"enviada";
+    const _readonlyStatuses=["en_produccion","entregado","convertida","superseded"];
+    if(_readonlyStatuses.includes(_qStatus)){
+      const _stLabel=(STATUS_META[_qStatus]||{}).label||_qStatus;
+      alert("🔒 Este documento está en estado \""+_stLabel+"\" ("+id+").\n\nPuedes verlo pero los cambios NO se guardan (es registro histórico).\n\nPara ajustes:\n• PF reemplazada → usa 🔄 Nueva versión\n• Pedido entregado → solo consulta\n• Si realmente necesitas editar → duplica (📋) y arranca uno nuevo");
+    }
+    if(kind==="proposal"){
+      // v4.12.7: si es una Propuesta Final, avisar que no se puede editar directamente
+      if(id&&id.startsWith("GB-PF-")&&_qStatus!=="superseded"){
+        alert("ℹ️ Esta es una Propuesta Final firmada ("+id+").\n\nLas PF son registro formal — no se deben editar directamente.\n\nPara aplicar cambios que pidió el cliente:\n1. Cierra esta vista.\n2. Ve al historial → busca esta PF.\n3. Toca el botón 🔄 Nueva versión.\n\nEso abrirá la propuesta base editable y al generar creará una PF nueva (la anterior quedará marcada como reemplazada).");
+      }
+      setMode("prop");
+      loadPropQuote({...q,quoteNumber:id});
+      return;
+    }
     setMode("cot");
     cart=[];cust=[];
     if(q.cart){q.cart.forEach(ci=>{const p=C.find(x=>x.id===ci.id);if(p)cart.push({...p,p:ci.p,origP:ci.origP||p.p,qty:ci.qty,edited:!!ci.edited});else cart.push({id:ci.id||Date.now()+Math.random(),n:ci.n,d:ci.d,u:ci.u,p:ci.p,origP:ci.origP||ci.p,qty:ci.qty,edited:!!ci.edited})})}
@@ -727,4 +750,26 @@ async function loadQuote(kind,id){
     showClientHistoryPanel(q.client||"","cot");
     go("review");
   }catch(e){hideLoader();alert("Error: "+e.message)}
+}
+
+// ═══════════════════════════════════════════════════════════
+// v4.13.0: Toast no bloqueante (reemplaza alerts informativos)
+// ═══════════════════════════════════════════════════════════
+// Uso: toast("Guardado", "success") · toast("Sin conexión", "error") · toast("Aviso", "warn")
+// Tipos: success | error | warn | info (default)
+function toast(msg,type){
+  const tp=type||"info";
+  let wrap=$("toast-wrap");
+  if(!wrap){
+    wrap=document.createElement("div");
+    wrap.id="toast-wrap";
+    document.body.appendChild(wrap);
+  }
+  const el=document.createElement("div");
+  el.className="toast toast-"+tp;
+  el.textContent=msg;
+  wrap.appendChild(el);
+  // Auto-remove tras ~3.5s (un poco más para mensajes largos)
+  const ms=Math.min(6000,2500+msg.length*30);
+  setTimeout(()=>{el.classList.add("toast-out");setTimeout(()=>el.remove(),300)},ms);
 }

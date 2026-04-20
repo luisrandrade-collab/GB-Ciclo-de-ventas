@@ -41,6 +41,8 @@ function dateOfSale(q){return q.orderData?.fechaAprobacion||q.approvalData?.fech
 
 async function renderDashboard(){
   if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+  // v4.13.0: banner de alerta si hay fantasmas
+  renderFantasmasBanner();
   const range=getDashRange();
   $("dash-period-info").textContent=range.label;
   const inRange=fecha=>fecha&&fecha>=range.start&&fecha<=range.end;
@@ -50,7 +52,10 @@ async function renderDashboard(){
   let porCobrarTotal=0,porCobrarN=0;
   const recaudoMet={};METODOS_PAGO.forEach(m=>recaudoMet[m]=0);
   quotesCache.forEach(q=>{
+    // v4.12.7: excluir docs fantasmas (GB-PF-* mal guardados en proposals/) y PF reemplazadas
+    if(q._wrongCollection)return;
     const status=q.status||"enviada";
+    if(status==="superseded")return;
     const total=getDocTotal(q);
     const fCre=dateOfCreation(q);
     const fVen=dateOfSale(q);
@@ -83,7 +88,9 @@ async function renderDashboard(){
   const t14Iso=t14.toISOString().slice(0,10);
   const upcoming=[];
   quotesCache.forEach(q=>{
+    if(q._wrongCollection)return; // v4.12.7
     const s=q.status||"enviada";
+    if(s==="superseded")return; // v4.12.7
     const ok=(q.kind==="quote"&&["pedido","en_produccion"].includes(s))||(q.kind==="proposal"&&["aprobada","en_produccion"].includes(s));
     if(!ok||!q.eventDate)return;
     if(q.eventDate>=todayIso2&&q.eventDate<=t14Iso)upcoming.push(q);
@@ -113,7 +120,9 @@ async function renderDashboard(){
   // Pendientes por cobrar (top 8)
   const pendList=[];
   quotesCache.forEach(q=>{
+    if(q._wrongCollection)return; // v4.12.7
     const s=q.status||"enviada";
+    if(s==="superseded")return; // v4.12.7
     if(!["pedido","aprobada","en_produccion","entregado"].includes(s))return;
     const pend=saldoPendiente(q);if(pend>0)pendList.push({q,pend});
   });
@@ -125,8 +134,8 @@ async function renderDashboard(){
       return '<div class="dash-up-item" onclick="openVerPagosModal(\''+q.id+'\',\''+q.kind+'\')"><div class="ui-cli">'+tag+(q.client||"—")+'</div><div class="ui-meta" style="color:#E65100;font-weight:700">'+fm(pend)+'</div></div>';
     }).join("")+(pendList.length>8?'<div class="dash-met-empty" style="padding:8px">+'+(pendList.length-8)+' más en Historial</div>':"");
   }
-  // v4.12: comentarios recientes (5 últimos)
-  const coments=quotesCache.filter(q=>q.comentarioCliente?.texto||q.comentarioCliente?.fotoBase64).map(q=>({q,c:q.comentarioCliente}));
+  // v4.12: comentarios recientes (5 últimos) — v4.12.7 excluye fantasmas y superseded
+  const coments=quotesCache.filter(q=>!q._wrongCollection&&q.status!=="superseded"&&(q.comentarioCliente?.texto||q.comentarioCliente?.fotoBase64)).map(q=>({q,c:q.comentarioCliente}));
   coments.sort((a,b)=>(b.c.fecha||"").localeCompare(a.c.fecha||""));
   if(!coments.length){$("dash-coments").innerHTML='<div class="dash-met-empty">Aún no se han registrado comentarios. Cuando entregues, registra qué dijo el cliente.</div>'}
   else{
@@ -157,7 +166,9 @@ async function renderMiniDash(){
   let saldoP=0;
   const statusAgendados={proposal:["aprobada","en_produccion"],quote:["pedido","en_produccion"]};
   quotesCache.forEach(q=>{
+    if(q._wrongCollection)return; // v4.12.7
     const s=q.status;
+    if(s==="superseded")return; // v4.12.7
     const statusOK=statusAgendados[q.kind]||[];
     if(statusOK.includes(s)&&q.eventDate){
       if(q.eventDate===todayIso)upcoming.hoy.push(q);
@@ -229,9 +240,12 @@ function weekNext(){if(!weekAnchor)weekToday();const d=isoToDate(weekAnchor);d.s
 
 function eventsAllStatuses(){
   // Eventos = docs con eventDate y status agendable (incluye entregados de la semana)
+  // v4.12.7: excluye fantasmas y superseded
   const statusProp=["aprobada","en_produccion","entregado"];
   const statusQuote=["pedido","en_produccion","entregado"];
   return quotesCache.filter(q=>{
+    if(q._wrongCollection)return false;
+    if(q.status==="superseded")return false;
     const ok=q.kind==="quote"?statusQuote.includes(q.status):statusProp.includes(q.status);
     return ok&&q.eventDate;
   });
@@ -616,6 +630,8 @@ function openDashDetail(tipo){
   const range=getDashRange();
   const inRange=fecha=>fecha&&fecha>=range.start&&fecha<=range.end;
   let title="",rows=[],totalSum=0;
+  // v4.12.7: helper de filtro común — excluye fantasmas y superseded
+  const _excluido=q=>q._wrongCollection||q.status==="superseded";
   // Helper para fila de doc
   const docRow=(q,monto,extra)=>{
     const fecha=dateOfCreation(q)||"—";
@@ -629,6 +645,7 @@ function openDashDetail(tipo){
   if(tipo==="cotizado"){
     title="🧾 Cotizado · "+range.label;
     quotesCache.forEach(q=>{
+      if(_excluido(q))return;
       const status=q.status||"enviada";
       const fCre=dateOfCreation(q);
       if(inRange(fCre)&&status!=="convertida"){const t=getDocTotal(q);totalSum+=t;rows.push({q,monto:t})}
@@ -636,6 +653,7 @@ function openDashDetail(tipo){
   }else if(tipo==="vendido"){
     title="🤝 Vendido · "+range.label;
     quotesCache.forEach(q=>{
+      if(_excluido(q))return;
       const status=q.status||"enviada";
       const fVen=dateOfSale(q);
       if(inRange(fVen)&&["pedido","aprobada","en_produccion","entregado"].includes(status)){const t=getDocTotal(q);totalSum+=t;rows.push({q,monto:t,extra:"Vendido: "+fVen})}
@@ -643,6 +661,7 @@ function openDashDetail(tipo){
   }else if(tipo==="entregado"){
     title="🎉 Entregado · "+range.label;
     quotesCache.forEach(q=>{
+      if(_excluido(q))return;
       const status=q.status||"enviada";
       const fEnt=q.fechaEntrega||q.eventDate;
       if(inRange(fEnt)&&status==="entregado"){const t=getDocTotal(q);totalSum+=t;rows.push({q,monto:t,extra:"Entregado: "+fEnt})}
@@ -650,6 +669,7 @@ function openDashDetail(tipo){
   }else if(tipo==="cobrar"){
     title="⚠️ Por cobrar · todos los pedidos activos";
     quotesCache.forEach(q=>{
+      if(_excluido(q))return;
       const status=q.status||"enviada";
       if(!["pedido","aprobada","en_produccion","entregado"].includes(status))return;
       const pend=saldoPendiente(q);
@@ -661,6 +681,7 @@ function openDashDetail(tipo){
     const pagosLista=[];
     const porMetodo={};METODOS_PAGO.forEach(m=>porMetodo[m]=0);
     quotesCache.forEach(q=>{
+      if(_excluido(q))return;
       getPagos(q).forEach(p=>{
         if(inRange(p.fecha)){
           const monto=parseInt(p.monto)||0;
@@ -703,6 +724,73 @@ function openDashDetail(tipo){
 function closeDashDetail(){$("dash-detail-modal").classList.add("hidden")}
 
 // ═══════════════════════════════════════════════════════════
+// v4.13.0: Banner de advertencia por docs fantasmas en dashboard
+// ═══════════════════════════════════════════════════════════
+function renderFantasmasBanner(){
+  const el=$("dash-warn-fantasmas");
+  if(!el)return;
+  const fantasmas=quotesCache.filter(q=>q._wrongCollection);
+  if(!fantasmas.length){el.classList.add("hidden");el.innerHTML="";return}
+  el.classList.remove("hidden");
+  el.innerHTML='<div class="dbw-ic">⚠️</div>'+
+    '<div class="dbw-txt">Se detectaron <strong>'+fantasmas.length+' doc(s) fantasma</strong> (PF mal guardados antes de v4.12.7). No suman al dashboard pero conviene limpiarlos.</div>'+
+    '<button onclick="cleanupWrongDocs()">🧹 Limpiar ahora</button>';
+}
+
+// ═══════════════════════════════════════════════════════════
+// v4.13.0: Export JSON de todo el historial (backup manual)
+// ═══════════════════════════════════════════════════════════
+// Descarga un JSON con todo lo que hay en quotesCache + clientsCache.
+// Permite al usuario tener respaldo antes de hacer cambios arriesgados
+// o simplemente para archivar.
+async function exportHistoryJson(){
+  try{
+    if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+    const payload={
+      exportedAt:new Date().toISOString(),
+      buildVersion:BUILD_VERSION,
+      quotes:quotesCache.map(q=>{
+        // Quitar campos internos que no aportan (createdAt es serverTimestamp no serializable)
+        const {createdAt,..._q}=q;
+        return _q;
+      }),
+      clients:clientsCache,
+      stats:{
+        totalDocs:quotesCache.length,
+        cotizaciones:quotesCache.filter(q=>q.kind==="quote").length,
+        propuestas:quotesCache.filter(q=>q.kind==="proposal"&&!q.id?.startsWith("GB-PF-")).length,
+        propfinales:quotesCache.filter(q=>q._isPF).length,
+        fantasmas:quotesCache.filter(q=>q._wrongCollection).length,
+        superseded:quotesCache.filter(q=>q.status==="superseded").length,
+        clientes:clientsCache.length
+      }
+    };
+    const json=JSON.stringify(payload,null,2);
+    const today=new Date().toISOString().slice(0,10);
+    const filename="gourmet-bites-backup-"+today+".json";
+    const blob=new Blob([json],{type:"application/json;charset=utf-8"});
+    // Web Share API en móviles, download clásico en desktop
+    try{
+      const file=new File([blob],filename,{type:"application/json"});
+      if(navigator.canShare&&navigator.canShare({files:[file]})){
+        await navigator.share({files:[file],title:filename});
+        toast("📥 Backup exportado","success");
+        return;
+      }
+    }catch(e){if(e&&e.name==="AbortError")return;console.warn("Share backup falló, download:",e)}
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;a.download=filename;
+    document.body.appendChild(a);a.click();
+    setTimeout(()=>{URL.revokeObjectURL(url);document.body.removeChild(a)},100);
+    toast("📥 Backup descargado ("+Math.round(json.length/1024)+" KB)","success");
+  }catch(e){
+    toast("Error exportando backup: "+e.message,"error");
+    console.error(e);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
 // BOOTSTRAP — corre cuando todos los scripts están cargados
 // ═══════════════════════════════════════════════════════════
 // Inyectar logo en header
@@ -724,3 +812,15 @@ if(sessionStorage.getItem("gb_unlocked")==="1"){
 }
 // v4.12: limpieza one-shot del legacy localStorage de unlock (de versiones anteriores)
 try{localStorage.removeItem("gb_unlocked")}catch{}
+
+// v4.13.0: detectar cambios de conectividad (navigator.online) para actualizar el badge
+// La persistencia IndexedDB sigue funcionando offline; esto es solo para UI.
+window.addEventListener("online",()=>{
+  if(typeof setCloudStatus==="function")setCloudStatus(true);
+  if(typeof toast==="function")toast("📶 Conexión restaurada · sincronizando...","success");
+});
+window.addEventListener("offline",()=>{
+  const el=$("cloud-ind");
+  if(el){el.className="cloud-ind offline-cache";el.textContent="📴 Offline (caché local)"}
+  if(typeof toast==="function")toast("📴 Sin conexión · trabajando con caché local","warn");
+});

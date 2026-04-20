@@ -333,6 +333,30 @@ function addMenajeItem(){const name=prompt("Nombre del ítem de menaje:");if(!na
 async function savePropQuote(silent){
   const cl=$("fp-cli").value.trim()||"Sin nombre";
   if(!cloudOnline){if(!silent)alert("Sin conexión. No se puede guardar.");return}
+  // v4.12.7: bloquear guardado como borrador si currentPropNumber es una PF.
+  // Una PF NO puede editarse directamente — usar 🔄 Nueva versión desde historial.
+  if(currentPropNumber&&currentPropNumber.startsWith("GB-PF-")){
+    if(!silent)alert("🔒 Esta es una Propuesta Final ("+currentPropNumber+").\n\nNo se puede guardar como borrador porque es un registro formal.\n\nPara aplicar cambios:\n1. Vuelve al historial (📁).\n2. Toca 🔄 Nueva versión en esta PF.\n3. Se abrirá la propuesta base editable.\n4. Edita y genera la PF de nuevo — obtendrá nuevo consecutivo PF-XXXX y la anterior quedará como REEMPLAZADA.");
+    return;
+  }
+  // v4.13.0: bloqueo extendido para propuestas en estado no-editable
+  // (en_produccion / entregado / convertida / superseded = registro histórico)
+  if(currentPropNumber){
+    try{
+      const {db,doc,getDoc}=window.fb;
+      const snap=await getDoc(doc(db,"proposals",currentPropNumber));
+      if(snap.exists()){
+        const _st=snap.data().status||"enviada";
+        if(["en_produccion","entregado","convertida","superseded"].includes(_st)){
+          if(!silent){
+            const _lbl=(STATUS_META[_st]||{}).label||_st;
+            alert("🔒 Esta propuesta está en estado \""+_lbl+"\" ("+currentPropNumber+").\n\nNo se puede modificar — es registro histórico.\n\nAjustes válidos:\n• Duplicar (📋) y crear una nueva\n• Si es PF convertida: usa 🔄 Nueva versión\n• Si solo quieres ver → sigue adelante pero no toques Guardar");
+          }
+          return;
+        }
+      }
+    }catch(e){console.warn("No se pudo verificar status previo para bloqueo:",e)}
+  }
   try{
     if(!silent)showLoader("Generando consecutivo...");
     let pNum=currentPropNumber;
@@ -545,11 +569,31 @@ async function generarPropuestaFinal(){
     };
     // v4.12.1: persistir el total real para que el dashboard sume bien
     pfObj.total=computePropTotal(pfObj);
+    // v4.12.7: si venimos de regenerar una PF vieja, marcar esa como superseded
+    if(window.__regenerating_pf){
+      pfObj.supersedes=window.__regenerating_pf.oldPfId;
+      pfObj.version=(window.__regenerating_pf.oldVersion||1)+1;
+    }
     const {db,doc,setDoc,updateDoc,serverTimestamp}=window.fb;
     await setDoc(doc(db,"propfinals",pfNum),{...pfObj,createdAt:serverTimestamp()});
     await updateDoc(doc(db,"proposals",src.id),{status:"convertida",propFinalRef:pfNum,updatedAt:serverTimestamp()});
     const localProp=quotesCache.find(x=>x.id===src.id&&x.kind==="proposal");
     if(localProp){localProp.status="convertida";localProp.propFinalRef=pfNum}
+    // v4.12.7: marcar la PF anterior como superseded (reemplazada por la nueva)
+    if(window.__regenerating_pf){
+      const oldId=window.__regenerating_pf.oldPfId;
+      try{
+        await updateDoc(doc(db,"propfinals",oldId),{
+          status:"superseded",
+          supersededBy:pfNum,
+          supersededAt:new Date().toISOString(),
+          updatedAt:serverTimestamp()
+        });
+        const oldLocal=quotesCache.find(x=>x.id===oldId);
+        if(oldLocal){oldLocal.status="superseded";oldLocal.supersededBy=pfNum}
+      }catch(e){console.warn("No se pudo marcar PF vieja como superseded:",e)}
+      window.__regenerating_pf=null;
+    }
     quotesCache.unshift({kind:"proposal",id:pfNum,...pfObj,createdAt:{toDate:()=>new Date()}});
     currentPropNumber=pfNum;
     window.__pfMode=true;
@@ -558,7 +602,51 @@ async function generarPropuestaFinal(){
     await genPropPDF();
     window.__pfMode=false;
     renderHist();
-  }catch(e){hideLoader();window.__pfMode=false;alert("Error generando Propuesta Final: "+e.message);console.error(e)}
+  }catch(e){hideLoader();window.__pfMode=false;window.__regenerating_pf=null;alert("Error generando Propuesta Final: "+e.message);console.error(e)}
+}
+
+// v4.12.7: Regenerar una Propuesta Final con cambios (cliente pidió modificaciones).
+// Abre directo el selector de opciones de la propuesta base. Al generar la nueva PF,
+// marca la vieja como superseded (gracias al marker window.__regenerating_pf).
+// Si el usuario necesita cambiar ítems/precios de la propuesta base antes de regenerar,
+// debe cancelar esto y editar la propuesta base desde el historial primero.
+async function regeneratePropFinal(pfId,ev){
+  if(ev){ev.stopPropagation();ev.preventDefault()}
+  if(!cloudOnline){alert("Sin conexión.");return}
+  try{
+    showLoader("Cargando PF...");
+    const {db,doc,getDoc}=window.fb;
+    const snapPF=await getDoc(doc(db,"propfinals",pfId));
+    if(!snapPF.exists()){hideLoader();alert("No se encontró la PF "+pfId);return}
+    const pfData=snapPF.data();
+    const srcId=pfData.sourceProposal;
+    if(!srcId){
+      hideLoader();
+      alert("⚠️ Esta PF no tiene referencia a su propuesta base (sourceProposal).\n\nPuede ser una PF antigua (anterior a v4.6). Para regenerarla tendrías que crear una propuesta nueva desde cero.");
+      return;
+    }
+    const snapSrc=await getDoc(doc(db,"proposals",srcId));
+    if(!snapSrc.exists()){
+      hideLoader();
+      alert("⚠️ No se encontró la propuesta base "+srcId+" de la que salió esta PF.\n\nProbablemente fue eliminada. Para regenerar tendrías que crearla de cero.");
+      return;
+    }
+    hideLoader();
+    if(!confirm("🔄 Regenerar "+pfId+"\n\nVoy a abrir el selector de opciones de la propuesta base "+srcId+".\n\nEscoges las opciones que el cliente aprobó → generas la PF nueva:\n • Obtendrá consecutivo nuevo GB-PF-XXXX\n • La PF actual ("+pfId+") quedará como REEMPLAZADA\n\n⚠️ Si necesitas CAMBIAR ítems, precios o cantidades de la propuesta base, cancela esto primero y edita "+srcId+" desde el historial. Luego vuelve aquí.\n\n¿Continuar?"))return;
+    // Marcador para generarPropuestaFinal
+    window.__regenerating_pf={
+      oldPfId:pfId,
+      oldVersion:pfData.version||1,
+      sourceProposalId:srcId
+    };
+    // Abre directamente el selector de opciones de la propuesta source
+    await openPropFinalFlow(srcId);
+  }catch(e){
+    hideLoader();
+    window.__regenerating_pf=null;
+    alert("Error: "+e.message);
+    console.error(e);
+  }
 }
 
 // ─── PDF PROPUESTA ─────────────────────────────────────────

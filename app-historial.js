@@ -58,10 +58,14 @@ async function renderHist(){
     const dObj=q.createdAt?.toDate?.()||new Date(q.dateISO||Date.now());
     const ds=dObj.getDate()+"/"+(dObj.getMonth()+1)+"/"+dObj.getFullYear()+" "+dObj.getHours()+":"+String(dObj.getMinutes()).padStart(2,"0");
     const isProp=q.kind==="proposal";
+    const isPF=q._isPF||(q.id&&q.id.startsWith("GB-PF-")&&!q._wrongCollection);
     const qNum=q.quoteNumber||q.id;
     const status=q.status||"enviada";
     const sMeta=STATUS_META[status]||STATUS_META.enviada;
     const statusBadge='<span class="hc-status '+sMeta.cls+'">'+sMeta.label+'</span>';
+    // v4.12.7: badges de superseded y wrongCollection
+    const supersededBadge=(status==="superseded")?'<span class="hc-superseded-badge">⬇️ Reemplazada</span>':'';
+    const wrongCollBadge=q._wrongCollection?'<span class="hc-wrong-badge">⚠️ Fantasma</span>':'';
     const _pagos=getPagos(q);
     const _cobrado=totalCobrado(q);
     const _saldo=saldoPendiente(q);
@@ -90,6 +94,14 @@ async function renderHist(){
       actionBtns.push('<button class="btn hc-btn-deliver" onclick="openDeliveryModal(\''+q.id+'\',\'proposal\',event)">🎉 Marcar como entregado</button>');
       if(q.eventDate||q.productionDate)actionBtns.push('<button class="btn hc-btn-ics" onclick="exportPedidoIcs(\''+q.id+'\',\'proposal\',event)">📅 .ics</button>');
     }
+    // v4.12.7: botón 🔄 Nueva versión para PFs (cliente pidió cambios → regenerar PF nueva)
+    if(isPF&&status!=="superseded"){
+      actionBtns.push('<button class="btn hc-btn-regen" onclick="regeneratePropFinal(\''+q.id+'\',event)">🔄 Nueva versión</button>');
+    }
+    // v4.12.7: botón eliminar fantasma (docs GB-PF-* guardados por error en proposals/)
+    if(q._wrongCollection){
+      actionBtns.push('<button class="btn hc-btn-wrong" onclick="deleteWrongDoc(\''+q.id+'\',event)">🗑️ Eliminar fantasma</button>');
+    }
     const _puedePago=(!isProp&&["pedido","en_produccion","entregado"].includes(status))||(isProp&&["aprobada","en_produccion","entregado"].includes(status));
     if(_puedePago&&_saldo>0)actionBtns.push('<button class="btn hc-btn-pago" onclick="openPagoModal(\''+q.id+'\',event)">💵 Registrar pago</button>');
     if(_pagos.length>0)actionBtns.push('<button class="btn hc-btn-pagos-ver" onclick="openVerPagosModal(\''+q.id+'\',event)">📒 Ver pagos ('+_pagos.length+')</button>');
@@ -101,8 +113,10 @@ async function renderHist(){
     const summary=isProp
       ?'<div class="hc-items">'+(q.sections||[]).length+' secciones · '+(q.pers||"?")+' personas</div>'
       :'<div class="hc-total">'+fm(q.total||0)+'</div><div class="hc-items">'+((q.cart||[]).length+(q.cust||[]).length)+' productos</div>';
-    return '<div class="hcard" onclick="loadQuote(\''+q.kind+'\',\''+q.id+'\')">'+
-      '<div class="hc-top"><div><span class="qnum">'+qNum+'</span> <span class="hc-cli">'+q.client+'</span><span class="hc-type '+(isProp?"prop":"cot")+'">'+(isProp?"Propuesta":"Cotización")+'</span>'+statusBadge+pagadoBadge+prodBadge+comentBadge+'</div>'+
+    // v4.12.7: aplicar opacity reducida a docs superseded/fantasmas para distinguir visualmente
+    const cardExtra=(status==="superseded"||q._wrongCollection)?' style="opacity:.65"':"";
+    return '<div class="hcard"'+cardExtra+' onclick="loadQuote(\''+q.kind+'\',\''+q.id+'\')">'+
+      '<div class="hc-top"><div><span class="qnum">'+qNum+'</span> <span class="hc-cli">'+q.client+'</span><span class="hc-type '+(isProp?"prop":"cot")+'">'+(isProp?"Propuesta":"Cotización")+'</span>'+statusBadge+supersededBadge+wrongCollBadge+pagadoBadge+prodBadge+comentBadge+'</div>'+
       '<div><button class="dup-btn" onclick="openDuplicateModal(\''+q.kind+'\',\''+q.id+'\',event)" title="Duplicar">📋</button><button class="del-btn" onclick="delHistItem(\''+q.kind+'\',\''+q.id+'\',event)">×</button></div></div>'+
       '<div class="hc-date">'+ds+'</div>'+summary+actions+
       '</div>';
@@ -194,7 +208,7 @@ async function submitMarkAsOrder(){
       if(pagos.length)local.pagos=pagos;
     }
     hideLoader();closeOrderModal();
-    alert("✅ Pedido confirmado: "+($("om-num").value)+"\nEntrega: "+fechaEntrega+" "+horaEntrega+"\nProducción: "+productionDate+(produced?" (✓ ya producido)":""));
+    toast("✅ Pedido "+($("om-num").value)+" · Entrega "+fechaEntrega+" "+horaEntrega+" · Producción "+productionDate+(produced?" (✓ ya producido)":""),"success");
     renderHist();
     if(curMode==="dash")renderDashboard();
   }catch(e){hideLoader();alert("Error al actualizar: "+e.message);console.error(e)}
@@ -273,7 +287,7 @@ async function submitApproveProposal(){
     const local=quotesCache.find(x=>x.id===propId&&x.kind===kind);
     if(local){local.status="aprobada";local.approvalData=approvalData;if(pagos.length)local.pagos=pagos}
     hideLoader();closeApproveModal();
-    alert("✓ Propuesta aprobada: "+($("am-num").value));
+    toast("✓ Propuesta aprobada: "+($("am-num").value),"success");
     renderHist();
   }catch(e){hideLoader();alert("Error al actualizar: "+e.message);console.error(e)}
 }
@@ -410,7 +424,7 @@ async function submitSaldoCobrado(){
     await updateDoc(doc(db,coll,propId),{saldoData:saldoData,updatedAt:serverTimestamp()});
     saldoSource.doc.saldoData=saldoData;
     hideLoader();closeSaldoModal();
-    alert("💰 Saldo cobrado registrado.");
+    toast("💰 Saldo cobrado registrado","success");
     renderHist();
     if(curMode==="cot")renderMiniDash();
   }catch(e){hideLoader();alert("Error: "+e.message);console.error(e)}
@@ -494,7 +508,7 @@ async function submitPago(){
     await updateDoc(doc(db,coll,pagoSrc.id),{pagos:pagosActuales,updatedAt:serverTimestamp()});
     pagoSrc.doc.pagos=pagosActuales;
     hideLoader();closePagoModal();
-    alert("💵 Pago registrado: "+fm(monto)+" via "+metodo);
+    toast("💵 Pago registrado: "+fm(monto)+" via "+metodo,"success");
     renderHist();
     if(curMode==="dash")renderDashboard();
   }catch(e){hideLoader();alert("Error: "+e.message);console.error(e)}
@@ -626,7 +640,7 @@ async function submitDelivery(){
     deliverySrc.doc.fechaEntrega=fecha;
     deliverySrc.doc.entregaData=entregaData;
     hideLoader();closeDeliveryModal();
-    alert("🎉 Entrega registrada.");
+    toast("🎉 Entrega registrada","success");
     renderHist();
     if(curMode==="dash")renderDashboard();
   }catch(e){hideLoader();alert("Error: "+e.message);console.error(e)}
@@ -687,7 +701,52 @@ async function submitComentario(){
     await updateDoc(doc(db,coll,propId),{comentarioCliente:comentarioCliente,updatedAt:serverTimestamp()});
     comentSrc.doc.comentarioCliente=comentarioCliente;
     hideLoader();closeComentModal();
-    alert("💬 Comentario guardado.");
+    toast("💬 Comentario guardado","success");
+    renderHist();
+    if(curMode==="dash")renderDashboard();
+  }catch(e){hideLoader();alert("Error: "+e.message);console.error(e)}
+}
+
+// ═══════════════════════════════════════════════════════════
+// v4.12.7: Eliminar doc fantasma (GB-PF-* guardado por error en proposals/)
+// ═══════════════════════════════════════════════════════════
+async function deleteWrongDoc(docId,ev){
+  if(ev){ev.stopPropagation();ev.preventDefault()}
+  if(!cloudOnline){alert("Sin conexión");return}
+  if(!docId||!docId.startsWith("GB-PF-")){alert("Solo aplica a docs con prefijo GB-PF-");return}
+  if(!confirm("🗑️ Eliminar fantasma\n\n"+docId+" quedó guardado por error en la colección 'proposals/' (pasó antes de v4.12.7 cuando alguien editó una PF directamente).\n\nLa PF real sigue intacta en 'propfinals/'.\n\n¿Confirmar borrado del fantasma?"))return;
+  try{
+    showLoader("Eliminando fantasma...");
+    const {db,doc,deleteDoc}=window.fb;
+    await deleteDoc(doc(db,"proposals",docId));
+    // Quitar del cache local
+    quotesCache=quotesCache.filter(x=>!(x.id===docId&&x._wrongCollection));
+    hideLoader();
+    toast("✅ Fantasma eliminado","success");
+    renderHist();
+    if(curMode==="dash")renderDashboard();
+  }catch(e){hideLoader();alert("Error: "+e.message);console.error(e)}
+}
+
+// v4.12.7: limpieza masiva de fantasmas — llamar desde consola del navegador
+// Ejemplo: cleanupWrongDocs()
+async function cleanupWrongDocs(){
+  if(!cloudOnline){alert("Sin conexión");return}
+  const fantasmas=quotesCache.filter(q=>q._wrongCollection);
+  if(!fantasmas.length){toast("🎉 No hay fantasmas. Todo limpio","success");return}
+  const lista=fantasmas.map(q=>"• "+q.id+" ("+(q.client||"—")+")").join("\n");
+  if(!confirm("🧹 Limpieza de docs fantasmas\n\nSe detectaron "+fantasmas.length+" docs GB-PF-* mal guardados en la colección 'proposals/':\n\n"+lista+"\n\nLas PF reales en 'propfinals/' están intactas.\n\n¿Eliminar todos los fantasmas?"))return;
+  try{
+    showLoader("Limpiando "+fantasmas.length+" fantasmas...");
+    const {db,doc,deleteDoc}=window.fb;
+    let ok=0,fail=0;
+    for(const q of fantasmas){
+      try{await deleteDoc(doc(db,"proposals",q.id));ok++}
+      catch(e){fail++;console.warn("No se pudo eliminar "+q.id,e)}
+    }
+    quotesCache=quotesCache.filter(x=>!x._wrongCollection);
+    hideLoader();
+    toast("✅ Limpieza completa · Eliminados: "+ok+(fail?" · Fallidos: "+fail:""),fail?"warn":"success");
     renderHist();
     if(curMode==="dash")renderDashboard();
   }catch(e){hideLoader();alert("Error: "+e.message);console.error(e)}

@@ -7,14 +7,14 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1a1a1a">
 <title>Gourmet Bites - Cotizador</title>
-<!-- VERSION: 2026-04-20-v4.12.6-ics-compacto-slots-5min-share-api-viewport -->
+<!-- VERSION: 2026-04-20-v4.13.0-offline-persistence-toast-bloqueo-edicion-export -->
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script type="module">
-// Firebase SDK v10
+// Firebase SDK v10 — v4.13.0: persistencia offline (IndexedDB)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy, limit, runTransaction, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy, limit, runTransaction, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDnOAMf2Vu7ydnjBpSQkmvwOi0QCPhU6Xc",
@@ -26,7 +26,21 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+
+// v4.13.0: Persistencia offline — Kathy/JP pueden operar sin señal (La Calera, rural)
+// IndexedDB cachea localmente lo que se ha leído; al volver a tener red sincroniza.
+// persistentMultipleTabManager = soporta varias pestañas abiertas simultáneamente.
+let db;
+try {
+  db = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+  });
+} catch(e) {
+  console.warn("Persistencia offline no disponible (navegador antiguo?):", e);
+  // Fallback: Firestore sin caché persistente — sigue funcionando online
+  const { getFirestore } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+  db = getFirestore(app);
+}
 
 window.fb = {db, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy, limit, runTransaction, serverTimestamp, writeBatch};
 window.fbLoaded = true;
@@ -239,6 +253,33 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
 .hc-status.aprobada{background:#E0F2F1;color:#00695C;border:1px solid #4DB6AC}
 .hc-status.en_produccion{background:#F3E5F5;color:#6A1B9A;border:1px solid #BA68C8}
 .hc-status.convertida{background:#ECEFF1;color:#546E7A}
+.hc-status.superseded{background:#FFEBEE;color:#B71C1C;border:1px solid #EF9A9A}
+/* v4.12.7: badges y botones para PF reemplazadas y docs fantasmas */
+.hc-superseded-badge{display:inline-block;font-size:9px;font-weight:800;padding:2px 7px;border-radius:10px;margin-left:4px;background:#FFEBEE;color:#B71C1C;border:1px solid #EF9A9A;vertical-align:middle}
+.hc-wrong-badge{display:inline-block;font-size:9px;font-weight:800;padding:2px 7px;border-radius:10px;margin-left:4px;background:#FFF3E0;color:#E65100;border:1px solid #FFB74D;vertical-align:middle}
+.hc-btn-regen{background:linear-gradient(135deg,#FFB300,#F57F17);color:#fff;border:none}
+.hc-btn-wrong{background:#FFEBEE;color:#B71C1C;border:1px solid #EF9A9A}
+/* v4.13.0: Toast notifications (no bloqueantes, auto-hide) */
+#toast-wrap{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:600;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none;max-width:90vw}
+.toast{pointer-events:auto;padding:12px 18px;border-radius:10px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:var(--wh);box-shadow:0 4px 20px rgba(0,0,0,.25);animation:toastIn .3s cubic-bezier(.4,0,.2,1);max-width:420px;text-align:center;line-height:1.4;white-space:pre-wrap}
+.toast-success{background:linear-gradient(135deg,#43A047,#2E7D32)}
+.toast-error{background:linear-gradient(135deg,#E53935,#B71C1C)}
+.toast-warn{background:linear-gradient(135deg,#FB8C00,#E65100)}
+.toast-info{background:linear-gradient(135deg,#1976D2,#0D47A1)}
+.toast-out{opacity:0;transform:translateY(20px);transition:all .3s}
+@keyframes toastIn{from{opacity:0;transform:translateY(20px) scale(.95)}to{opacity:1;transform:translateY(0) scale(1)}}
+/* v4.13.0: Banner de advertencia de fantasmas en dashboard */
+.dash-banner-warn{background:linear-gradient(135deg,#FFF3E0,#FFE0B2);border:1.5px solid #FFB74D;border-left:4px solid #FB8C00;border-radius:10px;padding:12px 14px;margin:0 0 14px 0;display:flex;align-items:center;gap:10px;color:#5D4037;font-size:13px;line-height:1.4}
+.dash-banner-warn .dbw-ic{font-size:22px;flex-shrink:0}
+.dash-banner-warn .dbw-txt{flex:1;min-width:0}
+.dash-banner-warn .dbw-txt strong{color:#E65100}
+.dash-banner-warn button{background:#FB8C00;color:#fff;border:none;padding:8px 14px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif}
+.dash-banner-warn button:active{transform:scale(.97)}
+/* v4.13.0: Botón export agenda JSON */
+.dash-export-btn{background:#ECEFF1;color:#455A64;border:1px solid #B0BEC5;padding:6px 12px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;margin-left:auto}
+.dash-export-btn:active{transform:scale(.97)}
+/* v4.13.0: Indicador de offline activo */
+.cloud-ind.offline-cache{background:#FFF3E0;color:#E65100}
 .hist-filters{display:flex;gap:6px;overflow-x:auto;padding:4px 0 12px 0;-webkit-overflow-scrolling:touch;scrollbar-width:none;margin-bottom:4px}
 .hist-filters::-webkit-scrollbar{display:none}
 .hist-filter{flex-shrink:0;padding:7px 14px;border-radius:20px;border:1.5px solid var(--lt);background:var(--wh);font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;color:var(--mid);cursor:pointer;white-space:nowrap;transition:all .15s}
@@ -512,7 +553,10 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
       <button class="dp-btn" data-p="year" onclick="setDashPeriod('year')">Año</button>
       <button class="dp-btn" data-p="all" onclick="setDashPeriod('all')">Todo</button>
     </div>
+    <button class="dash-export-btn" onclick="exportHistoryJson()" title="Descargar JSON de respaldo con todo el historial">📥 Backup JSON</button>
   </div>
+  <!-- v4.13.0: banner de advertencia si hay docs fantasmas detectados -->
+  <div id="dash-warn-fantasmas" class="dash-banner-warn hidden"></div>
   <div class="dash-period-info" id="dash-period-info"></div>
   <div class="dash-grid" id="dash-cards"></div>
   <div class="dash-section">
@@ -1074,11 +1118,11 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
   </div>
 </div>
 
-<script src="app-assets.js?v=4.12.6"></script>
-<script src="app-core.js?v=4.12.6"></script>
-<script src="app-cotizar.js?v=4.12.6"></script>
-<script src="app-propuesta.js?v=4.12.6"></script>
-<script src="app-historial.js?v=4.12.6"></script>
-<script src="app-dashboard.js?v=4.12.6"></script>
+<script src="app-assets.js?v=4.13.0"></script>
+<script src="app-core.js?v=4.13.0"></script>
+<script src="app-cotizar.js?v=4.13.0"></script>
+<script src="app-propuesta.js?v=4.13.0"></script>
+<script src="app-historial.js?v=4.13.0"></script>
+<script src="app-dashboard.js?v=4.13.0"></script>
 </body>
 </html>
