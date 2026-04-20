@@ -6,7 +6,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v4.12.4";
+const BUILD_VERSION="v4.12.5";
 const BUILD_DATE="2026-04-19";
 const PIN_CODE="8421";
 const APP_YEAR=new Date().getFullYear();
