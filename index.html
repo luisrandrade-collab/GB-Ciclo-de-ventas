@@ -7,14 +7,16 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1a1a1a">
 <title>Gourmet Bites - Cotizador</title>
-<!-- VERSION: 2026-04-20-v4.13.0-offline-persistence-toast-bloqueo-edicion-export -->
+<!-- VERSION: 2026-04-20-v5.0.0-firebase-auth-storage-rango-precios -->
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script type="module">
-// Firebase SDK v10 — v4.13.0: persistencia offline (IndexedDB)
+// Firebase SDK v10 — v5.0.0: Auth + Storage + persistencia offline
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy, limit, runTransaction, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDnOAMf2Vu7ydnjBpSQkmvwOi0QCPhU6Xc",
@@ -27,22 +29,29 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// v4.13.0: Persistencia offline — Kathy/JP pueden operar sin señal (La Calera, rural)
-// IndexedDB cachea localmente lo que se ha leído; al volver a tener red sincroniza.
-// persistentMultipleTabManager = soporta varias pestañas abiertas simultáneamente.
+// v4.13.0: Persistencia offline — Kathy/JP pueden operar sin señal
 let db;
 try {
   db = initializeFirestore(app, {
     localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
   });
 } catch(e) {
-  console.warn("Persistencia offline no disponible (navegador antiguo?):", e);
-  // Fallback: Firestore sin caché persistente — sigue funcionando online
+  console.warn("Persistencia offline no disponible:", e);
   const { getFirestore } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
   db = getFirestore(app);
 }
 
-window.fb = {db, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy, limit, runTransaction, serverTimestamp, writeBatch};
+// v5.0.0: Auth + Storage
+const auth = getAuth(app);
+const storage = getStorage(app);
+
+window.fb = {
+  db, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy, limit, runTransaction, serverTimestamp, writeBatch,
+  // v5.0.0: Auth
+  auth, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail,
+  // v5.0.0: Storage
+  storage, storageRef, uploadBytes, getDownloadURL, deleteObject
+};
 window.fbLoaded = true;
 window.dispatchEvent(new Event("fbready"));
 </script>
@@ -226,6 +235,17 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
 .pin-build .hb-prod{color:var(--wh);font-weight:600}
 .pin-build .hb-sep{color:#666;margin:0 5px}
 .pin-instr{font-size:14px;color:var(--soft);margin-bottom:20px}
+/* v5.0: Login form styles */
+.login-instr{font-size:14px;color:var(--soft);margin-bottom:20px;letter-spacing:.5px}
+.login-form{display:flex;flex-direction:column;gap:12px;width:100%;max-width:320px;margin-top:10px}
+.login-input{padding:14px 16px;border:1.5px solid rgba(201,169,110,.35);border-radius:10px;background:rgba(255,255,255,.08);color:var(--wh);font-family:'DM Sans',sans-serif;font-size:15px;-webkit-appearance:none}
+.login-input::placeholder{color:rgba(255,255,255,.4)}
+.login-input:focus{outline:none;border-color:var(--gd);background:rgba(255,255,255,.12)}
+.login-btn{padding:14px;border:none;border-radius:10px;background:linear-gradient(135deg,var(--gd),#a68855);color:var(--wh);font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:.5px;margin-top:4px}
+.login-btn:active{transform:scale(.98)}
+.login-btn:disabled{opacity:.6;cursor:wait}
+.login-link{background:none;border:none;color:var(--gd);font-size:12px;cursor:pointer;padding:6px;text-decoration:underline;font-family:'DM Sans',sans-serif}
+.login-link:active{opacity:.7}
 .pin-dots{display:flex;gap:14px;margin-bottom:30px}
 .pin-dot{width:14px;height:14px;border-radius:50%;border:2px solid var(--gd);background:transparent;transition:all .2s}
 .pin-dot.filled{background:var(--gd)}
@@ -511,16 +531,19 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
 <body>
 
 <!-- PIN LOCK SCREEN -->
+<!-- v5.0: Login con email+password (reemplaza al PIN PAD de v4.x) -->
 <div id="pin-overlay" class="pin-overlay">
   <div class="pin-logo">Gourmet Bites</div>
   <div class="pin-tag">BY ANDRADE MATUK</div>
-  <div class="pin-build"><span>Cotizador</span><span class="hb-sep">·</span><span class="hb-prod" id="pin-ver">v4.12</span><span class="hb-sep">·</span><span id="pin-date">2026-04-19</span></div>
-  <div class="pin-instr">Ingresa el PIN de acceso</div>
-  <div class="pin-dots" id="pin-dots">
-    <div class="pin-dot"></div><div class="pin-dot"></div><div class="pin-dot"></div><div class="pin-dot"></div>
-  </div>
-  <div class="pin-pad" id="pin-pad"></div>
-  <div class="pin-err" id="pin-err">PIN incorrecto</div>
+  <div class="pin-build"><span>Cotizador</span><span class="hb-sep">·</span><span class="hb-prod" id="pin-ver">v5.0.0</span><span class="hb-sep">·</span><span id="pin-date">2026-04-20</span></div>
+  <div class="login-instr">Ingresa con tu cuenta</div>
+  <form id="login-form" class="login-form" onsubmit="return submitLogin(event)">
+    <input type="email" id="login-email" class="login-input" placeholder="correo@gourmetbites.co" autocomplete="email" required>
+    <input type="password" id="login-password" class="login-input" placeholder="Contraseña" autocomplete="current-password" required>
+    <button type="submit" class="login-btn" id="login-submit">Entrar</button>
+    <button type="button" class="login-link" onclick="openForgotPassword()">¿Olvidaste tu contraseña?</button>
+  </form>
+  <div class="pin-err" id="pin-err"></div>
 </div>
 
 <!-- Cloud connection indicator -->
@@ -1118,11 +1141,11 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
   </div>
 </div>
 
-<script src="app-assets.js?v=4.13.0"></script>
-<script src="app-core.js?v=4.13.0"></script>
-<script src="app-cotizar.js?v=4.13.0"></script>
-<script src="app-propuesta.js?v=4.13.0"></script>
-<script src="app-historial.js?v=4.13.0"></script>
-<script src="app-dashboard.js?v=4.13.0"></script>
+<script src="app-assets.js?v=5.0.0"></script>
+<script src="app-core.js?v=5.0.0"></script>
+<script src="app-cotizar.js?v=5.0.0"></script>
+<script src="app-propuesta.js?v=5.0.0"></script>
+<script src="app-historial.js?v=5.0.0"></script>
+<script src="app-dashboard.js?v=5.0.0"></script>
 </body>
 </html>

@@ -6,10 +6,13 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v4.13.0";
-const BUILD_DATE="2026-04-19";
-const PIN_CODE="8421";
+const BUILD_VERSION="v5.0.0";
+const BUILD_DATE="2026-04-20";
+// v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
+// const PIN_CODE_LEGACY="8421";
 const APP_YEAR=new Date().getFullYear();
+// v5.0: estado del usuario autenticado — se actualiza en onAuthStateChanged
+let currentUser=null;
 
 // ─── PDF SHARE/DOWNLOAD (v4.12.2) ──────────────────────────
 // Reemplaza doc.save() para evitar que en iPhone se filtre el blob URL al compartir.
@@ -184,50 +187,150 @@ const STATUS_META={
   superseded:   {label:"Reemplazada",     cls:"superseded",    desc:"PF reemplazada por una versión nueva"}
 };
 
-// ─── PIN LOCK (v4.12: SOLO sessionStorage) ────────────────
-let pinBuffer="";
-function renderPinPad(){
-  const keys=["1","2","3","4","5","6","7","8","9","","0","⌫"];
-  $("pin-pad").innerHTML=keys.map(k=>{
-    if(!k)return '<button class="pin-key empty"></button>';
-    if(k==="⌫")return '<button class="pin-key" onclick="pinBack()">⌫</button>';
-    return '<button class="pin-key" onclick="pinPress(\''+k+'\')">'+k+'</button>';
-  }).join("");
-}
-function pinPress(d){
-  if(pinBuffer.length>=4)return;
-  pinBuffer+=d;
-  updatePinDots();
-  if(pinBuffer.length===4)setTimeout(checkPin,150);
-}
-function pinBack(){pinBuffer=pinBuffer.slice(0,-1);updatePinDots()}
-function updatePinDots(){
-  const dots=$("pin-dots").children;
-  for(let i=0;i<4;i++){
-    dots[i].classList.remove("filled","error");
-    if(i<pinBuffer.length)dots[i].classList.add("filled");
+// ─── v5.0: AUTHENTICATION (Firebase Auth, reemplaza al PIN de v4.x) ──
+// No-ops para compatibilidad: los handlers del PIN ya no existen en HTML.
+// Si algún código viejo los llama, no rompe.
+function renderPinPad(){} function pinPress(){} function pinBack(){} function updatePinDots(){} function checkPin(){}
+
+// v5.0: handler del submit del form de login (email + password)
+async function submitLogin(ev){
+  if(ev)ev.preventDefault();
+  const email=($("login-email").value||"").trim();
+  const password=$("login-password").value||"";
+  const errEl=$("pin-err");
+  const btn=$("login-submit");
+  if(!email||!password){
+    errEl.textContent="Email y contraseña son obligatorios";
+    errEl.classList.add("show");
+    return false;
   }
-  $("pin-err").classList.remove("show");
+  errEl.classList.remove("show");
+  btn.disabled=true;btn.textContent="Verificando...";
+  try{
+    await fbReady();
+    const {auth,signInWithEmailAndPassword}=window.fb;
+    await signInWithEmailAndPassword(auth,email,password);
+    // onAuthStateChanged se encarga del resto (esconder overlay + initApp)
+  }catch(e){
+    console.warn("Login falló:",e);
+    let msg="No se pudo iniciar sesión";
+    if(e?.code==="auth/invalid-credential"||e?.code==="auth/wrong-password"||e?.code==="auth/user-not-found")msg="Email o contraseña incorrectos";
+    else if(e?.code==="auth/too-many-requests")msg="Demasiados intentos. Espera unos minutos.";
+    else if(e?.code==="auth/network-request-failed")msg="Sin conexión a internet";
+    else if(e?.code==="auth/invalid-email")msg="Email mal escrito";
+    errEl.textContent=msg;
+    errEl.classList.add("show");
+    btn.disabled=false;btn.textContent="Entrar";
+  }
+  return false;
 }
-function checkPin(){
-  if(pinBuffer===PIN_CODE){
-    // v4.12: SOLO sessionStorage (cerrar pestaña/navegador → pide PIN de nuevo)
-    sessionStorage.setItem("gb_unlocked","1");
-    $("pin-overlay").style.display="none";
-    initApp();
-  }else{
-    const dots=$("pin-dots").children;
-    for(let i=0;i<4;i++)dots[i].classList.add("error");
-    $("pin-err").classList.add("show");
-    setTimeout(()=>{pinBuffer="";updatePinDots()},600);
+
+// v5.0: "¿Olvidaste tu contraseña?" — manda email de reset
+async function openForgotPassword(){
+  const email=($("login-email").value||"").trim();
+  if(!email){
+    const errEl=$("pin-err");
+    errEl.textContent="Escribe tu email arriba primero y luego toca ¿Olvidaste?";
+    errEl.classList.add("show");
+    return;
+  }
+  if(!confirm("Te enviaré un email a "+email+" con un link para restablecer tu contraseña.\n\n¿Continuar?"))return;
+  try{
+    await fbReady();
+    const {auth,sendPasswordResetEmail}=window.fb;
+    await sendPasswordResetEmail(auth,email);
+    alert("📧 Email enviado a "+email+".\n\nRevisa tu bandeja de entrada (y spam). El link dura 1 hora.");
+  }catch(e){
+    console.warn("Reset password falló:",e);
+    alert("No se pudo enviar el email: "+(e?.message||e));
   }
 }
-function logoutSession(){
-  if(!confirm("¿Cerrar sesión? Tendrás que ingresar el PIN de nuevo."))return;
-  sessionStorage.removeItem("gb_unlocked");
-  // v4.12: borrar también el legacy localStorage si existe (limpieza de upgrade)
-  try{localStorage.removeItem("gb_unlocked")}catch{}
-  location.reload();
+
+// v5.0: cerrar sesión (signOut de Firebase)
+async function logoutSession(){
+  if(!confirm("¿Cerrar sesión? Tendrás que volver a ingresar tu email y contraseña."))return;
+  try{
+    await fbReady();
+    const {auth,signOut}=window.fb;
+    await signOut(auth);
+    // onAuthStateChanged se encarga — detecta null y recarga
+    location.reload();
+  }catch(e){
+    alert("Error cerrando sesión: "+(e?.message||e));
+  }
+}
+
+// v5.0: Observador de auth. Llamado desde bootstrap.
+// Si hay user → esconde overlay + initApp. Si no → muestra overlay.
+function initAuthObserver(){
+  const fn=()=>{
+    if(!window.fb?.onAuthStateChanged)return setTimeout(fn,100);
+    const {auth,onAuthStateChanged}=window.fb;
+    onAuthStateChanged(auth,(user)=>{
+      currentUser=user;
+      const overlay=$("pin-overlay");
+      if(user){
+        // Autenticado → esconder overlay, arrancar app
+        if(overlay)overlay.style.display="none";
+        initApp();
+      }else{
+        // No autenticado → mostrar overlay con form login
+        if(overlay){
+          overlay.style.display="flex";
+          // Reset del botón por si quedó en "Verificando..."
+          const btn=$("login-submit");if(btn){btn.disabled=false;btn.textContent="Entrar"}
+          // Focus al email
+          setTimeout(()=>{const e=$("login-email");if(e)e.focus()},100);
+        }
+      }
+    });
+  };
+  fn();
+}
+
+// ─── v5.0: STORAGE HELPERS ─────────────────────────────────
+// Sube un blob/file a Firebase Storage y devuelve la URL de descarga.
+// path: "pagos/GB-2026-0107-1234567.jpg" (único por archivo)
+async function uploadToStorage(blob,path){
+  await fbReady();
+  const {storage,storageRef,uploadBytes,getDownloadURL}=window.fb;
+  const ref=storageRef(storage,path);
+  await uploadBytes(ref,blob,{contentType:blob.type||"image/jpeg"});
+  return await getDownloadURL(ref);
+}
+
+// Convierte un dataURL base64 (ej. "data:image/jpeg;base64,...") a Blob
+function dataURLToBlob(dataUrl){
+  const arr=dataUrl.split(",");
+  const mime=(arr[0].match(/:(.*?);/)||[])[1]||"image/jpeg";
+  const bin=atob(arr[1]);
+  const len=bin.length;
+  const u8=new Uint8Array(len);
+  for(let i=0;i<len;i++)u8[i]=bin.charCodeAt(i);
+  return new Blob([u8],{type:mime});
+}
+
+// Sube foto desde un dataURL base64 (el formato que genera nuestro canvas compress).
+// Devuelve {url, path}.
+async function uploadFotoFromBase64(base64DataUrl,docType,docId,subType){
+  const ts=Date.now();
+  const ext=(base64DataUrl.match(/data:image\/(\w+);/)||[])[1]||"jpg";
+  const safeId=(docId||"sin").replace(/[^a-zA-Z0-9-_]/g,"_");
+  const path=(subType||"misc")+"/"+safeId+"-"+ts+"."+ext;
+  const blob=dataURLToBlob(base64DataUrl);
+  const url=await uploadToStorage(blob,path);
+  return {url,path};
+}
+
+// v5.0: audit stamp — devuelve {updatedBy, updatedByEmail} para agregar a cualquier updateDoc
+// Así queda trazabilidad de quién hizo cada cambio (consultable en Firestore).
+function auditStamp(){
+  if(!currentUser)return {};
+  return {
+    updatedBy:currentUser.uid,
+    updatedByEmail:currentUser.email||"(sin email)",
+    updatedAtLocal:new Date().toISOString()
+  };
 }
 
 // ─── CLOUD INDICATOR ───────────────────────────────────────

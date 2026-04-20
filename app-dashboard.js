@@ -135,12 +135,12 @@ async function renderDashboard(){
     }).join("")+(pendList.length>8?'<div class="dash-met-empty" style="padding:8px">+'+(pendList.length-8)+' más en Historial</div>':"");
   }
   // v4.12: comentarios recientes (5 últimos) — v4.12.7 excluye fantasmas y superseded
-  const coments=quotesCache.filter(q=>!q._wrongCollection&&q.status!=="superseded"&&(q.comentarioCliente?.texto||q.comentarioCliente?.fotoBase64)).map(q=>({q,c:q.comentarioCliente}));
+  const coments=quotesCache.filter(q=>!q._wrongCollection&&q.status!=="superseded"&&(q.comentarioCliente?.texto||q.comentarioCliente?.fotoUrl||q.comentarioCliente?.fotoBase64)).map(q=>({q,c:q.comentarioCliente}));
   coments.sort((a,b)=>(b.c.fecha||"").localeCompare(a.c.fecha||""));
   if(!coments.length){$("dash-coments").innerHTML='<div class="dash-met-empty">Aún no se han registrado comentarios. Cuando entregues, registra qué dijo el cliente.</div>'}
   else{
     $("dash-coments").innerHTML=coments.slice(0,5).map(({q,c})=>{
-      const fotoIcon=c.fotoBase64?' 📷':'';
+      const fotoIcon=(c.fotoUrl||c.fotoBase64)?' 📷':'';
       const txt=(c.texto||"(solo foto)").slice(0,120)+((c.texto||"").length>120?'...':'');
       return '<div class="dash-up-item" style="flex-direction:column;align-items:flex-start;gap:2px;padding:8px 0;border-bottom:1px solid var(--cl)" onclick="openComentModal(\''+q.id+'\',\''+q.kind+'\')">'+
         '<div style="font-size:11px;color:var(--mid)"><strong>'+(q.client||"—")+'</strong> · '+(c.fecha||"—")+fotoIcon+'</div>'+
@@ -700,7 +700,7 @@ function openDashDetail(tipo){
     });
     resumen+='</div>';
     const pagosHtml=pagosLista.map(({q,p,monto,met})=>{
-      const fotoIcon=p.foto?' 📷':'';
+      const fotoIcon=(p.fotoUrl||p.foto)?' 📷':'';
       return '<div class="dd-row" onclick="closeDashDetail();openVerPagosModal(\''+q.id+'\',\''+q.kind+'\')">'+
         '<div class="dd-row-top"><div class="dd-row-cli">'+(q.client||"—")+fotoIcon+'</div><div class="dd-row-monto">'+fm(monto)+'</div></div>'+
         '<div class="dd-row-meta">'+p.fecha+' · '+met+' · '+(p.tipo||"pago")+(p.notas?' · '+p.notas.slice(0,40):'')+'</div>'+
@@ -791,6 +791,82 @@ async function exportHistoryJson(){
 }
 
 // ═══════════════════════════════════════════════════════════
+// v5.0: MIGRACIÓN one-shot de fotos base64 → Storage
+// ═══════════════════════════════════════════════════════════
+// Uso: abrir consola (F12) y ejecutar migrarFotosStorage()
+// Recorre pagos, entregaData y comentarioCliente de todos los docs.
+// Si tienen base64 inline, los sube a Storage y reemplaza por URL.
+// Los docs nuevos (desde v5.0) ya nacen con URL, no requieren migración.
+async function migrarFotosStorage(){
+  if(!currentUser){alert("🔒 Debes estar autenticado para migrar fotos a Storage.");return}
+  if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+
+  // Detectar todos los docs con fotos base64
+  const tareas=[];
+  quotesCache.forEach(q=>{
+    if(q._wrongCollection)return; // saltamos fantasmas
+    // Pagos
+    (q.pagos||[]).forEach((p,idx)=>{
+      if(p.foto&&typeof p.foto==="string"&&p.foto.startsWith("data:")){
+        tareas.push({docId:q.id,kind:q.kind,tipo:"pago",idx,base64:p.foto,path:"pagos"});
+      }
+    });
+    // Entrega
+    if(q.entregaData?.fotoBase64&&q.entregaData.fotoBase64.startsWith("data:")){
+      tareas.push({docId:q.id,kind:q.kind,tipo:"entrega",base64:q.entregaData.fotoBase64,path:"entregas"});
+    }
+    // Comentario
+    if(q.comentarioCliente?.fotoBase64&&q.comentarioCliente.fotoBase64.startsWith("data:")){
+      tareas.push({docId:q.id,kind:q.kind,tipo:"comentario",base64:q.comentarioCliente.fotoBase64,path:"comentarios"});
+    }
+  });
+  if(!tareas.length){alert("🎉 No hay fotos base64 para migrar. Todo ya está en Storage.");return}
+  if(!confirm("🔄 Migrar "+tareas.length+" fotos a Firebase Storage\n\nVoy a subir cada foto a Storage y reemplazar el base64 en Firestore por la URL de descarga.\n\n• Los docs quedarán mucho más livianos (dashboard cargará más rápido)\n• Operación segura: si falla una foto, se salta y continúa\n• Tiempo estimado: ~1 segundo por foto\n\n¿Continuar?"))return;
+
+  showLoader("Migrando fotos a Storage · 0/"+tareas.length);
+  const {db,doc,getDoc,updateDoc,serverTimestamp}=window.fb;
+  let ok=0,skip=0,err=0;
+  for(let i=0;i<tareas.length;i++){
+    const t=tareas[i];
+    $("loader-msg").textContent="Migrando fotos · "+(i+1)+"/"+tareas.length+" ("+t.tipo+")";
+    try{
+      // Subir foto a Storage
+      const {url}=await uploadFotoFromBase64(t.base64,t.tipo,t.docId,t.path);
+      // Recargar doc desde Firestore para tener data fresca
+      const coll=t.kind==="quote"?"quotes":(t.docId.startsWith("GB-PF-")?"propfinals":"proposals");
+      const snap=await getDoc(doc(db,coll,t.docId));
+      if(!snap.exists()){skip++;continue}
+      const d=snap.data();
+      const patch={updatedAt:serverTimestamp(),...auditStamp()};
+      if(t.tipo==="pago"){
+        const pagos=(d.pagos||[]).map(p=>({...p}));
+        if(pagos[t.idx]){
+          pagos[t.idx].fotoUrl=url;
+          delete pagos[t.idx].foto;
+          patch.pagos=pagos;
+        }
+      }else if(t.tipo==="entrega"){
+        patch.entregaData={...(d.entregaData||{}),fotoUrl:url};
+        delete patch.entregaData.fotoBase64;
+      }else if(t.tipo==="comentario"){
+        patch.comentarioCliente={...(d.comentarioCliente||{}),fotoUrl:url};
+        delete patch.comentarioCliente.fotoBase64;
+      }
+      await updateDoc(doc(db,coll,t.docId),patch);
+      ok++;
+    }catch(e){
+      console.warn("Migración "+t.tipo+" de "+t.docId+" falló:",e);
+      err++;
+    }
+  }
+  hideLoader();
+  // Recargar historial para ver cambios
+  try{await loadAllHistory()}catch{}
+  alert("✅ Migración completa\n\n• Migradas OK: "+ok+"\n• Saltadas: "+skip+"\n• Errores: "+err+"\n\nLos docs migrados ya tienen fotoUrl en lugar de base64. Recomendado: cerrar y abrir la app para ver el dashboard más ligero.");
+  renderDashboard();
+}
+
+// ═══════════════════════════════════════════════════════════
 // BOOTSTRAP — corre cuando todos los scripts están cargados
 // ═══════════════════════════════════════════════════════════
 // Inyectar logo en header
@@ -799,19 +875,17 @@ async function exportHistoryJson(){
   if(el&&typeof LOGO_IW!=="undefined")el.src=LOGO_IW;
 })();
 
-// Inicializar UI: catálogo + PIN pad + version markers
+// Inicializar UI: catálogo + version markers
 renderCats();
-renderPinPad();
 ["hdr-ver","pin-ver"].forEach(id=>{const el=$(id);if(el)el.textContent=BUILD_VERSION});
 ["hdr-date","pin-date"].forEach(id=>{const el=$(id);if(el)el.textContent=BUILD_DATE});
 
-// v4.12: SOLO sessionStorage (cerrar pestaña/navegador → pide PIN)
-if(sessionStorage.getItem("gb_unlocked")==="1"){
-  $("pin-overlay").style.display="none";
-  window.addEventListener("load",()=>setTimeout(initApp,100));
-}
-// v4.12: limpieza one-shot del legacy localStorage de unlock (de versiones anteriores)
-try{localStorage.removeItem("gb_unlocked")}catch{}
+// v5.0: Firebase Auth reemplaza al PIN. initAuthObserver mira onAuthStateChanged:
+// - Si hay user: esconde overlay + initApp
+// - Si no: muestra overlay con form de login
+window.addEventListener("load",()=>setTimeout(initAuthObserver,50));
+// Limpieza one-shot de flags viejos (PIN de v4.x)
+try{sessionStorage.removeItem("gb_unlocked");localStorage.removeItem("gb_unlocked")}catch{}
 
 // v4.13.0: detectar cambios de conectividad (navigator.online) para actualizar el badge
 // La persistencia IndexedDB sigue funcionando offline; esto es solo para UI.

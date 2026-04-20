@@ -749,36 +749,45 @@ async function genPropPDF(){
       doc.autoTable({startY:y,margin:{left:mg,right:mg,bottom:footerH},body:mtd,theme:"grid",columnStyles:{0:{halign:"left",cellWidth:tw*.50},1:{halign:"center",cellWidth:tw*.10},2:{halign:"right",cellWidth:tw*.20},3:{halign:"right",cellWidth:tw*.20}},bodyStyles:{fontSize:8,cellPadding:{top:3.5,bottom:3.5,left:6,right:6},textColor:[60,60,60]},alternateRowStyles:{fillColor:[250,250,248]},styles:{cellPadding:{top:3.5,bottom:3.5,left:6,right:6}},didParseCell:function(data){if(data.row.index===mtd.length-1&&data.section==="body"){data.cell.styles.fillColor=[255,255,255]}}});
       y=doc.lastAutoTable.finalY+5;
     }
-    let totMenu=0;let totCatering=0;
+    // v5.0: calcula MIN y MAX por sección (antes solo Opción A).
+    // Así el cliente ve un RANGO realista, no un valor de Opción A que podría ser el más barato.
+    let totMenuMin=0,totMenuMax=0,totCateringMin=0,totCateringMax=0;
     propSections.forEach(sec=>{
       const isCateringSec=/servicio\s*de\s*catering|coordinaci[oó]n/i.test(sec.name||"");
-      sec.options.forEach(opt=>{
-        if(opt.label==="Opción A"||sec.options.length===1){
-          opt.items.forEach(it=>{const val=(it.price||0)*(it.qty||0);if(isCateringSec)totCatering+=val;else totMenu+=val});
-        }
-      });
+      const opts=sec.options||[];
+      if(!opts.length)return;
+      const subs=opts.map(opt=>(opt.items||[]).reduce((s,it)=>s+(it.price||0)*(it.qty||0),0));
+      const minS=Math.min.apply(null,subs);
+      const maxS=Math.max.apply(null,subs);
+      if(isCateringSec){totCateringMin+=minS;totCateringMax+=maxS}
+      else{totMenuMin+=minS;totMenuMax+=maxS}
     });
     let totMenajeVal=0;
     menajeItems.forEach(m=>{const q=parseFloat(m.qty)||0,p=parseFloat(m.price)||0;totMenajeVal+=q*p});
     const totPersonal=persTotal;
     const trP=getTrP();const totTransp=trP?trP.p:0;
-    const totalServicio=totMenu+totCatering+totMenajeVal+totPersonal+totTransp;
+    // Total global: suma de min y suma de max
+    const totalServicioMin=totMenuMin+totCateringMin+totMenajeVal+totPersonal+totTransp;
+    const totalServicioMax=totMenuMax+totCateringMax+totMenajeVal+totPersonal+totTransp;
+    // Helper: formato rango (solo muestra rango si min !== max)
+    const fmRange=(mn,mx)=>(mn===mx)?fm(mn):(fm(mn)+" – "+fm(mx));
     const estR=estH(5)+14;
     if(y+estR>H-footerH){doc.addPage();y=20}
     const rtd=[];
     rtd.push([{content:"TOTAL DEL SERVICIO",colSpan:2,styles:{fillColor:[26,26,26],textColor:[255,255,255],fontStyle:"bold",fontSize:9.5,halign:"left"}}]);
-    rtd.push(["Experiencia Gastronómica",fm(totMenu)]);
-    if(totCatering>0)rtd.push(["Servicio de Catering",fm(totCatering)]);
+    rtd.push(["Experiencia Gastronómica",fmRange(totMenuMin,totMenuMax)]);
+    if(totCateringMax>0)rtd.push(["Servicio de Catering",fmRange(totCateringMin,totCateringMax)]);
     if(totMenajeVal>0)rtd.push(["Menaje",fm(totMenajeVal)]);
     if(totPersonal>0)rtd.push(["Personal de Servicio",fm(totPersonal)]);
     if(totTransp>0)rtd.push(["Transporte "+(trP?trP.n.replace("Transporte ",""):""),fm(totTransp)]);
-    rtd.push([{content:"TOTAL",styles:{fontStyle:"bold",fontSize:10,fillColor:[244,243,241]}},{content:fm(totalServicio),styles:{fontStyle:"bold",halign:"right",fontSize:11,textColor:[201,169,110],fillColor:[244,243,241]}}]);
+    rtd.push([{content:"TOTAL",styles:{fontStyle:"bold",fontSize:10,fillColor:[244,243,241]}},{content:fmRange(totalServicioMin,totalServicioMax),styles:{fontStyle:"bold",halign:"right",fontSize:11,textColor:[201,169,110],fillColor:[244,243,241]}}]);
     doc.autoTable({startY:y,margin:{left:mg,right:mg,bottom:footerH},body:rtd,theme:"grid",columnStyles:{0:{halign:"left",cellWidth:tw*.60},1:{halign:"right",cellWidth:tw*.40}},bodyStyles:{fontSize:9,cellPadding:{top:4,bottom:4,left:8,right:8},textColor:[40,40,40]},styles:{cellPadding:{top:4,bottom:4,left:8,right:8}}});
     y=doc.lastAutoTable.finalY+3;
     const hasMultipleOptions=!isFinal&&propSections.some(sec=>sec.options.length>1);
     if(hasMultipleOptions){
       doc.setFont("helvetica","italic");doc.setFontSize(8);doc.setTextColor(100,100,100);
-      const notaTotal="Nota: Este total corresponde a la selección de la Opción A en cada sección. El valor final variará según las opciones que usted escoja en cada sección.";
+      // v5.0: nota actualizada explicando el rango
+      const notaTotal="Nota: El rango refleja el valor mínimo y máximo según las combinaciones de opciones. Al confirmar su selección en cada sección generaremos la Propuesta Final con el valor exacto.";
       const notaWrap=doc.splitTextToSize(notaTotal,tw-4);
       notaWrap.forEach(line=>{doc.text(line,mg+2,y);y+=3.5});
       doc.setTextColor(26,26,26);y+=3;

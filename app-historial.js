@@ -498,14 +498,23 @@ async function submitPago(){
   const tipo=$("pm-tipo").value||"parcial";
   const notas=$("pm-notas").value.trim();
   const nuevo={fecha,monto,metodo,tipo,notas,registradoEn:new Date().toISOString()};
-  if(pagoFotoBase64)nuevo.foto=pagoFotoBase64;
+  // v5.0: foto va a Firebase Storage (no base64 inline)
+  if(pagoFotoBase64){
+    try{
+      const {url}=await uploadFotoFromBase64(pagoFotoBase64,"pago",pagoSrc.id,"pagos");
+      nuevo.fotoUrl=url;
+    }catch(e){
+      console.warn("Upload foto falló, guardo base64 como fallback:",e);
+      nuevo.foto=pagoFotoBase64; // compat legacy
+    }
+  }
   try{
     showLoader("Registrando pago...");
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
     const coll=pagoSrc.kind==="quote"?"quotes":(pagoSrc.id.startsWith("GB-PF-")?"propfinals":"proposals");
     const pagosActuales=getPagos(pagoSrc.doc).map(p=>({...p}));
     pagosActuales.push(nuevo);
-    await updateDoc(doc(db,coll,pagoSrc.id),{pagos:pagosActuales,updatedAt:serverTimestamp()});
+    await updateDoc(doc(db,coll,pagoSrc.id),{pagos:pagosActuales,updatedAt:serverTimestamp(),...auditStamp()});
     pagoSrc.doc.pagos=pagosActuales;
     hideLoader();closePagoModal();
     toast("💵 Pago registrado: "+fm(monto)+" via "+metodo,"success");
@@ -534,7 +543,9 @@ function openVerPagosModal(docId,kind,ev){
   if(!pagos.length){$("vp-list").innerHTML='<div class="dash-met-empty">Aún no hay pagos registrados.</div>'}
   else{
     $("vp-list").innerHTML=pagos.map(p=>{
-      const fotoHtml=p.foto?'<div class="pago-item-foto"><img src="'+p.foto+'"></div>':'';
+      // v5.0: soporta fotoUrl (Storage) o foto base64 legacy
+      const fotoSrc=p.fotoUrl||p.foto;
+      const fotoHtml=fotoSrc?'<div class="pago-item-foto"><img src="'+fotoSrc+'"></div>':'';
       const legBadge=p.legacy?' <span style="font-size:9px;color:#888">[migrado]</span>':'';
       return '<div class="pago-item">'+
         '<div class="pago-item-top"><span class="pago-item-monto">'+fm(p.monto)+'</span><span class="pago-item-tipo">'+p.tipo+'</span></div>'+
@@ -576,7 +587,8 @@ function openDeliveryModal(docId,kind,ev){
   const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
   if(!q){alert("No encontrado");return}
   deliverySrc={id:docId,kind:kind,doc:q};
-  entregaFotoBase64=q.entregaData?.fotoBase64||null;
+  // v5.0: soporta fotoUrl (Storage) o fotoBase64 (legacy)
+  entregaFotoBase64=q.entregaData?.fotoUrl||q.entregaData?.fotoBase64||null;
   $("dm-num").value=q.quoteNumber||q.id;
   $("dm-cli").value=q.client||"";
   $("dm-fecha").value=q.entregaData?.fechaEntrega||new Date().toISOString().slice(0,10);
@@ -624,7 +636,21 @@ async function submitDelivery(){
     nombreReceptor:nombreReceptor,fotoTipo:fotoTipo,
     marcadoEn:new Date().toISOString()
   };
-  if(entregaFotoBase64)entregaData.fotoBase64=entregaFotoBase64;
+  // v5.0: foto a Storage (solo si es base64 nueva — si es URL legacy la mantiene)
+  if(entregaFotoBase64){
+    if(entregaFotoBase64.startsWith("data:")){
+      try{
+        const {url}=await uploadFotoFromBase64(entregaFotoBase64,"entrega",deliverySrc.id,"entregas");
+        entregaData.fotoUrl=url;
+      }catch(e){
+        console.warn("Upload foto entrega falló, fallback a base64:",e);
+        entregaData.fotoBase64=entregaFotoBase64;
+      }
+    }else{
+      // Ya es URL (doc viejo recargado)
+      entregaData.fotoUrl=entregaFotoBase64;
+    }
+  }
   try{
     showLoader("Registrando entrega...");
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
@@ -634,7 +660,8 @@ async function submitDelivery(){
       status:"entregado",
       fechaEntrega:fecha,
       entregaData:entregaData,
-      updatedAt:serverTimestamp()
+      updatedAt:serverTimestamp(),
+      ...auditStamp()
     });
     deliverySrc.doc.status="entregado";
     deliverySrc.doc.fechaEntrega=fecha;
@@ -665,7 +692,7 @@ function openComentModal(docId,kind,ev){
   if(!q){alert("No encontrado");return}
   comentSrc={id:docId,kind:kind,doc:q};
   const c=q.comentarioCliente||{};
-  comentFotoBase64=c.fotoBase64||null;
+  comentFotoBase64=c.fotoUrl||c.fotoBase64||null; // v5.0: fotoUrl o legacy base64
   $("cm-num").value=q.quoteNumber||q.id;
   $("cm-cli").value=q.client||"";
   $("cm-fecha").value=c.fecha||new Date().toISOString().slice(0,10);
@@ -692,13 +719,26 @@ async function submitComentario(){
   if(!texto&&!comentFotoBase64){alert("Agrega texto o una foto");return}
   const fecha=$("cm-fecha").value||new Date().toISOString().slice(0,10);
   const comentarioCliente={texto:texto,fecha:fecha,registradoEn:new Date().toISOString()};
-  if(comentFotoBase64)comentarioCliente.fotoBase64=comentFotoBase64;
+  // v5.0: foto a Storage
+  if(comentFotoBase64){
+    if(comentFotoBase64.startsWith("data:")){
+      try{
+        const {url}=await uploadFotoFromBase64(comentFotoBase64,"comentario",comentSrc.id,"comentarios");
+        comentarioCliente.fotoUrl=url;
+      }catch(e){
+        console.warn("Upload foto comentario falló, fallback a base64:",e);
+        comentarioCliente.fotoBase64=comentFotoBase64;
+      }
+    }else{
+      comentarioCliente.fotoUrl=comentFotoBase64;
+    }
+  }
   try{
     showLoader("Guardando comentario...");
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
     const propId=comentSrc.id;
     const coll=comentSrc.kind==="quote"?"quotes":(propId.startsWith("GB-PF-")?"propfinals":"proposals");
-    await updateDoc(doc(db,coll,propId),{comentarioCliente:comentarioCliente,updatedAt:serverTimestamp()});
+    await updateDoc(doc(db,coll,propId),{comentarioCliente:comentarioCliente,updatedAt:serverTimestamp(),...auditStamp()});
     comentSrc.doc.comentarioCliente=comentarioCliente;
     hideLoader();closeComentModal();
     toast("💬 Comentario guardado","success");
