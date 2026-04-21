@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-// app-dashboard.js · v5.2.0 · 2026-04-21
+// app-dashboard.js · v5.2.1 · 2026-04-21
 // Dashboard + mini-dash + agenda mensual + agenda semanal
 // scrollable + export .ics idempotente + comentarios recientes.
 // v5.0.1b: drill-down agrupado + banner HOY + sync agenda + excluir convertidas.
@@ -7,7 +7,7 @@
 // v5.0.3: excluir anuladas en todos los KPIs.
 // v5.0.4: Pipeline Activo (pipeline vivo sin filtro de fecha) + banner follow-up.
 // v5.0.5: badge VIVA/PERDIDA en drill-down y pipeline detail.
-// v5.2.0: Dashboard rediseñado (bento grid, render robusto con try-catch por
+// v5.2.1: Hotfix render robusto + logs detallados\n// v5.2.0: Dashboard rediseñado (bento grid, render robusto con try-catch por
 //         sección) + 3 reportes nuevos (conversión/pérdidas motivo/vista cliente) +
 //         badge novedades + mantenimiento colapsable + fix botones ancho-completo.
 // ═══════════════════════════════════════════════════════════
@@ -57,10 +57,12 @@ function dateOfSale(q){return q.orderData?.fechaAprobacion||q.approvalData?.fech
 
 async function renderDashboard(){
   if(!quotesCache.length){try{await loadAllHistory()}catch{}}
-  // v5.2.0: cada sección se envuelve en try-catch para que un error en una
+  // v5.2.1: cada sección se envuelve en try-catch para que un error en una
   // no impida que el resto del dashboard se renderice. Antes de v5.2 un error
   // en renderBannerFollowUp (por ejemplo) dejaba el dashboard en blanco.
-  const _safe=(fn,name)=>{try{fn()}catch(e){console.warn("Dashboard sección '"+name+"' falló:",e)}};
+  // v5.2.1: protegemos incluso el body principal (range, loop, etc) por si
+  // quotesCache tiene datos corruptos.
+  const _safe=(fn,name)=>{try{fn()}catch(e){console.warn("[Dashboard] sección '"+name+"' falló:",e);console.warn("  stack:",e?.stack)}};
 
   _safe(renderFantasmasBanner,"fantasmas-banner");
   _safe(renderBannerEntregasHoy,"banner-hoy");
@@ -72,35 +74,47 @@ async function renderDashboard(){
   // v5.2.0: banner de novedades desde última visita (R5 simple)
   _safe(renderBannerNovedades,"banner-novedades");
 
-  const range=getDashRange();
-  $("dash-period-info").textContent=range.label;
-  const inRange=fecha=>fecha&&fecha>=range.start&&fecha<=range.end;
+  // v5.2.1: cálculo de métricas dentro de try-catch robusto
   let cotCount=0,cotMonto=0,cotClientes=new Set();
   let venCount=0,venMonto=0,venClientes=new Set();
   let entCount=0,entMonto=0;
   let porCobrarTotal=0,porCobrarN=0;
   const recaudoMet={};METODOS_PAGO.forEach(m=>recaudoMet[m]=0);
-  quotesCache.forEach(q=>{
-    if(q._wrongCollection)return;
-    const status=q.status||"enviada";
-    if(status==="superseded")return;
-    if(status==="anulada")return;
-    if(typeof getFollowUp==="function"&&getFollowUp(q)==="perdida"&&(status==="enviada"||status==="propfinal"))return;
-    const total=getDocTotal(q);
-    const fCre=dateOfCreation(q);
-    const fVen=dateOfSale(q);
-    const fEnt=q.fechaEntrega||q.eventDate;
-    if(inRange(fCre)&&status!=="convertida"){cotCount++;cotMonto+=total;if(q.client)cotClientes.add(q.client)}
-    if(inRange(fVen)&&["pedido","aprobada","en_produccion","entregado"].includes(status)){venCount++;venMonto+=total;if(q.client)venClientes.add(q.client)}
-    if(inRange(fEnt)&&status==="entregado"){entCount++;entMonto+=total}
-    if(["pedido","aprobada","en_produccion","entregado"].includes(status)){const pend=saldoPendiente(q);if(pend>0){porCobrarTotal+=pend;porCobrarN++}}
-    getPagos(q).forEach(p=>{if(inRange(p.fecha)){const m=METODOS_PAGO.includes(p.metodo)?p.metodo:"Otro";recaudoMet[m]+=parseInt(p.monto)||0}});
-  });
-  const totalRecaudo=Object.values(recaudoMet).reduce((s,v)=>s+v,0);
+  let totalRecaudo=0;
+  let range=null,inRange=null;
+  _safe(()=>{
+    range=getDashRange();
+    const pInfoEl=$("dash-period-info");
+    if(pInfoEl)pInfoEl.textContent=range.label;
+    inRange=fecha=>fecha&&fecha>=range.start&&fecha<=range.end;
+    quotesCache.forEach(q=>{
+      try{
+        if(q._wrongCollection)return;
+        const status=q.status||"enviada";
+        if(status==="superseded")return;
+        if(status==="anulada")return;
+        if(typeof getFollowUp==="function"&&getFollowUp(q)==="perdida"&&(status==="enviada"||status==="propfinal"))return;
+        const total=getDocTotal(q);
+        const fCre=dateOfCreation(q);
+        const fVen=dateOfSale(q);
+        const fEnt=q.fechaEntrega||q.eventDate;
+        if(inRange(fCre)&&status!=="convertida"){cotCount++;cotMonto+=total;if(q.client)cotClientes.add(q.client)}
+        if(inRange(fVen)&&["pedido","aprobada","en_produccion","entregado"].includes(status)){venCount++;venMonto+=total;if(q.client)venClientes.add(q.client)}
+        if(inRange(fEnt)&&status==="entregado"){entCount++;entMonto+=total}
+        if(["pedido","aprobada","en_produccion","entregado"].includes(status)){const pend=saldoPendiente(q);if(pend>0){porCobrarTotal+=pend;porCobrarN++}}
+        getPagos(q).forEach(p=>{if(inRange(p.fecha)){const m=METODOS_PAGO.includes(p.metodo)?p.metodo:"Otro";recaudoMet[m]+=parseInt(p.monto)||0}});
+      }catch(eDoc){
+        console.warn("[Dashboard] doc con error en loop:",q?.id,q?.kind,eDoc);
+      }
+    });
+    totalRecaudo=Object.values(recaudoMet).reduce((s,v)=>s+v,0);
+  },"metricas-loop");
   const _hint='<div style="position:absolute;bottom:6px;right:8px;font-size:9px;color:var(--soft)">Toca para ver →</div>';
   // KPIs del período (bento)
   _safe(()=>{
-    $("dash-cards").innerHTML=
+    const el=$("dash-cards");
+    if(!el){console.warn("[Dashboard] #dash-cards no existe en el DOM");return}
+    el.innerHTML=
       '<div class="dash-card cot" style="cursor:pointer" onclick="openDashDetail(\'cotizado\')"><div class="dash-card-icon">🧾</div><div class="dash-card-lab">Cotizado</div><div class="dash-card-val">'+fm(cotMonto)+'</div><div class="dash-card-sub">'+cotCount+' doc · '+cotClientes.size+' cliente'+(cotClientes.size!==1?'s':'')+'</div>'+_hint+'</div>'+
       '<div class="dash-card vendido" style="cursor:pointer" onclick="openDashDetail(\'vendido\')"><div class="dash-card-icon">🤝</div><div class="dash-card-lab">Vendido</div><div class="dash-card-val">'+fm(venMonto)+'</div><div class="dash-card-sub">'+venCount+' pedido'+(venCount!==1?'s':'')+' · '+venClientes.size+' cliente'+(venClientes.size!==1?'s':'')+'</div>'+_hint+'</div>'+
       '<div class="dash-card entregado" style="cursor:pointer" onclick="openDashDetail(\'entregado\')"><div class="dash-card-icon">🎉</div><div class="dash-card-lab">Entregado</div><div class="dash-card-val">'+fm(entMonto)+'</div><div class="dash-card-sub">'+entCount+' entrega'+(entCount!==1?'s':'')+'</div>'+_hint+'</div>'+
@@ -108,21 +122,25 @@ async function renderDashboard(){
       '<div class="dash-card cobrar" style="cursor:pointer" onclick="openDashDetail(\'cobrar\')"><div class="dash-card-icon">⚠️</div><div class="dash-card-lab">Por cobrar</div><div class="dash-card-val">'+fm(porCobrarTotal)+'</div><div class="dash-card-sub">'+porCobrarN+' documento'+(porCobrarN!==1?'s':'')+' (todos los activos)</div>'+_hint+'</div>';
   },"kpis-cards");
 
-  // v5.2.0: Reportes comerciales
-  _safe(()=>renderReporteConversion(range,inRange),"reporte-conversion");
-  _safe(()=>renderReportePerdidas(range,inRange),"reporte-perdidas");
+  // v5.2.0: Reportes comerciales (solo si range/inRange se calcularon OK)
+  if(range&&inRange){
+    _safe(()=>renderReporteConversion(range,inRange),"reporte-conversion");
+    _safe(()=>renderReportePerdidas(range,inRange),"reporte-perdidas");
+  }
   // v5.2.0: Vista por cliente (re-renderiza si hay uno seleccionado)
   _safe(renderClienteView,"cliente-view");
 
   // Recaudo por método
   _safe(()=>{
+    const el=$("dash-recaudo");
+    if(!el)return;
     const maxMet=Math.max(...Object.values(recaudoMet),1);
     const recRows=METODOS_PAGO.map(m=>{
       const v=recaudoMet[m];
       const pct=Math.round(v*100/maxMet);
       return '<div class="dash-met-row"><div class="dash-met-name">'+m+'</div><div class="dash-met-bar"><div class="dash-met-bar-fill" style="width:'+(v>0?pct:0)+'%"></div></div><div class="dash-met-val">'+fm(v)+'</div></div>';
     }).join("");
-    $("dash-recaudo").innerHTML=totalRecaudo>0?recRows:'<div class="dash-met-empty">Sin pagos registrados en el período.</div>';
+    el.innerHTML=totalRecaudo>0?recRows:'<div class="dash-met-empty">Sin pagos registrados en el período.</div>';
   },"recaudo");
   // Próximas entregas (próximos 14 días, ignora período)
   _safe(()=>{

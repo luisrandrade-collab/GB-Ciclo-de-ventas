@@ -15,10 +15,12 @@
 //         por sección) + 3 reportes nuevos (conversión, pérdidas por motivo,
 //         vista por cliente) + badge de novedades desde última visita +
 //         mantenimiento colapsable bajo toggle.
+// v5.2.1: HOTFIX — protección completa del render con try-catch en body principal,
+//         fallbacks para $() null, logs detallados en consola para diagnóstico.
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v5.2.0";
+const BUILD_VERSION="v5.2.1";
 const BUILD_DATE="2026-04-21";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
