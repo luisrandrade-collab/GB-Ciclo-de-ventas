@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-// app-historial.js · v5.0.4 · 2026-04-20
+// app-historial.js · v5.0.5 · 2026-04-21
 // Historial + ciclo de vida (order/approve/saldo) + pagos +
 // duplicar + features v4.12: foto entrega, notas producción,
 // notas entrega, quién entregó, recibido conforme, comentarios cliente.
@@ -8,6 +8,8 @@
 // v5.0.3: botón ↩️ Anular + modal + filtro Anuladas + devolución opcional.
 // v5.0.4: filtro "Pedidos" consolidado (pedido+aprobada+en_produccion) +
 //         badge followUp + exclusión de perdidas en el "Todas".
+// v5.0.5: filtro "Vivas" + badge binario VIVA/PERDIDA + bloqueo conversión
+//         perdida→pedido + botón ♻️ Reactivar en perdidas.
 // ═══════════════════════════════════════════════════════════
 
 const METODOS_PAGO=["Efectivo","Nequi","Daviplata","Banco Falabella","Transferencia","Otro"];
@@ -38,7 +40,7 @@ async function renderHist(){
   // v5.0.3: mismo tratamiento para anuladas.
   // v5.0.4: "Pedidos" consolida pedido + aprobada + en_produccion (todo lo vendido sin entregar)
   //         "Perdidas" nuevo filtro (followUp=perdida, excluidas del "Todas")
-  const cnt={all:0,cot:0,prop:0,pedido:0,propfinal:0,aprobada:0,en_produccion:0,convertidas:0,anuladas:0,perdidas:0};
+  const cnt={all:0,cot:0,prop:0,vivas:0,pedido:0,propfinal:0,aprobada:0,en_produccion:0,convertidas:0,anuladas:0,perdidas:0};
   quotesCache.forEach(q=>{
     const s=q.status||"enviada";
     const fu=typeof getFollowUp==="function"?getFollowUp(q):"pendiente";
@@ -48,6 +50,8 @@ async function renderHist(){
     if(fu==="perdida"&&(s==="enviada"||s==="propfinal")){cnt.perdidas++;return}
     cnt.all++;
     if(q.kind==="quote")cnt.cot++;else cnt.prop++;
+    // v5.0.5: "Vivas" = followables no perdidas (cotizaciones enviadas + propuestas enviadas/propfinal)
+    if(typeof isViva==="function"&&isViva(q))cnt.vivas++;
     // v5.0.4: "Pedidos" agrupa los 3 estados de venta confirmada
     if(["pedido","aprobada","en_produccion"].includes(s))cnt.pedido++;
     if(s==="propfinal")cnt.propfinal++;
@@ -64,6 +68,8 @@ async function renderHist(){
     // v5.0.4: perdidas se ven solo con filtro explícito
     if(histFilter==="perdidas")return fu==="perdida"&&(s==="enviada"||s==="propfinal");
     if(fu==="perdida"&&(s==="enviada"||s==="propfinal"))return false;
+    // v5.0.5: filtro Vivas — cotizaciones/propuestas followable no perdidas
+    if(histFilter==="vivas")return typeof isViva==="function"&&isViva(q);
     if(histFilter==="all")return true;
     if(histFilter==="cot")return q.kind==="quote";
     if(histFilter==="prop")return q.kind==="proposal";
@@ -74,6 +80,8 @@ async function renderHist(){
   const mkFilter=(k,label,n,extraCls)=>'<button class="hist-filter '+(extraCls||"")+' '+(histFilter===k?"act":"")+'" onclick="setHistFilter(\''+k+'\')">'+label+'<span class="cnt">'+n+'</span></button>';
   const filtersBar='<div class="hist-filters">'+
     mkFilter("all","Todas",cnt.all)+
+    // v5.0.5: filtro Vivas (cotizaciones/propuestas sin cerrar, no perdidas)
+    mkFilter("vivas","🟢 Vivas",cnt.vivas)+
     mkFilter("cot","Cotizaciones",cnt.cot)+
     mkFilter("prop","Propuestas",cnt.prop)+
     mkFilter("pedido","Pedidos",cnt.pedido)+
@@ -103,13 +111,17 @@ async function renderHist(){
     // v5.0.3: badge Anulada (motivo visible como tooltip)
     const motivoAnulacion=q.anuladaData?.motivoLabel||q.anuladaData?.motivo||"";
     const anuladaBadge=(status==="anulada")?'<span class="hc-anulada-badge" title="'+motivoAnulacion+'">❌ Anulada</span>':'';
-    // v5.0.4: badge de followUp (solo para docs followable y solo si followUp != pendiente)
+    // v5.0.5: badge binario VIVA/PERDIDA (principal) + tag interno contactado/activa
     let followUpBadge="";
     if(typeof isFollowable==="function"&&isFollowable(q)){
       const fu=typeof getFollowUp==="function"?getFollowUp(q):"pendiente";
-      if(fu!=="pendiente"&&FOLLOW_UP_META[fu]){
+      const ec=typeof estadoComercial==="function"?estadoComercial(q):(fu==="perdida"?"perdida":"viva");
+      const ecMeta=(typeof ESTADO_COMERCIAL_META!=="undefined"&&ESTADO_COMERCIAL_META[ec])||{label:ec,cls:ec,emoji:""};
+      followUpBadge='<span class="hc-estado-badge '+ecMeta.cls+'" title="Estado comercial">'+ecMeta.emoji+' '+ecMeta.label+'</span>';
+      // Tag interno opcional (contactado/activa) — solo si es viva y no está en default
+      if(ec==="viva"&&fu!=="pendiente"&&FOLLOW_UP_META[fu]){
         const meta=FOLLOW_UP_META[fu];
-        followUpBadge='<span class="hc-follow-badge '+meta.cls+'" title="'+meta.desc+'">'+meta.emoji+' '+meta.label+'</span>';
+        followUpBadge+='<span class="hc-follow-badge '+meta.cls+'" title="'+meta.desc+'">'+meta.emoji+' '+meta.label+'</span>';
       }
     }
     const _pagos=getPagos(q);
@@ -126,21 +138,39 @@ async function renderHist(){
       else if(q.lastSyncAt)syncBadge='<span class="hc-sync-ok">✓ Sync</span>';
     }
     const actionBtns=[];
+    // v5.0.5: Si es followable y está perdida, bloqueamos conversión.
+    // Solo se ofrece ♻️ Reactivar (viva) o editar.
+    const _esPerdida=typeof isPerdida==="function"&&isPerdida(q);
     // Ciclo de vida según tipo + status
     if(!isProp&&status==="enviada"){
       actionBtns.push('<button class="btn hc-btn-edit" onclick="event.stopPropagation();loadQuote(\'quote\',\''+q.id+'\')">✏️ Editar</button>');
-      actionBtns.push('<button class="btn hc-btn-order" onclick="openOrderModal(\''+q.id+'\',event)">✅ Marcar como pedido</button>');
+      // v5.0.5: solo ofrecer "Marcar como pedido" si NO está perdida
+      if(!_esPerdida){
+        actionBtns.push('<button class="btn hc-btn-order" onclick="openOrderModal(\''+q.id+'\',event)">✅ Marcar como pedido</button>');
+      }else{
+        actionBtns.push('<button class="btn hc-btn-reactivar" style="background:linear-gradient(135deg,#66BB6A,#388E3C);color:#fff" onclick="openReactivarModal(\''+q.id+'\',\'quote\',event)">♻️ Reactivar</button>');
+      }
     }else if(!isProp&&(status==="pedido"||status==="en_produccion")){
       if(!q.eventDate)actionBtns.push('<button class="btn hc-btn-order" onclick="assignDeliveryDate(\''+q.id+'\',event)">📅 Asignar fecha de entrega</button>');
       if(!q.produced)actionBtns.push('<button class="btn hc-btn-edit" onclick="toggleProduced(\''+q.id+'\',\'quote\',event)">🔪 Marcar producido</button>');
       actionBtns.push('<button class="btn hc-btn-deliver" onclick="openDeliveryModal(\''+q.id+'\',\'quote\',event)">🎉 Marcar como entregado</button>');
       if(q.eventDate||q.productionDate)actionBtns.push('<button class="btn hc-btn-ics" onclick="exportPedidoIcs(\''+q.id+'\',\'quote\',event)">📅 .ics</button>');
     }else if(isProp&&status==="enviada"){
-      const hasMulti=(q.sections||[]).some(s=>(s.options||[]).length>1);
-      if(hasMulti)actionBtns.push('<button class="btn hc-btn-final" onclick="openPropFinalFlow(\''+q.id+'\',event)">✓ Generar Propuesta Final</button>');
-      else actionBtns.push('<button class="btn hc-btn-approve" onclick="openApproveModal(\''+q.id+'\',\'proposal\',event)">✓ Marcar como aprobada</button>');
+      // v5.0.5: bloquear PF/aprobada si es perdida; ofrecer Reactivar
+      if(!_esPerdida){
+        const hasMulti=(q.sections||[]).some(s=>(s.options||[]).length>1);
+        if(hasMulti)actionBtns.push('<button class="btn hc-btn-final" onclick="openPropFinalFlow(\''+q.id+'\',event)">✓ Generar Propuesta Final</button>');
+        else actionBtns.push('<button class="btn hc-btn-approve" onclick="openApproveModal(\''+q.id+'\',\'proposal\',event)">✓ Marcar como aprobada</button>');
+      }else{
+        actionBtns.push('<button class="btn hc-btn-reactivar" style="background:linear-gradient(135deg,#66BB6A,#388E3C);color:#fff" onclick="openReactivarModal(\''+q.id+'\',\'proposal\',event)">♻️ Reactivar</button>');
+      }
     }else if(isProp&&status==="propfinal"){
-      actionBtns.push('<button class="btn hc-btn-approve" onclick="openApproveModal(\''+q.id+'\',\'proposal\',event)">✓ Marcar como aprobada</button>');
+      // v5.0.5: bloquear aprobada si es perdida; ofrecer Reactivar
+      if(!_esPerdida){
+        actionBtns.push('<button class="btn hc-btn-approve" onclick="openApproveModal(\''+q.id+'\',\'proposal\',event)">✓ Marcar como aprobada</button>');
+      }else{
+        actionBtns.push('<button class="btn hc-btn-reactivar" style="background:linear-gradient(135deg,#66BB6A,#388E3C);color:#fff" onclick="openReactivarModal(\''+q.id+'\',\'proposal\',event)">♻️ Reactivar</button>');
+      }
     }else if(isProp&&(status==="aprobada"||status==="en_produccion")){
       if(!q.produced)actionBtns.push('<button class="btn hc-btn-edit" onclick="toggleProduced(\''+q.id+'\',\'proposal\',event)">🔪 Marcar producido</button>');
       actionBtns.push('<button class="btn hc-btn-deliver" onclick="openDeliveryModal(\''+q.id+'\',\'proposal\',event)">🎉 Marcar como entregado</button>');

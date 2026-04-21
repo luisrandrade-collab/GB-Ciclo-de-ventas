@@ -1,11 +1,12 @@
 // ═══════════════════════════════════════════════════════════
-// app-dashboard.js · v5.0.4 · 2026-04-20
+// app-dashboard.js · v5.0.5 · 2026-04-21
 // Dashboard + mini-dash + agenda mensual + agenda semanal
 // scrollable + export .ics idempotente + comentarios recientes.
 // v5.0.1b: drill-down agrupado + banner HOY + sync agenda + excluir convertidas.
 // v5.0.2: banner sync pendiente + syncPendingOnly + rango custom.
 // v5.0.3: excluir anuladas en todos los KPIs.
 // v5.0.4: Pipeline Activo (pipeline vivo sin filtro de fecha) + banner follow-up.
+// v5.0.5: badge VIVA/PERDIDA en drill-down y pipeline detail.
 // ═══════════════════════════════════════════════════════════
 
 // ─── HELPER: total real de cualquier doc ───────────────────
@@ -665,9 +666,18 @@ function openDashDetail(tipo){
     const fecha=dateOfCreation(q)||"—";
     const sMeta=STATUS_META[q.status||"enviada"]||STATUS_META.enviada;
     const tag=q.kind==="quote"?'<span class="ui-tag prod">Pedido</span>':'<span class="ui-tag ent">Evento</span>';
+    // v5.0.5: badge VIVA/PERDIDA solo para followables
+    let ecBadge="";
+    if(typeof estadoComercial==="function"){
+      const ec=estadoComercial(q);
+      if(ec&&typeof ESTADO_COMERCIAL_META!=="undefined"&&ESTADO_COMERCIAL_META[ec]){
+        const m=ESTADO_COMERCIAL_META[ec];
+        ecBadge=' <span class="hc-estado-badge '+m.cls+'">'+m.emoji+' '+m.label+'</span>';
+      }
+    }
     return '<div class="dd-row" onclick="closeDashDetail();loadQuote(\''+q.kind+'\',\''+q.id+'\')">'+
       '<div class="dd-row-top"><div class="dd-row-cli">'+tag+(q.client||"—")+'</div><div class="dd-row-monto">'+fm(monto)+'</div></div>'+
-      '<div class="dd-row-meta"><span class="qnum" style="font-size:9px">'+(q.quoteNumber||q.id)+'</span> · '+fecha+' · <span class="hc-status '+sMeta.cls+'">'+sMeta.label+'</span>'+(extra?' · '+extra:'')+'</div>'+
+      '<div class="dd-row-meta"><span class="qnum" style="font-size:9px">'+(q.quoteNumber||q.id)+'</span> · '+fecha+' · <span class="hc-status '+sMeta.cls+'">'+sMeta.label+'</span>'+ecBadge+(extra?' · '+extra:'')+'</div>'+
     '</div>';
   };
   if(tipo==="cotizado"){
@@ -1119,7 +1129,7 @@ function renderPipelineActivo(){
     '<div class="pipe-card pc-cot" onclick="openPipelineDetail(\'en_cotizacion\')">'+
       '<div class="pipe-card-lab">🧾 En cotización</div>'+
       '<div class="pipe-card-val">'+fm(p.en_cotizacion.total)+'</div>'+
-      '<div class="pipe-card-sub">'+p.en_cotizacion.count+' doc'+(p.en_cotizacion.count!==1?'s':'')+' vivos</div>'+
+      '<div class="pipe-card-sub">🟢 '+p.en_cotizacion.count+' viva'+(p.en_cotizacion.count!==1?'s':'')+'</div>'+
     '</div>'+
     '<div class="pipe-card pc-ped" onclick="openPipelineDetail(\'pedidos_confirmados\')">'+
       '<div class="pipe-card-lab">🤝 Pedidos confirmados</div>'+
@@ -1157,12 +1167,21 @@ function openPipelineDetail(bucket){
     const fecha=q.eventDate||q.dateISO||"—";
     const sMeta=STATUS_META[q.status||"enviada"]||STATUS_META.enviada;
     const tag=q.kind==="quote"?'<span class="ui-tag prod">Cotización</span>':'<span class="ui-tag ent">Propuesta</span>';
+    // v5.0.5: badge VIVA/PERDIDA en estado (solo para followables)
+    let ecBadge="";
+    if(typeof estadoComercial==="function"){
+      const ec=estadoComercial(q);
+      if(ec&&typeof ESTADO_COMERCIAL_META!=="undefined"&&ESTADO_COMERCIAL_META[ec]){
+        const m=ESTADO_COMERCIAL_META[ec];
+        ecBadge=' <span class="hc-estado-badge '+m.cls+'">'+m.emoji+' '+m.label+'</span>';
+      }
+    }
     return '<tr onclick="closeDashDetail();setTimeout(function(){loadQuote(\''+q.kind+'\',\''+q.id+'\')},80)" style="cursor:pointer">'+
       '<td style="font-size:10px;color:#555">'+(q.quoteNumber||q.id)+'</td>'+
       '<td>'+tag+'</td>'+
       '<td>'+(q.client||"—")+'</td>'+
       '<td style="font-size:10px">'+fecha+'</td>'+
-      '<td><span class="hc-status '+sMeta.cls+'">'+sMeta.label+'</span></td>'+
+      '<td><span class="hc-status '+sMeta.cls+'">'+sMeta.label+'</span>'+ecBadge+'</td>'+
       '<td style="text-align:right;font-weight:700">'+fm(monto)+'</td>'+
       '</tr>';
   }).join("");

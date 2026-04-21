@@ -1,8 +1,10 @@
 // ═══════════════════════════════════════════════════════════
-// app-seguimiento.js · v5.0.4 · 2026-04-20
+// app-seguimiento.js · v5.0.5 · 2026-04-21
 // Pestaña de seguimiento comercial de cotizaciones/propuestas vivas.
 // Permite marcar estado de followUp, agregar notas, contactar cliente
 // vía WhatsApp/teléfono/correo con un tap.
+// v5.0.5: expone binario VIVA/PERDIDA en UI. Tags contactado/activa
+//         quedan internos. Agrega modal ♻️ Reactivar para perdidas.
 // ═══════════════════════════════════════════════════════════
 
 // Filtro de la pestaña: 'todos' | 'alertas' (>7d) | 'pendiente' | 'contactado' | 'activa'
@@ -58,9 +60,15 @@ function renderSeguimiento(){
 }
 
 // Render de un grupo (pendiente / contactado / activa / alertas)
+// v5.0.5: prefijo 🟢 VIVAS en los títulos para reforzar que son todas vivas.
 function renderSegGroup(kind,docs,customTitle){
   const meta=FOLLOW_UP_META[kind]||{label:kind,cls:kind,emoji:"📋"};
-  const title=customTitle||(meta.emoji+" "+meta.label+" — "+meta.desc);
+  const titulosV505={
+    pendiente:"🟢 VIVAS · Sin contactar todavía",
+    contactado:"🟢 VIVAS · Ya contactadas, esperando respuesta",
+    activa:"🟢 VIVAS · En negociación activa (calientes)"
+  };
+  const title=customTitle||titulosV505[kind]||(meta.emoji+" "+meta.label+" — "+meta.desc);
   const groupCls=kind==="alertas"?"pendiente":kind;
   return '<div class="seg-group">'+
     '<div class="seg-group-header '+groupCls+'">'+title+
@@ -256,5 +264,42 @@ async function submitNotaSeg(){
     closeNotaSegModal();
     renderSeguimiento();
     if(typeof renderDashboard==="function")renderDashboard();
+  }
+}
+
+// ─── v5.0.5 · MODAL "REACTIVAR PERDIDA" ───────────────────
+let _reactivarCtx=null;
+
+function openReactivarModal(docId,kind,ev){
+  if(ev){ev.stopPropagation();ev.preventDefault()}
+  const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
+  if(!q){alert("No se encontró el documento");return}
+  if(typeof isPerdida==="function"&&!isPerdida(q)){alert("Este documento no está marcado como perdida");return}
+  _reactivarCtx={docId,kind,q};
+  const motivoPrev=q.perdidaData?.motivoLabel||q.perdidaData?.motivo||"sin motivo";
+  $("rv-doc-id").textContent=q.quoteNumber||q.id;
+  $("rv-doc-cli").textContent=q.client||"—";
+  $("rv-doc-meta").textContent=(q.kind==="quote"?"Cotización":"Propuesta")+" · Total: "+fm(q.total||0)+" · Perdida por: "+motivoPrev;
+  $("reactivar-modal").classList.remove("hidden");
+}
+
+function closeReactivarModal(){
+  $("reactivar-modal").classList.add("hidden");
+  _reactivarCtx=null;
+}
+
+async function submitReactivar(destino){
+  if(!_reactivarCtx){alert("Contexto perdido");return}
+  if(typeof reactivarPerdida!=="function"){alert("Función no disponible");return}
+  if(typeof showLoader==="function")showLoader("Reactivando...");
+  const ok=await reactivarPerdida(_reactivarCtx.docId,_reactivarCtx.kind,destino);
+  if(typeof hideLoader==="function")hideLoader();
+  if(ok){
+    const label=destino==="activa"?"ACTIVA (caliente)":"VIVA";
+    if(typeof toast==="function")toast("♻️ Reactivada como "+label,"success");
+    closeReactivarModal();
+    renderSeguimiento();
+    if(typeof renderDashboard==="function")renderDashboard();
+    if(typeof renderHist==="function"&&curMode==="hist")renderHist();
   }
 }

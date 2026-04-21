@@ -1,16 +1,18 @@
 // ═══════════════════════════════════════════════════════════
-// app-core.js · v5.0.4 · 2026-04-20
+// app-core.js · v5.0.5 · 2026-04-21
 // Firebase wrapper, Auth (v5.0), Storage (v5.0), state global,
 // helpers, INIT, mode switching, search, transporte, cart,
 // navegación, clientes, autoTransition, getNextNumber.
 // v5.0.2: flag needsSync + helpers auto-sync + rango custom dashboard.
 // v5.0.3: nuevo estado "anulada" + flujo de reversión/anulación.
 // v5.0.4: helpers de follow-up comercial + modo 'seg' + getPipelineActivo.
+// v5.0.5: binario VIVA/PERDIDA en superficie + reactivarPerdida + bloqueo
+//         conversión perdida→pedido. Tags contactado/activa internos.
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v5.0.4";
-const BUILD_DATE="2026-04-20";
+const BUILD_VERSION="v5.0.5";
+const BUILD_DATE="2026-04-21";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
 const APP_YEAR=new Date().getFullYear();
@@ -664,6 +666,13 @@ const FOLLOW_UP_META={
   perdida:   {label:"Perdida",    cls:"perdida",    desc:"Cerrada sin venta",           emoji:"❌"}
 };
 
+// v5.0.5: Meta del estado comercial binario expuesto al usuario.
+// pendiente/contactado/activa → VIVA. perdida → PERDIDA.
+const ESTADO_COMERCIAL_META={
+  viva:   {label:"Viva",    cls:"viva",    emoji:"🟢"},
+  perdida:{label:"Perdida", cls:"perdida", emoji:"❌"}
+};
+
 const MOTIVOS_PERDIDA={
   precio:"Precio",
   competencia:"Competencia",
@@ -689,6 +698,16 @@ function getFollowUp(q){
   if(q.followUp&&FOLLOW_UP_META[q.followUp])return q.followUp;
   return "pendiente";
 }
+
+// v5.0.5: Estado comercial binario (viva | perdida) para docs followable.
+// Regla: perdida solo si followUp === "perdida". Todo lo demás (pendiente,
+// contactado, activa) → viva. Si el doc no es followable, devuelve null.
+function estadoComercial(q){
+  if(!isFollowable(q))return null;
+  return getFollowUp(q)==="perdida"?"perdida":"viva";
+}
+function isViva(q){return estadoComercial(q)==="viva"}
+function isPerdida(q){return estadoComercial(q)==="perdida"}
 
 // Días desde la última actualización del doc (cualquier edición cuenta)
 function daysSinceUpdate(q){
@@ -818,6 +837,60 @@ async function addNotaSeguimiento(docId,kind,texto){
   }catch(e){
     console.error("addNotaSeguimiento error",e);
     alert("Error guardando nota: "+(e.message||e));
+    return false;
+  }
+}
+
+// v5.0.5: Reactivar una perdida → vuelve a VIVA.
+// destino: "pendiente" (vuelve a viva normal) | "activa" (viva caliente).
+// Limpia perdidaData y deja traza en notasSeguimiento + reactivadaData.
+async function reactivarPerdida(docId,kind,destino){
+  if(destino!=="pendiente"&&destino!=="activa"){
+    throw new Error("Destino inválido para reactivar: "+destino);
+  }
+  if(!cloudOnline){alert("Sin conexión.");return false}
+  const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
+  if(!q)return false;
+  if(getFollowUp(q)!=="perdida"){alert("El documento no está marcado como perdida");return false}
+  const {db,doc,updateDoc,serverTimestamp,deleteField}=window.fb;
+  let coll;
+  if(kind==="quote")coll="quotes";
+  else if(docId&&docId.startsWith("GB-PF-"))coll="propfinals";
+  else coll="proposals";
+  const ahora=new Date().toISOString();
+  const reactivadaData={
+    fecha:ahora,
+    destinoPrevio:q.perdidaData?.motivoLabel||q.perdidaData?.motivo||"—",
+    destino,
+    usuario:(window.auth?.currentUser?.email||"Luis")
+  };
+  const notaAuto={
+    fecha:ahora,
+    texto:"♻️ Reactivada desde perdida ("+(q.perdidaData?.motivoLabel||"sin motivo")+") → "+(destino==="activa"?"VIVA (activa)":"VIVA"),
+    usuario:reactivadaData.usuario
+  };
+  const notasExistentes=Array.isArray(q.notasSeguimiento)?q.notasSeguimiento:[];
+  const notasNuevas=[...notasExistentes,notaAuto];
+  const patch={
+    followUp:destino,
+    perdidaData:deleteField?deleteField():null,
+    reactivadaData,
+    notasSeguimiento:notasNuevas,
+    followUpUpdatedAt:ahora,
+    updatedAt:serverTimestamp()
+  };
+  if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
+  try{
+    await updateDoc(doc(db,coll,docId),patch);
+    q.followUp=destino;
+    q.perdidaData=null;
+    q.reactivadaData=reactivadaData;
+    q.notasSeguimiento=notasNuevas;
+    q.followUpUpdatedAt=ahora;
+    return true;
+  }catch(e){
+    console.error("reactivarPerdida error",e);
+    alert("Error reactivando: "+(e.message||e));
     return false;
   }
 }
