@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-// app-historial.js · v5.0.5 · 2026-04-21
+// app-historial.js · v5.1.0 · 2026-04-21
 // Historial + ciclo de vida (order/approve/saldo) + pagos +
 // duplicar + features v4.12: foto entrega, notas producción,
 // notas entrega, quién entregó, recibido conforme, comentarios cliente.
@@ -10,6 +10,9 @@
 //         badge followUp + exclusión de perdidas en el "Todas".
 // v5.0.5: filtro "Vivas" + badge binario VIVA/PERDIDA + bloqueo conversión
 //         perdida→pedido + botón ♻️ Reactivar en perdidas.
+// v5.1.0: 4 sub-pestañas (Vivas/Pedidos/Perdidas/Anuladas) + buscador por
+//         palabras + botones rápidos 🟢 Viva / ❌ Perdida en tarjetas +
+//         adjuntar comprobante después del pago.
 // ═══════════════════════════════════════════════════════════
 
 const METODOS_PAGO=["Efectivo","Nequi","Daviplata","Banco Falabella","Transferencia","Otro"];
@@ -30,70 +33,187 @@ function totalCobrado(q){return getPagos(q).reduce((s,p)=>s+(parseInt(p.monto)||
 function saldoPendiente(q){const t=(typeof getDocTotal==="function"?getDocTotal(q):(q.total||q.totalReal||0));return Math.max(0,t-totalCobrado(q))}
 
 // ─── HISTORIAL render ──────────────────────────────────────
+// v5.1.0: Sistema de ARCHIVOS + FILTROS + BUSCADOR
+//
+//   ARCHIVO (histArchive): vista principal. 4 opciones mutuamente exclusivas.
+//     - vivas     : cotizaciones/propuestas sin cerrar y NO perdidas
+//     - pedidos   : todo lo vendido (pedido, aprobada, en_produccion, entregado)
+//     - perdidas  : followUp=perdida
+//     - anuladas  : status=anulada
+//
+//   FILTRO (histFilter): sub-filtro dentro del archivo activo. Depende del archivo:
+//     - En "vivas"    : all | cot | prop | propfinal
+//     - En "pedidos"  : all | pedido | aprobada | en_produccion | entregado
+//     - En "perdidas" : all | precio | competencia | no_respondio | cambio_planes | tiempo | otro
+//     - En "anuladas" : all
+//
+//   BUSCADOR (histSearch): texto libre. Busca en cliente + número + productos.
+//     Case-insensitive, sin tildes. Se combina con archivo + filtro.
+//
+//   Las cotizaciones "convertidas" (status=convertida) quedan ocultas siempre
+//   (son referencias históricas a su PF correspondiente, no se muestran).
+
+// Estado global (defaults). Si no existen, se inicializan.
+if(typeof histArchive==="undefined")var histArchive="vivas";
+if(typeof histFilter==="undefined")var histFilter="all";
+if(typeof histSearch==="undefined")var histSearch="";
+
+// Normaliza texto: quita tildes, a minúsculas. Para comparar en buscador.
+function _normTxt(s){
+  return String(s||"").toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+}
+
+// Extrae todo el texto "buscable" de un doc (cliente + número + productos/secciones)
+function _docSearchableText(q){
+  const parts=[q.client||"",q.quoteNumber||"",q.id||""];
+  if(Array.isArray(q.cart))q.cart.forEach(it=>parts.push(it.name||""));
+  if(Array.isArray(q.items))q.items.forEach(it=>parts.push(it.name||""));
+  if(Array.isArray(q.cust))q.cust.forEach(it=>parts.push(it.name||""));
+  if(Array.isArray(q.sections))q.sections.forEach(sec=>{
+    parts.push(sec.title||"");
+    if(Array.isArray(sec.options))sec.options.forEach(op=>{
+      if(Array.isArray(op.items))op.items.forEach(it=>parts.push(it.name||""));
+    });
+  });
+  return _normTxt(parts.join(" "));
+}
+
+// ¿El doc pertenece al archivo dado?
+function _docEnArchivo(q,arch){
+  const s=q.status||"enviada";
+  const fu=typeof getFollowUp==="function"?getFollowUp(q):"pendiente";
+  if(s==="convertida")return false; // siempre ocultas
+  if(arch==="anuladas")return s==="anulada";
+  if(s==="anulada")return false;
+  if(arch==="perdidas")return fu==="perdida"&&(s==="enviada"||s==="propfinal");
+  if(fu==="perdida"&&(s==="enviada"||s==="propfinal"))return false;
+  if(arch==="vivas")return ["enviada","propfinal"].includes(s)&&(typeof isFollowable==="function"?isFollowable(q):true);
+  if(arch==="pedidos")return ["pedido","aprobada","en_produccion","entregado"].includes(s);
+  return false;
+}
+
+// Sub-filtros disponibles por archivo
+const HIST_SUBFILTERS={
+  vivas:[
+    {k:"all",label:"Todas"},
+    {k:"cot",label:"Cotizaciones"},
+    {k:"prop",label:"Propuestas"},
+    {k:"propfinal",label:"P. Final"}
+  ],
+  pedidos:[
+    {k:"all",label:"Todas"},
+    {k:"pedido",label:"Pedido"},
+    {k:"aprobada",label:"Aprobada"},
+    {k:"en_produccion",label:"En producción"},
+    {k:"entregado",label:"Entregadas"}
+  ],
+  perdidas:[
+    {k:"all",label:"Todas"},
+    {k:"precio",label:"Por precio"},
+    {k:"competencia",label:"Por competencia"},
+    {k:"no_respondio",label:"No respondió"},
+    {k:"cambio_planes",label:"Cambio de planes"},
+    {k:"tiempo",label:"Por tiempo"},
+    {k:"otro",label:"Otro motivo"}
+  ],
+  anuladas:[
+    {k:"all",label:"Todas"}
+  ]
+};
+
+// ¿El doc pasa el sub-filtro activo?
+function _docEnSubfiltro(q,arch,filt){
+  if(filt==="all")return true;
+  const s=q.status||"enviada";
+  if(arch==="vivas"){
+    if(filt==="cot")return q.kind==="quote";
+    if(filt==="prop")return q.kind==="proposal"&&s==="enviada";
+    if(filt==="propfinal")return q.kind==="proposal"&&s==="propfinal";
+  }
+  if(arch==="pedidos"){
+    return s===filt;
+  }
+  if(arch==="perdidas"){
+    const motivo=q.perdidaData?.motivo||"otro";
+    return motivo===filt;
+  }
+  return true;
+}
+
 async function renderHist(){
   const el=$("hist-list");
   el.innerHTML='<div class="empty"><div class="spinner" style="margin:0 auto 10px"></div><p>Cargando historial...</p></div>';
   try{await loadAllHistory()}catch(e){}
   if(!quotesCache.length){el.innerHTML='<div class="empty"><div class="ic">📁</div><p>No hay cotizaciones guardadas</p></div>';return}
-  // v5.0.1b: el filtro "all" ya NO incluye convertidas (quedan ocultas por default).
-  // Aparecen solo con filtro explícito "convertidas".
-  // v5.0.3: mismo tratamiento para anuladas.
-  // v5.0.4: "Pedidos" consolida pedido + aprobada + en_produccion (todo lo vendido sin entregar)
-  //         "Perdidas" nuevo filtro (followUp=perdida, excluidas del "Todas")
-  const cnt={all:0,cot:0,prop:0,vivas:0,pedido:0,propfinal:0,aprobada:0,en_produccion:0,convertidas:0,anuladas:0,perdidas:0};
+
+  // Contadores por archivo (todos, independiente del sub-filtro/búsqueda)
+  const archCnt={vivas:0,pedidos:0,perdidas:0,anuladas:0};
   quotesCache.forEach(q=>{
-    const s=q.status||"enviada";
-    const fu=typeof getFollowUp==="function"?getFollowUp(q):"pendiente";
-    if(s==="convertida"){cnt.convertidas++;return}
-    if(s==="anulada"){cnt.anuladas++;return}
-    // v5.0.4: perdidas se cuentan aparte y no suman en "Todas"
-    if(fu==="perdida"&&(s==="enviada"||s==="propfinal")){cnt.perdidas++;return}
-    cnt.all++;
-    if(q.kind==="quote")cnt.cot++;else cnt.prop++;
-    // v5.0.5: "Vivas" = followables no perdidas (cotizaciones enviadas + propuestas enviadas/propfinal)
-    if(typeof isViva==="function"&&isViva(q))cnt.vivas++;
-    // v5.0.4: "Pedidos" agrupa los 3 estados de venta confirmada
-    if(["pedido","aprobada","en_produccion"].includes(s))cnt.pedido++;
-    if(s==="propfinal")cnt.propfinal++;
-    if(s==="aprobada")cnt.aprobada++;
-    if(s==="en_produccion")cnt.en_produccion++;
+    if(q._wrongCollection)return; // fantasmas excluidos de contadores
+    Object.keys(archCnt).forEach(arch=>{
+      if(_docEnArchivo(q,arch))archCnt[arch]++;
+    });
   });
+
+  // Filtrar por archivo + sub-filtro + búsqueda
+  const searchNorm=_normTxt(histSearch.trim());
   const filtered=quotesCache.filter(q=>{
-    const s=q.status||"enviada";
-    const fu=typeof getFollowUp==="function"?getFollowUp(q):"pendiente";
-    if(histFilter==="convertidas")return s==="convertida";
-    if(s==="convertida")return false;
-    if(histFilter==="anuladas")return s==="anulada";
-    if(s==="anulada")return false;
-    // v5.0.4: perdidas se ven solo con filtro explícito
-    if(histFilter==="perdidas")return fu==="perdida"&&(s==="enviada"||s==="propfinal");
-    if(fu==="perdida"&&(s==="enviada"||s==="propfinal"))return false;
-    // v5.0.5: filtro Vivas — cotizaciones/propuestas followable no perdidas
-    if(histFilter==="vivas")return typeof isViva==="function"&&isViva(q);
-    if(histFilter==="all")return true;
-    if(histFilter==="cot")return q.kind==="quote";
-    if(histFilter==="prop")return q.kind==="proposal";
-    // v5.0.4: filtro "pedido" consolida los 3 estados
-    if(histFilter==="pedido")return ["pedido","aprobada","en_produccion"].includes(s);
-    return s===histFilter;
+    if(q._wrongCollection&&histArchive!=="anuladas")return false;
+    if(!_docEnArchivo(q,histArchive))return false;
+    if(!_docEnSubfiltro(q,histArchive,histFilter))return false;
+    if(searchNorm){
+      const txt=_docSearchableText(q);
+      if(!txt.includes(searchNorm))return false;
+    }
+    return true;
   });
-  const mkFilter=(k,label,n,extraCls)=>'<button class="hist-filter '+(extraCls||"")+' '+(histFilter===k?"act":"")+'" onclick="setHistFilter(\''+k+'\')">'+label+'<span class="cnt">'+n+'</span></button>';
-  const filtersBar='<div class="hist-filters">'+
-    mkFilter("all","Todas",cnt.all)+
-    // v5.0.5: filtro Vivas (cotizaciones/propuestas sin cerrar, no perdidas)
-    mkFilter("vivas","🟢 Vivas",cnt.vivas)+
-    mkFilter("cot","Cotizaciones",cnt.cot)+
-    mkFilter("prop","Propuestas",cnt.prop)+
-    mkFilter("pedido","Pedidos",cnt.pedido)+
-    mkFilter("propfinal","P. Final",cnt.propfinal)+
-    mkFilter("aprobada","Aprobadas",cnt.aprobada)+
-    mkFilter("en_produccion","En producción",cnt.en_produccion)+
-    (cnt.convertidas>0?mkFilter("convertidas","Convertidas",cnt.convertidas,"convertidas-filter"):"")+
-    (cnt.anuladas>0?mkFilter("anuladas","Anuladas",cnt.anuladas,"anuladas-filter"):"")+
-    // v5.0.4: filtro Perdidas (aparece solo si hay alguna)
-    (cnt.perdidas>0?mkFilter("perdidas","Perdidas",cnt.perdidas,"anuladas-filter"):"")+
+
+  // Barra de archivos (principal)
+  const archMeta={
+    vivas:   {label:"🟢 Vivas",    cls:"arch-vivas"},
+    pedidos: {label:"🤝 Pedidos",  cls:"arch-pedidos"},
+    perdidas:{label:"❌ Perdidas", cls:"arch-perdidas"},
+    anuladas:{label:"↩️ Anuladas", cls:"arch-anuladas"}
+  };
+  const archBar='<div class="hist-archives">'+
+    Object.keys(archMeta).map(k=>{
+      const m=archMeta[k];
+      const act=histArchive===k?"act":"";
+      return '<button class="hist-archive '+m.cls+' '+act+'" onclick="setHistArchive(\''+k+'\')">'+m.label+
+        '<span class="cnt">'+archCnt[k]+'</span></button>';
+    }).join("")+
     '</div>';
-  if(!filtered.length){el.innerHTML=filtersBar+'<div class="empty"><div class="ic">🔍</div><p>Sin resultados para este filtro</p></div>';return}
+
+  // Buscador
+  const searchBar='<div class="hist-search-bar">'+
+    '<input type="text" id="hist-search-input" class="hist-search-input" placeholder="🔍 Buscar por cliente, número o producto..." value="'+(histSearch||"").replace(/"/g,"&quot;")+'" oninput="onHistSearchInput(event)">'+
+    (histSearch?'<button class="hist-search-clear" onclick="clearHistSearch()" title="Limpiar">×</button>':'')+
+    '</div>';
+
+  // Sub-filtros del archivo activo
+  const subs=HIST_SUBFILTERS[histArchive]||[{k:"all",label:"Todas"}];
+  const subCnt={};
+  subs.forEach(sf=>{
+    subCnt[sf.k]=quotesCache.filter(q=>{
+      if(q._wrongCollection&&histArchive!=="anuladas")return false;
+      return _docEnArchivo(q,histArchive)&&_docEnSubfiltro(q,histArchive,sf.k);
+    }).length;
+  });
+  const subBar=subs.length>1?('<div class="hist-subfilters">'+
+    subs.map(sf=>'<button class="hist-subfilter '+(histFilter===sf.k?"act":"")+'" onclick="setHistFilter(\''+sf.k+'\')">'+sf.label+
+      '<span class="cnt">'+(subCnt[sf.k]||0)+'</span></button>').join("")+
+    '</div>'):'';
+
+  const header=archBar+searchBar+subBar;
+
+  if(!filtered.length){
+    const emptyMsg=histSearch
+      ? '<div class="empty"><div class="ic">🔍</div><p>Sin resultados para "<strong>'+histSearch.replace(/[<>]/g,"")+'</strong>"</p><p style="font-size:11px;color:#999">Intenta con otro término o cambia de archivo</p></div>'
+      : '<div class="empty"><div class="ic">📭</div><p>No hay documentos en <strong>'+archMeta[histArchive].label+'</strong></p></div>';
+    el.innerHTML=header+emptyMsg;
+    return;
+  }
   const cards=filtered.map(q=>{
     const dObj=q.createdAt?.toDate?.()||new Date(q.dateISO||Date.now());
     const ds=dObj.getDate()+"/"+(dObj.getMonth()+1)+"/"+dObj.getFullYear()+" "+dObj.getHours()+":"+String(dObj.getMinutes()).padStart(2,"0");
@@ -141,6 +261,15 @@ async function renderHist(){
     // v5.0.5: Si es followable y está perdida, bloqueamos conversión.
     // Solo se ofrece ♻️ Reactivar (viva) o editar.
     const _esPerdida=typeof isPerdida==="function"&&isPerdida(q);
+    const _esFollowable=typeof isFollowable==="function"&&isFollowable(q);
+    // v5.1.0: Botones rápidos 🟢 Viva / ❌ Perdida para docs followable no perdidos.
+    // Permite marcar el estado comercial desde la tarjeta sin ir a Seguimiento.
+    if(_esFollowable&&!_esPerdida){
+      const fu=typeof getFollowUp==="function"?getFollowUp(q):"pendiente";
+      const vivaLabel=fu==="activa"?"🟢 Activa ✓":(fu==="contactado"?"🟢 Marcar activa":"🟢 Viva");
+      actionBtns.push('<button class="btn hc-btn-viva-quick" onclick="quickMarkViva(\''+q.id+'\',\''+q.kind+'\',event)" title="Marcar como viva/activa">'+vivaLabel+'</button>');
+      actionBtns.push('<button class="btn hc-btn-perdida-quick" onclick="openPerdidaModal(\''+q.id+'\',\''+q.kind+'\');event.stopPropagation();" title="Marcar como perdida">❌ Perdida</button>');
+    }
     // Ciclo de vida según tipo + status
     if(!isProp&&status==="enviada"){
       actionBtns.push('<button class="btn hc-btn-edit" onclick="event.stopPropagation();loadQuote(\'quote\',\''+q.id+'\')">✏️ Editar</button>');
@@ -212,9 +341,63 @@ async function renderHist(){
       '<div class="hc-date">'+ds+'</div>'+summary+actions+
       '</div>';
   }).join("");
-  el.innerHTML=filtersBar+cards;
+  el.innerHTML=header+cards;
+  // Re-focus del input de búsqueda si había texto (para que no se pierda al tipear)
+  if(histSearch){
+    const inp=$("hist-search-input");
+    if(inp){
+      inp.focus();
+      const v=inp.value;
+      inp.setSelectionRange(v.length,v.length);
+    }
+  }
 }
+
+// v5.1.0: cambiar de archivo principal
+function setHistArchive(arch){
+  if(histArchive===arch)return;
+  histArchive=arch;
+  histFilter="all"; // al cambiar de archivo, resetear sub-filtro
+  renderHist();
+}
+
 function setHistFilter(k){histFilter=k;renderHist()}
+
+// v5.1.0: buscador en tiempo real
+let _histSearchTimer=null;
+function onHistSearchInput(ev){
+  const v=ev.target.value;
+  histSearch=v;
+  clearTimeout(_histSearchTimer);
+  _histSearchTimer=setTimeout(()=>renderHist(),180); // debounce ligero
+}
+function clearHistSearch(){
+  histSearch="";
+  renderHist();
+}
+
+// v5.1.0: Tap rápido en 🟢 Viva desde tarjeta del Historial.
+// Regla: pendiente → activa. contactado → activa. activa → toast "ya está activa".
+async function quickMarkViva(docId,kind,ev){
+  if(ev){ev.stopPropagation();ev.preventDefault()}
+  if(typeof setFollowUp!=="function"){alert("Función no disponible");return}
+  const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
+  if(!q){alert("No se encontró el documento");return}
+  const fu=typeof getFollowUp==="function"?getFollowUp(q):"pendiente";
+  if(fu==="activa"){
+    if(typeof toast==="function")toast("🟢 Ya está marcada como activa","info");
+    return;
+  }
+  if(typeof showLoader==="function")showLoader("Marcando como activa...");
+  const ok=await setFollowUp(docId,kind,"activa");
+  if(typeof hideLoader==="function")hideLoader();
+  if(ok){
+    if(typeof toast==="function")toast("🟢 Marcada como ACTIVA (viva, caliente)","success");
+    renderHist();
+    if(typeof renderDashboard==="function"&&curMode==="dash")renderDashboard();
+    if(typeof renderSeguimiento==="function"&&curMode==="seg")renderSeguimiento();
+  }
+}
 
 // ─── ORDER MODAL ───────────────────────────────────────────
 function openOrderModal(quoteId,ev){
@@ -645,21 +828,73 @@ function openVerPagosModal(docId,kind,ev){
   const pagos=getPagos(q);
   if(!pagos.length){$("vp-list").innerHTML='<div class="dash-met-empty">Aún no hay pagos registrados.</div>'}
   else{
-    $("vp-list").innerHTML=pagos.map(p=>{
+    $("vp-list").innerHTML=pagos.map((p,idx)=>{
       // v5.0: soporta fotoUrl (Storage) o foto base64 legacy
       const fotoSrc=p.fotoUrl||p.foto;
       const fotoHtml=fotoSrc?'<div class="pago-item-foto"><img src="'+fotoSrc+'"></div>':'';
       const legBadge=p.legacy?' <span style="font-size:9px;color:#888">[migrado]</span>':'';
+      // v5.1.0: botón "Adjuntar comprobante" si el pago NO tiene foto.
+      // Se usa un input file oculto por pago, con data-idx para saber a cuál adjuntar.
+      const adjuntarHtml=fotoSrc?'':(
+        '<div class="pago-item-adjuntar">'+
+          '<button class="pago-adj-btn" onclick="triggerAdjuntarPago('+idx+')">📎 Adjuntar comprobante</button>'+
+          '<input type="file" id="vp-adj-input-'+idx+'" accept="image/*" style="display:none" onchange="onAdjuntarPagoFile(event,'+idx+')">'+
+          '<div id="vp-adj-prev-'+idx+'"></div>'+
+        '</div>'
+      );
       return '<div class="pago-item">'+
         '<div class="pago-item-top"><span class="pago-item-monto">'+fm(p.monto)+'</span><span class="pago-item-tipo">'+p.tipo+'</span></div>'+
         '<div class="pago-item-meta">'+p.fecha+' · '+p.metodo+legBadge+'</div>'+
-        (p.notas?'<div class="pago-item-meta" style="margin-top:3px">📝 '+p.notas+'</div>':'')+fotoHtml+
+        (p.notas?'<div class="pago-item-meta" style="margin-top:3px">📝 '+p.notas+'</div>':'')+fotoHtml+adjuntarHtml+
       '</div>';
     }).join("");
   }
   $("verpagos-modal").classList.remove("hidden");
 }
 function closeVerPagosModal(){$("verpagos-modal").classList.add("hidden")}
+
+// v5.1.0: Adjuntar comprobante DESPUÉS de registrar un pago.
+// Útil cuando en el momento del pago no se tenía la foto del comprobante.
+function triggerAdjuntarPago(idx){
+  const input=$("vp-adj-input-"+idx);
+  if(input)input.click();
+}
+
+async function onAdjuntarPagoFile(ev,idx){
+  const file=ev.target.files[0];
+  if(!file)return;
+  const docId=window.__verPagosId;
+  const kind=window.__verPagosKind;
+  if(!docId){alert("Contexto perdido");return}
+  const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
+  if(!q){alert("Documento no encontrado");return}
+  const pagos=getPagos(q);
+  if(idx<0||idx>=pagos.length){alert("Pago no encontrado");return}
+  // Preview mientras sube
+  _compressImageFile(file,async b64=>{
+    $("vp-adj-prev-"+idx).innerHTML='<img src="'+b64+'" style="max-width:100%;max-height:120px;border-radius:6px;margin-top:6px;opacity:.6"><div style="font-size:10px;color:#666">Subiendo...</div>';
+    try{
+      showLoader("Subiendo comprobante...");
+      const {url}=await uploadFotoFromBase64(b64,"pago",docId,"pagos");
+      // Construir array de pagos actualizado (reemplazando el idx con la foto nueva)
+      const pagosActuales=pagos.map(p=>({...p}));
+      pagosActuales[idx].fotoUrl=url;
+      pagosActuales[idx].fotoAdjuntadaEn=new Date().toISOString();
+      const {db,doc,updateDoc,serverTimestamp}=window.fb;
+      const coll=kind==="quote"?"quotes":(docId.startsWith("GB-PF-")?"propfinals":"proposals");
+      await updateDoc(doc(db,coll,docId),{pagos:pagosActuales,updatedAt:serverTimestamp(),...auditStamp()});
+      q.pagos=pagosActuales;
+      hideLoader();
+      toast("📎 Comprobante adjuntado","success");
+      // Re-abrir el modal para que se vea actualizado
+      openVerPagosModal(docId,kind);
+    }catch(e){
+      hideLoader();
+      console.error("onAdjuntarPagoFile error:",e);
+      alert("Error subiendo comprobante: "+e.message);
+    }
+  });
+}
 
 // ─── PRODUCED FLAG ─────────────────────────────────────────
 async function toggleProduced(docId,kind,ev){

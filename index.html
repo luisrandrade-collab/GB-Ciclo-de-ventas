@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1a1a1a">
 <title>Gourmet Bites - Cotizador</title>
-<!-- VERSION: 2026-04-21-v5.0.5-viva-perdida-binario-reactivar-bloqueo-conversion -->
+<!-- VERSION: 2026-04-21-v5.1.0-archivos-buscador-botones-rapidos-adjuntar-comprobante -->
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
@@ -167,6 +167,51 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
 .hc-estado-badge{display:inline-block;font-size:9.5px;font-weight:800;padding:2px 8px;border-radius:10px;margin-left:4px;vertical-align:middle;letter-spacing:.4px;text-transform:uppercase}
 .hc-estado-badge.viva{background:#C8E6C9;color:#1B5E20;border:1px solid #2E7D32}
 .hc-estado-badge.perdida{background:#FFCDD2;color:#B71C1C;border:1px solid #C62828}
+
+/* v5.1.0: Sub-pestañas de archivos en Historial (Vivas / Pedidos / Perdidas / Anuladas) */
+.hist-archives{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:4px 0 10px 0}
+.hist-archive{background:#fff;border:1.5px solid #E0E0E0;border-radius:10px;padding:10px 6px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#555;text-align:center;line-height:1.15;-webkit-appearance:none}
+.hist-archive:active{transform:scale(.97)}
+.hist-archive .cnt{display:inline-block;min-width:22px;padding:2px 7px;border-radius:10px;background:#ECEFF1;color:#455A64;font-size:10.5px;font-weight:800}
+.hist-archive.arch-vivas.act{background:#E8F5E9;border-color:#2E7D32;color:#1B5E20}
+.hist-archive.arch-vivas.act .cnt{background:#2E7D32;color:#fff}
+.hist-archive.arch-pedidos.act{background:#E3F2FD;border-color:#1976D2;color:#0D47A1}
+.hist-archive.arch-pedidos.act .cnt{background:#1976D2;color:#fff}
+.hist-archive.arch-perdidas.act{background:#FFEBEE;border-color:#C62828;color:#B71C1C}
+.hist-archive.arch-perdidas.act .cnt{background:#C62828;color:#fff}
+.hist-archive.arch-anuladas.act{background:#FFF3E0;border-color:#E65100;color:#BF360C}
+.hist-archive.arch-anuladas.act .cnt{background:#E65100;color:#fff}
+@media (max-width:420px){.hist-archive{font-size:10.5px;padding:9px 3px}.hist-archive .cnt{min-width:18px;font-size:9.5px;padding:1px 5px}}
+
+/* v5.1.0: Buscador del Historial */
+.hist-search-bar{position:relative;margin:2px 0 10px 0}
+.hist-search-input{width:100%;padding:10px 36px 10px 14px;border:1.5px solid #CFD8DC;border-radius:10px;font-family:'DM Sans',sans-serif;font-size:13px;background:#fff;transition:border-color .15s;-webkit-appearance:none}
+.hist-search-input:focus{outline:none;border-color:#1976D2;box-shadow:0 0 0 2px rgba(25,118,210,.15)}
+.hist-search-input::placeholder{color:#90A4AE;font-weight:400}
+.hist-search-clear{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:24px;height:24px;border:none;background:#ECEFF1;color:#546E7A;border-radius:50%;font-size:16px;font-weight:700;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center;-webkit-appearance:none}
+.hist-search-clear:active{transform:translateY(-50%) scale(.92);background:#CFD8DC}
+
+/* v5.1.0: Sub-filtros dentro del archivo activo */
+.hist-subfilters{display:flex;gap:6px;overflow-x:auto;flex-wrap:nowrap;padding:2px 0 8px 0;scrollbar-width:thin;-webkit-overflow-scrolling:touch;margin-bottom:4px}
+.hist-subfilters::-webkit-scrollbar{height:3px}
+.hist-subfilters::-webkit-scrollbar-thumb{background:#BDBDBD;border-radius:2px}
+.hist-subfilter{flex-shrink:0;background:#F5F7FA;border:1px solid #E0E0E0;border-radius:16px;padding:5px 11px;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;color:#546E7A;cursor:pointer;transition:all .12s;display:inline-flex;align-items:center;gap:5px;-webkit-appearance:none}
+.hist-subfilter:active{transform:scale(.96)}
+.hist-subfilter.act{background:#263238;color:#fff;border-color:#263238}
+.hist-subfilter .cnt{font-size:9.5px;background:rgba(0,0,0,.1);padding:1px 6px;border-radius:8px;font-weight:800}
+.hist-subfilter.act .cnt{background:rgba(255,255,255,.22);color:#fff}
+
+/* v5.1.0: Botones rápidos 🟢 Viva / ❌ Perdida en tarjetas del Historial */
+.hc-btn-viva-quick{background:linear-gradient(135deg,#66BB6A,#388E3C)!important;color:#fff!important;font-weight:700}
+.hc-btn-viva-quick:active{transform:scale(.96)}
+.hc-btn-perdida-quick{background:linear-gradient(135deg,#EF5350,#C62828)!important;color:#fff!important;font-weight:700}
+.hc-btn-perdida-quick:active{transform:scale(.96)}
+
+/* v5.1.0: Botón "Adjuntar comprobante" en modal Ver Pagos */
+.pago-item-adjuntar{margin-top:8px;padding-top:8px;border-top:1px dashed #E0E0E0}
+.pago-adj-btn{background:#E3F2FD;color:#0D47A1;border:1px dashed #1976D2;border-radius:8px;padding:7px 12px;font-family:'DM Sans',sans-serif;font-size:11.5px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;-webkit-appearance:none}
+.pago-adj-btn:active{transform:scale(.97);background:#BBDEFB}
+
 .nav{display:flex;background:var(--wh);border-bottom:1px solid var(--lt);position:sticky;top:148px;z-index:99;box-shadow:0 2px 8px rgba(0,0,0,.04)}
 .nav-b{flex:1;padding:11px 6px;border:none;background:transparent;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;color:var(--soft);cursor:pointer;position:relative;transition:color .3s}
 .nav-b.act{color:var(--bk)}
@@ -1250,8 +1295,8 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
         <div class="mf-field"><label>Método *</label><select id="pm-metodo"><option value="">— Selecciona —</option><option value="Efectivo">Efectivo</option><option value="Nequi">Nequi</option><option value="Daviplata">Daviplata</option><option value="Banco Falabella">Banco Falabella</option><option value="Transferencia">Otra transferencia</option><option value="Otro">Otro</option></select></div>
       </div>
       <div class="mf-field">
-        <label>Foto del comprobante (opcional)</label>
-        <input type="file" id="pm-foto" accept="image/*" capture="environment" onchange="previewPagoFoto(event)">
+        <label>Foto del comprobante (opcional — cámara o galería)</label>
+        <input type="file" id="pm-foto" accept="image/*" onchange="previewPagoFoto(event)">
         <div id="pm-foto-preview" style="margin-top:6px"></div>
       </div>
       <div class="mf-field"><label>Notas (opcional, recomendado si no hay foto)</label><textarea id="pm-notas" placeholder="Referencia, número de transacción, observación, etc."></textarea></div>
@@ -1326,7 +1371,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
           <label><input type="radio" name="dm-foto-tipo" value="producto" checked> Foto del producto</label>
           <label><input type="radio" name="dm-foto-tipo" value="planilla"> Planilla firmada</label>
         </div>
-        <input type="file" id="dm-foto" accept="image/*" capture="environment" onchange="previewEntregaFoto(event)">
+        <input type="file" id="dm-foto" accept="image/*" onchange="previewEntregaFoto(event)">
         <div id="dm-foto-preview" style="margin-top:6px"></div>
       </div>
       <div class="mf-field" style="background:#E8F5E9;padding:10px;border-radius:8px;border:1px solid #A5D6A7">
@@ -1626,12 +1671,12 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
   </div>
 </div>
 
-<script src="app-assets.js?v=5.0.5"></script>
-<script src="app-core.js?v=5.0.5"></script>
-<script src="app-cotizar.js?v=5.0.5"></script>
-<script src="app-propuesta.js?v=5.0.5"></script>
-<script src="app-historial.js?v=5.0.5"></script>
-<script src="app-seguimiento.js?v=5.0.5"></script>
-<script src="app-dashboard.js?v=5.0.5"></script>
+<script src="app-assets.js?v=5.1.0"></script>
+<script src="app-core.js?v=5.1.0"></script>
+<script src="app-cotizar.js?v=5.1.0"></script>
+<script src="app-propuesta.js?v=5.1.0"></script>
+<script src="app-historial.js?v=5.1.0"></script>
+<script src="app-seguimiento.js?v=5.1.0"></script>
+<script src="app-dashboard.js?v=5.1.0"></script>
 </body>
 </html>

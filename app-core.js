@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-// app-core.js · v5.0.5 · 2026-04-21
+// app-core.js · v5.1.0 · 2026-04-21
 // Firebase wrapper, Auth (v5.0), Storage (v5.0), state global,
 // helpers, INIT, mode switching, search, transporte, cart,
 // navegación, clientes, autoTransition, getNextNumber.
@@ -8,10 +8,13 @@
 // v5.0.4: helpers de follow-up comercial + modo 'seg' + getPipelineActivo.
 // v5.0.5: binario VIVA/PERDIDA en superficie + reactivarPerdida + bloqueo
 //         conversión perdida→pedido. Tags contactado/activa internos.
+// v5.1.0: 4 sub-pestañas en Historial (Vivas/Pedidos/Perdidas/Anuladas) +
+//         buscador por palabras + botones rápidos Viva/Perdida en tarjetas +
+//         adjuntar comprobante después + fix capture cámara móvil.
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v5.0.5";
+const BUILD_VERSION="v5.1.0";
 const BUILD_DATE="2026-04-21";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
