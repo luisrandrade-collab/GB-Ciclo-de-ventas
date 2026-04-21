@@ -17,10 +17,14 @@
 //         mantenimiento colapsable bajo toggle.
 // v5.2.1: HOTFIX — protección completa del render con try-catch en body principal,
 //         fallbacks para $() null, logs detallados en consola para diagnóstico.
+// v5.2.2: HOTFIX — remueve declaración huérfana `let histFilter` de app-core.js
+//         que chocaba con `var histFilter` de app-historial.js → SyntaxError en
+//         parseo → abortaba app-historial.js → Historial vacío + Dashboard KPIs
+//         vacíos (METODOS_PAGO y renderHist no cargaban). Fix de 1 línea.
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v5.2.1";
+const BUILD_VERSION="v5.2.2";
 const BUILD_DATE="2026-04-21";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -185,7 +189,10 @@ let clientsCache=[];
 let customProductsCache=[];
 let quotesCache=[];
 let currentQuoteNumber=null;
-let histFilter="all";
+// v5.2.2: histFilter se declara SOLO en app-historial.js con patrón defensivo
+// `if(typeof histFilter==="undefined")var histFilter="all"`. Tenerlo aquí como
+// `let` causaba SyntaxError en el parseo de app-historial.js (colisión let+var),
+// abortando todo el archivo y rompiendo Historial + Dashboard KPIs.
 let propFinalSelection={};
 let propFinalSource=null;
 
