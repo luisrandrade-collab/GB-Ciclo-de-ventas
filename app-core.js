@@ -1,14 +1,15 @@
 // ═══════════════════════════════════════════════════════════
-// app-core.js · v5.0.3 · 2026-04-20
+// app-core.js · v5.0.4 · 2026-04-20
 // Firebase wrapper, Auth (v5.0), Storage (v5.0), state global,
 // helpers, INIT, mode switching, search, transporte, cart,
 // navegación, clientes, autoTransition, getNextNumber.
 // v5.0.2: flag needsSync + helpers auto-sync + rango custom dashboard.
 // v5.0.3: nuevo estado "anulada" + flujo de reversión/anulación.
+// v5.0.4: helpers de follow-up comercial + modo 'seg' + getPipelineActivo.
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v5.0.3";
+const BUILD_VERSION="v5.0.4";
 const BUILD_DATE="2026-04-20";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -644,6 +645,183 @@ async function deleteHistoryItem(kind,id){
 // needsSync=false + lastSyncAt=timestamp.
 // ═══════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════
+// v5.0.4: HELPERS DE FOLLOW-UP COMERCIAL
+// Los docs con status "enviada" (cotización) o "propfinal" (propuesta)
+// tienen un sub-estado comercial llamado followUp:
+//   - pendiente    : recién enviada, sin contacto todavía
+//   - contactado   : ya le escribiste/llamaste, esperando respuesta
+//   - activa       : cliente confirmó interés, en negociación
+//   - perdida      : cliente dijo que no → excluida de todos los KPIs
+// Si followUp no existe, se interpreta como "pendiente" por default.
+// Los 7 días se cuentan desde updatedAt (cualquier edición lo resetea).
+// ═══════════════════════════════════════════════════════════
+
+const FOLLOW_UP_META={
+  pendiente: {label:"Pendiente",  cls:"pendiente",  desc:"Sin contacto todavía",       emoji:"⏳"},
+  contactado:{label:"Contactado", cls:"contactado", desc:"Esperando respuesta",         emoji:"💬"},
+  activa:    {label:"Activa",     cls:"activa",     desc:"En negociación",              emoji:"✅"},
+  perdida:   {label:"Perdida",    cls:"perdida",    desc:"Cerrada sin venta",           emoji:"❌"}
+};
+
+const MOTIVOS_PERDIDA={
+  precio:"Precio",
+  competencia:"Competencia",
+  no_respondio:"No respondió",
+  cambio_planes:"Cambio de planes",
+  tiempo:"Tiempo",
+  otro:"Otro"
+};
+
+// ¿Este doc es susceptible de follow-up comercial?
+// Solo cotizaciones "enviada" y propuestas "enviada" o "propfinal".
+function isFollowable(q){
+  if(!q||q._wrongCollection)return false;
+  if(q.status==="anulada"||q.status==="superseded"||q.status==="convertida")return false;
+  if(q.kind==="quote"&&q.status==="enviada")return true;
+  if(q.kind==="proposal"&&(q.status==="enviada"||q.status==="propfinal"))return true;
+  return false;
+}
+
+// Status de follow-up efectivo (resuelve el default "pendiente" si falta el campo)
+function getFollowUp(q){
+  if(!q)return "pendiente";
+  if(q.followUp&&FOLLOW_UP_META[q.followUp])return q.followUp;
+  return "pendiente";
+}
+
+// Días desde la última actualización del doc (cualquier edición cuenta)
+function daysSinceUpdate(q){
+  if(!q)return 0;
+  const refStr=q.updatedAt?._seconds
+    ? new Date(q.updatedAt._seconds*1000).toISOString()
+    : (q.updatedAt?.toDate ? q.updatedAt.toDate().toISOString() : (q.updatedAtIso||q.dateISO));
+  if(!refStr)return 0;
+  const ref=new Date(refStr);
+  if(isNaN(ref.getTime()))return 0;
+  const ms=Date.now()-ref.getTime();
+  return Math.max(0,Math.floor(ms/(1000*60*60*24)));
+}
+
+// Pipeline activo (lo vivo hoy, sin filtro de fecha)
+// Para el dashboard v5.0.4. Devuelve 3 buckets con total y count.
+function getPipelineActivo(){
+  const buckets={
+    en_cotizacion:{count:0,total:0,docs:[]},
+    pedidos_confirmados:{count:0,total:0,docs:[]},
+    entregados_con_saldo:{count:0,total:0,docs:[]}
+  };
+  if(!Array.isArray(quotesCache))return buckets;
+  quotesCache.forEach(q=>{
+    if(q._wrongCollection)return;
+    if(["superseded","convertida","anulada"].includes(q.status))return;
+    // Excluir cotizaciones marcadas como perdidas
+    if(getFollowUp(q)==="perdida")return;
+    const total=q.total||0;
+    // Bucket 1: en cotización viva (enviada/propfinal sin perdida)
+    if(q.kind==="quote"&&q.status==="enviada"){
+      buckets.en_cotizacion.count++;
+      buckets.en_cotizacion.total+=total;
+      buckets.en_cotizacion.docs.push(q);
+    }else if(q.kind==="proposal"&&(q.status==="enviada"||q.status==="propfinal")){
+      buckets.en_cotizacion.count++;
+      buckets.en_cotizacion.total+=total;
+      buckets.en_cotizacion.docs.push(q);
+    }
+    // Bucket 2: pedido confirmado (pedido/aprobada/en_produccion)
+    else if(["pedido","aprobada","en_produccion"].includes(q.status)){
+      buckets.pedidos_confirmados.count++;
+      buckets.pedidos_confirmados.total+=total;
+      buckets.pedidos_confirmados.docs.push(q);
+    }
+    // Bucket 3: entregado con saldo pendiente
+    else if(q.status==="entregado"){
+      const saldo=typeof saldoPendiente==="function"?saldoPendiente(q):0;
+      if(saldo>0){
+        buckets.entregados_con_saldo.count++;
+        buckets.entregados_con_saldo.total+=saldo; // usamos saldo, no total
+        buckets.entregados_con_saldo.docs.push(q);
+      }
+    }
+  });
+  return buckets;
+}
+
+// Marca un doc con un estado de follow-up y actualiza campos relacionados.
+// accion: "contactado" | "activa" | "perdida" | "pendiente"
+async function setFollowUp(docId,kind,nuevoEstado,extra){
+  if(!FOLLOW_UP_META[nuevoEstado]){throw new Error("Estado followUp inválido: "+nuevoEstado)}
+  if(!cloudOnline){alert("Sin conexión.");return false}
+  const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
+  if(!q)return false;
+  const {db,doc,updateDoc,serverTimestamp}=window.fb;
+  let coll;
+  if(kind==="quote")coll="quotes";
+  else if(docId&&docId.startsWith("GB-PF-"))coll="propfinals";
+  else coll="proposals";
+  const patch={
+    followUp:nuevoEstado,
+    followUpUpdatedAt:new Date().toISOString(),
+    updatedAt:serverTimestamp()
+  };
+  if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
+  if(nuevoEstado==="perdida"&&extra){
+    patch.perdidaData={
+      fecha:new Date().toISOString(),
+      motivo:extra.motivo||"otro",
+      motivoLabel:extra.motivoLabel||MOTIVOS_PERDIDA[extra.motivo]||"Otro",
+      notas:extra.notas||""
+    };
+  }
+  try{
+    await updateDoc(doc(db,coll,docId),patch);
+    q.followUp=nuevoEstado;
+    q.followUpUpdatedAt=patch.followUpUpdatedAt;
+    if(patch.perdidaData)q.perdidaData=patch.perdidaData;
+    return true;
+  }catch(e){
+    console.error("setFollowUp error",e);
+    alert("Error actualizando seguimiento: "+(e.message||e));
+    return false;
+  }
+}
+
+// Agrega una nota de seguimiento al doc (al array notasSeguimiento[])
+async function addNotaSeguimiento(docId,kind,texto){
+  if(!texto||!texto.trim())return false;
+  if(!cloudOnline){alert("Sin conexión.");return false}
+  const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
+  if(!q)return false;
+  const {db,doc,updateDoc,serverTimestamp}=window.fb;
+  let coll;
+  if(kind==="quote")coll="quotes";
+  else if(docId&&docId.startsWith("GB-PF-"))coll="propfinals";
+  else coll="proposals";
+  const nuevaNota={
+    fecha:new Date().toISOString(),
+    texto:texto.trim(),
+    usuario:(window.auth?.currentUser?.email||"Luis")
+  };
+  const notasExistentes=Array.isArray(q.notasSeguimiento)?q.notasSeguimiento:[];
+  const notasNuevas=[...notasExistentes,nuevaNota];
+  const patch={
+    notasSeguimiento:notasNuevas,
+    followUpUpdatedAt:new Date().toISOString(),
+    updatedAt:serverTimestamp()
+  };
+  if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
+  try{
+    await updateDoc(doc(db,coll,docId),patch);
+    q.notasSeguimiento=notasNuevas;
+    q.followUpUpdatedAt=patch.followUpUpdatedAt;
+    return true;
+  }catch(e){
+    console.error("addNotaSeguimiento error",e);
+    alert("Error guardando nota: "+(e.message||e));
+    return false;
+  }
+}
+
 // ¿Es un pedido con fecha de entrega futura en un estado agendable?
 function isAgendable(q){
   if(!q||q._wrongCollection||q.status==="superseded"||q.status==="convertida"||q.status==="anulada")return false;
@@ -826,7 +1004,8 @@ function hideLoader(){const el=$("loader");if(el)el.style.display="none"}
 // ─── MODE SWITCHING ────────────────────────────────────────
 function setMode(m){
   curMode=m;
-  ["dash","cot","prop","search","hist","cal"].forEach(x=>{
+  // v5.0.4: agregar 'seg' (seguimiento comercial) al switch de modos
+  ["dash","cot","prop","search","hist","seg","cal"].forEach(x=>{
     const el=$("mode-"+x);
     if(el)el.classList.toggle("hidden",x!==m);
     document.querySelectorAll(".mode-btn.m-"+x).forEach(b=>b.classList.toggle("act",x===m));
@@ -836,6 +1015,7 @@ function setMode(m){
   if(m==="cal")renderCalendar();
   if(m==="cot")renderMiniDash();
   if(m==="dash")renderDashboard();
+  if(m==="seg"&&typeof renderSeguimiento==="function")renderSeguimiento();
   if(m==="search"){$("gsearch").focus();$("search-results").innerHTML=""}
   window.scrollTo(0,0);
 }

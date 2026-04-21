@@ -1,12 +1,11 @@
 // ═══════════════════════════════════════════════════════════
-// app-dashboard.js · v5.0.3 · 2026-04-20
+// app-dashboard.js · v5.0.4 · 2026-04-20
 // Dashboard + mini-dash + agenda mensual + agenda semanal
 // scrollable + export .ics idempotente + comentarios recientes.
-// v4.12.1: cards clickeables (drill-down) + total real de propuestas.
-// v5.0.1b: drill-down agrupado por cliente + banner entregas HOY +
-//          botón Sincronizar agenda con Kathy/JP + excluir convertidas.
-// v5.0.2: banner sync pendiente + syncPendingOnly incremental + rango custom.
-// v5.0.3: excluir anuladas en todos los KPIs + sección informativa.
+// v5.0.1b: drill-down agrupado + banner HOY + sync agenda + excluir convertidas.
+// v5.0.2: banner sync pendiente + syncPendingOnly + rango custom.
+// v5.0.3: excluir anuladas en todos los KPIs.
+// v5.0.4: Pipeline Activo (pipeline vivo sin filtro de fecha) + banner follow-up.
 // ═══════════════════════════════════════════════════════════
 
 // ─── HELPER: total real de cualquier doc ───────────────────
@@ -62,6 +61,9 @@ async function renderDashboard(){
   // v5.0.2: banner de sync pendiente + info de rango custom si aplica
   renderBannerSync();
   renderCustomRangeInfo();
+  // v5.0.4: Pipeline Activo (lo vivo hoy) + banner follow-up pendiente
+  renderPipelineActivo();
+  renderBannerFollowUp();
   const range=getDashRange();
   $("dash-period-info").textContent=range.label;
   const inRange=fecha=>fecha&&fecha>=range.start&&fecha<=range.end;
@@ -76,6 +78,8 @@ async function renderDashboard(){
     const status=q.status||"enviada";
     if(status==="superseded")return;
     if(status==="anulada")return; // v5.0.3: anuladas no suman en KPIs
+    // v5.0.4: excluir cotizaciones/propuestas marcadas como perdidas
+    if(typeof getFollowUp==="function"&&getFollowUp(q)==="perdida"&&(status==="enviada"||status==="propfinal"))return;
     const total=getDocTotal(q);
     const fCre=dateOfCreation(q);
     const fVen=dateOfSale(q);
@@ -267,6 +271,8 @@ function eventsAllStatuses(){
     if(q._wrongCollection)return false;
     if(q.status==="superseded")return false;
     if(q.status==="anulada")return false; // v5.0.3: anuladas no aparecen en agenda
+    // v5.0.4: perdidas tampoco aparecen en agenda (aunque no deberían llegar aquí con esos estados)
+    if(typeof getFollowUp==="function"&&getFollowUp(q)==="perdida")return false;
     const ok=q.kind==="quote"?statusQuote.includes(q.status):statusProp.includes(q.status);
     return ok&&q.eventDate;
   });
@@ -1098,3 +1104,107 @@ window.addEventListener("offline",()=>{
   if(el){el.className="cloud-ind offline-cache";el.textContent="📴 Offline (caché local)"}
   if(typeof toast==="function")toast("📴 Sin conexión · trabajando con caché local","warn");
 });
+
+// ═══════════════════════════════════════════════════════════
+// v5.0.4: PIPELINE ACTIVO (lo vivo hoy, sin filtro de período)
+// 3 cards clickeables:
+//   🧾 En cotización · 🤝 Pedidos confirmados · 🎉 Entregados con saldo
+// ═══════════════════════════════════════════════════════════
+function renderPipelineActivo(){
+  const grid=$("pipeline-grid");
+  if(!grid)return;
+  if(typeof getPipelineActivo!=="function"){grid.innerHTML='<div style="color:#999;font-size:11px">Pipeline no disponible</div>';return}
+  const p=getPipelineActivo();
+  grid.innerHTML=
+    '<div class="pipe-card pc-cot" onclick="openPipelineDetail(\'en_cotizacion\')">'+
+      '<div class="pipe-card-lab">🧾 En cotización</div>'+
+      '<div class="pipe-card-val">'+fm(p.en_cotizacion.total)+'</div>'+
+      '<div class="pipe-card-sub">'+p.en_cotizacion.count+' doc'+(p.en_cotizacion.count!==1?'s':'')+' vivos</div>'+
+    '</div>'+
+    '<div class="pipe-card pc-ped" onclick="openPipelineDetail(\'pedidos_confirmados\')">'+
+      '<div class="pipe-card-lab">🤝 Pedidos confirmados</div>'+
+      '<div class="pipe-card-val">'+fm(p.pedidos_confirmados.total)+'</div>'+
+      '<div class="pipe-card-sub">'+p.pedidos_confirmados.count+' por entregar</div>'+
+    '</div>'+
+    '<div class="pipe-card pc-ent" onclick="openPipelineDetail(\'entregados_con_saldo\')">'+
+      '<div class="pipe-card-lab">🎉 Entregados con saldo</div>'+
+      '<div class="pipe-card-val">'+fm(p.entregados_con_saldo.total)+'</div>'+
+      '<div class="pipe-card-sub">'+p.entregados_con_saldo.count+' por cobrar</div>'+
+    '</div>';
+}
+
+// Drill-down de los buckets del Pipeline Activo (click en una pipe-card)
+function openPipelineDetail(bucket){
+  if(typeof getPipelineActivo!=="function")return;
+  const p=getPipelineActivo();
+  const b=p[bucket];
+  if(!b)return;
+  const titulos={
+    en_cotizacion:"🧾 Documentos en cotización (vivos)",
+    pedidos_confirmados:"🤝 Pedidos confirmados (por entregar)",
+    entregados_con_saldo:"🎉 Entregados con saldo por cobrar"
+  };
+  const title=titulos[bucket]||"Pipeline";
+  if(!b.docs.length){
+    alert(title+"\n\nNo hay documentos en este momento.");
+    return;
+  }
+  // Reutilizamos el modal de drill-down del dashboard existente
+  const docs=[...b.docs].sort((a,b2)=>(b2.dateISO||"").localeCompare(a.dateISO||""));
+  const useSaldo=(bucket==="entregados_con_saldo");
+  let rows=docs.map(q=>{
+    const monto=useSaldo?(typeof saldoPendiente==="function"?saldoPendiente(q):0):(q.total||0);
+    const fecha=q.eventDate||q.dateISO||"—";
+    const sMeta=STATUS_META[q.status||"enviada"]||STATUS_META.enviada;
+    const tag=q.kind==="quote"?'<span class="ui-tag prod">Cotización</span>':'<span class="ui-tag ent">Propuesta</span>';
+    return '<tr onclick="closeDashDetail();setTimeout(function(){loadQuote(\''+q.kind+'\',\''+q.id+'\')},80)" style="cursor:pointer">'+
+      '<td style="font-size:10px;color:#555">'+(q.quoteNumber||q.id)+'</td>'+
+      '<td>'+tag+'</td>'+
+      '<td>'+(q.client||"—")+'</td>'+
+      '<td style="font-size:10px">'+fecha+'</td>'+
+      '<td><span class="hc-status '+sMeta.cls+'">'+sMeta.label+'</span></td>'+
+      '<td style="text-align:right;font-weight:700">'+fm(monto)+'</td>'+
+      '</tr>';
+  }).join("");
+  const headCell='font-size:10px;text-transform:uppercase;color:#666;padding:6px 8px;border-bottom:1.5px solid #ddd';
+  const html='<div style="padding:4px 0 10px"><h3 style="margin:0 0 4px;color:var(--gd);font-family:\'Cormorant Garamond\',serif">'+title+'</h3>'+
+    '<div style="font-size:12px;color:#777">'+b.count+' documento'+(b.count!==1?'s':'')+' · Total: <strong>'+fm(b.total)+'</strong></div></div>'+
+    '<div style="max-height:60vh;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr>'+
+      '<th style="'+headCell+';text-align:left">Número</th>'+
+      '<th style="'+headCell+';text-align:left">Tipo</th>'+
+      '<th style="'+headCell+';text-align:left">Cliente</th>'+
+      '<th style="'+headCell+';text-align:left">Fecha</th>'+
+      '<th style="'+headCell+';text-align:left">Estado</th>'+
+      '<th style="'+headCell+';text-align:right">'+(useSaldo?"Saldo":"Total")+'</th>'+
+    '</tr></thead><tbody>'+rows+'</tbody></table></div>';
+  const body=$("dash-detail-body");
+  if(body){body.innerHTML=html;$("dash-detail-modal").classList.remove("hidden")}
+}
+
+// ═══════════════════════════════════════════════════════════
+// v5.0.4: BANNER DE SEGUIMIENTO COMERCIAL PENDIENTE
+// Rojo claro. Aparece si hay cotizaciones/propuestas vivas con
+// followUp in [pendiente, contactado] y daysSinceUpdate > 7.
+// Tap → cambia a pestaña Seguimiento.
+// ═══════════════════════════════════════════════════════════
+function renderBannerFollowUp(){
+  const el=$("dash-banner-follow");
+  if(!el)return;
+  if(typeof isFollowable!=="function"||typeof getFollowUp!=="function"||typeof daysSinceUpdate!=="function"){
+    el.classList.add("hidden");el.innerHTML="";return;
+  }
+  const urgentes=quotesCache.filter(q=>{
+    if(!isFollowable(q))return false;
+    const fu=getFollowUp(q);
+    if(fu!=="pendiente"&&fu!=="contactado")return false;
+    return daysSinceUpdate(q)>=7;
+  });
+  if(!urgentes.length){el.classList.add("hidden");el.innerHTML="";return}
+  urgentes.sort((a,b)=>daysSinceUpdate(b)-daysSinceUpdate(a));
+  const primeros=urgentes.slice(0,3).map(q=>(q.client||"—")+" ("+daysSinceUpdate(q)+"d)").join(" · ");
+  const mas=urgentes.length>3?" · +"+(urgentes.length-3)+" más":"";
+  el.classList.remove("hidden");
+  el.innerHTML='<div class="dbf-ic">📞</div>'+
+    '<div class="dbf-txt"><strong>'+urgentes.length+' cotizacion'+(urgentes.length!==1?'es':'')+' sin seguimiento hace más de 7 días</strong><br><span style="font-size:11px;opacity:.85">'+primeros+mas+'</span></div>'+
+    '<button onclick="setMode(\'seg\')">Ver seguimiento</button>';
+}

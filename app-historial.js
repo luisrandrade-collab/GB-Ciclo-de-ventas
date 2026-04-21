@@ -1,11 +1,13 @@
 // ═══════════════════════════════════════════════════════════
-// app-historial.js · v5.0.3 · 2026-04-20
+// app-historial.js · v5.0.4 · 2026-04-20
 // Historial + ciclo de vida (order/approve/saldo) + pagos +
 // duplicar + features v4.12: foto entrega, notas producción,
 // notas entrega, quién entregó, recibido conforme, comentarios cliente.
 // v5.0.1b: filtro "Convertidas" oculta por default + badge "origen de PF".
 // v5.0.2: badge "pendiente sync" + marcar needsSync al confirmar pedido/aprobada.
 // v5.0.3: botón ↩️ Anular + modal + filtro Anuladas + devolución opcional.
+// v5.0.4: filtro "Pedidos" consolidado (pedido+aprobada+en_produccion) +
+//         badge followUp + exclusión de perdidas en el "Todas".
 // ═══════════════════════════════════════════════════════════
 
 const METODOS_PAGO=["Efectivo","Nequi","Daviplata","Banco Falabella","Transferencia","Otro"];
@@ -34,29 +36,39 @@ async function renderHist(){
   // v5.0.1b: el filtro "all" ya NO incluye convertidas (quedan ocultas por default).
   // Aparecen solo con filtro explícito "convertidas".
   // v5.0.3: mismo tratamiento para anuladas.
-  const cnt={all:0,cot:0,prop:0,pedido:0,propfinal:0,aprobada:0,en_produccion:0,convertidas:0,anuladas:0};
+  // v5.0.4: "Pedidos" consolida pedido + aprobada + en_produccion (todo lo vendido sin entregar)
+  //         "Perdidas" nuevo filtro (followUp=perdida, excluidas del "Todas")
+  const cnt={all:0,cot:0,prop:0,pedido:0,propfinal:0,aprobada:0,en_produccion:0,convertidas:0,anuladas:0,perdidas:0};
   quotesCache.forEach(q=>{
     const s=q.status||"enviada";
-    if(s==="convertida"){cnt.convertidas++;return} // v5.0.1b: no suma en "all" ni en "prop"
-    if(s==="anulada"){cnt.anuladas++;return}       // v5.0.3: no suma en "all" tampoco
+    const fu=typeof getFollowUp==="function"?getFollowUp(q):"pendiente";
+    if(s==="convertida"){cnt.convertidas++;return}
+    if(s==="anulada"){cnt.anuladas++;return}
+    // v5.0.4: perdidas se cuentan aparte y no suman en "Todas"
+    if(fu==="perdida"&&(s==="enviada"||s==="propfinal")){cnt.perdidas++;return}
     cnt.all++;
     if(q.kind==="quote")cnt.cot++;else cnt.prop++;
-    if(s==="pedido")cnt.pedido++;
+    // v5.0.4: "Pedidos" agrupa los 3 estados de venta confirmada
+    if(["pedido","aprobada","en_produccion"].includes(s))cnt.pedido++;
     if(s==="propfinal")cnt.propfinal++;
     if(s==="aprobada")cnt.aprobada++;
     if(s==="en_produccion")cnt.en_produccion++;
   });
   const filtered=quotesCache.filter(q=>{
     const s=q.status||"enviada";
-    // v5.0.1b: convertidas solo aparecen con filtro explícito
+    const fu=typeof getFollowUp==="function"?getFollowUp(q):"pendiente";
     if(histFilter==="convertidas")return s==="convertida";
-    if(s==="convertida")return false; // oculta por default en todos los otros filtros
-    // v5.0.3: anuladas solo aparecen con filtro explícito
+    if(s==="convertida")return false;
     if(histFilter==="anuladas")return s==="anulada";
     if(s==="anulada")return false;
+    // v5.0.4: perdidas se ven solo con filtro explícito
+    if(histFilter==="perdidas")return fu==="perdida"&&(s==="enviada"||s==="propfinal");
+    if(fu==="perdida"&&(s==="enviada"||s==="propfinal"))return false;
     if(histFilter==="all")return true;
     if(histFilter==="cot")return q.kind==="quote";
     if(histFilter==="prop")return q.kind==="proposal";
+    // v5.0.4: filtro "pedido" consolida los 3 estados
+    if(histFilter==="pedido")return ["pedido","aprobada","en_produccion"].includes(s);
     return s===histFilter;
   });
   const mkFilter=(k,label,n,extraCls)=>'<button class="hist-filter '+(extraCls||"")+' '+(histFilter===k?"act":"")+'" onclick="setHistFilter(\''+k+'\')">'+label+'<span class="cnt">'+n+'</span></button>';
@@ -68,10 +80,10 @@ async function renderHist(){
     mkFilter("propfinal","P. Final",cnt.propfinal)+
     mkFilter("aprobada","Aprobadas",cnt.aprobada)+
     mkFilter("en_produccion","En producción",cnt.en_produccion)+
-    // v5.0.1b: filtro nuevo convertidas (aparece solo si hay alguna)
     (cnt.convertidas>0?mkFilter("convertidas","Convertidas",cnt.convertidas,"convertidas-filter"):"")+
-    // v5.0.3: filtro nuevo anuladas (aparece solo si hay alguna)
     (cnt.anuladas>0?mkFilter("anuladas","Anuladas",cnt.anuladas,"anuladas-filter"):"")+
+    // v5.0.4: filtro Perdidas (aparece solo si hay alguna)
+    (cnt.perdidas>0?mkFilter("perdidas","Perdidas",cnt.perdidas,"anuladas-filter"):"")+
     '</div>';
   if(!filtered.length){el.innerHTML=filtersBar+'<div class="empty"><div class="ic">🔍</div><p>Sin resultados para este filtro</p></div>';return}
   const cards=filtered.map(q=>{
@@ -91,6 +103,15 @@ async function renderHist(){
     // v5.0.3: badge Anulada (motivo visible como tooltip)
     const motivoAnulacion=q.anuladaData?.motivoLabel||q.anuladaData?.motivo||"";
     const anuladaBadge=(status==="anulada")?'<span class="hc-anulada-badge" title="'+motivoAnulacion+'">❌ Anulada</span>':'';
+    // v5.0.4: badge de followUp (solo para docs followable y solo si followUp != pendiente)
+    let followUpBadge="";
+    if(typeof isFollowable==="function"&&isFollowable(q)){
+      const fu=typeof getFollowUp==="function"?getFollowUp(q):"pendiente";
+      if(fu!=="pendiente"&&FOLLOW_UP_META[fu]){
+        const meta=FOLLOW_UP_META[fu];
+        followUpBadge='<span class="hc-follow-badge '+meta.cls+'" title="'+meta.desc+'">'+meta.emoji+' '+meta.label+'</span>';
+      }
+    }
     const _pagos=getPagos(q);
     const _cobrado=totalCobrado(q);
     const _saldo=saldoPendiente(q);
@@ -156,7 +177,7 @@ async function renderHist(){
     if(status==="anulada")cardCls+=" hc-anulada";
     const cardExtra=(status==="superseded"||q._wrongCollection)?' style="opacity:.65"':"";
     return '<div class="'+cardCls+'"'+cardExtra+' onclick="loadQuote(\''+q.kind+'\',\''+q.id+'\')">'+
-      '<div class="hc-top"><div><span class="qnum">'+qNum+'</span> <span class="hc-cli">'+q.client+'</span><span class="hc-type '+(isProp?"prop":"cot")+'">'+(isProp?"Propuesta":"Cotización")+'</span>'+statusBadge+supersededBadge+wrongCollBadge+origenPfBadge+anuladaBadge+pagadoBadge+prodBadge+comentBadge+syncBadge+'</div>'+
+      '<div class="hc-top"><div><span class="qnum">'+qNum+'</span> <span class="hc-cli">'+q.client+'</span><span class="hc-type '+(isProp?"prop":"cot")+'">'+(isProp?"Propuesta":"Cotización")+'</span>'+statusBadge+supersededBadge+wrongCollBadge+origenPfBadge+anuladaBadge+followUpBadge+pagadoBadge+prodBadge+comentBadge+syncBadge+'</div>'+
       '<div><button class="dup-btn" onclick="openDuplicateModal(\''+q.kind+'\',\''+q.id+'\',event)" title="Duplicar">📋</button><button class="del-btn" onclick="delHistItem(\''+q.kind+'\',\''+q.id+'\',event)">×</button></div></div>'+
       '<div class="hc-date">'+ds+'</div>'+summary+actions+
       '</div>';
