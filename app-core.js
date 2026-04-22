@@ -27,10 +27,16 @@
 //         al etiquetar. Botones 🟢 Viva / ❌ Perdida inline en drill-down del
 //         dashboard. Botón "🔧 Normalizar docs" en Mantenimiento para limpiar
 //         bulk los docs legacy (idempotente, con preview y confirmación).
+// v5.3.0: MINOR — rediseño dashboard con progressive disclosure. Siempre visible:
+//         Pipeline + KPIs + Operación urgente 3d (Por producir / Por entregar lado
+//         a lado). Colapsable: Análisis comercial (Conversión/Pérdidas/Cliente),
+//         Otros operativos (Recaudo/Próximas 14d/Por cobrar/Comentarios), Opciones
+//         avanzadas. Estado expandido persistido en localStorage. Drill-down usa
+//         chips compactos (NO full-width) para Viva/Perdida/Reactivar + Pedido/Aprobar.
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v5.2.3";
+const BUILD_VERSION="v5.3.0";
 const BUILD_DATE="2026-04-21";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";

@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1a1a1a">
 <title>Gourmet Bites - Cotizador</title>
-<!-- VERSION: 2026-04-21-v5.2.3-fix-docs-sin-status-y-etiquetado-drilldown -->
+<!-- VERSION: 2026-04-21-v5.3.0-progressive-disclosure-urgente-3d-chips-compactos -->
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
@@ -498,6 +498,45 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
 .mant-btn-normalizar:hover{background:#E0F2F1}
 .mant-hint{font-size:10px;color:#999;margin-top:8px;font-style:italic}
 
+/* ════════════ v5.3.0: Operación urgente (lado a lado) ════════════ */
+.dash-urgent-title{font-size:11px;font-weight:800;color:#E65100;text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px 0;display:flex;align-items:center;gap:6px}
+.dash-urgent-split{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:8px}
+.urgent-card{background:#fff;border-radius:10px;padding:10px 10px 8px;box-shadow:var(--sh);min-height:100px;display:flex;flex-direction:column}
+.urgent-prod{border-top:3px solid #FF9800}
+.urgent-ent{border-top:3px solid var(--bl)}
+.urgent-hdr{display:flex;align-items:center;gap:5px;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid #F0F0F0}
+.urgent-icon{font-size:13px}
+.urgent-title-txt{font-size:10.5px;font-weight:700;color:var(--bk);flex:1;letter-spacing:.1px}
+.urgent-count{font-size:10px;font-weight:800;padding:1px 8px;border-radius:10px;line-height:1.4}
+.urgent-count.prod{background:#FFF3E0;color:#E65100}
+.urgent-count.ent{background:#E3F2FD;color:#0D47A1}
+.urgent-body{flex:1;display:flex;flex-direction:column}
+.urgent-item{padding:5px 0 6px;border-bottom:1px dashed #F0F0F0;cursor:pointer;transition:background .12s;border-radius:4px;margin:0 -4px;padding-left:4px;padding-right:4px}
+.urgent-item:last-child{border-bottom:none}
+.urgent-item:active{background:#F5F7FA}
+.urgent-cli{font-size:11px;font-weight:700;color:var(--bk);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2}
+.urgent-meta{font-size:9px;color:var(--mid);margin-top:1px;line-height:1.3}
+.urgent-val{font-size:11px;font-weight:800;color:#1B5E20;margin-top:2px;font-variant-numeric:tabular-nums}
+.urgent-empty{font-size:10px;color:var(--soft);font-style:italic;text-align:center;padding:14px 4px;flex:1;display:flex;align-items:center;justify-content:center}
+.urgent-d-today{color:#C62828;font-weight:700}
+.urgent-d-tomorrow{color:#E65100;font-weight:600}
+
+/* ════════════ v5.3.0: Secciones colapsables progressive disclosure ════════════ */
+.dash-collapsible{background:#fff;border-radius:10px;margin:10px 0;overflow:hidden;box-shadow:var(--sh)}
+.dash-coll-toggle{width:100%;background:transparent;border:none;padding:13px 14px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;font-family:'DM Sans',sans-serif;color:var(--bk);transition:background .15s;-webkit-appearance:none}
+.dash-coll-toggle:hover{background:#FAFAFA}
+.dash-coll-toggle:active{background:#F5F5F5}
+.dash-coll-left{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+.dash-coll-icon{font-size:15px}
+.dash-coll-title{font-size:12.5px;font-weight:700;color:var(--bk)}
+.dash-coll-count{font-size:9.5px;color:var(--soft);font-weight:600;margin-left:3px}
+.dash-coll-chevron{font-size:13px;color:var(--soft);transition:transform .2s;flex-shrink:0;margin-left:8px}
+.dash-collapsible.open .dash-coll-chevron{transform:rotate(90deg);color:var(--bk)}
+.dash-coll-body{padding:4px 12px 12px;border-top:1px dashed #ECEFF1}
+.dash-coll-body.hidden{display:none}
+.dash-coll-body .dash-section{margin-top:10px}
+.dash-coll-body .dash-section:first-child{margin-top:6px}
+
 /* ════════════ v5.2.0: Dashboard rediseñado ════════════ */
 /* Título de zona "Métricas del período" */
 .dash-kpis-title{font-size:11px;font-weight:800;color:#455A64;text-transform:uppercase;letter-spacing:.5px;margin:16px 0 10px 0;display:flex;align-items:center;gap:6px}
@@ -842,13 +881,14 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
 .dd-row-cli{font-weight:700;font-size:13px;color:var(--bk);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dd-row-monto{font-weight:800;color:#1B5E20;font-size:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .dd-row-meta{font-size:10.5px;color:var(--mid);line-height:1.5}
-/* v5.2.3: botones rápidos Viva/Perdida/Reactivar inline en cada fila del drill-down */
-.dd-row-quick{display:flex;gap:6px;margin-top:7px;padding-top:7px;border-top:1px dashed #E0E0E0}
-.dd-qbtn{flex:1;border:none;border-radius:6px;padding:7px 6px;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:700;cursor:pointer;color:#fff;transition:transform .1s;letter-spacing:.2px}
-.dd-qbtn:active{transform:scale(.96)}
-.dd-qbtn-viva{background:linear-gradient(135deg,#66BB6A,#388E3C)}
-.dd-qbtn-perdida{background:linear-gradient(135deg,#EF5350,#C62828)}
-.dd-qbtn-react{background:linear-gradient(135deg,#FFA726,#E65100)}
+/* v5.3.0: chips compactos inline en cada fila del drill-down (NO full-width) */
+.dd-row-chips{display:flex;gap:5px;margin-top:7px;flex-wrap:wrap}
+.dd-chip{border:none;border-radius:14px;padding:4px 10px;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:700;cursor:pointer;color:#fff;transition:transform .1s;min-height:28px;line-height:1;display:inline-flex;align-items:center;gap:3px}
+.dd-chip:active{transform:scale(.94)}
+.dd-chip-viva{background:linear-gradient(135deg,#66BB6A,#388E3C);min-width:34px;justify-content:center}
+.dd-chip-perdida{background:linear-gradient(135deg,#EF5350,#C62828);min-width:34px;justify-content:center}
+.dd-chip-react{background:linear-gradient(135deg,#FFA726,#E65100)}
+.dd-chip-convert{background:linear-gradient(135deg,#1976D2,#0D47A1);padding:4px 11px;font-weight:700}
 .dd-empty{text-align:center;padding:24px 12px;color:var(--soft);font-style:italic;font-size:13px}
 /* v4.12.1: hint en select de cliente para no confundir */
 .cli-sel select option[value=""]{color:var(--bl);font-weight:600}
@@ -927,56 +967,91 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
   <div id="dash-banner-convertidas" class="dash-banner-info hidden"></div>
   <div id="dash-custom-range-info" class="dash-custom-info hidden"></div>
 
-  <!-- Zona 1: Pipeline Activo (lo vivo hoy) — compacto -->
+  <!-- Zona 1: Pipeline Activo (lo vivo hoy) — siempre visible -->
   <div class="pipeline-section" id="dash-pipeline">
     <div class="pipeline-title"><span class="pt-ic">🎯</span> Pipeline Activo (lo vivo hoy)</div>
     <div class="pipeline-grid" id="pipeline-grid"></div>
   </div>
 
-  <!-- Zona 2: KPIs del período (bento grid) -->
+  <!-- Zona 2: KPIs del período (bento grid) — siempre visible -->
   <div class="dash-kpis-title">📈 Métricas del período</div>
   <div class="dash-grid" id="dash-cards"></div>
 
-  <!-- v5.2.0: Zona 3 · Reportes comerciales (R1 + R3) -->
-  <div class="dash-section dash-section-reportes">
-    <div class="dash-stit">📊 Conversión del período</div>
-    <div id="dash-reporte-conversion"></div>
-  </div>
-  <div class="dash-section dash-section-reportes">
-    <div class="dash-stit">❌ Pérdidas por motivo</div>
-    <div id="dash-reporte-perdidas"></div>
+  <!-- v5.3.0: Zona 3 · OPERACIÓN URGENTE (próximos 3 días) — SIEMPRE VISIBLE, LADO A LADO -->
+  <div class="dash-urgent-title">⏰ Operación urgente · próximos 3 días</div>
+  <div class="dash-urgent-split">
+    <div class="urgent-card urgent-prod" id="dash-urgent-producir">
+      <div class="urgent-hdr">
+        <span class="urgent-icon">🔥</span>
+        <span class="urgent-title-txt">Por producir</span>
+        <span class="urgent-count prod" id="dash-urgent-prod-count">0</span>
+      </div>
+      <div class="urgent-body" id="dash-urgent-prod-body"></div>
+    </div>
+    <div class="urgent-card urgent-ent" id="dash-urgent-entregar">
+      <div class="urgent-hdr">
+        <span class="urgent-icon">📦</span>
+        <span class="urgent-title-txt">Por entregar</span>
+        <span class="urgent-count ent" id="dash-urgent-ent-count">0</span>
+      </div>
+      <div class="urgent-body" id="dash-urgent-ent-body"></div>
+    </div>
   </div>
 
-  <!-- v5.2.0: Zona 4 · Filtro por cliente (R4) -->
-  <div class="dash-section">
-    <div class="dash-stit">🔍 Vista por cliente</div>
-    <div class="cliente-filtro-bar">
-      <input type="text" id="dash-cliente-input" class="cliente-filtro-input" placeholder="Escribe un cliente para ver todo su historial..." oninput="onClienteFilterInput(event)" autocomplete="off">
-      <button class="cliente-filtro-clear" onclick="clearClienteFilter()" id="dash-cliente-clear" style="display:none">×</button>
+  <!-- v5.3.0: Zona 4 · ANÁLISIS COMERCIAL (colapsable) -->
+  <div class="dash-collapsible" data-key="analisis">
+    <button class="dash-coll-toggle" onclick="toggleDashSection('analisis')">
+      <span class="dash-coll-left"><span class="dash-coll-icon">📈</span><span class="dash-coll-title">Análisis comercial</span><span class="dash-coll-count">3 secciones</span></span>
+      <span class="dash-coll-chevron" id="chev-analisis">▸</span>
+    </button>
+    <div class="dash-coll-body hidden" id="body-analisis">
+      <div class="dash-section dash-section-reportes">
+        <div class="dash-stit">📊 Conversión del período</div>
+        <div id="dash-reporte-conversion"></div>
+      </div>
+      <div class="dash-section dash-section-reportes">
+        <div class="dash-stit">❌ Pérdidas por motivo</div>
+        <div id="dash-reporte-perdidas"></div>
+      </div>
+      <div class="dash-section">
+        <div class="dash-stit">🔍 Vista por cliente</div>
+        <div class="cliente-filtro-bar">
+          <input type="text" id="dash-cliente-input" class="cliente-filtro-input" placeholder="Escribe un cliente para ver todo su historial..." oninput="onClienteFilterInput(event)" autocomplete="off">
+          <button class="cliente-filtro-clear" onclick="clearClienteFilter()" id="dash-cliente-clear" style="display:none">×</button>
+        </div>
+        <div id="dash-cliente-suggestions" class="cliente-suggestions hidden"></div>
+        <div id="dash-cliente-resultado"></div>
+      </div>
     </div>
-    <div id="dash-cliente-suggestions" class="cliente-suggestions hidden"></div>
-    <div id="dash-cliente-resultado"></div>
   </div>
 
-  <!-- Zona 5: Recaudo + Entregas + Cobros + Comentarios -->
-  <div class="dash-section">
-    <div class="dash-stit">💰 Recaudo por método</div>
-    <div id="dash-recaudo"></div>
-  </div>
-  <div class="dash-section">
-    <div class="dash-stit-row">
-      <div class="dash-stit">📅 Próximas entregas</div>
-      <button class="dash-stit-btn" onclick="syncAgendaAllFuture()" title="Sincronizar .ics completo con Kathy y JP">📤 Sync agenda</button>
+  <!-- v5.3.0: Zona 5 · OTROS OPERATIVOS (colapsable) -->
+  <div class="dash-collapsible" data-key="operativos">
+    <button class="dash-coll-toggle" onclick="toggleDashSection('operativos')">
+      <span class="dash-coll-left"><span class="dash-coll-icon">💵</span><span class="dash-coll-title">Otros operativos</span><span class="dash-coll-count">4 secciones</span></span>
+      <span class="dash-coll-chevron" id="chev-operativos">▸</span>
+    </button>
+    <div class="dash-coll-body hidden" id="body-operativos">
+      <div class="dash-section">
+        <div class="dash-stit">💰 Recaudo por método</div>
+        <div id="dash-recaudo"></div>
+      </div>
+      <div class="dash-section">
+        <div class="dash-stit-row">
+          <div class="dash-stit">📅 Próximas entregas (14 días)</div>
+          <button class="dash-stit-btn" onclick="syncAgendaAllFuture()" title="Sincronizar .ics completo con Kathy y JP">📤 Sync agenda</button>
+        </div>
+        <div id="dash-upcoming"></div>
+      </div>
+      <div class="dash-section">
+        <div class="dash-stit">⚠️ Pendientes por cobrar</div>
+        <div id="dash-pendientes"></div>
+      </div>
+      <div class="dash-section">
+        <div class="dash-stit">💬 Últimos comentarios de clientes</div>
+        <div id="dash-coments"></div>
+      </div>
     </div>
-    <div id="dash-upcoming"></div>
-  </div>
-  <div class="dash-section">
-    <div class="dash-stit">⚠️ Pendientes por cobrar</div>
-    <div id="dash-pendientes"></div>
-  </div>
-  <div class="dash-section">
-    <div class="dash-stit">💬 Últimos comentarios de clientes</div>
-    <div id="dash-coments"></div>
   </div>
 
   <!-- v5.2.0: Mantenimiento colapsado por default (progressive disclosure) -->
@@ -1802,12 +1877,12 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
   </div>
 </div>
 
-<script src="app-assets.js?v=5.2.3"></script>
-<script src="app-core.js?v=5.2.3"></script>
-<script src="app-cotizar.js?v=5.2.3"></script>
-<script src="app-propuesta.js?v=5.2.3"></script>
-<script src="app-historial.js?v=5.2.3"></script>
-<script src="app-seguimiento.js?v=5.2.3"></script>
-<script src="app-dashboard.js?v=5.2.3"></script>
+<script src="app-assets.js?v=5.3.0"></script>
+<script src="app-core.js?v=5.3.0"></script>
+<script src="app-cotizar.js?v=5.3.0"></script>
+<script src="app-propuesta.js?v=5.3.0"></script>
+<script src="app-historial.js?v=5.3.0"></script>
+<script src="app-seguimiento.js?v=5.3.0"></script>
+<script src="app-dashboard.js?v=5.3.0"></script>
 </body>
 </html>

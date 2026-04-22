@@ -130,6 +130,13 @@ async function renderDashboard(){
   // v5.2.0: Vista por cliente (re-renderiza si hay uno seleccionado)
   _safe(renderClienteView,"cliente-view");
 
+  // v5.3.0: Operación urgente (por producir + por entregar en próximos 3 días)
+  // SIEMPRE VISIBLE — lo más importante del día a día operativo
+  _safe(renderUrgent3d,"urgent-3d");
+
+  // v5.3.0: aplicar estado guardado de collapsibles (localStorage)
+  _safe(applyDashCollapsedState,"collapsed-state");
+
   // Recaudo por método
   _safe(()=>{
     const el=$("dash-recaudo");
@@ -721,22 +728,29 @@ function openDashDetail(tipo){
         ecBadge=' <span class="hc-estado-badge '+m.cls+'">'+m.emoji+' '+m.label+'</span>';
       }
     }
-    // v5.2.3: botones rápidos Viva/Perdida inline en docs followable. Reutiliza
-    // quickMarkViva (de app-historial.js) y openPerdidaModal (de app-seguimiento.js)
-    // ambas ya globales. Si el doc está perdida, muestra ♻️ Reactivar en su lugar.
+    // v5.3.0: chips compactos inline (no full-width). Botones según tipo/status:
+    //   - Cotización enviada no perdida → 🟢/❌ + 🤝 Pedido (openOrderModal)
+    //   - Propuesta enviada/propfinal no perdida → 🟢/❌ + ✓ Aprobar (openApproveModal)
+    //   - Cualquier followable ya perdida → ♻️ Reactivar
+    // Respeta la regla UX de Luis: "jamás full-width buttons"
     let quickBtns="";
     if(typeof isFollowable==="function"&&isFollowable(q)){
       const esPerdida=typeof isPerdida==="function"&&isPerdida(q);
+      const s=q.status||"enviada";
+      const chips=[];
       if(esPerdida){
-        quickBtns='<div class="dd-row-quick">'+
-          '<button class="dd-qbtn dd-qbtn-react" onclick="event.stopPropagation();openReactivarModal(\''+q.id+'\',\''+q.kind+'\',event)" title="Reactivar — volver a viva">♻️ Reactivar</button>'+
-        '</div>';
+        chips.push('<button class="dd-chip dd-chip-react" onclick="event.stopPropagation();openReactivarModal(\''+q.id+'\',\''+q.kind+'\',event)" title="Reactivar">♻️</button>');
       }else{
-        quickBtns='<div class="dd-row-quick">'+
-          '<button class="dd-qbtn dd-qbtn-viva" onclick="event.stopPropagation();ddQuickViva(\''+q.id+'\',\''+q.kind+'\',event)" title="Marcar como viva (activa)">🟢 Viva</button>'+
-          '<button class="dd-qbtn dd-qbtn-perdida" onclick="event.stopPropagation();openPerdidaModal(\''+q.id+'\',\''+q.kind+'\')" title="Marcar como perdida">❌ Perdida</button>'+
-        '</div>';
+        chips.push('<button class="dd-chip dd-chip-viva" onclick="event.stopPropagation();ddQuickViva(\''+q.id+'\',\''+q.kind+'\',event)" title="Viva">🟢</button>');
+        chips.push('<button class="dd-chip dd-chip-perdida" onclick="event.stopPropagation();openPerdidaModal(\''+q.id+'\',\''+q.kind+'\')" title="Perdida">❌</button>');
+        // Botón convertir según tipo
+        if(q.kind==="quote"&&s==="enviada"){
+          chips.push('<button class="dd-chip dd-chip-convert" onclick="event.stopPropagation();closeDashDetail();openOrderModal(\''+q.id+'\',event)" title="Marcar como pedido">🤝 Pedido</button>');
+        }else if(q.kind==="proposal"&&(s==="enviada"||s==="propfinal")){
+          chips.push('<button class="dd-chip dd-chip-convert" onclick="event.stopPropagation();closeDashDetail();openApproveModal(\''+q.id+'\',\'proposal\',event)" title="Marcar como aprobada">✓ Aprobar</button>');
+        }
       }
+      quickBtns='<div class="dd-row-chips">'+chips.join("")+'</div>';
     }
     return '<div class="dd-row" onclick="closeDashDetail();loadQuote(\''+q.kind+'\',\''+q.id+'\')">'+
       '<div class="dd-row-top"><div class="dd-row-cli">'+tag+(q.client||"—")+'</div><div class="dd-row-monto">'+fm(monto)+'</div></div>'+
@@ -1219,6 +1233,129 @@ async function normalizarDocsSinStatus(){
   renderDashboard();
   if(typeof renderSeguimiento==="function"&&curMode==="seg")renderSeguimiento();
   if(typeof renderHist==="function"&&curMode==="hist")renderHist();
+}
+
+// ═══════════════════════════════════════════════════════════
+// v5.3.0: OPERACIÓN URGENTE · PRÓXIMOS 3 DÍAS (lado a lado)
+// ═══════════════════════════════════════════════════════════
+// Renderiza 2 tarjetas SIEMPRE VISIBLES en el dashboard, partiendo la
+// pantalla por la mitad:
+//   🔥 Por producir  — pedidos/aprobadas con fechaEntrega/eventDate en
+//                       los próximos 3 días que aún NO están en producción
+//   📦 Por entregar  — pedidos en_produccion con fechaEntrega/eventDate
+//                       en los próximos 3 días
+// Cada item es tappable → abre el doc. Ordenados por fecha más cercana.
+// Muestra "HOY", "MAÑANA", "PASADO" para las 3 fechas más urgentes.
+function renderUrgent3d(){
+  const prodBody=$("dash-urgent-prod-body");
+  const entBody=$("dash-urgent-ent-body");
+  const prodCount=$("dash-urgent-prod-count");
+  const entCount=$("dash-urgent-ent-count");
+  if(!prodBody||!entBody)return;
+
+  const todayIso=new Date().toISOString().slice(0,10);
+  const t3=new Date();t3.setDate(t3.getDate()+3);
+  const t3Iso=t3.toISOString().slice(0,10);
+
+  const porProducir=[],porEntregar=[];
+  (quotesCache||[]).forEach(q=>{
+    if(q._wrongCollection)return;
+    const s=q.status||"enviada";
+    if(["anulada","superseded","convertida","entregado"].includes(s))return;
+    const fecha=q.eventDate||q.fechaEntrega;
+    if(!fecha)return;
+    if(fecha<todayIso||fecha>t3Iso)return; // fuera de ventana 3 días
+    // Por producir: pedido/aprobada (aún no empezó producción)
+    if(["pedido","aprobada"].includes(s))porProducir.push(q);
+    // Por entregar: en_produccion (cocina en marcha)
+    else if(s==="en_produccion")porEntregar.push(q);
+  });
+
+  // Ordenar por fecha ascendente (más cercano primero)
+  const sortFn=(a,b)=>(a.eventDate||a.fechaEntrega||"").localeCompare(b.eventDate||b.fechaEntrega||"");
+  porProducir.sort(sortFn);
+  porEntregar.sort(sortFn);
+
+  if(prodCount)prodCount.textContent=porProducir.length;
+  if(entCount)entCount.textContent=porEntregar.length;
+
+  prodBody.innerHTML=porProducir.length?porProducir.map(urgentItemHtml).join(""):
+    '<div class="urgent-empty">Sin pedidos por producir<br>en los próximos 3 días</div>';
+  entBody.innerHTML=porEntregar.length?porEntregar.map(urgentItemHtml).join(""):
+    '<div class="urgent-empty">Sin entregas<br>en los próximos 3 días</div>';
+}
+
+// Helper: HTML de un item dentro de las tarjetas urgentes
+function urgentItemHtml(q){
+  const fecha=q.eventDate||q.fechaEntrega;
+  const today=new Date().toISOString().slice(0,10);
+  const tomorrow=new Date();tomorrow.setDate(tomorrow.getDate()+1);
+  const tomorrowIso=tomorrow.toISOString().slice(0,10);
+  const pasado=new Date();pasado.setDate(pasado.getDate()+2);
+  const pasadoIso=pasado.toISOString().slice(0,10);
+  let fechaLabel=fecha;
+  let fechaCls="";
+  if(fecha===today){fechaLabel="HOY "+fecha;fechaCls="urgent-d-today"}
+  else if(fecha===tomorrowIso){fechaLabel="MAÑANA "+fecha;fechaCls="urgent-d-tomorrow"}
+  else if(fecha===pasadoIso){fechaLabel="PASADO "+fecha}
+  const hora=q.horaEntrega?' · ⏰ '+q.horaEntrega:'';
+  const cli=(q.client||"—").replace(/[<>]/g,"");
+  const total=fm(getDocTotal(q));
+  return '<div class="urgent-item" onclick="loadQuote(\''+q.kind+'\',\''+q.id+'\')">'+
+    '<div class="urgent-cli">'+cli+'</div>'+
+    '<div class="urgent-meta"><span class="'+fechaCls+'">'+fechaLabel+'</span>'+hora+'</div>'+
+    '<div class="urgent-val">'+total+'</div>'+
+  '</div>';
+}
+
+// ═══════════════════════════════════════════════════════════
+// v5.3.0: PROGRESSIVE DISCLOSURE · secciones colapsables
+// ═══════════════════════════════════════════════════════════
+// Toggle + estado persistido en localStorage. Si falla la lectura,
+// cae a "todo colapsado" (defensivo).
+const DASH_COLL_KEY="gb_dash_coll_v530";
+
+function getDashCollState(){
+  try{
+    const raw=localStorage.getItem(DASH_COLL_KEY);
+    if(!raw)return {};
+    const parsed=JSON.parse(raw);
+    return (parsed&&typeof parsed==="object")?parsed:{};
+  }catch(e){
+    console.warn("[Dashboard] no pude leer estado collapsed:",e);
+    return {};
+  }
+}
+function saveDashCollState(st){
+  try{localStorage.setItem(DASH_COLL_KEY,JSON.stringify(st||{}))}
+  catch(e){console.warn("[Dashboard] no pude guardar estado collapsed:",e)}
+}
+function applyDashCollapsedState(){
+  const st=getDashCollState();
+  document.querySelectorAll(".dash-collapsible").forEach(el=>{
+    const key=el.dataset.key;
+    if(!key)return;
+    const body=$("body-"+key);
+    const chev=$("chev-"+key);
+    const isOpen=!!st[key];
+    el.classList.toggle("open",isOpen);
+    if(body)body.classList.toggle("hidden",!isOpen);
+    if(chev)chev.textContent=isOpen?"▾":"▸";
+  });
+}
+function toggleDashSection(key){
+  if(!key)return;
+  const wrap=document.querySelector('.dash-collapsible[data-key="'+key+'"]');
+  const body=$("body-"+key);
+  const chev=$("chev-"+key);
+  if(!wrap||!body)return;
+  const willOpen=body.classList.contains("hidden");
+  wrap.classList.toggle("open",willOpen);
+  body.classList.toggle("hidden",!willOpen);
+  if(chev)chev.textContent=willOpen?"▾":"▸";
+  const st=getDashCollState();
+  st[key]=willOpen;
+  saveDashCollState(st);
 }
 
 // ═══════════════════════════════════════════════════════════
