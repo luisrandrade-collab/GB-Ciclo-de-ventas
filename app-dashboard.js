@@ -698,6 +698,9 @@ async function exportAgendaIcs(){
 // v4.12.1: DRILL-DOWN — modal con detalle de cada KPI del dashboard
 // ═══════════════════════════════════════════════════════════
 function openDashDetail(tipo){
+  // v5.2.3: guardar tipo actual para poder refrescar el drill-down
+  // después de etiquetar Viva/Perdida desde las filas.
+  _dashDetailTipoActual=tipo;
   const range=getDashRange();
   const inRange=fecha=>fecha&&fecha>=range.start&&fecha<=range.end;
   let title="",rows=[],totalSum=0;
@@ -718,9 +721,27 @@ function openDashDetail(tipo){
         ecBadge=' <span class="hc-estado-badge '+m.cls+'">'+m.emoji+' '+m.label+'</span>';
       }
     }
+    // v5.2.3: botones rápidos Viva/Perdida inline en docs followable. Reutiliza
+    // quickMarkViva (de app-historial.js) y openPerdidaModal (de app-seguimiento.js)
+    // ambas ya globales. Si el doc está perdida, muestra ♻️ Reactivar en su lugar.
+    let quickBtns="";
+    if(typeof isFollowable==="function"&&isFollowable(q)){
+      const esPerdida=typeof isPerdida==="function"&&isPerdida(q);
+      if(esPerdida){
+        quickBtns='<div class="dd-row-quick">'+
+          '<button class="dd-qbtn dd-qbtn-react" onclick="event.stopPropagation();openReactivarModal(\''+q.id+'\',\''+q.kind+'\',event)" title="Reactivar — volver a viva">♻️ Reactivar</button>'+
+        '</div>';
+      }else{
+        quickBtns='<div class="dd-row-quick">'+
+          '<button class="dd-qbtn dd-qbtn-viva" onclick="event.stopPropagation();ddQuickViva(\''+q.id+'\',\''+q.kind+'\',event)" title="Marcar como viva (activa)">🟢 Viva</button>'+
+          '<button class="dd-qbtn dd-qbtn-perdida" onclick="event.stopPropagation();openPerdidaModal(\''+q.id+'\',\''+q.kind+'\')" title="Marcar como perdida">❌ Perdida</button>'+
+        '</div>';
+      }
+    }
     return '<div class="dd-row" onclick="closeDashDetail();loadQuote(\''+q.kind+'\',\''+q.id+'\')">'+
       '<div class="dd-row-top"><div class="dd-row-cli">'+tag+(q.client||"—")+'</div><div class="dd-row-monto">'+fm(monto)+'</div></div>'+
       '<div class="dd-row-meta"><span class="qnum" style="font-size:9px">'+(q.quoteNumber||q.id)+'</span> · '+fecha+' · <span class="hc-status '+sMeta.cls+'">'+sMeta.label+'</span>'+ecBadge+(extra?' · '+extra:'')+'</div>'+
+      quickBtns+
     '</div>';
   };
   if(tipo==="cotizado"){
@@ -833,7 +854,25 @@ function openDashDetail(tipo){
   $("dd-list").innerHTML=summary+html;
   $("dash-detail-modal").classList.remove("hidden");
 }
-function closeDashDetail(){$("dash-detail-modal").classList.add("hidden")}
+function closeDashDetail(){$("dash-detail-modal").classList.add("hidden");_dashDetailTipoActual=null}
+
+// v5.2.3: helpers para etiquetado rápido desde drill-down del dashboard
+// Reusa quickMarkViva (historial) y openPerdidaModal (seguimiento) sin modificarlos.
+// Tras etiquetar VIVA, refresca el drill-down automáticamente para reflejar el cambio.
+// Para PERDIDA, el modal de motivo se abre superpuesto; al confirmar, submitPerdida
+// ya refresca dashboard completo. El drill-down se refresca cuando el usuario
+// cierre y reabra (no hacemos auto-refresh aquí para no invadir submitPerdida).
+let _dashDetailTipoActual=null;
+
+async function ddQuickViva(docId,kind,ev){
+  if(typeof quickMarkViva!=="function"){alert("Función no disponible");return}
+  await quickMarkViva(docId,kind,ev);
+  // Si el drill-down sigue abierto, re-renderizar con datos frescos
+  const modal=$("dash-detail-modal");
+  if(modal&&!modal.classList.contains("hidden")&&_dashDetailTipoActual){
+    openDashDetail(_dashDetailTipoActual);
+  }
+}
 
 // ═══════════════════════════════════════════════════════════
 // v4.13.0: Banner de advertencia por docs fantasmas en dashboard
@@ -1123,6 +1162,63 @@ async function migrarFotosStorage(){
   try{await loadAllHistory()}catch{}
   alert("✅ Migración completa\n\n• Migradas OK: "+ok+"\n• Saltadas: "+skip+"\n• Errores: "+err+"\n\nLos docs migrados ya tienen fotoUrl en lugar de base64. Recomendado: cerrar y abrir la app para ver el dashboard más ligero.");
   renderDashboard();
+}
+
+// ═══════════════════════════════════════════════════════════
+// v5.2.3: NORMALIZAR DOCS SIN `status` (legacy pre-v5.0.3)
+// ═══════════════════════════════════════════════════════════
+// Los docs creados antes de v5.0.3 no tenían campo `status`. Quedaban invisibles
+// al Pipeline/Historial/Seguimiento aunque sí aparecían en el dashboard "Cotizado".
+// Esta función los detecta y les asigna `status: "enviada"` (o "propfinal" para PFs).
+// Idempotente: si no hay docs sin status, informa y sale.
+async function normalizarDocsSinStatus(){
+  if(!currentUser){alert("🔒 Debes estar autenticado para normalizar docs.");return}
+  if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+
+  // Detectar docs sin status (undefined, null o string vacío)
+  const candidatos=quotesCache.filter(q=>!q.status&&!q._wrongCollection);
+  if(!candidatos.length){
+    alert("🎉 No hay docs pendientes de normalizar. Todos tienen status correcto.");
+    return;
+  }
+
+  // Preview para Luis: mostrar qué docs se van a tocar y qué status va a recibir cada uno
+  const preview=candidatos.map(q=>{
+    const nuevoStatus=(q.kind==="proposal"&&q.id&&q.id.startsWith("GB-PF-"))?"propfinal":"enviada";
+    return "• "+(q.quoteNumber||q.id)+" — "+(q.client||"sin cliente")+" → "+nuevoStatus;
+  }).join("\n");
+
+  if(!confirm("🔧 Normalizar "+candidatos.length+" doc"+(candidatos.length!==1?"s":"")+" sin status\n\nSe les va a asignar el status que les corresponde por tipo:\n\n"+preview+"\n\n• No se tocan los datos, solo se agrega el campo `status`\n• Operación segura: cada doc en su propia escritura\n• Después podrás etiquetarlos Viva/Perdida normalmente\n\n¿Continuar?"))return;
+
+  showLoader("Normalizando docs · 0/"+candidatos.length);
+  const {db,doc,updateDoc,serverTimestamp}=window.fb;
+  let ok=0,err=0;
+  for(let i=0;i<candidatos.length;i++){
+    const q=candidatos[i];
+    $("loader-msg").textContent="Normalizando · "+(i+1)+"/"+candidatos.length;
+    try{
+      const nuevoStatus=(q.kind==="proposal"&&q.id&&q.id.startsWith("GB-PF-"))?"propfinal":"enviada";
+      let coll;
+      if(q.kind==="quote")coll="quotes";
+      else if(q.id&&q.id.startsWith("GB-PF-"))coll="propfinals";
+      else coll="proposals";
+      const patch={status:nuevoStatus,updatedAt:serverTimestamp()};
+      if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
+      await updateDoc(doc(db,coll,q.id),patch);
+      // Reflejar en cache
+      q.status=nuevoStatus;
+      ok++;
+    }catch(e){
+      console.error("Error normalizando "+q.id,e);
+      err++;
+    }
+  }
+  hideLoader();
+  try{await loadAllHistory()}catch{}
+  alert("✅ Normalización completa\n\n• Normalizados OK: "+ok+"\n• Errores: "+err+"\n\nLos docs ahora aparecerán correctamente en Pipeline, Historial Vivas y Seguimiento. Puedes etiquetarlos Viva/Perdida normalmente.");
+  renderDashboard();
+  if(typeof renderSeguimiento==="function"&&curMode==="seg")renderSeguimiento();
+  if(typeof renderHist==="function"&&curMode==="hist")renderHist();
 }
 
 // ═══════════════════════════════════════════════════════════

@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1a1a1a">
 <title>Gourmet Bites - Cotizador</title>
-<!-- VERSION: 2026-04-21-v5.2.2-hotfix-colision-histFilter-let-vs-var -->
+<!-- VERSION: 2026-04-21-v5.2.3-fix-docs-sin-status-y-etiquetado-drilldown -->
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
@@ -494,6 +494,8 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
 .mant-btn-resync:hover{background:#E8F5E9}
 .mant-btn-migrar{border-color:#BA68C8;color:#6A1B9A}
 .mant-btn-migrar:hover{background:#F3E5F5}
+.mant-btn-normalizar{border-color:#4DB6AC;color:#00695C}
+.mant-btn-normalizar:hover{background:#E0F2F1}
 .mant-hint{font-size:10px;color:#999;margin-top:8px;font-style:italic}
 
 /* ════════════ v5.2.0: Dashboard rediseñado ════════════ */
@@ -840,6 +842,13 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
 .dd-row-cli{font-weight:700;font-size:13px;color:var(--bk);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dd-row-monto{font-weight:800;color:#1B5E20;font-size:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .dd-row-meta{font-size:10.5px;color:var(--mid);line-height:1.5}
+/* v5.2.3: botones rápidos Viva/Perdida/Reactivar inline en cada fila del drill-down */
+.dd-row-quick{display:flex;gap:6px;margin-top:7px;padding-top:7px;border-top:1px dashed #E0E0E0}
+.dd-qbtn{flex:1;border:none;border-radius:6px;padding:7px 6px;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:700;cursor:pointer;color:#fff;transition:transform .1s;letter-spacing:.2px}
+.dd-qbtn:active{transform:scale(.96)}
+.dd-qbtn-viva{background:linear-gradient(135deg,#66BB6A,#388E3C)}
+.dd-qbtn-perdida{background:linear-gradient(135deg,#EF5350,#C62828)}
+.dd-qbtn-react{background:linear-gradient(135deg,#FFA726,#E65100)}
 .dd-empty{text-align:center;padding:24px 12px;color:var(--soft);font-style:italic;font-size:13px}
 /* v4.12.1: hint en select de cliente para no confundir */
 .cli-sel select option[value=""]{color:var(--bl);font-weight:600}
@@ -984,6 +993,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
         <button class="mant-btn mant-btn-fantasmas" onclick="cleanupWrongDocs()" title="Eliminar docs fantasma">🧹<span>Limpiar fantasmas</span></button>
         <button class="mant-btn mant-btn-resync" onclick="markAllUnsyncedAsPending()" title="Marcar todo pedidos futuros como re-sync pendiente">🔁<span>Re-sync agenda</span></button>
         <button class="mant-btn mant-btn-migrar" onclick="migrarFotosStorage()" title="Migrar fotos legacy a Storage (una vez)">🗜️<span>Migrar fotos</span></button>
+        <button class="mant-btn mant-btn-normalizar" onclick="normalizarDocsSinStatus()" title="Asignar status a docs legacy sin este campo (una vez)">🔧<span>Normalizar docs</span></button>
       </div>
     </div>
   </div>
@@ -1792,12 +1802,12 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
   </div>
 </div>
 
-<script src="app-assets.js?v=5.2.2"></script>
-<script src="app-core.js?v=5.2.2"></script>
-<script src="app-cotizar.js?v=5.2.2"></script>
-<script src="app-propuesta.js?v=5.2.2"></script>
-<script src="app-historial.js?v=5.2.2"></script>
-<script src="app-seguimiento.js?v=5.2.2"></script>
-<script src="app-dashboard.js?v=5.2.2"></script>
+<script src="app-assets.js?v=5.2.3"></script>
+<script src="app-core.js?v=5.2.3"></script>
+<script src="app-cotizar.js?v=5.2.3"></script>
+<script src="app-propuesta.js?v=5.2.3"></script>
+<script src="app-historial.js?v=5.2.3"></script>
+<script src="app-seguimiento.js?v=5.2.3"></script>
+<script src="app-dashboard.js?v=5.2.3"></script>
 </body>
 </html>

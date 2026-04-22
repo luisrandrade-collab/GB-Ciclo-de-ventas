@@ -21,10 +21,16 @@
 //         que chocaba con `var histFilter` de app-historial.js → SyntaxError en
 //         parseo → abortaba app-historial.js → Historial vacío + Dashboard KPIs
 //         vacíos (METODOS_PAGO y renderHist no cargaban). Fix de 1 línea.
+// v5.2.3: FIX operativo de docs legacy sin campo `status`. isFollowable y
+//         getPipelineActivo tratan docs sin status como "enviada" → aparecen en
+//         Pipeline/Historial Vivas/Seguimiento. setFollowUp auto-normaliza status
+//         al etiquetar. Botones 🟢 Viva / ❌ Perdida inline en drill-down del
+//         dashboard. Botón "🔧 Normalizar docs" en Mantenimiento para limpiar
+//         bulk los docs legacy (idempotente, con preview y confirmación).
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v5.2.2";
+const BUILD_VERSION="v5.2.3";
 const BUILD_DATE="2026-04-21";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -703,8 +709,12 @@ const MOTIVOS_PERDIDA={
 function isFollowable(q){
   if(!q||q._wrongCollection)return false;
   if(q.status==="anulada"||q.status==="superseded"||q.status==="convertida")return false;
-  if(q.kind==="quote"&&q.status==="enviada")return true;
-  if(q.kind==="proposal"&&(q.status==="enviada"||q.status==="propfinal"))return true;
+  // v5.2.3: docs sin campo `status` (legacy pre-v5.0.3) se tratan como "enviada".
+  // Antes de este fix quedaban invisibles al pipeline/historial/seguimiento aunque
+  // sí aparecían en "Cotizado" del dashboard (inconsistencia reportada por Luis).
+  const s=q.status||"enviada";
+  if(q.kind==="quote"&&s==="enviada")return true;
+  if(q.kind==="proposal"&&(s==="enviada"||s==="propfinal"))return true;
   return false;
 }
 
@@ -753,24 +763,28 @@ function getPipelineActivo(){
     // Excluir cotizaciones marcadas como perdidas
     if(getFollowUp(q)==="perdida")return;
     const total=q.total||0;
+    // v5.2.3: normalizar status — docs sin campo `status` (legacy pre-v5.0.3) se
+    // tratan como "enviada". Antes quedaban fuera del pipeline aunque sí sumaban
+    // en el dashboard, causando discrepancias reportadas por Luis.
+    const s=q.status||"enviada";
     // Bucket 1: en cotización viva (enviada/propfinal sin perdida)
-    if(q.kind==="quote"&&q.status==="enviada"){
+    if(q.kind==="quote"&&s==="enviada"){
       buckets.en_cotizacion.count++;
       buckets.en_cotizacion.total+=total;
       buckets.en_cotizacion.docs.push(q);
-    }else if(q.kind==="proposal"&&(q.status==="enviada"||q.status==="propfinal")){
+    }else if(q.kind==="proposal"&&(s==="enviada"||s==="propfinal")){
       buckets.en_cotizacion.count++;
       buckets.en_cotizacion.total+=total;
       buckets.en_cotizacion.docs.push(q);
     }
     // Bucket 2: pedido confirmado (pedido/aprobada/en_produccion)
-    else if(["pedido","aprobada","en_produccion"].includes(q.status)){
+    else if(["pedido","aprobada","en_produccion"].includes(s)){
       buckets.pedidos_confirmados.count++;
       buckets.pedidos_confirmados.total+=total;
       buckets.pedidos_confirmados.docs.push(q);
     }
     // Bucket 3: entregado con saldo pendiente
-    else if(q.status==="entregado"){
+    else if(s==="entregado"){
       const saldo=typeof saldoPendiente==="function"?saldoPendiente(q):0;
       if(saldo>0){
         buckets.entregados_con_saldo.count++;
@@ -799,6 +813,13 @@ async function setFollowUp(docId,kind,nuevoEstado,extra){
     followUpUpdatedAt:new Date().toISOString(),
     updatedAt:serverTimestamp()
   };
+  // v5.2.3: auto-normalización — si el doc no tiene `status` (legacy pre-v5.0.3),
+  // al etiquetar followUp aprovechamos para escribirle también status="enviada"
+  // (o "propfinal" si es una PF). Así los datos se auto-reparan con el uso normal.
+  if(!q.status){
+    const defaultStatus=(kind==="proposal"&&docId&&docId.startsWith("GB-PF-"))?"propfinal":"enviada";
+    patch.status=defaultStatus;
+  }
   if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
   if(nuevoEstado==="perdida"&&extra){
     patch.perdidaData={
@@ -812,6 +833,7 @@ async function setFollowUp(docId,kind,nuevoEstado,extra){
     await updateDoc(doc(db,coll,docId),patch);
     q.followUp=nuevoEstado;
     q.followUpUpdatedAt=patch.followUpUpdatedAt;
+    if(patch.status)q.status=patch.status; // v5.2.3: reflejar normalización en cache
     if(patch.perdidaData)q.perdidaData=patch.perdidaData;
     return true;
   }catch(e){
