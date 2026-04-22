@@ -54,10 +54,29 @@
 //         sin sufijo en v1; v2+ usan _v02, _v03. Botón 📎 Ver PDFs anteriores
 //         en el detalle del historial. Upload es best-effort: si Storage falla,
 //         el PDF local igual se entrega.
+// v5.4.2: PATCH + 2 features pequeñas.
+//         (1) FIX CSS: checkbox "Ya está producido" en modal Marcar-como-pedido
+//         dejó de heredar el estilo uppercase/block/font-weight 700 de
+//         `.mform .mf-field label`. Nueva clase `mf-check` + `mf-check-lbl`
+//         aísla el label del genérico. Lógica JS intacta.
+//         (2) UX-002 cerrado: loadQuote restaura q.eventDate → #f-date y
+//         q.momentosArr → checkboxes de #f-moments (incluye fallback "Otro"
+//         para momentos custom). Antes se guardaban bien pero reaparecían
+//         vacíos al reabrir → UX frustrante.
+//         (3) NUEVA: Botón 📤 Restaurar JSON en Mantenimiento (modo MERGE
+//         aditivo). Parsea backup exportado, hace preview con conteos de
+//         docs nuevos/ya-existen/clientes nuevos, confirmación doble antes
+//         de escribir. NO sobrescribe docs existentes — solo agrega los
+//         que faltan. Útil para recuperar docs borrados o consolidar
+//         backups antiguos sin riesgo.
+//         (4) NUEVA: Botón 📎 Todos los PDFs en header del Historial. Abre
+//         modal con navegador global de todos los docs que tengan
+//         pdfHistorial. Búsqueda en vivo por cliente/número, muestra
+//         todas las versiones con link directo de descarga a Storage.
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v5.4.1";
+const BUILD_VERSION="v5.4.2";
 const BUILD_DATE="2026-04-22";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -1665,6 +1684,39 @@ async function loadQuote(kind,id){
       updTr();
     }
     currentQuoteNumber=q.quoteNumber||id;
+    // v5.4.2 (UX-002): restaurar fecha de entrega y momentos en el formulario.
+    // Antes se guardaba en Firestore (q.eventDate + q.momentosArr desde v5.4.0)
+    // y salía en el PDF, pero los campos del form aparecían vacíos al reabrir.
+    try{
+      const fDate=$("f-date");
+      if(fDate)fDate.value=q.eventDate||"";
+      // Reset todos los checkboxes de momentos
+      document.querySelectorAll('#f-moments input[type=checkbox]').forEach(cb=>{cb.checked=false});
+      const fOther=$("f-time-other");if(fOther)fOther.value="";
+      const fOtherWrap=$("f-time-other-wrap");if(fOtherWrap)fOtherWrap.classList.add("hidden");
+      const chkOtro=$("chk-otro");
+      // Marcar los momentos guardados
+      const moms=Array.isArray(q.momentosArr)?q.momentosArr:[];
+      const fijos=["Desayuno","Refrigerio mañana","Almuerzo","Refrigerio tarde","Comida","Cóctel noche"];
+      let customMom="";
+      moms.forEach(m=>{
+        if(fijos.includes(m)){
+          const cb=document.querySelector('#f-moments input[type=checkbox][value="'+m.replace(/"/g,'\\"')+'"]');
+          if(cb)cb.checked=true;
+        }else{
+          customMom=m; // cualquier cosa que no sea fija → va a "Otro"
+        }
+      });
+      if(customMom&&chkOtro){
+        chkOtro.checked=true;
+        if(fOther)fOther.value=customMom;
+        if(fOtherWrap)fOtherWrap.classList.remove("hidden");
+      }
+      // Refrescar estilos visuales de los labels (selected state) si existe togMom
+      document.querySelectorAll('#f-moments input[type=checkbox]').forEach(cb=>{
+        if(typeof togMom==="function")togMom(cb);
+      });
+    }catch(e){console.warn("[loadQuote] restaurar f-date/f-moments falló:",e)}
     if(q.notasCotData&&typeof q.notasCotData==="object"){notasCotData={...q.notasCotData}}
     else{notasCotData={...DEFAULT_NOTAS_COT}}
     if(q.firma)firmaCot=q.firma;

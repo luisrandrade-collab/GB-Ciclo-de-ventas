@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1a1a1a">
 <title>Gourmet Bites - Cotizador</title>
-<!-- VERSION: 2026-04-22-v5.4.1-bloque-D-chip-producido-inline-bloque-B-pdf-versionado-storage -->
+<!-- VERSION: 2026-04-22-v5.4.2-checkbox-producido-fix-UX002-restaurar-backup-navegador-PDFs -->
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
@@ -632,6 +632,9 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
 .mant-btn-backup:hover{background:#E3F2FD}
 .mant-btn-backup-auto{border-color:#66BB6A;color:#1B5E20}
 .mant-btn-backup-auto:hover{background:#E8F5E9}
+/* v5.4.2: botón restaurar backup */
+.mant-btn-restore{border-color:#FB8C00;color:#E65100}
+.mant-btn-restore:hover{background:#FFF3E0}
 
 /* v5.0.2: badge "pendiente sync" en cards del historial */
 .hc-sync-pending{display:inline-block;font-size:9px;font-weight:800;padding:2px 7px;border-radius:10px;margin-left:4px;background:#FFF3E0;color:#E65100;border:1px solid #FFB74D;vertical-align:middle;animation:syncPulse 1.8s ease-in-out infinite}
@@ -689,6 +692,10 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
 .mform .mf-field input:focus,.mform .mf-field select:focus,.mform .mf-field textarea:focus{outline:none;border-color:var(--gd)}
 .mform .mf-row{display:flex;gap:10px}
 .mform .mf-row .mf-field{flex:1}
+/* v5.4.2: checkbox dentro de mf-field — aísla del label uppercase/block genérico */
+.mform .mf-field.mf-check{display:flex;align-items:center;padding:10px 12px;background:var(--cl);border:1.5px solid var(--lt);border-radius:8px;min-height:44px}
+.mform .mf-field.mf-check .mf-check-lbl{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--bk);text-transform:none;letter-spacing:0;margin:0;cursor:pointer;line-height:1.2;user-select:none}
+.mform .mf-field.mf-check .mf-check-lbl input[type=checkbox]{width:18px;height:18px;margin:0;accent-color:var(--gr);cursor:pointer;flex-shrink:0}
 .mform .mf-submit{width:100%;padding:14px;border:none;border-radius:10px;background:var(--gr);color:#fff;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;margin-top:6px;letter-spacing:.3px}
 .mform .mf-submit.blue{background:var(--bl)}
 .mform .mf-submit.orange{background:linear-gradient(135deg,#FB8C00,#E65100)}
@@ -1073,6 +1080,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
       <div class="mant-hint-top">Acciones de mantenimiento. Antes de ejecutar, haz un 📥 Backup JSON.</div>
       <div class="mant-grid">
         <button class="mant-btn mant-btn-backup" onclick="exportHistoryJson()" title="Descargar JSON de respaldo con todo el historial">📥<span>Backup JSON</span></button>
+        <button class="mant-btn mant-btn-restore" onclick="triggerRestoreBackup()" title="Restaurar desde un backup JSON (modo merge aditivo)">📤<span>Restaurar JSON</span></button>
         <button class="mant-btn mant-btn-backup-auto" onclick="openBackupInfoModal()" title="Guía backup automático Firebase">ℹ️<span>Backup auto</span></button>
         <button class="mant-btn mant-btn-fantasmas" onclick="cleanupWrongDocs()" title="Eliminar docs fantasma">🧹<span>Limpiar fantasmas</span></button>
         <button class="mant-btn mant-btn-resync" onclick="markAllUnsyncedAsPending()" title="Marcar todo pedidos futuros como re-sync pendiente">🔁<span>Re-sync agenda</span></button>
@@ -1319,7 +1327,10 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
 <!-- ======== HISTORY MODE ======== -->
 <div id="mode-hist" class="hidden">
 <div class="sec">
-  <div class="stit" style="color:var(--gd)">📁 Historial de Cotizaciones</div>
+  <div class="stit" style="color:var(--gd);display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+    <span>📁 Historial de Cotizaciones</span>
+    <button onclick="openAllPdfsModal()" style="font-size:11px;font-weight:700;background:#ECEFF1;color:#263238;border:1px solid #90A4AE;padding:6px 11px;border-radius:14px;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap" title="Ver todos los PDFs guardados en la nube">📎 Todos los PDFs</button>
+  </div>
   <div id="hist-list"></div>
 </div>
 </div>
@@ -1429,7 +1440,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
       </div>
       <div class="mf-row">
         <div class="mf-field"><label>Fecha de producción <span style="font-size:10px;color:#888;font-weight:400">(editable)</span></label><input type="date" id="om-prod-fecha"></div>
-        <div class="mf-field" style="display:flex;align-items:flex-end"><label style="cursor:pointer"><input type="checkbox" id="om-produced" style="vertical-align:middle;margin-right:6px"> Ya está producido</label></div>
+        <div class="mf-field mf-check"><label class="mf-check-lbl"><input type="checkbox" id="om-produced"> Ya está producido</label></div>
       </div>
       <div class="mf-intro" style="font-size:11px;background:#FFF3E0;border-color:#FFB74D;color:#E65100">💡 Producción se auto-llena 1 día antes de la entrega. <strong>Puedes editarla</strong> si produces el mismo día o con más anticipación. Si pones producción = entrega, la app pedirá confirmación.</div>
       <div class="mf-field"><label>⚠️ Notas de producción (Kathy/JP) — irán al .ics <span style="font-size:10px;color:#888;font-weight:400">· se pre-llenan con las notas de la cotización</span></label><textarea id="om-notas-prod" placeholder="Ej: sin nueces · regalo para María, incluir nota 'Feliz cumple' · doble tahinne · alergia gluten..."></textarea></div>
@@ -1907,12 +1918,51 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
   </div>
 </div>
 
-<script src="app-assets.js?v=5.4.1"></script>
-<script src="app-core.js?v=5.4.1"></script>
-<script src="app-cotizar.js?v=5.4.1"></script>
-<script src="app-propuesta.js?v=5.4.1"></script>
-<script src="app-historial.js?v=5.4.1"></script>
-<script src="app-seguimiento.js?v=5.4.1"></script>
-<script src="app-dashboard.js?v=5.4.1"></script>
+<!-- v5.4.2: Modal Restaurar Backup JSON (preview + confirmación doble) -->
+<div id="restore-backup-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeRestoreBackupModal()">
+  <div class="modal-box">
+    <div class="modal-head" style="background:linear-gradient(135deg,#FB8C00,#E65100)">
+      <span class="mtitle">📤 Restaurar backup JSON</span>
+      <button class="mclose" onclick="closeRestoreBackupModal()">×</button>
+    </div>
+    <div class="mform">
+      <div class="mf-intro orange">
+        <strong>Modo MERGE (aditivo):</strong> solo agrega los documentos cuyo ID <u>no existe</u> en la nube. Tus datos actuales NO se sobrescriben. Útil para recuperar docs borrados por error o consolidar backups viejos.
+      </div>
+      <div id="rb-preview" style="margin-bottom:10px"></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn" style="flex:1;background:#ECEFF1;color:#455A64" onclick="closeRestoreBackupModal()">Cancelar</button>
+        <button class="mf-submit orange" id="rb-confirm" style="flex:2;margin-top:0" onclick="confirmRestoreBackup()">Restaurar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- v5.4.2: Modal Ver todos los PDFs (navegador global) -->
+<div id="all-pdfs-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeAllPdfsModal()">
+  <div class="modal-box" style="max-width:640px">
+    <div class="modal-head" style="background:linear-gradient(135deg,#455A64,#263238)">
+      <span class="mtitle">📎 Todos los PDFs en la nube</span>
+      <button class="mclose" onclick="closeAllPdfsModal()">×</button>
+    </div>
+    <div class="mform">
+      <div style="background:#ECEFF1;border-left:3px solid #455A64;padding:9px 11px;border-radius:6px;font-size:11.5px;color:#263238;margin-bottom:10px;line-height:1.45">
+        Navegador global de todos los PDFs guardados desde v5.4.1 (Firebase Storage). Cada regeneración queda como versión nueva.
+      </div>
+      <input type="text" id="pga-search" placeholder="🔍 Buscar por cliente o número..." oninput="onAllPdfsSearchInput(event)" style="width:100%;padding:10px 12px;border:1.5px solid var(--lt);border-radius:8px;font-family:inherit;font-size:13px;margin-bottom:8px">
+      <div id="pga-stats" style="font-size:11px;color:#607D8B;margin-bottom:10px"></div>
+      <div id="pga-list" style="max-height:58vh;overflow-y:auto;padding-right:2px"></div>
+      <button class="btn" style="background:#ECEFF1;color:#455A64;width:100%;margin-top:10px" onclick="closeAllPdfsModal()">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<script src="app-assets.js?v=5.4.2"></script>
+<script src="app-core.js?v=5.4.2"></script>
+<script src="app-cotizar.js?v=5.4.2"></script>
+<script src="app-propuesta.js?v=5.4.2"></script>
+<script src="app-historial.js?v=5.4.2"></script>
+<script src="app-seguimiento.js?v=5.4.2"></script>
+<script src="app-dashboard.js?v=5.4.2"></script>
 </body>
 </html>

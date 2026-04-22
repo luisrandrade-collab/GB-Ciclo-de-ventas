@@ -1442,3 +1442,110 @@ function openPdfHistorialModal(docId,kind,ev){
 function closePdfHistorialModal(){
   $("pdf-hist-modal").classList.add("hidden");
 }
+
+// ═══════════════════════════════════════════════════════════
+// v5.4.2: NAVEGADOR GLOBAL DE TODOS LOS PDFs
+// ═══════════════════════════════════════════════════════════
+// Recorre quotesCache, junta todos los pdfHistorial de todos los docs,
+// permite buscar/filtrar por cliente/número y descargar cada versión.
+let _pdfGlobalFilter=""; // búsqueda en vivo
+
+function openAllPdfsModal(){
+  // Forzar carga si no hay cache
+  if(!quotesCache||!quotesCache.length){
+    loadAllHistory().then(()=>openAllPdfsModal());
+    return;
+  }
+  _pdfGlobalFilter="";
+  const input=$("pga-search");
+  if(input)input.value="";
+  renderAllPdfsList();
+  $("all-pdfs-modal").classList.remove("hidden");
+  setTimeout(()=>input?.focus(),100);
+}
+
+function closeAllPdfsModal(){
+  $("all-pdfs-modal").classList.add("hidden");
+  _pdfGlobalFilter="";
+}
+
+function onAllPdfsSearchInput(ev){
+  _pdfGlobalFilter=(ev.target.value||"").toLowerCase().trim();
+  renderAllPdfsList();
+}
+
+function renderAllPdfsList(){
+  const listEl=$("pga-list");
+  const statsEl=$("pga-stats");
+  if(!listEl)return;
+  // Juntar todos los docs que tengan pdfHistorial
+  const docsConPdf=(quotesCache||[])
+    .filter(q=>Array.isArray(q.pdfHistorial)&&q.pdfHistorial.length>0)
+    .map(q=>{
+      // Mapear: encontrar la versión más reciente para ordenar
+      const hist=q.pdfHistorial;
+      const maxV=Math.max(...hist.map(e=>e.version||0));
+      const latest=hist.find(e=>e.version===maxV);
+      return {
+        id:q.id,
+        kind:q.kind,
+        quoteNumber:q.quoteNumber||q.id,
+        client:q.client||"—",
+        total:q.total||0,
+        dateISO:q.dateISO||"",
+        hist:hist,
+        latestDate:latest?.fecha||"",
+        versionCount:hist.length
+      };
+    });
+  // Ordenar por PDF más reciente primero
+  docsConPdf.sort((a,b)=>(b.latestDate||"").localeCompare(a.latestDate||""));
+  // Filtrar por búsqueda
+  const q=_pdfGlobalFilter;
+  const filtered=q?docsConPdf.filter(d=>{
+    return (d.quoteNumber||"").toLowerCase().includes(q)||
+           (d.client||"").toLowerCase().includes(q);
+  }):docsConPdf;
+  // Stats
+  const totalPdfs=docsConPdf.reduce((s,d)=>s+d.versionCount,0);
+  if(statsEl){
+    statsEl.innerHTML="📊 "+docsConPdf.length+" documento"+(docsConPdf.length!==1?'s':'')+" · "+totalPdfs+" PDF"+(totalPdfs!==1?'s':'')+" en la nube"+
+      (q?' · <strong style="color:#0D47A1">'+filtered.length+' coinciden</strong>':'');
+  }
+  if(!filtered.length){
+    if(!docsConPdf.length){
+      listEl.innerHTML='<div style="padding:30px 20px;text-align:center;color:#999"><div style="font-size:36px;margin-bottom:8px">📭</div><strong style="color:#555">Aún no hay PDFs en la nube</strong><br><span style="font-size:11.5px">Cada vez que generes o regeneres un PDF (desde v5.4.1) queda una copia aquí automáticamente.</span></div>';
+    }else{
+      listEl.innerHTML='<div style="padding:30px 20px;text-align:center;color:#999"><div style="font-size:28px;margin-bottom:6px">🔍</div>Nada coincide con "<strong>'+(q||"").replace(/[<>]/g,"")+'</strong>"</div>';
+    }
+    return;
+  }
+  const html=filtered.map(d=>{
+    const kindLabel=d.kind==="quote"?"Cotización":(d.id.startsWith("GB-PF-")?"Propuesta Final":"Propuesta");
+    // Sub-lista de versiones (ordenada desc)
+    const sorted=[...d.hist].sort((a,b)=>(b.version||0)-(a.version||0));
+    const maxV=sorted[0]?.version||0;
+    const versionesHtml=sorted.map(e=>{
+      const isLatest=(e.version===maxV);
+      const fecha=(e.fecha||"").slice(0,10);
+      const hora=(e.fecha||"").slice(11,16);
+      const tag=isLatest?'<span style="background:#C8E6C9;color:#1B5E20;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:700;margin-left:4px">ACTUAL</span>':'';
+      return '<a href="'+(e.url||"#")+'" target="_blank" rel="noopener" style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:'+(isLatest?'#F1F8E9':'#FAFAFA')+';border:1px solid '+(isLatest?'#A5D6A7':'#E0E0E0')+';border-radius:6px;margin-bottom:4px;text-decoration:none;font-size:11px;color:#263238">'+
+        '<span>v'+e.version+tag+' <span style="color:#888;font-size:10px;margin-left:4px">· '+fecha+(hora?' '+hora:'')+'</span></span>'+
+        '<span style="font-size:10.5px;color:#0D47A1;font-weight:600">📥</span>'+
+      '</a>';
+    }).join("");
+    return '<div style="padding:12px;border:1px solid #CFD8DC;border-radius:10px;margin-bottom:10px;background:#fff">'+
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;gap:10px">'+
+        '<div style="flex:1;min-width:0">'+
+          '<div style="font-size:13px;font-weight:700;color:#1A1A1A">'+d.quoteNumber+'</div>'+
+          '<div style="font-size:11.5px;color:#455A64;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(d.client||"—").replace(/[<>]/g,"")+'</div>'+
+          '<div style="font-size:10px;color:#78909C;margin-top:2px">'+kindLabel+' · '+fm(d.total)+' · '+(d.dateISO||"—")+'</div>'+
+        '</div>'+
+        '<button onclick="closeAllPdfsModal();loadQuote(\''+d.kind+'\',\''+d.id+'\')" style="font-size:10.5px;background:#ECEFF1;border:1px solid #B0BEC5;color:#455A64;padding:4px 10px;border-radius:12px;cursor:pointer;white-space:nowrap;font-family:inherit">👁️ Abrir</button>'+
+      '</div>'+
+      '<div style="margin-top:8px">'+versionesHtml+'</div>'+
+    '</div>';
+  }).join("");
+  listEl.innerHTML=html;
+}

@@ -1108,6 +1108,182 @@ async function exportHistoryJson(){
 }
 
 // ═══════════════════════════════════════════════════════════
+// v5.4.2: RESTAURAR BACKUP JSON (modo merge)
+// ═══════════════════════════════════════════════════════════
+// Flujo:
+//   1. Usuario toca 📤 Restaurar → abre <input type=file> oculto
+//   2. Parse + validación de estructura
+//   3. Preview: cuántos docs nuevos se agregarían, cuántos ya existen (skip), cuántos clientes
+//   4. Confirmación doble en modal
+//   5. Escritura a Firestore: solo docs con ID que NO existen ya (merge aditivo, NO sobrescribe)
+//   6. Reload historial + toast resumen
+let _restoreBackupData=null; // payload parseado en espera de confirmación
+
+function triggerRestoreBackup(){
+  // Crear input oculto
+  let input=document.getElementById("__restore-backup-input");
+  if(!input){
+    input=document.createElement("input");
+    input.type="file";
+    input.accept=".json,application/json";
+    input.id="__restore-backup-input";
+    input.style.display="none";
+    input.onchange=onRestoreBackupFile;
+    document.body.appendChild(input);
+  }
+  input.value=""; // permite re-elegir mismo archivo
+  input.click();
+}
+
+async function onRestoreBackupFile(ev){
+  const file=ev.target.files&&ev.target.files[0];
+  if(!file)return;
+  try{
+    showLoader("Leyendo backup...");
+    const text=await file.text();
+    const data=JSON.parse(text);
+    hideLoader();
+    // Validación básica
+    if(!data||typeof data!=="object"){throw new Error("Archivo no es un JSON válido")}
+    if(!Array.isArray(data.quotes)){throw new Error("No es un backup de Gourmet Bites (falta campo 'quotes')")}
+    // Asegurar cache actual cargado para comparar
+    if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+    // Calcular preview: qué se agregaría, qué se saltaría
+    const idsEnCache=new Set(quotesCache.map(q=>q.id));
+    const toAdd=[];
+    const toSkip=[];
+    data.quotes.forEach(q=>{
+      if(!q||!q.id){toSkip.push({_noid:true});return}
+      if(idsEnCache.has(q.id))toSkip.push(q);
+      else toAdd.push(q);
+    });
+    const clientsArr=Array.isArray(data.clients)?data.clients:[];
+    const idsClientesCache=new Set((clientsCache||[]).map(c=>c.id||c.name));
+    const clientesNuevos=clientsArr.filter(c=>{
+      const k=c.id||c.name;
+      return k&&!idsClientesCache.has(k);
+    });
+    _restoreBackupData={data,toAdd,toSkip,clientesNuevos,filename:file.name};
+    // Mostrar modal de preview
+    openRestorePreviewModal();
+  }catch(e){
+    hideLoader();
+    toast("Error leyendo backup: "+e.message,"error");
+    console.error("[restore backup]",e);
+  }
+}
+
+function openRestorePreviewModal(){
+  if(!_restoreBackupData)return;
+  const {data,toAdd,toSkip,clientesNuevos,filename}=_restoreBackupData;
+  const meta=data.exportedAt?("📆 "+data.exportedAt.slice(0,10)+" · "+(data.buildVersion||"?")):"(sin metadata)";
+  const totalQuotes=data.quotes.length;
+  const html='<div style="font-size:12px;color:#455A64;margin-bottom:10px;line-height:1.5">'+
+    '<strong style="font-size:13px;color:#1A1A1A">📂 '+filename.replace(/[<>]/g,"")+'</strong><br>'+
+    '<span style="font-size:11px;color:#666">'+meta+'</span>'+
+    '</div>'+
+    '<div style="background:#E8F5E9;border-left:3px solid #388E3C;padding:10px 12px;border-radius:6px;margin-bottom:10px">'+
+      '<div style="font-size:13px;font-weight:700;color:#1B5E20;margin-bottom:4px">✅ Se agregarán '+toAdd.length+' doc'+(toAdd.length!==1?'s':'')+' nuevo'+(toAdd.length!==1?'s':'')+'</div>'+
+      '<div style="font-size:11px;color:#2E7D32">Cotizaciones/propuestas cuyo ID no existe actualmente en la nube.</div>'+
+    '</div>'+
+    '<div style="background:#FFF3E0;border-left:3px solid #FB8C00;padding:10px 12px;border-radius:6px;margin-bottom:10px">'+
+      '<div style="font-size:13px;font-weight:700;color:#E65100;margin-bottom:4px">⏭️ Se saltarán '+toSkip.length+' doc'+(toSkip.length!==1?'s':'')+' (ya existen)</div>'+
+      '<div style="font-size:11px;color:#BF360C">Modo MERGE: NO sobrescribe lo que ya tienes. Los docs con el mismo ID se quedan como están en la nube (tu dato más fresco gana).</div>'+
+    '</div>'+
+    (clientesNuevos.length?'<div style="background:#E3F2FD;border-left:3px solid #1976D2;padding:10px 12px;border-radius:6px;margin-bottom:10px">'+
+      '<div style="font-size:13px;font-weight:700;color:#0D47A1">👥 '+clientesNuevos.length+' cliente'+(clientesNuevos.length!==1?'s':'')+' nuevo'+(clientesNuevos.length!==1?'s':'')+'</div>'+
+    '</div>':'')+
+    '<div style="font-size:10.5px;color:#888;margin-top:6px;line-height:1.4">'+
+      'Total en archivo: '+totalQuotes+' doc'+(totalQuotes!==1?'s':'')+' · '+clientsArr_len(data)+' cliente'+(clientsArr_len(data)!==1?'s':'')+
+    '</div>';
+  $("rb-preview").innerHTML=html;
+  // Botón confirmar habilitado solo si hay algo que agregar
+  const btn=$("rb-confirm");
+  if(btn){
+    if(toAdd.length===0&&clientesNuevos.length===0){
+      btn.disabled=true;
+      btn.textContent="Nada que restaurar (todo ya existe)";
+      btn.style.opacity="0.5";
+      btn.style.cursor="not-allowed";
+    }else{
+      btn.disabled=false;
+      btn.textContent="Restaurar "+toAdd.length+" doc"+(toAdd.length!==1?'s':'')+(clientesNuevos.length?" + "+clientesNuevos.length+" cliente"+(clientesNuevos.length!==1?'s':''):"");
+      btn.style.opacity="1";
+      btn.style.cursor="pointer";
+    }
+  }
+  $("restore-backup-modal").classList.remove("hidden");
+}
+
+function clientsArr_len(data){return Array.isArray(data.clients)?data.clients.length:0}
+
+function closeRestoreBackupModal(){
+  $("restore-backup-modal").classList.add("hidden");
+  _restoreBackupData=null;
+}
+
+async function confirmRestoreBackup(){
+  if(!_restoreBackupData){return}
+  const {toAdd,clientesNuevos}=_restoreBackupData;
+  // Confirmación doble
+  if(!confirm("⚠️ CONFIRMACIÓN FINAL\n\nVoy a escribir "+toAdd.length+" doc(s) + "+clientesNuevos.length+" cliente(s) nuevos a la nube.\n\nModo MERGE: NO sobrescribe lo existente.\n\n¿Continuar?")){return}
+  if(!currentUser){alert("🔒 Debes estar autenticado");return}
+  showLoader("Restaurando... 0/"+toAdd.length);
+  let okQuotes=0,errQuotes=0,okClients=0,errClients=0;
+  try{
+    await fbReady();
+    const {db,doc:fsDoc,setDoc,serverTimestamp}=window.fb;
+    // Escribir quotes uno a uno (mejor visibilidad de errores que batch)
+    for(let i=0;i<toAdd.length;i++){
+      const q=toAdd[i];
+      try{
+        const kind=q.kind||"quote";
+        let coll;
+        if(kind==="quote")coll="quotes";
+        else if(q.id&&q.id.startsWith("GB-PF-"))coll="propfinals";
+        else coll="proposals";
+        // Limpiar campos internos que no deben viajar
+        const {_wrongCollection,_isPF,kind:_k,..._clean}=q;
+        _clean.restoredAt=serverTimestamp();
+        _clean.restoredBy=(currentUser.displayName||currentUser.email||"desconocido");
+        await setDoc(fsDoc(db,coll,q.id),_clean,{merge:false}); // doc nuevo: escritura completa
+        okQuotes++;
+      }catch(e){
+        console.warn("[restore] falló quote "+q.id,e);
+        errQuotes++;
+      }
+      // Actualizar loader cada 5 docs
+      if(i%5===0){showLoader("Restaurando... "+(i+1)+"/"+toAdd.length)}
+    }
+    // Clientes
+    for(let i=0;i<clientesNuevos.length;i++){
+      const c=clientesNuevos[i];
+      try{
+        const cid=c.id||c.name;
+        if(!cid){errClients++;continue}
+        await setDoc(fsDoc(db,"clients",cid),{...c,restoredAt:serverTimestamp()},{merge:false});
+        okClients++;
+      }catch(e){
+        console.warn("[restore] falló cliente",c,e);
+        errClients++;
+      }
+    }
+    hideLoader();
+    closeRestoreBackupModal();
+    let msg="✅ Restaurados: "+okQuotes+" doc(s)";
+    if(okClients)msg+=" + "+okClients+" cliente(s)";
+    if(errQuotes||errClients)msg+=" · ⚠️ Errores: "+(errQuotes+errClients);
+    toast(msg,errQuotes||errClients?"warn":"success");
+    // Reload historial
+    try{await loadAllHistory();renderDashboard()}catch{}
+  }catch(e){
+    hideLoader();
+    toast("Error restaurando: "+e.message,"error");
+    console.error("[restore]",e);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
 // v5.0: MIGRACIÓN one-shot de fotos base64 → Storage
 // ═══════════════════════════════════════════════════════════
 // Uso: abrir consola (F12) y ejecutar migrarFotosStorage()
