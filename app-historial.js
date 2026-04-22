@@ -355,6 +355,8 @@ async function renderHist(){
       inp.setSelectionRange(v.length,v.length);
     }
   }
+  // v5.4.3: actualizar badge del botón "Todos los PDFs" según docs con upload fallido
+  if(typeof refreshAllPdfsBadge==="function")refreshAllPdfsBadge();
 }
 
 // v5.1.0: cambiar de archivo principal
@@ -1474,6 +1476,27 @@ function onAllPdfsSearchInput(ev){
   renderAllPdfsList();
 }
 
+// v5.4.3: refresca el badge ⚠️ del botón "Todos los PDFs" en header
+// del historial según cantidad de docs con pdfUploadFailed=true
+function refreshAllPdfsBadge(){
+  const badge=$("btn-all-pdfs-badge");
+  if(!badge)return;
+  const fallidos=(quotesCache||[]).filter(q=>q.pdfUploadFailed===true).length;
+  if(fallidos>0){
+    badge.textContent="⚠️ "+fallidos;
+    badge.style.display="inline-block";
+    badge.classList.remove("hidden");
+    // También tintar el botón para más visibilidad
+    const btn=$("btn-all-pdfs");
+    if(btn){btn.style.background="#FFF3E0";btn.style.borderColor="#FB8C00";btn.style.color="#BF360C"}
+  }else{
+    badge.style.display="none";
+    badge.classList.add("hidden");
+    const btn=$("btn-all-pdfs");
+    if(btn){btn.style.background="";btn.style.borderColor="";btn.style.color=""}
+  }
+}
+
 function renderAllPdfsList(){
   const listEl=$("pga-list");
   const statsEl=$("pga-stats");
@@ -1508,15 +1531,39 @@ function renderAllPdfsList(){
   }):docsConPdf;
   // Stats
   const totalPdfs=docsConPdf.reduce((s,d)=>s+d.versionCount,0);
+  // v5.4.3: docs con upload fallido (todos los que tienen el flag, aunque no tengan hist)
+  const fallidos=(quotesCache||[]).filter(x=>x.pdfUploadFailed===true);
   if(statsEl){
-    statsEl.innerHTML="📊 "+docsConPdf.length+" documento"+(docsConPdf.length!==1?'s':'')+" · "+totalPdfs+" PDF"+(totalPdfs!==1?'s':'')+" en la nube"+
+    let statsHtml="📊 "+docsConPdf.length+" documento"+(docsConPdf.length!==1?'s':'')+" · "+totalPdfs+" PDF"+(totalPdfs!==1?'s':'')+" en la nube"+
       (q?' · <strong style="color:#0D47A1">'+filtered.length+' coinciden</strong>':'');
+    if(fallidos.length){
+      statsHtml+='<div style="margin-top:6px;padding:6px 10px;background:#FFF3E0;border-left:3px solid #FB8C00;border-radius:6px;font-size:11px;color:#BF360C;font-weight:600">⚠️ '+fallidos.length+' PDF'+(fallidos.length!==1?'s':'')+' no se pudo subir a la nube (mira abajo · puedes reintentar regenerando el PDF)</div>';
+    }
+    statsEl.innerHTML=statsHtml;
+  }
+  // Render sección de fallidos arriba si hay
+  let fallidosHtml="";
+  if(fallidos.length){
+    fallidosHtml='<div style="margin-bottom:12px;padding:10px;border:1.5px dashed #FB8C00;border-radius:8px;background:#FFFBF5">'+
+      '<div style="font-size:11.5px;font-weight:700;color:#BF360C;margin-bottom:6px">⚠️ PDFs pendientes de subir ('+fallidos.length+')</div>'+
+      fallidos.map(q=>{
+        const qNum=q.quoteNumber||q.id;
+        const err=(q.pdfUploadLastError||"").replace(/[<>]/g,"").slice(0,80);
+        const lastAt=(q.pdfUploadLastAttempt||"").slice(0,16).replace("T"," ");
+        return '<div style="padding:7px 9px;background:#fff;border:1px solid #FFCC80;border-radius:6px;margin-bottom:5px;cursor:pointer" onclick="closeAllPdfsModal();loadQuote(\''+q.kind+'\',\''+q.id+'\')">'+
+          '<div style="display:flex;justify-content:space-between;gap:8px;font-size:11.5px"><span style="font-weight:700;color:#1A1A1A">'+qNum+'</span><span style="color:#BF360C;font-size:10px">↗ Abrir y regenerar</span></div>'+
+          '<div style="font-size:10.5px;color:#455A64;margin-top:2px">'+(q.client||"—").replace(/[<>]/g,"")+'</div>'+
+          (lastAt?'<div style="font-size:9.5px;color:#888;margin-top:2px">Último intento: '+lastAt+'</div>':'')+
+          (err?'<div style="font-size:9.5px;color:#B71C1C;margin-top:2px;font-style:italic">'+err+'</div>':'')+
+        '</div>';
+      }).join("")+
+    '</div>';
   }
   if(!filtered.length){
     if(!docsConPdf.length){
-      listEl.innerHTML='<div style="padding:30px 20px;text-align:center;color:#999"><div style="font-size:36px;margin-bottom:8px">📭</div><strong style="color:#555">Aún no hay PDFs en la nube</strong><br><span style="font-size:11.5px">Cada vez que generes o regeneres un PDF (desde v5.4.1) queda una copia aquí automáticamente.</span></div>';
+      listEl.innerHTML=fallidosHtml+'<div style="padding:30px 20px;text-align:center;color:#999"><div style="font-size:36px;margin-bottom:8px">📭</div><strong style="color:#555">Aún no hay PDFs en la nube</strong><br><span style="font-size:11.5px">Cada vez que generes o regeneres un PDF (desde v5.4.1) queda una copia aquí automáticamente.</span></div>';
     }else{
-      listEl.innerHTML='<div style="padding:30px 20px;text-align:center;color:#999"><div style="font-size:28px;margin-bottom:6px">🔍</div>Nada coincide con "<strong>'+(q||"").replace(/[<>]/g,"")+'</strong>"</div>';
+      listEl.innerHTML=fallidosHtml+'<div style="padding:30px 20px;text-align:center;color:#999"><div style="font-size:28px;margin-bottom:6px">🔍</div>Nada coincide con "<strong>'+(q||"").replace(/[<>]/g,"")+'</strong>"</div>';
     }
     return;
   }
@@ -1547,5 +1594,5 @@ function renderAllPdfsList(){
       '<div style="margin-top:8px">'+versionesHtml+'</div>'+
     '</div>';
   }).join("");
-  listEl.innerHTML=html;
+  listEl.innerHTML=fallidosHtml+html;
 }

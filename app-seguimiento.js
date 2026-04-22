@@ -102,9 +102,8 @@ function renderSegCard(q){
   const mail=q.clientEmail||q.custEmail||"";
   const contactBtns=[];
   if(cel){
-    const waNum=cel.length===10?"57"+cel:cel;
-    const msgWa=encodeURIComponent("Hola "+(q.client||"")+", te saludo de Gourmet Bites. Te quería confirmar si sigue en pie tu cotización "+(qNum||"")+". Quedo atento.");
-    contactBtns.push('<a class="seg-btn-contact seg-btn-wa" href="https://wa.me/'+waNum+'?text='+msgWa+'" target="_blank" onclick="event.stopPropagation()">📱 WhatsApp</a>');
+    // v5.4.3: botón WhatsApp ya no abre chat directo — abre modal de plantillas
+    contactBtns.push('<button class="seg-btn-contact seg-btn-wa" onclick="event.stopPropagation();openWhatsAppTemplatesModal(\''+q.id+'\',\''+q.kind+'\')" style="border:none;font-family:inherit;cursor:pointer">📱 WhatsApp</button>');
     contactBtns.push('<a class="seg-btn-contact seg-btn-tel" href="tel:+57'+cel+'" onclick="event.stopPropagation()">📞 Llamar</a>');
   }
   if(mail){
@@ -302,4 +301,173 @@ async function submitReactivar(destino){
     if(typeof renderDashboard==="function")renderDashboard();
     if(typeof renderHist==="function"&&curMode==="hist")renderHist();
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// v5.4.3: PLANTILLAS DE MENSAJE WHATSAPP
+// ═══════════════════════════════════════════════════════════
+// 4 plantillas default (editables) guardadas en localStorage.
+// Placeholders soportados: {cliente}, {numero}, {total}, {fecha}, {hora}, {dias}
+// El modal permite elegir, editar en vivo antes de enviar, y gestionar
+// las plantillas (editar/restaurar defaults).
+
+const WA_TEMPLATES_KEY="gb_wa_templates_v1";
+const WA_TEMPLATES_DEFAULT=[
+  {id:"primer",label:"👋 Primer contacto",texto:"Hola {cliente}, te saluda Gourmet Bites. Acabamos de enviarte la cotización {numero}. Quedamos atentos a cualquier duda y para confirmar si podemos apoyarte con el pedido. ¡Gracias!"},
+  {id:"seg7",label:"⏳ Seguimiento (7+ días)",texto:"Hola {cliente}, ¿cómo estás? Te escribo de Gourmet Bites para saber si sigue en pie tu cotización {numero} por {total}. Si necesitas ajustar algo (cantidades, productos, fecha) con gusto te ayudamos. Quedo atento."},
+  {id:"anticipo",label:"💳 Recordatorio anticipo",texto:"Hola {cliente}, quedamos a la orden para tu pedido {numero} ({total}). Recordándote que para confirmar la entrega necesitamos el 50% de anticipo mínimo 24h antes. Por favor envíanos el comprobante por aquí mismo. ¡Gracias!"},
+  {id:"diaantes",label:"📅 Recordatorio día antes",texto:"Hola {cliente}, ¡todo listo para mañana! Confirmamos entrega del pedido {numero} el {fecha} a las {hora}. Por favor confirma dirección y persona que recibe. Gracias por tu confianza en Gourmet Bites."}
+];
+
+function getWaTemplates(){
+  try{
+    const raw=localStorage.getItem(WA_TEMPLATES_KEY);
+    if(!raw)return JSON.parse(JSON.stringify(WA_TEMPLATES_DEFAULT));
+    const arr=JSON.parse(raw);
+    if(!Array.isArray(arr)||!arr.length)return JSON.parse(JSON.stringify(WA_TEMPLATES_DEFAULT));
+    return arr;
+  }catch(e){return JSON.parse(JSON.stringify(WA_TEMPLATES_DEFAULT))}
+}
+
+function saveWaTemplates(arr){
+  try{localStorage.setItem(WA_TEMPLATES_KEY,JSON.stringify(arr))}
+  catch(e){console.warn("[wa templates] save falló",e)}
+}
+
+function resetWaTemplates(){
+  if(!confirm("Restaurar las 4 plantillas originales? Esto borra las ediciones."))return;
+  saveWaTemplates(JSON.parse(JSON.stringify(WA_TEMPLATES_DEFAULT)));
+  if(typeof toast==="function")toast("♻️ Plantillas restauradas","success");
+  // Si el modal está abierto, re-renderizar
+  if(_waCtx&&!$("wa-templates-modal").classList.contains("hidden")){
+    renderWaTemplatesList();
+  }
+}
+
+// Reemplaza placeholders con valores del doc
+function fillWaPlaceholders(texto,q){
+  if(!texto)return"";
+  const cliente=q.client||"";
+  const numero=q.quoteNumber||q.id||"";
+  const total=(typeof fm==="function")?fm(q.total||0):String(q.total||0);
+  const fecha=q.eventDate||"—";
+  const hora=q.horaEntrega||"—";
+  const dias=(typeof daysSinceUpdate==="function")?daysSinceUpdate(q):"";
+  return texto
+    .replace(/\{cliente\}/g,cliente)
+    .replace(/\{numero\}/g,numero)
+    .replace(/\{total\}/g,total)
+    .replace(/\{fecha\}/g,fecha)
+    .replace(/\{hora\}/g,hora)
+    .replace(/\{dias\}/g,dias);
+}
+
+let _waCtx=null; // {q, cel, selectedTplId}
+
+function openWhatsAppTemplatesModal(docId,kind){
+  const q=(quotesCache||[]).find(x=>x.id===docId&&x.kind===kind);
+  if(!q){alert("No se encontró el documento");return}
+  const cel=(q.clientPhone||q.custPhone||"").replace(/\D/g,"");
+  if(!cel){alert("Este doc no tiene teléfono de contacto");return}
+  _waCtx={q,cel,selectedTplId:null};
+  // Header
+  $("wa-doc-cli").textContent=q.client||"—";
+  $("wa-doc-num").textContent=q.quoteNumber||q.id;
+  $("wa-doc-tel").textContent="+57 "+cel;
+  // Render lista de plantillas y preview vacío
+  renderWaTemplatesList();
+  $("wa-preview-textarea").value="";
+  $("wa-send-btn").disabled=true;
+  $("wa-send-btn").style.opacity="0.5";
+  $("wa-templates-modal").classList.remove("hidden");
+}
+
+function closeWhatsAppTemplatesModal(){
+  $("wa-templates-modal").classList.add("hidden");
+  _waCtx=null;
+}
+
+function renderWaTemplatesList(){
+  const listEl=$("wa-tpl-list");
+  if(!listEl||!_waCtx)return;
+  const tpls=getWaTemplates();
+  listEl.innerHTML=tpls.map(t=>{
+    const sel=(_waCtx.selectedTplId===t.id)?' wa-tpl-item-sel':'';
+    return '<div class="wa-tpl-item'+sel+'" onclick="selectWaTemplate(\''+t.id+'\')">'+
+      '<div class="wa-tpl-label">'+t.label.replace(/[<>]/g,"")+'</div>'+
+      '<div class="wa-tpl-preview">'+(t.texto||"").slice(0,80).replace(/[<>]/g,"")+(t.texto.length>80?'…':'')+'</div>'+
+    '</div>';
+  }).join("")+
+  '<button class="wa-tpl-manage" onclick="openWaTemplatesEditor()">✏️ Editar plantillas</button>';
+}
+
+function selectWaTemplate(tplId){
+  if(!_waCtx)return;
+  const tpls=getWaTemplates();
+  const t=tpls.find(x=>x.id===tplId);
+  if(!t)return;
+  _waCtx.selectedTplId=tplId;
+  const txt=fillWaPlaceholders(t.texto,_waCtx.q);
+  $("wa-preview-textarea").value=txt;
+  $("wa-send-btn").disabled=false;
+  $("wa-send-btn").style.opacity="1";
+  renderWaTemplatesList();
+}
+
+function sendWaTemplate(){
+  if(!_waCtx)return;
+  const txt=$("wa-preview-textarea").value.trim();
+  if(!txt){alert("El mensaje está vacío");return}
+  const cel=_waCtx.cel;
+  const waNum=cel.length===10?"57"+cel:cel;
+  const url="https://wa.me/"+waNum+"?text="+encodeURIComponent(txt);
+  window.open(url,"_blank");
+  closeWhatsAppTemplatesModal();
+}
+
+// ─── Editor de plantillas ──────────────────────────────────
+let _waEditBackup=null; // snapshot antes de editar, para cancelar
+
+function openWaTemplatesEditor(){
+  _waEditBackup=JSON.parse(JSON.stringify(getWaTemplates()));
+  renderWaTemplatesEditor();
+  $("wa-editor-modal").classList.remove("hidden");
+}
+
+function closeWaTemplatesEditor(savedOk){
+  if(!savedOk&&_waEditBackup){
+    // Restaurar snapshot (cancel)
+    saveWaTemplates(_waEditBackup);
+  }
+  _waEditBackup=null;
+  $("wa-editor-modal").classList.add("hidden");
+  // Refrescar lista en el modal principal si está abierto
+  if(_waCtx&&!$("wa-templates-modal").classList.contains("hidden")){
+    renderWaTemplatesList();
+  }
+}
+
+function renderWaTemplatesEditor(){
+  const listEl=$("wa-editor-list");
+  if(!listEl)return;
+  const tpls=getWaTemplates();
+  listEl.innerHTML=tpls.map((t,i)=>{
+    return '<div class="wa-editor-item">'+
+      '<input type="text" class="wa-editor-label-input" value="'+(t.label||"").replace(/"/g,"&quot;")+'" oninput="updateWaTemplate('+i+',\'label\',this.value)" placeholder="Etiqueta (ej: 👋 Primer contacto)">'+
+      '<textarea class="wa-editor-texto" oninput="updateWaTemplate('+i+',\'texto\',this.value)" placeholder="Texto del mensaje. Placeholders: {cliente} {numero} {total} {fecha} {hora} {dias}">'+(t.texto||"").replace(/[<>]/g,"")+'</textarea>'+
+    '</div>';
+  }).join("");
+}
+
+function updateWaTemplate(idx,campo,valor){
+  const tpls=getWaTemplates();
+  if(!tpls[idx])return;
+  tpls[idx][campo]=valor;
+  saveWaTemplates(tpls);
+}
+
+function saveWaTemplatesAndClose(){
+  // Las ediciones ya están en localStorage (updateWaTemplate las persiste en vivo)
+  if(typeof toast==="function")toast("✅ Plantillas guardadas","success");
+  closeWaTemplatesEditor(true);
 }

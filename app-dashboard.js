@@ -356,17 +356,122 @@ function renderWeek(){
     let evsHtml;
     if(!evs.length){evsHtml='<div class="wd-empty-msg">Sin eventos</div>'}
     else{
-      evsHtml='<div class="wd-evs">'+evs.map(q=>{
-        const tag=q.kind==="quote"?'<span class="we-tag prod">Pedido</span>':'<span class="we-tag ent">Evento</span>';
-        const hora=q.horaEntrega?'⏰ '+q.horaEntrega:'';
-        const total=fm(getDocTotal(q));
-        const sCls=q.status||"enviada";
-        return '<div class="wd-ev '+sCls+'" onclick="loadQuote(\''+q.kind+'\',\''+q.id+'\')"><span class="we-cli">'+tag+(q.client||"—")+'</span><span class="we-meta">'+hora+(hora&&total?' · ':'')+total+'</span></div>';
-      }).join("")+'</div>';
+      // v5.4.3: agenda visual con estados operativos + chip pago + resumen productos
+      evsHtml='<div class="wd-evs">'+evs.map(q=>renderWeekEventCard(q,iso,todayIso)).join("")+'</div>';
     }
     html+='<div class="'+dayClass+'">'+dateBox+evsHtml+'</div>';
   }
   $("week-grid").innerHTML=html;
+}
+
+// ─── v5.4.3: Tarjeta de evento enriquecida para agenda semanal ──
+// Muestra chip de estado operativo (por producir / en producción /
+// producido / entregado), chip de pago (pagado / anticipo / sin
+// anticipo), hora destacada y resumen de productos clave.
+function renderWeekEventCard(q,iso,todayIso){
+  const tag=q.kind==="quote"?'<span class="we-tag prod">Pedido</span>':'<span class="we-tag ent">Evento</span>';
+  const hora=q.horaEntrega||"";
+  const total=fm(getDocTotal(q));
+  const sCls=q.status||"enviada";
+  // Estado operativo (chip principal)
+  const opEstado=_estadoOperativo(q,iso,todayIso);
+  const opChip=opEstado?'<span class="we-op-chip we-op-'+opEstado.cls+'">'+opEstado.emoji+' '+opEstado.label+'</span>':'';
+  // Estado de pago (chip secundario)
+  const pagoEstado=_estadoPago(q);
+  const pagoChip=pagoEstado?'<span class="we-pago-chip we-pago-'+pagoEstado.cls+'">'+pagoEstado.emoji+' '+pagoEstado.label+'</span>':'';
+  // Resumen productos (primeros 2 items, max 40 chars)
+  let prodResumen="";
+  if(q.kind==="quote"&&Array.isArray(q.items)){
+    prodResumen=q.items.slice(0,2).map(it=>(it.name||it.n||"").trim()).filter(Boolean).join(" · ");
+    if(q.items.length>2)prodResumen+=" · +"+(q.items.length-2);
+  }else if(q.kind==="proposal"&&Array.isArray(q.sections)){
+    prodResumen=q.sections.slice(0,2).map(s=>(s.title||"").trim()).filter(Boolean).join(" · ");
+    if(q.sections.length>2)prodResumen+=" · +"+(q.sections.length-2);
+  }
+  if(prodResumen.length>55)prodResumen=prodResumen.slice(0,52)+"…";
+  const prodHtml=prodResumen?'<div class="we-prods">📋 '+prodResumen.replace(/[<>]/g,"")+'</div>':'';
+  // Chip 🔪 acción rápida: solo si es pedido en un día próximo sin producir aún
+  let accionChip="";
+  if(q.kind==="quote"&&["pedido","en_produccion"].includes(sCls)&&!q.produced&&iso>=todayIso){
+    accionChip='<button class="we-accion-chip" onclick="event.stopPropagation();toggleProduced(\''+q.id+'\',event)" title="Marcar como producido">🔪 Producido</button>';
+  }
+  return '<div class="wd-ev '+sCls+(opEstado?' op-'+opEstado.cls:'')+'" onclick="loadQuote(\''+q.kind+'\',\''+q.id+'\')">'+
+    '<div class="we-row-top">'+
+      '<span class="we-cli">'+tag+(q.client||"—").replace(/[<>]/g,"")+'</span>'+
+      (hora?'<span class="we-hora-big">⏰ '+hora+'</span>':'')+
+    '</div>'+
+    '<div class="we-chips-row">'+opChip+pagoChip+'<span class="we-total">'+total+'</span></div>'+
+    prodHtml+
+    (accionChip?'<div class="we-accion-row">'+accionChip+'</div>':'')+
+  '</div>';
+}
+
+// Determina estado operativo del pedido según status + produced + fecha
+function _estadoOperativo(q,iso,todayIso){
+  const s=q.status||"enviada";
+  // Cotización sin aprobar: solo etiqueta simple
+  if(s==="enviada")return {cls:"enviada",emoji:"📄",label:"Cotización enviada"};
+  if(s==="propfinal")return {cls:"propfinal",emoji:"📋",label:"PF enviada"};
+  if(s==="aprobada")return {cls:"aprobada",emoji:"✓",label:"Aprobada"};
+  if(s==="entregado")return {cls:"entregado",emoji:"🎉",label:"Entregado"};
+  if(s==="anulada")return {cls:"anulada",emoji:"↩️",label:"Anulada"};
+  if(s==="convertida"||s==="superseded")return {cls:"convertida",emoji:"🔄",label:"Reemplazada"};
+  // Pedido / en_produccion: cruza con produced + fechas
+  if(["pedido","en_produccion"].includes(s)){
+    if(q.produced){
+      if(iso===todayIso)return {cls:"producido-hoy",emoji:"✅",label:"Producido · entrega HOY"};
+      return {cls:"producido",emoji:"✅",label:"Producido"};
+    }
+    const prodDate=q.productionDate||"";
+    if(prodDate&&prodDate<=todayIso&&iso>=todayIso){
+      return {cls:"en-produccion",emoji:"🔪",label:"En producción"};
+    }
+    if(iso===todayIso)return {cls:"por-producir-hoy",emoji:"🔥",label:"Por producir · entrega HOY"};
+    if(iso<todayIso)return {cls:"atrasado",emoji:"⚠️",label:"Atrasado"};
+    return {cls:"por-producir",emoji:"🟠",label:"Por producir"};
+  }
+  return null;
+}
+
+// Determina estado de pago según monto abonado vs total
+function _estadoPago(q){
+  const s=q.status||"enviada";
+  // Solo aplica a pedidos/aprobadas/entregados
+  if(!["pedido","aprobada","en_produccion","entregado"].includes(s))return null;
+  const total=getDocTotal(q);
+  if(total<=0)return null;
+  const cobrado=typeof totalCobrado==="function"?totalCobrado(q):0;
+  const pend=Math.max(0,total-cobrado);
+  if(pend===0)return {cls:"pagado",emoji:"💰",label:"Pagado"};
+  if(cobrado>0){
+    const pct=Math.round((cobrado/total)*100);
+    return {cls:"anticipo",emoji:"💵",label:"Anticipo "+pct+"%"};
+  }
+  return {cls:"sin-anticipo",emoji:"⚠️",label:"Sin anticipo"};
+}
+
+// v5.4.3: días desde fecha de entrega (solo si status==entregado).
+// Escala de color acordada con Luis:
+//   0-1 días → sin color (neutro)
+//   2-4 días → amarillo
+//   5-14 días → naranja
+//   15+ días → rojo
+function _diasDesdeEntrega(q){
+  if(q.status!=="entregado")return null;
+  const fEnt=q.fechaEntrega||q.entregaData?.fecha||q.eventDate;
+  if(!fEnt)return null;
+  try{
+    const hoy=new Date();hoy.setHours(0,0,0,0);
+    const ent=new Date(fEnt+"T00:00:00");
+    if(isNaN(ent.getTime()))return null;
+    const dias=Math.max(0,Math.floor((hoy-ent)/86400000));
+    let cls="";
+    if(dias<=1)cls="neutro";
+    else if(dias<=4)cls="amarillo";
+    else if(dias<=14)cls="naranja";
+    else cls="rojo";
+    return {dias,cls};
+  }catch(e){return null}
 }
 
 // ─── VISTA MES (preservada de v4.11) ──────────────────────
@@ -789,8 +894,25 @@ function openDashDetail(tipo){
       const status=q.status||"enviada";
       if(!["pedido","aprobada","en_produccion","entregado"].includes(status))return;
       const pend=saldoPendiente(q);
-      if(pend>0){totalSum+=pend;rows.push({q,monto:pend,extra:"Cobrado: "+fm(totalCobrado(q))+" / Total: "+fm(getDocTotal(q))})}
+      if(pend>0){
+        totalSum+=pend;
+        // v5.4.3: calcular días desde entrega (si ya fue entregado)
+        const diasData=_diasDesdeEntrega(q);
+        let extraTxt="Cobrado: "+fm(totalCobrado(q))+" / Total: "+fm(getDocTotal(q));
+        if(diasData){
+          const colorTag=diasData.cls?'<span class="dd-dias-tag '+diasData.cls+'">'+diasData.dias+'d</span>':'<span class="dd-dias-tag neutro">'+diasData.dias+'d</span>';
+          extraTxt=colorTag+' desde entrega · '+extraTxt;
+        }else if(q.eventDate){
+          // No entregado aún: días hasta entrega (si futura) o "entrega vencida" (si pasada sin marcar)
+          const todayIso=new Date().toISOString().slice(0,10);
+          if(q.eventDate>=todayIso)extraTxt='<span class="dd-dias-tag neutro">Entrega '+q.eventDate+'</span> · '+extraTxt;
+          else extraTxt='<span class="dd-dias-tag rojo">⚠️ Entrega '+q.eventDate+' sin cerrar</span> · '+extraTxt;
+        }
+        rows.push({q,monto:pend,extra:extraTxt,_diasOrden:(diasData?diasData.dias:-1)});
+      }
     });
+    // v5.4.3: ordenar por días desde entrega desc (más vencidas arriba)
+    rows.sort((a,b)=>(b._diasOrden||-9999)-(a._diasOrden||-9999));
   }else if(tipo==="recaudo"){
     title="💵 Recaudado · "+range.label;
     // Lista de PAGOS individuales (no docs) — agrupar por método al final como resumen

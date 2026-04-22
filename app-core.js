@@ -73,10 +73,43 @@
 //         modal con navegador global de todos los docs que tengan
 //         pdfHistorial. Búsqueda en vivo por cliente/número, muestra
 //         todas las versiones con link directo de descarga a Storage.
+// v5.4.3: MINOR — 4 features operativas.
+//         (1) AGENDA VISUAL con estados: renderWeek reescrito con card
+//         enriquecida por evento. Chip de estado operativo (📄 enviada /
+//         🟠 por producir / 🔥 por producir HOY / 🔪 en producción / ✅
+//         producido / 🎉 entregado / ⚠️ atrasado / ↩️ anulada) + chip de
+//         pago (💰 pagado / 💵 anticipo N% / ⚠️ sin anticipo) + hora
+//         destacada estilo alarm-clock + resumen de primeros 2 productos
+//         + botón 🔪 inline de acción rápida si aún no está producido y
+//         es futuro. Helpers nuevos: _estadoOperativo(q,iso,todayIso),
+//         _estadoPago(q), _diasDesdeEntrega(q).
+//         (2) CARTERA POR COBRAR con días desde entrega: drill-down "cobrar"
+//         ahora calcula días desde fechaEntrega/entregaData.fecha/eventDate
+//         y muestra badge de color. Escala acordada: 0-1 neutro, 2-4 amarillo,
+//         5-14 naranja, 15+ rojo. Ordenado por más vencidas arriba. Si el
+//         doc aún no se entregó: "Entrega YYYY-MM-DD" (neutro si futura,
+//         rojo si pasada sin cerrar).
+//         (3) BADGE ⚠️ EN BOTÓN TODOS LOS PDFS: savePdfConCopiaStorage
+//         ahora marca q.pdfUploadFailed=true si la subida a Storage falla,
+//         y lo limpia (=false) si el siguiente intento va bien. El botón
+//         📎 Todos los PDFs en header del historial muestra badge ⚠️N con
+//         la cantidad de docs pendientes. Helper refreshAllPdfsBadge() se
+//         llama tras renderHist. El modal global muestra sección destacada
+//         "PDFs pendientes de subir" arriba con último error y botón
+//         "Abrir y regenerar" para reintento manual.
+//         (4) PLANTILLAS WHATSAPP en Seguimiento: el botón 📱 WhatsApp ya
+//         no abre chat directo — abre modal selector con 4 plantillas default
+//         editables (Primer contacto · Seguimiento 7+d · Recordatorio
+//         anticipo · Recordatorio día antes). Placeholders soportados:
+//         {cliente} {numero} {total} {fecha} {hora} {dias} — se reemplazan
+//         en vivo. Editor integrado para personalizar textos. Persistencia
+//         en localStorage (key: gb_wa_templates_v1). Botón "Restaurar
+//         defaults" regresa a los 4 originales. El textarea de preview es
+//         editable antes de enviar → máxima flexibilidad.
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v5.4.2";
+const BUILD_VERSION="v5.4.3";
 const BUILD_DATE="2026-04-22";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -175,14 +208,26 @@ async function savePdfConCopiaStorage(doc,baseName,kind,docId){
       await updateDoc(fsDoc(db,coll,docId),{
         pdfRegenCount:nextVersion,
         pdfHistorial:newHist,
+        pdfUploadFailed:false, // v5.4.3: limpiar flag si había uno previo
         updatedAt:serverTimestamp()
       });
       // Actualizar cache local
-      if(q){q.pdfRegenCount=nextVersion;q.pdfHistorial=newHist}
+      if(q){q.pdfRegenCount=nextVersion;q.pdfHistorial=newHist;q.pdfUploadFailed=false}
       console.log("[savePdfConCopiaStorage] v"+nextVersion+" subida OK:",storagePath);
     }catch(e){
       // NO bloquear — el PDF local se entrega igual
       console.warn("[savePdfConCopiaStorage] subida a Storage falló (no bloqueante):",e);
+      // v5.4.3: marcar flag para que UI pueda alertar y permitir reintento manual
+      try{
+        const {db,doc:fsDoc,updateDoc,serverTimestamp}=window.fb;
+        await updateDoc(fsDoc(db,coll,docId),{
+          pdfUploadFailed:true,
+          pdfUploadLastError:String(e&&e.message||e).slice(0,200),
+          pdfUploadLastAttempt:_now.toISOString(),
+          updatedAt:serverTimestamp()
+        });
+        if(q){q.pdfUploadFailed=true;q.pdfUploadLastError=String(e&&e.message||e).slice(0,200)}
+      }catch(e2){console.warn("[savePdfConCopiaStorage] no pude marcar flag:",e2)}
     }
   }else if(!cloudOnline){
     console.warn("[savePdfConCopiaStorage] offline — PDF solo local, sin copia Storage");
