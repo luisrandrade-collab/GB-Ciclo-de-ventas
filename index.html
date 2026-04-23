@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1a1a1a">
 <title>Gourmet Bites - Cotizador</title>
-<!-- VERSION: 2026-04-23-v5.4.4-hotfix-pdfs-download-per-version-whatsapp-btn-bug010-retry-all -->
+<!-- VERSION: 2026-04-23-v5.5.0-edicion-pedidos-matriz-permisiva-audit-trail-versionado-hijo -->
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
@@ -956,6 +956,102 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
 .dd-empty{text-align:center;padding:24px 12px;color:var(--soft);font-style:italic;font-size:13px}
 /* v4.12.1: hint en select de cliente para no confundir */
 .cli-sel select option[value=""]{color:var(--bl);font-weight:600}
+
+/* ═══════════════════════════════════════════════════════════ */
+/* v5.5.0: EDICIÓN DE PEDIDOS — Estilos                        */
+/* ═══════════════════════════════════════════════════════════ */
+
+/* Letrero naranja: pedido/propuesta en producción con cambios */
+.edit-alert-banner{
+  background:linear-gradient(135deg,#FFF3E0,#FFE0B2);
+  border:2px solid #FB8C00;
+  color:#E65100;
+  padding:12px 14px;
+  border-radius:10px;
+  margin-bottom:12px;
+  font-size:13px;
+  line-height:1.5;
+  box-shadow:0 2px 6px rgba(251,140,0,.25);
+  animation:slideDownAlert .4s ease-out;
+}
+@keyframes slideDownAlert{
+  from{transform:translateY(-8px);opacity:0}
+  to{transform:translateY(0);opacity:1}
+}
+
+/* Banner diferencia anticipo: informativo azul */
+.diff-anticipo-banner{
+  background:linear-gradient(135deg,#E3F2FD,#BBDEFB);
+  border:1px solid #1976D2;
+  color:#0D47A1;
+  padding:10px 12px;
+  border-radius:8px;
+  margin:8px 0;
+  font-size:12px;
+  line-height:1.5;
+}
+.diff-anticipo-banner em{color:#546E7A;font-style:normal;font-size:11px}
+
+/* Botón 🕒 trigger del timeline de ediciones */
+.eh-trigger{
+  background:#F3E5F5;
+  color:#6A1B9A;
+  border:1px solid #CE93D8;
+  padding:3px 10px;
+  border-radius:12px;
+  font-size:11px;
+  font-weight:700;
+  cursor:pointer;
+  font-family:inherit;
+  transition:background .15s;
+}
+.eh-trigger:hover,.eh-trigger:active{background:#E1BEE7}
+
+/* Botón hc-btn-timeline en cards del Historial */
+.hc-btn-timeline{
+  background:linear-gradient(135deg,#CE93D8,#8E24AA)!important;
+  color:#fff!important;
+  font-weight:700;
+}
+
+/* Modal historial de cambios */
+#edit-history-modal .mf-wrap{max-width:520px}
+.eh-list{max-height:60vh;overflow-y:auto;padding:4px}
+.eh-card{
+  background:#FAFAFA;
+  border:1px solid #E0E0E0;
+  border-left:3px solid #8E24AA;
+  border-radius:8px;
+  padding:10px 12px;
+  margin-bottom:10px;
+}
+.eh-head{
+  display:flex;justify-content:space-between;align-items:center;
+  margin-bottom:6px;font-size:11px;color:#555;
+}
+.eh-fecha{font-weight:700;color:#6A1B9A}
+.eh-user{background:#EDE7F6;color:#4527A0;padding:2px 8px;border-radius:10px;font-weight:600}
+.eh-chlist{margin:4px 0 0 0;padding-left:18px;font-size:12px;line-height:1.5}
+.eh-chlist li{margin-bottom:3px}
+.eh-antes{color:#C62828;text-decoration:line-through;font-size:11.5px}
+.eh-despues{color:#1B5E20;font-weight:600}
+.eh-nochange{font-size:11px;color:#999;font-style:italic;padding:4px 0}
+.eh-razon{
+  margin-top:8px;padding:6px 9px;background:#FFF8E1;
+  border-left:2px solid #FFA000;font-size:11.5px;color:#5D4037;border-radius:3px;
+}
+
+/* Modal advertencia edición producción */
+#edit-warning-modal .mf-wrap{max-width:440px}
+#ew-title{font-weight:700;font-size:16px;margin-bottom:10px}
+#ew-body{font-size:13px;line-height:1.6;color:#333}
+#ew-body p{margin:0 0 10px 0}
+
+/* Animación pulse para botón Regenerar PDF destacado */
+@keyframes pulseHighlight{
+  0%,100%{transform:scale(1);box-shadow:0 2px 6px rgba(230,81,0,.35)}
+  50%{transform:scale(1.03);box-shadow:0 4px 14px rgba(230,81,0,.55)}
+}
 </style>
 </head>
 <body>
@@ -1353,9 +1449,11 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
     <div style="font-size:11px;color:var(--mid);margin-bottom:10px">7 cláusulas que van como anexo al final del PDF. Edítalas si este evento tiene condiciones especiales.</div>
     <div id="cond-list"></div>
   </div>
+  <div id="prop-edit-banners"></div>
   <div class="acts" style="margin-top:20px">
-    <button class="btn bbl" onclick="genPropPDF()">📄 Generar PDF Propuesta</button>
-    <button class="btn bg" onclick="savePropQuote()">💾 Guardar borrador</button>
+    <button class="btn bbl" id="prop-btn-pdf" onclick="genPropPDF()">📄 Generar PDF Propuesta</button>
+    <button class="btn bg" onclick="savePropQuote()">💾 Guardar</button>
+    <button class="btn" id="prop-btn-cancel" style="background:#B0BEC5;color:#fff;display:none" onclick="cancelEdicionProp()">↩️ Cancelar edición</button>
   </div>
 </div>
 </div>
@@ -2050,12 +2148,48 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
   </div>
 </div>
 
-<script src="app-assets.js?v=5.4.4"></script>
-<script src="app-core.js?v=5.4.4"></script>
-<script src="app-cotizar.js?v=5.4.4"></script>
-<script src="app-propuesta.js?v=5.4.4"></script>
-<script src="app-historial.js?v=5.4.4"></script>
-<script src="app-seguimiento.js?v=5.4.4"></script>
-<script src="app-dashboard.js?v=5.4.4"></script>
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- v5.5.0: Modal Historial de Cambios (audit trail de ediciones) -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="edit-history-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeEditHistoryModal()">
+  <div class="mf-wrap" style="max-width:520px">
+    <div class="mf-head">
+      <div>
+        <div style="font-weight:700;font-size:15px;color:#4527A0">🕒 Historial de cambios</div>
+        <div style="font-size:11px;color:#888;margin-top:2px"><span id="eh-doc-id">—</span></div>
+      </div>
+      <button class="mf-close" onclick="closeEditHistoryModal()">×</button>
+    </div>
+    <div class="mf-body" id="eh-body" style="padding:12px"></div>
+    <div class="mf-foot" style="padding:10px 14px;border-top:1px solid #eee">
+      <div style="font-size:10.5px;color:#999;line-height:1.4">Este historial es interno. No se comparte con el cliente.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- v5.5.0: Modal Advertencia al editar en producción/aprobada  -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="edit-warning-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeEditWarningModal()">
+  <div class="mf-wrap" style="max-width:440px">
+    <div class="mf-head">
+      <div id="ew-title">⚠️ Advertencia</div>
+      <button class="mf-close" onclick="closeEditWarningModal()">×</button>
+    </div>
+    <div class="mf-body" id="ew-body" style="padding:14px"></div>
+    <div class="mf-foot" style="display:flex;gap:8px;padding:10px 14px;border-top:1px solid #eee">
+      <button class="btn" style="background:#B0BEC5;color:#fff;flex:1" onclick="closeEditWarningModal()">Cancelar</button>
+      <button class="btn" style="background:linear-gradient(135deg,#FB8C00,#E65100);color:#fff;flex:1;font-weight:700" onclick="if(window._editWarningProceed)window._editWarningProceed()">Continuar</button>
+    </div>
+  </div>
+</div>
+
+<script src="app-assets.js?v=5.5.0"></script>
+<script src="app-core.js?v=5.5.0"></script>
+<script src="app-cotizar.js?v=5.5.0"></script>
+<script src="app-propuesta.js?v=5.5.0"></script>
+<script src="app-historial.js?v=5.5.0"></script>
+<script src="app-seguimiento.js?v=5.5.0"></script>
+<script src="app-dashboard.js?v=5.5.0"></script>
 </body>
 </html>

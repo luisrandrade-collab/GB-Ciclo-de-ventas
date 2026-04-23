@@ -334,55 +334,69 @@ async function savePropQuote(silent){
   const cl=$("fp-cli").value.trim()||"Sin nombre";
   if(!cloudOnline){if(!silent)alert("Sin conexión. No se puede guardar.");return}
   // v4.12.7: bloquear guardado como borrador si currentPropNumber es una PF.
-  // Una PF NO puede editarse directamente — usar 🔄 Nueva versión desde historial.
   if(currentPropNumber&&currentPropNumber.startsWith("GB-PF-")){
-    if(!silent)alert("🔒 Esta es una Propuesta Final ("+currentPropNumber+").\n\nNo se puede guardar como borrador porque es un registro formal.\n\nPara aplicar cambios:\n1. Vuelve al historial (📁).\n2. Toca 🔄 Nueva versión en esta PF.\n3. Se abrirá la propuesta base editable.\n4. Edita y genera la PF de nuevo — obtendrá nuevo consecutivo PF-XXXX y la anterior quedará como REEMPLAZADA.");
+    if(!silent)alert("🔒 Esta es una Propuesta Final ("+currentPropNumber+").\n\nNo se puede guardar como borrador porque es un registro formal.\n\nPara aplicar cambios:\n1. Vuelve al historial (📁).\n2. Toca 🔄 Nueva versión en esta PF.");
     return;
   }
-  // v4.13.0: bloqueo extendido para propuestas en estado no-editable
-  // (en_produccion / entregado / convertida / superseded = registro histórico)
+  // v5.5.0: matriz de edición reemplaza el bloqueo duro v4.13.0
+  let oldDoc=null;
+  let statusActual="enviada";
   if(currentPropNumber){
     try{
       const {db,doc,getDoc}=window.fb;
       const snap=await getDoc(doc(db,"proposals",currentPropNumber));
       if(snap.exists()){
-        const _st=snap.data().status||"enviada";
-        if(["en_produccion","entregado","convertida","superseded"].includes(_st)){
+        oldDoc=snap.data();
+        statusActual=oldDoc.status||"enviada";
+        if(["anulada","convertida","superseded"].includes(statusActual)){
           if(!silent){
-            const _lbl=(STATUS_META[_st]||{}).label||_st;
-            alert("🔒 Esta propuesta está en estado \""+_lbl+"\" ("+currentPropNumber+").\n\nNo se puede modificar — es registro histórico.\n\nAjustes válidos:\n• Duplicar (📋) y crear una nueva\n• Si es PF convertida: usa 🔄 Nueva versión\n• Si solo quieres ver → sigue adelante pero no toques Guardar");
+            const _lbl=(STATUS_META[statusActual]||{}).label||statusActual;
+            alert("🔒 Esta propuesta está \""+_lbl+"\" ("+currentPropNumber+").\n\nNo se puede modificar. Duplica (📋) y arranca una nueva.");
           }
           return;
         }
+        if(statusActual==="entregado"&&!silent){
+          if(!confirm("ℹ️ Este evento ya fue ejecutado.\n\nSolo deberías cambiar NOTAS INTERNAS.\n\n¿Continuar guardando?"))return;
+        }
       }
-    }catch(e){console.warn("No se pudo verificar status previo para bloqueo:",e)}
+    }catch(e){console.warn("No se pudo verificar status previo:",e)}
   }
   try{
     if(!silent)showLoader("Generando consecutivo...");
+    // v5.5.0: versionado hijo para propuestas en enviada/propfinal
     let pNum=currentPropNumber;
+    let creatingChild=false;
+    if(pNum&&oldDoc&&shouldVersionWithSuffix(oldDoc,"proposal")){
+      if(!silent){
+        const stLbl=(STATUS_META[statusActual]||{}).label||statusActual;
+        const ok=confirm("Esta propuesta está en estado \""+stLbl+"\".\n\n¿Guardar como VERSIÓN NUEVA?\n\n• Aceptar → Se crea "+buildChildNumber(pNum)+" y la original queda archivada.\n• Cancelar → Se sobreescribe "+pNum+".");
+        if(ok){
+          pNum=buildChildNumber(pNum);
+          creatingChild=true;
+        }
+      }
+    }
     if(!pNum)pNum=await getNextNumber("proposal");
     await autoSaveClientFromProp();
     propSections.forEach(sec=>sec.options.forEach(opt=>opt.items.forEach(it=>{if(!it.catId&&it.name){try{registerCustomProduct(it.name,it.desc||"",it.price||0,"")}catch(e){}}})));
     aperturaFrase=$("fp-apertura").value.trim()||aperturaFrase;
     fechaVencimiento=$("fp-fecha-venc").value||fechaVencimiento;
-    let prevStatus="enviada",prevApprovalData=null,prevPropFinalRef=null,prevPagos=null,prevEntregaData=null,prevComentarioCliente=null,prevProductionDate=null,prevProduced=null,prevHoraEntrega=null;
-    if(currentPropNumber){
-      try{
-        const {db,doc,getDoc}=window.fb;
-        const existing=await getDoc(doc(db,"proposals",currentPropNumber));
-        if(existing.exists()){
-          const d=existing.data();
-          if(d.status)prevStatus=d.status;
-          if(d.approvalData)prevApprovalData=d.approvalData;
-          if(d.propFinalRef)prevPropFinalRef=d.propFinalRef;
-          if(d.pagos)prevPagos=d.pagos;
-          if(d.entregaData)prevEntregaData=d.entregaData;
-          if(d.comentarioCliente)prevComentarioCliente=d.comentarioCliente;
-          if(d.productionDate)prevProductionDate=d.productionDate;
-          if(typeof d.produced!=="undefined")prevProduced=d.produced;
-          if(d.horaEntrega)prevHoraEntrega=d.horaEntrega;
-        }
-      }catch(e){console.warn("No se pudo leer estado previo:",e)}
+    let prevStatus="enviada",prevApprovalData=null,prevPropFinalRef=null,prevPagos=null,prevEntregaData=null,prevComentarioCliente=null,prevProductionDate=null,prevProduced=null,prevHoraEntrega=null,prevPdfHistorial=null,prevPdfRegenCount=null,prevEditHistory=null;
+    if(currentPropNumber&&!creatingChild&&oldDoc){
+      if(oldDoc.status)prevStatus=oldDoc.status;
+      if(oldDoc.approvalData)prevApprovalData=oldDoc.approvalData;
+      if(oldDoc.propFinalRef)prevPropFinalRef=oldDoc.propFinalRef;
+      if(oldDoc.pagos)prevPagos=oldDoc.pagos;
+      if(oldDoc.entregaData)prevEntregaData=oldDoc.entregaData;
+      if(oldDoc.comentarioCliente)prevComentarioCliente=oldDoc.comentarioCliente;
+      if(oldDoc.productionDate)prevProductionDate=oldDoc.productionDate;
+      if(typeof oldDoc.produced!=="undefined")prevProduced=oldDoc.produced;
+      if(oldDoc.horaEntrega)prevHoraEntrega=oldDoc.horaEntrega;
+      if(Array.isArray(oldDoc.pdfHistorial))prevPdfHistorial=oldDoc.pdfHistorial;
+      if(typeof oldDoc.pdfRegenCount==="number")prevPdfRegenCount=oldDoc.pdfRegenCount;
+      if(Array.isArray(oldDoc.editHistory))prevEditHistory=oldDoc.editHistory;
+    }else if(creatingChild){
+      prevStatus="enviada"; // hija siempre arranca limpia pre-confirmación
     }
     const pObj={
       quoteNumber:pNum,type:"prop",year:APP_YEAR,
@@ -408,13 +422,79 @@ async function savePropQuote(silent){
     if(prevProductionDate)pObj.productionDate=prevProductionDate;
     if(prevProduced!==null)pObj.produced=prevProduced;
     if(prevHoraEntrega)pObj.horaEntrega=prevHoraEntrega;
-    // v4.12.1: persistir el total real (mismo cálculo que el PDF) para que el dashboard sume bien
+    // v5.5.0: preservar historial PDFs y audit trail
+    if(prevPdfHistorial)pObj.pdfHistorial=prevPdfHistorial;
+    if(prevPdfRegenCount)pObj.pdfRegenCount=prevPdfRegenCount;
+    // v4.12.1: persistir el total real
     pObj.total=computePropTotal(pObj);
+    // v5.5.0: construir editHistory entry
+    let nuevosHistory=prevEditHistory?[...prevEditHistory]:[];
+    let cambiosDetectados=[];
+    if(oldDoc&&!creatingChild&&!silent){
+      cambiosDetectados=diffDocs(oldDoc,pObj);
+      if(cambiosDetectados.length>0){
+        const razon=prompt("Razón del cambio (opcional, máx 200 chars):","")||"";
+        const entry=buildEditHistoryEntry(cambiosDetectados,razon);
+        nuevosHistory.push(entry);
+      }
+    }
+    if(nuevosHistory.length>0)pObj.editHistory=nuevosHistory;
+    if(creatingChild){
+      pObj.parentQuote=currentPropNumber;
+    }
     if(!silent)showLoader("Guardando en la nube...");
+    // v5.5.0 FIX #2: crear hijo PRIMERO, marcar padre superseded después
     await saveProposalToCloud(pObj);
+    if(creatingChild){
+      try{
+        const {db,doc,updateDoc,serverTimestamp}=window.fb;
+        await updateDoc(doc(db,"proposals",currentPropNumber),{
+          status:"superseded",
+          supersededBy:pNum,
+          updatedAt:serverTimestamp()
+        });
+        const padre=(quotesCache||[]).find(x=>x.id===currentPropNumber&&x.kind==="proposal");
+        if(padre){padre.status="superseded";padre.supersededBy=pNum}
+      }catch(e){
+        console.warn("Hijo propuesta creado OK, pero fallo marcar padre:",e);
+        if(!silent)toast&&toast("Versión creada, pero no se pudo archivar la anterior. Reintenta manualmente.","warn",6000);
+      }
+    }
+    // v5.5.0 FIX #3: sincronizar quotesCache local
+    try{
+      if(Array.isArray(quotesCache)){
+        const idx=quotesCache.findIndex(x=>x.id===pNum&&x.kind==="proposal");
+        const cacheEntry={kind:"proposal",id:pNum,...pObj};
+        if(idx>=0)quotesCache[idx]={...quotesCache[idx],...cacheEntry};
+        else quotesCache.unshift(cacheEntry);
+      }
+    }catch(e){console.warn("No se pudo sincronizar quotesCache:",e)}
+    // Guardar referencias para UI post-guardado
+    window._lastSavedProp={
+      id:pNum,
+      cambios:cambiosDetectados,
+      statusPrevio:statusActual,
+      creatingChild:creatingChild,
+      afectaCliente:cambiosAfectanCliente(cambiosDetectados),
+      hayPagos:Array.isArray(prevPagos)&&prevPagos.length>0,
+      totalAnterior:(oldDoc&&oldDoc.total)||0,
+      totalNuevo:pObj.total
+    };
+    const padreNumeroProp=currentPropNumber;
     currentPropNumber=pNum;
     rememberPricesFromProposal();
-    if(!silent){hideLoader();alert("✅ Borrador guardado: "+pNum)}
+    if(!silent){
+      hideLoader();
+      if(creatingChild){
+        alert("✅ Nueva versión creada: "+pNum+"\nLa anterior ("+padreNumeroProp+") quedó archivada.");
+      }else if(cambiosDetectados.length>0&&statusActual==="en_produccion"){
+        if(typeof toast==="function")toast("⚠️ Propuesta en producción modificada. Aviso visible al equipo.","warn",5000);
+      }else{
+        alert("✅ Guardado: "+pNum);
+      }
+    }
+    // v5.5.0: refrescar banners tras guardar
+    if(typeof renderPropEditBanners==="function")renderPropEditBanners();
   }catch(e){if(!silent)hideLoader();alert("Error al guardar: "+e.message);console.error(e)}
 }
 
@@ -453,8 +533,11 @@ function loadPropQuote(q){
   firmaProp=q.firma||"jp";
   setFirma("prop",firmaProp);
   currentPropNumber=q.quoteNumber||null;
+  window._lastSavedProp=null; // limpiar estado de última edición
   showClientHistoryPanel(q.client||"","prop");
   renderPropSections();renderMenaje();renderPersonal();renderCondiciones();renderReposicion();
+  // v5.5.0: renderizar banners de edición (letrero, 🕒, diferencia-anticipo)
+  if(typeof renderPropEditBanners==="function")renderPropEditBanners();
 }
 
 // ─── PROPUESTA FINAL ───────────────────────────────────────
@@ -886,4 +969,65 @@ async function genPropPDF(){
     const kindP=(currentPropNumber||"").startsWith("GB-PF-")?"propfinal":"proposal";
     await savePdfConCopiaStorage(doc,baseNameP,kindP,currentPropNumber);
   }catch(err){alert("Error generando PDF: "+err.message);console.error(err)}
+}
+
+// v5.5.0: render de banners dinámicos en vista de propuesta (letrero + diferencia + botón 🕒)
+function renderPropEditBanners(){
+  const el=$("prop-edit-banners");
+  if(!el)return;
+  const qCurrent=currentPropNumber?(quotesCache||[]).find(x=>x.id===currentPropNumber&&x.kind==="proposal"):null;
+  const curStatus=(qCurrent&&qCurrent.status)||"enviada";
+  const hayEditHistory=qCurrent&&Array.isArray(qCurrent.editHistory)&&qCurrent.editHistory.length>0;
+  const lastSaved=window._lastSavedProp&&window._lastSavedProp.id===currentPropNumber?window._lastSavedProp:null;
+  let html="";
+  // Letrero naranja: propuesta en producción con cambios
+  if(currentPropNumber&&(curStatus==="en_produccion"||(lastSaved&&lastSaved.statusPrevio==="en_produccion"))&&lastSaved&&Array.isArray(lastSaved.cambios)&&lastSaved.cambios.length>0){
+    html+='<div class="edit-alert-banner">⚠️ <strong>Propuesta en producción con cambios</strong> — tener en cuenta. Avisa al equipo de producción.</div>';
+  }
+  // Botón 🕒 timeline
+  if(currentPropNumber&&hayEditHistory){
+    html+='<div style="margin:8px 0;text-align:right"><button class="eh-trigger" onclick="openEditHistoryModal(\''+currentPropNumber+'\',\'proposal\')" title="Historial de cambios">🕒 Historial ('+qCurrent.editHistory.length+')</button></div>';
+  }
+  // Banner diferencia-anticipo
+  if(lastSaved&&lastSaved.hayPagos&&lastSaved.totalAnterior!==lastSaved.totalNuevo){
+    const diff=lastSaved.totalNuevo-lastSaved.totalAnterior;
+    const diffTxt=diff>0?"a cobrar":"a devolver";
+    html+='<div class="diff-anticipo-banner">💰 <strong>Diferencia detectada</strong>: Total anterior '+fm(lastSaved.totalAnterior)+' → Nuevo '+fm(lastSaved.totalNuevo)+'. Diferencia '+fm(Math.abs(diff))+' '+diffTxt+'. <em>(Gestión manual)</em></div>';
+  }
+  el.innerHTML=html;
+  // Botón PDF destacado si cambios afectan cliente
+  const btnPdf=$("prop-btn-pdf");
+  if(btnPdf){
+    if(lastSaved&&lastSaved.afectaCliente){
+      btnPdf.innerHTML="📄 Regenerar PDF del cliente";
+      btnPdf.style.background="linear-gradient(135deg,#FF6F00,#E65100)";
+      btnPdf.style.animation="pulseHighlight 1.5s ease-in-out 3";
+    }else{
+      btnPdf.innerHTML="📄 Generar PDF Propuesta";
+      btnPdf.style.background="";
+      btnPdf.style.animation="";
+    }
+  }
+  // Botón cancelar: visible solo si hay propuesta cargada
+  const btnCancel=$("prop-btn-cancel");
+  if(btnCancel)btnCancel.style.display=currentPropNumber?"":"none";
+}
+
+// v5.5.0: cancelar edición de propuesta — recarga desde Firestore
+async function cancelEdicionProp(){
+  if(!currentPropNumber){
+    if(!confirm("¿Descartar esta propuesta (borrador nuevo)?"))return;
+    propSections=[];menajeItems=[];personalData=[];currentPropNumber=null;
+    window._lastSavedProp=null;
+    go("dashboard");
+    return;
+  }
+  if(!confirm("¿Descartar cambios y recargar \""+currentPropNumber+"\" desde la nube?"))return;
+  try{
+    showLoader("Recargando...");
+    window._lastSavedProp=null;
+    await loadQuote("proposal",currentPropNumber);
+    hideLoader();
+    if(typeof toast==="function")toast("Cambios descartados","success");
+  }catch(e){hideLoader();alert("Error al recargar: "+e.message)}
 }

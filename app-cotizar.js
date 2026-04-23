@@ -50,7 +50,21 @@ function resetAllNotasCot(){if(!confirm("¿Restablecer todas las cláusulas a su
 function renderR(){
   const cl=$("f-cli").value||"—",idStr=getIdStr(),att=$("f-att").value||cl,mail=$("f-mail").value,tel=$("f-tel").value,dir=$("f-dir").value,city=getCityName()||"—",deliv=getDelivStr();
   let info="";
-  if(currentQuoteNumber)info+='<div style="margin-bottom:8px"><span class="qnum">'+currentQuoteNumber+'</span></div>';
+  // v5.5.0: encontrar doc actual en cache para leer editHistory y status
+  const qCurrent=currentQuoteNumber?(quotesCache||[]).find(x=>x.id===currentQuoteNumber&&x.kind==="quote"):null;
+  const curStatus=(qCurrent&&qCurrent.status)||"enviada";
+  const hayEditHistory=qCurrent&&Array.isArray(qCurrent.editHistory)&&qCurrent.editHistory.length>0;
+  const lastSaved=window._lastSavedQuote&&window._lastSavedQuote.id===currentQuoteNumber?window._lastSavedQuote:null;
+  // Letrero naranja: pedido en producción con cambios recientes
+  if(currentQuoteNumber&&(curStatus==="en_produccion"||(lastSaved&&lastSaved.statusPrevio==="en_produccion"))&&lastSaved&&Array.isArray(lastSaved.cambios)&&lastSaved.cambios.length>0){
+    info+='<div class="edit-alert-banner">⚠️ <strong>Pedido en producción con cambios</strong> — tener en cuenta. Avisa al equipo de producción.</div>';
+  }
+  // Botón 🕒 historial de cambios (solo si hay ediciones)
+  if(currentQuoteNumber&&hayEditHistory){
+    info+='<div style="margin-bottom:8px"><span class="qnum">'+currentQuoteNumber+'</span> <button class="eh-trigger" onclick="openEditHistoryModal(\''+currentQuoteNumber+'\',\'quote\')" title="Ver historial de cambios">🕒 '+qCurrent.editHistory.length+'</button></div>';
+  }else if(currentQuoteNumber){
+    info+='<div style="margin-bottom:8px"><span class="qnum">'+currentQuoteNumber+'</span></div>';
+  }
   info+='<strong>Cliente:</strong> '+cl+(idStr?' — '+idStr:'')+'<br><strong>Atención:</strong> '+att+'<br>';
   if(tel)info+='<strong>Teléfono:</strong> '+tel+'<br>';
   if(mail)info+='<strong>Correo:</strong> '+mail+'<br>';
@@ -58,6 +72,12 @@ function renderR(){
   info+='<strong>Ciudad:</strong> '+city+'<br>';
   if(deliv)info+='<strong>Fecha de Entrega:</strong> '+deliv+'<br>';
   info+='<strong>Fecha cotización:</strong> '+dateStr();
+  // v5.5.0: banner diferencia-anticipo si cambió total Y hay pagos
+  if(lastSaved&&lastSaved.hayPagos&&lastSaved.totalAnterior!==lastSaved.totalNuevo){
+    const diff=lastSaved.totalNuevo-lastSaved.totalAnterior;
+    const diffTxt=diff>0?"a cobrar":"a devolver";
+    info+='<div class="diff-anticipo-banner">💰 <strong>Diferencia detectada</strong>: Total anterior '+fm(lastSaved.totalAnterior)+' → Nuevo '+fm(lastSaved.totalNuevo)+'. Diferencia '+fm(Math.abs(diff))+' '+diffTxt+'. <em>(Gestión manual)</em></div>';
+  }
   $("rev-info").innerHTML=info;
   const all=allIt(),tr=getTr(),tot=getTotal();
   if(!all.length){$("rev-content").innerHTML='<div class="empty"><div class="ic">📋</div><p>No hay productos</p><button class="btn bp" onclick="go(\'products\')">Agregar Productos</button></div>';return}
@@ -83,9 +103,46 @@ function renderR(){
     '<div class="paynote">Envía el comprobante del pago por WhatsApp para procesar la confirmación del pedido. Mínimo 24 horas de anticipación a la entrega.</div>'+
     '</div></div>';
   const notasHtml='<div class="sec" style="margin-top:12px"><div class="stit" style="display:flex;justify-content:space-between;align-items:center">Condiciones del servicio <button class="cond-reset" style="font-size:10px" onclick="resetAllNotasCot()">↻ Restablecer todas</button></div><div id="notas-cot-list"></div></div>';
-  // v4.12.6: tabla envuelta en .rtbl-wrap para scroll horizontal en pantallas chicas
-  $("rev-content").innerHTML='<div class="rtbl-wrap"><table class="rtbl"><thead><tr><th style="text-align:left">Producto</th><th>Cant.</th><th style="text-align:right">V. Unit</th><th style="text-align:right">Subtotal</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div><div class="tbox"><div class="tl">Total</div><div class="ta">'+fm(tot)+'</div></div>'+payBoxHtml+notasHtml+'<div class="acts"><button class="btn bd" onclick="go(\'products\')">+ Productos</button><button class="btn bp" onclick="genPDF()">📄 Generar PDF</button><button class="btn bg" onclick="saveCurrentQuote()">💾 Guardar borrador</button></div>';
+  // v5.5.0: botonera adaptativa según estado
+  // - Nuevo doc o "enviada/pedido" normal: botones estándar
+  // - Doc con cambios recientes que afectan cliente: "Regenerar PDF del cliente" destacado
+  // - Todos los docs editables: botón "Cancelar edición" que recarga desde Firestore
+  let actsHtml='<div class="acts">';
+  actsHtml+='<button class="btn bd" onclick="go(\'products\')">+ Productos</button>';
+  // Regenerar PDF destacado si hubo cambios que afectan cliente
+  if(lastSaved&&lastSaved.afectaCliente){
+    actsHtml+='<button class="btn bp" style="background:linear-gradient(135deg,#FF6F00,#E65100);animation:pulseHighlight 1.5s ease-in-out 3" onclick="genPDF()">📄 Regenerar PDF del cliente</button>';
+  }else{
+    actsHtml+='<button class="btn bp" onclick="genPDF()">📄 Generar PDF</button>';
+  }
+  actsHtml+='<button class="btn bg" onclick="saveCurrentQuote()">💾 Guardar</button>';
+  // Cancelar edición: solo si hay un doc cargado (currentQuoteNumber existe)
+  if(currentQuoteNumber){
+    actsHtml+='<button class="btn" style="background:#B0BEC5;color:#fff" onclick="cancelEdicion()">↩️ Cancelar edición</button>';
+  }
+  actsHtml+='</div>';
+  $("rev-content").innerHTML='<div class="rtbl-wrap"><table class="rtbl"><thead><tr><th style="text-align:left">Producto</th><th>Cant.</th><th style="text-align:right">V. Unit</th><th style="text-align:right">Subtotal</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div><div class="tbox"><div class="tl">Total</div><div class="ta">'+fm(tot)+'</div></div>'+payBoxHtml+notasHtml+actsHtml;
   renderNotasCot();
+}
+
+// v5.5.0: cancela la edición en curso recargando el doc desde Firestore
+async function cancelEdicion(){
+  if(!currentQuoteNumber){
+    // Sin doc cargado = borrador local → limpiar
+    if(!confirm("¿Descartar esta cotización (borrador nuevo)?"))return;
+    cart=[];cust=[];currentQuoteNumber=null;
+    ["f-cli","f-idtype","f-idnum","f-att","f-mail","f-tel","f-dir"].forEach(id=>{const e=$(id);if(e)e.value=""});
+    go("products");
+    return;
+  }
+  if(!confirm("¿Descartar cambios y recargar \""+currentQuoteNumber+"\" desde la nube?"))return;
+  try{
+    showLoader("Recargando...");
+    window._lastSavedQuote=null; // limpiar banner
+    await loadQuote("quote",currentQuoteNumber);
+    hideLoader();
+    if(typeof toast==="function")toast("Cambios descartados","success");
+  }catch(e){hideLoader();alert("Error al recargar: "+e.message)}
 }
 
 function chgCartPrice(id,newP){newP=parseInt(newP)||0;if(newP<=0)return;const i=cart.find(x=>x.id===id);if(i){if(!i.origP)i.origP=i.p;i.p=newP;i.edited=newP!==i.origP}renderR();updUI()}
@@ -97,47 +154,72 @@ async function saveCurrentQuote(silent){
   const items=allIt();
   if(!items.length){if(!silent)alert("Agrega productos primero");return}
   if(!cloudOnline){if(!silent)alert("Sin conexión. No se puede guardar.");return}
-  // v4.13.0: bloqueo extendido — cotizaciones en producción/entregadas son histórico
+  // v5.5.0: matriz de edición reemplaza el bloqueo duro v4.13.0
+  let oldDoc=null; // snapshot previo para diff del audit trail
+  let statusActual="enviada";
   if(currentQuoteNumber){
     try{
       const {db,doc,getDoc}=window.fb;
       const snap=await getDoc(doc(db,"quotes",currentQuoteNumber));
       if(snap.exists()){
-        const _st=snap.data().status||"enviada";
-        if(["en_produccion","entregado"].includes(_st)){
+        oldDoc=snap.data();
+        statusActual=oldDoc.status||"enviada";
+        // Status bloqueados por la matriz
+        if(["anulada","convertida","superseded"].includes(statusActual)){
           if(!silent){
-            const _lbl=(STATUS_META[_st]||{}).label||_st;
-            alert("🔒 Esta cotización está \""+_lbl+"\" ("+currentQuoteNumber+").\n\nNo se puede modificar — es registro histórico.\n\nAjustes válidos:\n• Duplicar (📋) y arrancar una nueva\n• Si solo quieres ver, sigue adelante pero no toques Guardar");
+            const _lbl=(STATUS_META[statusActual]||{}).label||statusActual;
+            alert("🔒 Esta cotización está \""+_lbl+"\" ("+currentQuoteNumber+").\n\nNo se puede modificar. Para ajustes duplica (📋) y arranca una nueva.");
           }
           return;
+        }
+        // Status "entregado": solo notas internas. Avisamos pero permitimos (el usuario sabrá qué toca).
+        if(statusActual==="entregado"&&!silent){
+          if(!confirm("ℹ️ Este pedido ya fue entregado.\n\nSolo deberías cambiar NOTAS INTERNAS (no afectan PDF del cliente).\n\n¿Continuar guardando?"))return;
         }
       }
     }catch(e){console.warn("No se pudo verificar status previo:",e)}
   }
   try{
     if(!silent)showLoader("Generando consecutivo...");
+    // v5.5.0: decidir si se genera versión hija con sufijo -1, -2
+    // Solo aplica pre-confirmación: status "enviada" en cotizaciones.
     let qNum=currentQuoteNumber;
+    let creatingChild=false;
+    if(qNum&&oldDoc&&shouldVersionWithSuffix(oldDoc,"quote")){
+      // Preguntar al usuario: ¿nueva versión (recotización) o sobreescribir?
+      if(!silent){
+        const ok=confirm("Esta cotización está en estado \"Enviada\".\n\n¿Quieres guardar como VERSIÓN NUEVA (recotización)?\n\n• Aceptar → Se crea "+buildChildNumber(qNum)+" y la original queda archivada (reemplazada).\n• Cancelar → Se sobreescribe "+qNum+" (perderás la versión anterior).");
+        if(ok){
+          qNum=buildChildNumber(qNum);
+          creatingChild=true;
+        }
+      }
+    }
     if(!qNum)qNum=await getNextNumber("quote");
     await autoSaveClientFromCot();
     for(const cu of cust){try{await registerCustomProduct(cu.n,cu.d,cu.p,cu.u)}catch(e){console.warn("custom register skipped:",e)}}
-    let prevStatus="enviada",prevOrderData=null,prevPagos=null,prevEntregaData=null,prevComentarioCliente=null,prevProductionDate=null,prevProduced=null,prevEventDate=null,prevHoraEntrega=null;
-    if(currentQuoteNumber){
-      try{
-        const {db,doc,getDoc}=window.fb;
-        const existing=await getDoc(doc(db,"quotes",currentQuoteNumber));
-        if(existing.exists()){
-          const d=existing.data();
-          if(d.status)prevStatus=d.status;
-          if(d.orderData)prevOrderData=d.orderData;
-          if(d.pagos)prevPagos=d.pagos;
-          if(d.entregaData)prevEntregaData=d.entregaData;
-          if(d.comentarioCliente)prevComentarioCliente=d.comentarioCliente;
-          if(d.productionDate)prevProductionDate=d.productionDate;
-          if(typeof d.produced!=="undefined")prevProduced=d.produced;
-          if(d.eventDate)prevEventDate=d.eventDate;
-          if(d.horaEntrega)prevHoraEntrega=d.horaEntrega;
-        }
-      }catch(e){console.warn("No se pudo leer estado previo:",e)}
+    let prevStatus="enviada",prevOrderData=null,prevPagos=null,prevEntregaData=null,prevComentarioCliente=null,prevProductionDate=null,prevProduced=null,prevEventDate=null,prevHoraEntrega=null,prevPdfHistorial=null,prevPdfRegenCount=null,prevEditHistory=null;
+    if(currentQuoteNumber&&!creatingChild){
+      // Guardando sobre el mismo doc: preservar campos operativos existentes
+      if(oldDoc){
+        if(oldDoc.status)prevStatus=oldDoc.status;
+        if(oldDoc.orderData)prevOrderData=oldDoc.orderData;
+        if(oldDoc.pagos)prevPagos=oldDoc.pagos;
+        if(oldDoc.entregaData)prevEntregaData=oldDoc.entregaData;
+        if(oldDoc.comentarioCliente)prevComentarioCliente=oldDoc.comentarioCliente;
+        if(oldDoc.productionDate)prevProductionDate=oldDoc.productionDate;
+        if(typeof oldDoc.produced!=="undefined")prevProduced=oldDoc.produced;
+        if(oldDoc.eventDate)prevEventDate=oldDoc.eventDate;
+        if(oldDoc.horaEntrega)prevHoraEntrega=oldDoc.horaEntrega;
+        if(Array.isArray(oldDoc.pdfHistorial))prevPdfHistorial=oldDoc.pdfHistorial;
+        if(typeof oldDoc.pdfRegenCount==="number")prevPdfRegenCount=oldDoc.pdfRegenCount;
+        if(Array.isArray(oldDoc.editHistory))prevEditHistory=oldDoc.editHistory;
+      }
+    }else if(creatingChild&&oldDoc){
+      // Versión hija: copia estado pero reinicia audit trail (nuevo doc)
+      // Status arranca como "enviada" para que el ciclo pre-confirmación continúe
+      prevStatus="enviada";
+      // No arrastramos orderData/pagos/etc — la hija es cotización limpia
     }
     const qObj={
       quoteNumber:qNum,type:"cot",year:APP_YEAR,
@@ -146,10 +228,6 @@ async function saveCurrentQuote(silent){
       att:$("f-att").value,mail:$("f-mail").value,tel:$("f-tel").value,dir:$("f-dir").value,
       city:getCityName(),cityType:$("f-city").value,trCustom:$("f-tr-custom").value,
       deliv:getDelivStr(),
-      // v5.4.0: guardar momentos y fecha de entrega como campos estructurados
-      // para propagarlos al modal de pedido (antes solo quedaban como string concatenado
-      // en `deliv` y se perdían al convertir → instrucciones críticas como "sin nueces"
-      // o "es regalo para XXX" no llegaban a producción).
       momentosArr:(typeof getMomentos==="function"?getMomentos():[]),
       eventDate:($("f-date")?.value||""),
       cart:cart.map(i=>({id:i.id,n:i.n,d:i.d||"",u:i.u||"",p:i.p,origP:i.origP||i.p,qty:i.qty,edited:!!i.edited})),
@@ -165,10 +243,81 @@ async function saveCurrentQuote(silent){
     if(prevProduced!==null)qObj.produced=prevProduced;
     if(prevEventDate)qObj.eventDate=prevEventDate;
     if(prevHoraEntrega)qObj.horaEntrega=prevHoraEntrega;
+    // v5.5.0: preservar historial PDFs y audit trail en ediciones sobre mismo doc
+    if(prevPdfHistorial)qObj.pdfHistorial=prevPdfHistorial;
+    if(prevPdfRegenCount)qObj.pdfRegenCount=prevPdfRegenCount;
+    // v5.5.0: construir nueva entrada de editHistory si hay cambios
+    let nuevosHistory=prevEditHistory?[...prevEditHistory]:[];
+    let cambiosDetectados=[];
+    if(oldDoc&&!creatingChild&&!silent){
+      cambiosDetectados=diffDocs(oldDoc,qObj);
+      if(cambiosDetectados.length>0){
+        // Pedir razón opcional
+        const razon=prompt("Razón del cambio (opcional, máx 200 chars):","")||"";
+        const entry=buildEditHistoryEntry(cambiosDetectados,razon);
+        nuevosHistory.push(entry);
+      }
+    }
+    if(nuevosHistory.length>0)qObj.editHistory=nuevosHistory;
+    // v5.5.0: si es child, enlazar al padre
+    if(creatingChild){
+      qObj.parentQuote=currentQuoteNumber;
+    }
     if(!silent)showLoader("Guardando en la nube...");
+    // v5.5.0 FIX #2: crear hijo PRIMERO. Si falla, padre no queda huérfano.
+    // Si el save del hijo tiene éxito y luego falla marcar padre, al menos el hijo existe.
     await saveQuoteToCloud(qObj);
+    // Marcar al padre como superseded (solo tras guardar hijo exitosamente)
+    if(creatingChild){
+      try{
+        const {db,doc,updateDoc,serverTimestamp}=window.fb;
+        await updateDoc(doc(db,"quotes",currentQuoteNumber),{
+          status:"superseded",
+          supersededBy:qNum,
+          updatedAt:serverTimestamp()
+        });
+        // Sync cache local para el padre
+        const padre=(quotesCache||[]).find(x=>x.id===currentQuoteNumber&&x.kind==="quote");
+        if(padre){padre.status="superseded";padre.supersededBy=qNum}
+      }catch(e){
+        console.warn("Hijo creado OK, pero fallo marcar padre superseded:",e);
+        if(!silent)toast&&toast("Versión creada, pero no se pudo archivar la anterior. Reintenta manualmente.","warn",6000);
+      }
+    }
+    // v5.5.0 FIX #3: sincronizar quotesCache local inmediatamente tras save exitoso
+    // Esto es lo que hace que el botón 🕒 aparezca al instante tras la primera edición.
+    try{
+      if(Array.isArray(quotesCache)){
+        const idx=quotesCache.findIndex(x=>x.id===qNum&&x.kind==="quote");
+        const cacheEntry={kind:"quote",id:qNum,...qObj};
+        if(idx>=0)quotesCache[idx]={...quotesCache[idx],...cacheEntry};
+        else quotesCache.unshift(cacheEntry);
+      }
+    }catch(e){console.warn("No se pudo sincronizar quotesCache:",e)}
+    // v5.5.0: guardar referencias para el renderR post-guardado
+    window._lastSavedQuote={
+      id:qNum,
+      cambios:cambiosDetectados,
+      statusPrevio:statusActual,
+      creatingChild:creatingChild,
+      afectaCliente:cambiosAfectanCliente(cambiosDetectados),
+      hayPagos:Array.isArray(prevPagos)&&prevPagos.length>0,
+      totalAnterior:(oldDoc&&oldDoc.total)||0,
+      totalNuevo:qObj.total
+    };
+    const padreNumeroParaMsg=currentQuoteNumber; // guardar ANTES de sobreescribir
     currentQuoteNumber=qNum;
-    if(!silent){hideLoader();alert("✅ Borrador guardado: "+qNum)}
+    if(!silent){
+      hideLoader();
+      if(creatingChild){
+        alert("✅ Nueva versión creada: "+qNum+"\nLa anterior ("+padreNumeroParaMsg+") quedó archivada.");
+      }else if(cambiosDetectados.length>0&&statusActual==="en_produccion"){
+        // Letrero aparece en renderR — aquí solo toast
+        if(typeof toast==="function")toast("⚠️ Pedido en producción modificado. Aviso visible al equipo.","warn",5000);
+      }else{
+        alert("✅ Guardado: "+qNum);
+      }
+    }
     if(curStep==="review")renderR();
   }catch(e){if(!silent)hideLoader();alert("Error al guardar: "+e.message);console.error(e)}
 }

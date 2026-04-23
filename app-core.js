@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v5.4.4";
+const BUILD_VERSION="v5.5.0";
 const BUILD_DATE="2026-04-22";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -389,6 +389,233 @@ const STATUS_META={
   superseded:   {label:"Reemplazada",     cls:"superseded",    desc:"PF reemplazada por una versión nueva"},
   anulada:      {label:"Anulada",         cls:"anulada",       desc:"Cancelada antes de entregar — registro histórico"}
 };
+
+// ═══════════════════════════════════════════════════════════
+// v5.5.0: EDICIÓN DE PEDIDOS — Helpers de política de edición
+// ═══════════════════════════════════════════════════════════
+// Matriz aprobada 2026-04-23:
+//   Cotizaciones:
+//     enviada       → editable, sin fricción, genera versión -1, -2 (recotizado)
+//     pedido        → editable, sin fricción, mismo número
+//     en_produccion → editable, MODAL ADVERTENCIA, letrero post-guardado, mismo número
+//     entregado     → editable SOLO notas internas, mismo número
+//     anulada       → NO editable
+//   Propuestas:
+//     enviada       → editable, sin fricción, genera versión -1, -2
+//     propfinal     → editable, sin fricción, genera versión -1, -2
+//     aprobada      → editable, modal advertencia suave, mismo número
+//     en_produccion → editable, MODAL ADVERTENCIA, letrero post-guardado, mismo número
+//     entregado     → editable SOLO notas internas, mismo número
+//     convertida    → NO editable
+//     superseded    → NO editable
+//     anulada       → NO editable
+
+function canEdit(q){
+  if(!q)return false;
+  const st=q.status||"enviada";
+  const blocked=["anulada","convertida","superseded"];
+  return !blocked.includes(st);
+}
+
+function requiresWarning(q){
+  if(!q)return false;
+  const st=q.status||"enviada";
+  return st==="en_produccion"||st==="aprobada";
+}
+
+function warningSeverity(q){
+  if(!q)return null;
+  const st=q.status||"enviada";
+  if(st==="en_produccion")return "fuerte";
+  if(st==="aprobada")return "suave";
+  return null;
+}
+
+function editOnlyNotes(q){
+  if(!q)return false;
+  return (q.status||"")==="entregado";
+}
+
+// Versionado con sufijo -1, -2: solo pre-confirmación del cliente
+function shouldVersionWithSuffix(q,kind){
+  if(!q)return false;
+  const st=q.status||"enviada";
+  if(kind==="quote")return st==="enviada";
+  if(kind==="proposal"||kind==="prop")return st==="enviada"||st==="propfinal";
+  return false;
+}
+
+// GB-2026-0120 → GB-2026-0120-1 → GB-2026-0120-2 ...
+// Heurística: el consecutivo original tiene 4 dígitos; el sufijo de versión tiene 1-3 dígitos.
+function buildChildNumber(baseId){
+  if(!baseId)return baseId;
+  const m=baseId.match(/^(.+)-(\d+)$/);
+  if(m){
+    const head=m[1],tail=m[2];
+    if(tail.length===4)return baseId+"-1";
+    return head+"-"+(parseInt(tail,10)+1);
+  }
+  return baseId+"-1";
+}
+
+// Compara dos estados del doc y devuelve array {campo, antes, despues}
+function diffDocs(oldQ,newQ){
+  const cambios=[];
+  if(!oldQ||!newQ)return cambios;
+  const campos=[
+    "client","idStr","att","mail","tel","dir","city","cityType","trCustom",
+    "eventDate","horaEntrega","productionDate",
+    "total","status","pers","momento","tipoServicio",
+    "aperturaFrase","fechaVencimiento"
+  ];
+  campos.forEach(k=>{
+    const a=oldQ[k],b=newQ[k];
+    if(_norm(a)!==_norm(b))cambios.push({campo:k,antes:a??"",despues:b??""});
+  });
+  if(oldQ.cart||newQ.cart){
+    const ca=oldQ.cart||[],cb=newQ.cart||[];
+    const ids=new Set([...ca.map(i=>i.id),...cb.map(i=>i.id)]);
+    ids.forEach(id=>{
+      const ia=ca.find(x=>x.id===id),ib=cb.find(x=>x.id===id);
+      if(!ia&&ib)cambios.push({campo:"producto_agregado",antes:"",despues:(ib.n||"?")+" (x"+ib.qty+" @ $"+ib.p+")"});
+      else if(ia&&!ib)cambios.push({campo:"producto_eliminado",antes:(ia.n||"?")+" (x"+ia.qty+" @ $"+ia.p+")",despues:""});
+      else if(ia&&ib){
+        if(ia.qty!==ib.qty)cambios.push({campo:"cantidad:"+(ib.n||"?"),antes:ia.qty,despues:ib.qty});
+        if(ia.p!==ib.p)cambios.push({campo:"precio:"+(ib.n||"?"),antes:ia.p,despues:ib.p});
+      }
+    });
+  }
+  if(oldQ.cust||newQ.cust){
+    const ca=oldQ.cust||[],cb=newQ.cust||[];
+    const nombresA=ca.map(i=>i.n+"|"+i.qty+"|"+i.p).sort().join("§");
+    const nombresB=cb.map(i=>i.n+"|"+i.qty+"|"+i.p).sort().join("§");
+    if(nombresA!==nombresB){
+      if(ca.length!==cb.length)cambios.push({campo:"items_custom",antes:ca.length+" items",despues:cb.length+" items"});
+      else cambios.push({campo:"items_custom",antes:"modificados",despues:"ver detalle"});
+    }
+  }
+  if(oldQ.sections||newQ.sections){
+    const sa=JSON.stringify(oldQ.sections||[]),sb=JSON.stringify(newQ.sections||[]);
+    if(sa!==sb)cambios.push({campo:"secciones_propuesta",antes:(oldQ.sections||[]).length+" secciones",despues:(newQ.sections||[]).length+" secciones"});
+  }
+  if(oldQ.notasCotData||newQ.notasCotData){
+    const sa=JSON.stringify(oldQ.notasCotData||{}),sb=JSON.stringify(newQ.notasCotData||{});
+    if(sa!==sb)cambios.push({campo:"notas_cotizacion",antes:"(modificadas)",despues:"(nueva versión)"});
+  }
+  return cambios;
+}
+
+function _norm(v){
+  if(v===null||v===undefined)return "";
+  if(typeof v==="string")return v.trim();
+  return v;
+}
+
+function cambiosAfectanCliente(cambios){
+  if(!Array.isArray(cambios)||!cambios.length)return false;
+  const camposCliente=[
+    "client","idStr","total","eventDate","horaEntrega",
+    "productionDate","tipoServicio","pers","momento"
+  ];
+  return cambios.some(c=>{
+    if(camposCliente.includes(c.campo))return true;
+    if(c.campo.startsWith("producto_"))return true;
+    if(c.campo.startsWith("cantidad:"))return true;
+    if(c.campo.startsWith("precio:"))return true;
+    if(c.campo==="items_custom")return true;
+    if(c.campo==="secciones_propuesta")return true;
+    return false;
+  });
+}
+
+function buildEditHistoryEntry(cambios,razon){
+  return {
+    fecha:new Date().toISOString(),
+    usuario:(currentUser&&currentUser.email)||"desconocido",
+    usuarioDisplay:(currentUser&&(currentUser.displayName||(currentUser.email||"").split("@")[0]))||"Usuario",
+    cambios:Array.isArray(cambios)?cambios:[],
+    razon:(razon||"").slice(0,200)
+  };
+}
+
+function pdfDesactualizado(q){
+  if(!q||!Array.isArray(q.pdfHistorial)||!q.pdfHistorial.length)return false;
+  if(!Array.isArray(q.editHistory)||!q.editHistory.length)return false;
+  const lastPdf=q.pdfHistorial[q.pdfHistorial.length-1];
+  const lastEdit=q.editHistory[q.editHistory.length-1];
+  if(!lastPdf||!lastPdf.fecha||!lastEdit||!lastEdit.fecha)return false;
+  return lastEdit.fecha>lastPdf.fecha;
+}
+
+function openEditHistoryModal(docId,kind){
+  const q=(quotesCache||[]).find(x=>x.id===docId);
+  if(!q||!Array.isArray(q.editHistory)||!q.editHistory.length){
+    if(typeof toast==="function")toast("Este documento no tiene ediciones registradas","warn");
+    else alert("Sin ediciones registradas");
+    return;
+  }
+  const hist=q.editHistory.slice().reverse();
+  const items=hist.map(e=>{
+    const fecha=e.fecha?new Date(e.fecha).toLocaleString("es-CO"):"—";
+    const usr=e.usuarioDisplay||e.usuario||"—";
+    let cambiosHtml="";
+    if(Array.isArray(e.cambios)&&e.cambios.length){
+      cambiosHtml='<ul class="eh-chlist">'+e.cambios.map(c=>{
+        const safeCampo=String(c.campo||"").replace(/</g,"&lt;");
+        const safeA=String(c.antes===""||c.antes==null?"(vacío)":c.antes).replace(/</g,"&lt;");
+        const safeD=String(c.despues===""||c.despues==null?"(vacío)":c.despues).replace(/</g,"&lt;");
+        return '<li><strong>'+safeCampo+':</strong> <span class="eh-antes">'+safeA+'</span> → <span class="eh-despues">'+safeD+'</span></li>';
+      }).join("")+'</ul>';
+    }else{
+      cambiosHtml='<div class="eh-nochange">(Sin cambios estructurales reportados)</div>';
+    }
+    const razonHtml=e.razon?'<div class="eh-razon"><strong>Razón:</strong> '+String(e.razon).replace(/</g,"&lt;")+'</div>':'';
+    return '<div class="eh-card"><div class="eh-head"><span class="eh-fecha">🕒 '+fecha+'</span><span class="eh-user">'+usr+'</span></div>'+cambiosHtml+razonHtml+'</div>';
+  }).join("");
+  const body='<div class="eh-list">'+items+'</div>';
+  const modal=$("edit-history-modal");
+  if(!modal){alert("Modal de historial no disponible");return}
+  $("eh-doc-id").textContent=docId;
+  $("eh-body").innerHTML=body;
+  modal.classList.remove("hidden");
+}
+
+function closeEditHistoryModal(){
+  const m=$("edit-history-modal");
+  if(m)m.classList.add("hidden");
+}
+
+// Modal advertencia para docs en producción o aprobados.
+// Si el usuario confirma, ejecuta onProceed.
+function openEditWarningModal(q,onProceed){
+  const sev=warningSeverity(q);
+  if(!sev){if(typeof onProceed==="function")onProceed();return}
+  const modal=$("edit-warning-modal");
+  if(!modal){
+    const msg=sev==="fuerte"
+      ?"⚠️ Este pedido ya está en producción. Kathy/JP pueden estar preparando estos productos ahora mismo. ¿Seguro que quieres editar?"
+      :"ℹ️ Esta propuesta ya fue aprobada por el cliente. Los cambios requerirán reenviar el PDF. ¿Continuar?";
+    if(confirm(msg)){if(typeof onProceed==="function")onProceed()}
+    return;
+  }
+  $("ew-title").textContent=sev==="fuerte"?"⚠️ Pedido en producción":"ℹ️ Propuesta aprobada";
+  const qNum=q.quoteNumber||q.id||"este documento";
+  const body=sev==="fuerte"
+    ?'<p>Este pedido (<strong>'+qNum+'</strong>) ya está en producción. Kathy/JP pueden estar preparando estos productos ahora mismo.</p><p><strong>Después de guardar aparecerá un letrero de aviso visible en el documento</strong> para que el equipo tenga en cuenta los cambios.</p>'
+    :'<p>Esta propuesta (<strong>'+qNum+'</strong>) ya fue aprobada por el cliente.</p><p>Los cambios pueden requerir reenviar el PDF al cliente. Toma nota de qué cambias para comunicarlo.</p>';
+  $("ew-body").innerHTML=body;
+  window._editWarningProceed=function(){
+    closeEditWarningModal();
+    if(typeof onProceed==="function")onProceed();
+  };
+  modal.classList.remove("hidden");
+}
+
+function closeEditWarningModal(){
+  const m=$("edit-warning-modal");
+  if(m)m.classList.add("hidden");
+  window._editWarningProceed=null;
+}
 
 // ─── v5.0: AUTHENTICATION (Firebase Auth, reemplaza al PIN de v4.x) ──
 // No-ops para compatibilidad: los handlers del PIN ya no existen en HTML.
@@ -1697,19 +1924,14 @@ async function loadQuote(kind,id){
     hideLoader();
     if(!snap.exists()){alert("No se encontró");return}
     const q=snap.data();
-    // v4.13.0: bloqueo extendido — docs en producción/entregados/convertidos/reemplazados
-    // son registro histórico. Se pueden VER pero no GUARDAR cambios encima.
-    // savePropQuote/saveCurrentQuote ya bloquean el guardado, pero avisamos aquí al abrir.
+    // v5.5.0: ya no bloqueamos la apertura de docs en producción/entregados/etc.
+    // La matriz de edición se evalúa al momento de guardar (canEdit/requiresWarning).
+    // Solo avisamos con toast informativo al abrir PFs directas.
     const _qStatus=q.status||"enviada";
-    const _readonlyStatuses=["en_produccion","entregado","convertida","superseded"];
-    if(_readonlyStatuses.includes(_qStatus)){
-      const _stLabel=(STATUS_META[_qStatus]||{}).label||_qStatus;
-      alert("🔒 Este documento está en estado \""+_stLabel+"\" ("+id+").\n\nPuedes verlo pero los cambios NO se guardan (es registro histórico).\n\nPara ajustes:\n• PF reemplazada → usa 🔄 Nueva versión\n• Pedido entregado → solo consulta\n• Si realmente necesitas editar → duplica (📋) y arranca uno nuevo");
-    }
     if(kind==="proposal"){
-      // v4.12.7: si es una Propuesta Final, avisar que no se puede editar directamente
       if(id&&id.startsWith("GB-PF-")&&_qStatus!=="superseded"){
-        alert("ℹ️ Esta es una Propuesta Final firmada ("+id+").\n\nLas PF son registro formal — no se deben editar directamente.\n\nPara aplicar cambios que pidió el cliente:\n1. Cierra esta vista.\n2. Ve al historial → busca esta PF.\n3. Toca el botón 🔄 Nueva versión.\n\nEso abrirá la propuesta base editable y al generar creará una PF nueva (la anterior quedará marcada como reemplazada).");
+        if(typeof toast==="function")toast("PF firmada: para cambios, usa 🔄 Nueva versión desde historial","warn",5000);
+        else alert("ℹ️ Esta es una Propuesta Final firmada ("+id+").\n\nPara aplicar cambios:\n1. Vuelve al historial.\n2. Toca 🔄 Nueva versión.");
       }
       setMode("prop");
       loadPropQuote({...q,quoteNumber:id});
@@ -1732,6 +1954,8 @@ async function loadQuote(kind,id){
       updTr();
     }
     currentQuoteNumber=q.quoteNumber||id;
+    // v5.5.0 FIX #4: limpiar estado de última edición para evitar banners stale entre docs
+    window._lastSavedQuote=null;
     // v5.4.2 (UX-002): restaurar fecha de entrega y momentos en el formulario.
     // Antes se guardaba en Firestore (q.eventDate + q.momentosArr desde v5.4.0)
     // y salía en el PDF, pero los campos del form aparecían vacíos al reabrir.

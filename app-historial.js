@@ -270,9 +270,26 @@ async function renderHist(){
       actionBtns.push('<button class="btn hc-btn-viva-quick" onclick="quickMarkViva(\''+q.id+'\',\''+q.kind+'\',event)" title="Marcar como viva/activa">'+vivaLabel+'</button>');
       actionBtns.push('<button class="btn hc-btn-perdida-quick" onclick="openPerdidaModal(\''+q.id+'\',\''+q.kind+'\');event.stopPropagation();" title="Marcar como perdida">❌ Perdida</button>');
     }
+    // v5.5.0: Botón ✏️ Editar según matriz de edición
+    // Aparece en cotizaciones: enviada, pedido, en_produccion, entregado
+    // Aparece en propuestas: enviada, propfinal, aprobada, en_produccion, entregado
+    // NO aparece: anulada, convertida, superseded
+    const _editable=(typeof canEdit==="function")?canEdit(q):false;
+    if(_editable&&!isPF){
+      // FIX #1: si status requiere advertencia, usar handler que muestra modal primero
+      const _statusLbl=(STATUS_META[q.status||"enviada"]?.label)||"";
+      const _needsWarn=(typeof requiresWarning==="function"&&requiresWarning(q));
+      const _onclick=_needsWarn
+        ?'event.stopPropagation();requestEdit(\''+q.kind+'\',\''+q.id+'\')'
+        :'event.stopPropagation();loadQuote(\''+q.kind+'\',\''+q.id+'\')';
+      actionBtns.push('<button class="btn hc-btn-edit" onclick="'+_onclick+'" title="Editar '+_statusLbl+'">✏️ Editar</button>');
+    }
+    // v5.5.0: Botón 🕒 historial de cambios — solo si hay editHistory
+    if(Array.isArray(q.editHistory)&&q.editHistory.length>0){
+      actionBtns.push('<button class="btn hc-btn-timeline" onclick="event.stopPropagation();openEditHistoryModal(\''+q.id+'\',\''+q.kind+'\')" title="Historial de cambios">🕒 '+q.editHistory.length+'</button>');
+    }
     // Ciclo de vida según tipo + status
     if(!isProp&&status==="enviada"){
-      actionBtns.push('<button class="btn hc-btn-edit" onclick="event.stopPropagation();loadQuote(\'quote\',\''+q.id+'\')">✏️ Editar</button>');
       // v5.0.5: solo ofrecer "Marcar como pedido" si NO está perdida
       if(!_esPerdida){
         actionBtns.push('<button class="btn hc-btn-order" onclick="openOrderModal(\''+q.id+'\',event)">✅ Marcar como pedido</button>');
@@ -1416,6 +1433,11 @@ function openPdfHistorialModal(docId,kind,ev){
   $("ph-doc-id").textContent=q.quoteNumber||q.id;
   $("ph-doc-cli").textContent=q.client||"—";
   $("ph-doc-meta").textContent=(kind==="quote"?"Cotización":(kind==="propfinal"?"Propuesta Final":"Propuesta"))+" · "+hist.length+" versión"+(hist.length!==1?"es":"");
+  // v5.5.0: banner de PDF desactualizado si doc fue editado después del último PDF
+  let bannerDesact="";
+  if(typeof pdfDesactualizado==="function"&&pdfDesactualizado(q)){
+    bannerDesact='<div style="background:#FFF3E0;border:1px solid #FFB74D;color:#E65100;padding:9px 12px;border-radius:8px;margin-bottom:10px;font-size:12px;font-weight:600">⚠️ Doc editado después de este PDF. Considera regenerar para tener una versión actualizada.</div>';
+  }
   // Ordenar: más reciente primero (mayor version)
   const sorted=[...hist].sort((a,b)=>(b.version||0)-(a.version||0));
   const maxV=sorted[0]?.version||0;
@@ -1442,7 +1464,7 @@ function openPdfHistorialModal(docId,kind,ev){
       '</div>'+
     '</div>';
   }).join("");
-  $("ph-list").innerHTML=listHtml;
+  $("ph-list").innerHTML=bannerDesact+listHtml;
   $("pdf-hist-modal").classList.remove("hidden");
 }
 
@@ -1640,5 +1662,17 @@ async function retryAllFailedPdfs(){
   }catch(e){
     console.error("[retryAllFailedPdfs] error abriendo doc:",e);
     alert("⚠️ No pude abrir "+(q.quoteNumber||q.id)+". Error: "+(e&&e.message||e));
+  }
+}
+
+// v5.5.0 FIX #1: requestEdit — intercepta clic en Editar para docs que requieren advertencia.
+// Muestra modal de advertencia; si el usuario confirma, procede con loadQuote.
+function requestEdit(kind,docId){
+  const q=(quotesCache||[]).find(x=>x.id===docId&&x.kind===kind);
+  if(!q){alert("No se encontró el documento");return}
+  if(typeof requiresWarning==="function"&&requiresWarning(q)&&typeof openEditWarningModal==="function"){
+    openEditWarningModal(q,function(){loadQuote(kind,docId)});
+  }else{
+    loadQuote(kind,docId);
   }
 }
