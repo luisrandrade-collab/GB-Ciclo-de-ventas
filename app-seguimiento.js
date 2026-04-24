@@ -339,13 +339,20 @@ function saveWaTemplates(arr){
 }
 
 function resetWaTemplates(){
-  if(!confirm("Restaurar las 4 plantillas originales? Esto borra las ediciones."))return;
-  saveWaTemplates(JSON.parse(JSON.stringify(WA_TEMPLATES_DEFAULT)));
-  if(typeof toast==="function")toast("♻️ Plantillas restauradas","success");
-  // Si el modal está abierto, re-renderizar
-  if(_waCtx&&!$("wa-templates-modal").classList.contains("hidden")){
-    renderWaTemplatesList();
-  }
+  confirmModal({
+    title:"Restaurar plantillas",
+    body:"¿Restaurar las 4 plantillas originales? Esto borra las ediciones actuales.",
+    okLabel:"Restaurar",
+    tone:"warn",
+    onOk:()=>{
+      saveWaTemplates(JSON.parse(JSON.stringify(WA_TEMPLATES_DEFAULT)));
+      if(typeof toast==="function")toast("♻️ Plantillas restauradas","success");
+      // Si el modal está abierto, re-renderizar
+      if(_waCtx&&!$("wa-templates-modal").classList.contains("hidden")){
+        renderWaTemplatesList();
+      }
+    }
+  });
 }
 
 // Reemplaza placeholders con valores del doc

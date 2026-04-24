@@ -661,17 +661,21 @@ async function submitMarkAsOrder(){
     if(productionDate<todayIso)productionDate=todayIso;
   }
   if(productionDate<todayIso){
-    alert("⚠️ La fecha de producción no puede estar en el pasado.\nHoy: "+todayIso+"\nProducción ingresada: "+productionDate);
+    toast("⚠️ Fecha de producción no puede estar en el pasado (hoy "+todayIso+", ingresaste "+productionDate+")","warn",5500);
     return;
   }
   if(productionDate>fechaEntrega){
-    alert("⚠️ La fecha de producción no puede ser posterior a la entrega.\nEntrega: "+fechaEntrega+"\nProducción: "+productionDate);
+    toast("⚠️ Producción no puede ser posterior a la entrega (entrega "+fechaEntrega+", producción "+productionDate+")","warn",5500);
     return;
   }
   if(productionDate===fechaEntrega){
-    if(!confirm("⚡ Producción y entrega el MISMO día ("+fechaEntrega+" "+horaEntrega+").\n\n¿Confirmas que tienes el tiempo para producir y entregar hoy mismo?\n\n(Normal es producir el día anterior — esto es solo para casos especiales.)")){
-      return;
-    }
+    const ok=await confirmModal({
+      title:"⚡ Producción y entrega el MISMO día",
+      body:"Fecha: <strong>"+h(fechaEntrega)+" "+h(horaEntrega)+"</strong><br><br>¿Confirmas que tienes tiempo para producir y entregar hoy mismo?<br><br><em>Normal es producir el día anterior — esto es solo para casos especiales.</em>",
+      okLabel:"Sí, producir y entregar hoy",
+      tone:"warn"
+    });
+    if(!ok)return;
   }
   const produced=$("om-produced").checked;
   const anticipo=parseInt($("om-anticipo").value)||0;
@@ -715,7 +719,7 @@ async function submitMarkAsOrder(){
     toast("✅ Pedido "+($("om-num").value)+" · Entrega "+fechaEntrega+" "+horaEntrega+" · Producción "+productionDate+(produced?" (✓ ya producido)":""),"success");
     renderHist();
     if(curMode==="dash")renderDashboard();
-  }catch(e){hideLoader();alert("Error al actualizar: "+e.message);console.error(e)}
+  }catch(e){hideLoader();toast("Error al actualizar: "+e.message,"error");console.error(e)}
 }
 
 // ─── ASIGNAR FECHA DE ENTREGA ──────────────────────────────
@@ -744,7 +748,7 @@ async function assignDeliveryDate(quoteId,ev){
     if(patch.needsSync)q.needsSync=true;
     hideLoader();renderHist();
     if(typeof renderDashboard==="function")renderDashboard();
-  }catch(e){hideLoader();alert("Error: "+e.message)}
+  }catch(e){hideLoader();toast("Error: "+e.message,"error")}
 }
 
 // ─── APROBAR PROPUESTA ─────────────────────────────────────
@@ -817,7 +821,7 @@ async function submitApproveProposal(){
     hideLoader();closeApproveModal();
     toast("✓ Propuesta aprobada: "+($("am-num").value),"success");
     renderHist();
-  }catch(e){hideLoader();alert("Error al actualizar: "+e.message);console.error(e)}
+  }catch(e){hideLoader();toast("Error al actualizar: "+e.message,"error");console.error(e)}
 }
 
 // ─── DUPLICAR ──────────────────────────────────────────────
@@ -841,7 +845,7 @@ function openDuplicateModal(kind,id,ev){
     $("dup-num").textContent=snap.data().quoteNumber||id;
     $("dup-cli").textContent=snap.data().client||"—";
     $("dup-modal").classList.remove("hidden");
-  }).catch(e=>{hideLoader();alert("Error cargando documento: "+e.message);console.error(e)});
+  }).catch(e=>{hideLoader();toast("Error cargando documento: "+e.message,"error");console.error(e)});
 }
 function closeDuplicateModal(){$("dup-modal").classList.add("hidden");dupSource=null}
 
@@ -877,7 +881,7 @@ function duplicateQuote(preserveClient){
     setFirma("cot",firmaCot);
     currentQuoteNumber=null;
     go("info");
-    alert("📋 Duplicado listo. Revisa y guarda para asignar consecutivo.");
+    toast("📋 Duplicado listo. Revisa y guarda para asignar consecutivo.","info",5000);
     return;
   }
   setMode("prop");
@@ -909,7 +913,7 @@ function duplicateQuote(preserveClient){
   renderPropSections();renderMenaje();renderPersonal();renderCondiciones();renderReposicion();
   setFirma("prop",firmaProp);
   currentPropNumber=null;
-  alert("📋 Propuesta duplicada. Revisa fechas y datos del evento antes de guardar.");
+  toast("📋 Propuesta duplicada. Revisa fechas y datos del evento antes de guardar.","info",5000);
 }
 
 // ─── SALDO MODAL (legacy) ──────────────────────────────────
@@ -955,7 +959,7 @@ async function submitSaldoCobrado(){
     toast("💰 Saldo cobrado registrado","success");
     renderHist();
     if(curMode==="cot")renderMiniDash();
-  }catch(e){hideLoader();alert("Error: "+e.message);console.error(e)}
+  }catch(e){hideLoader();toast("Error: "+e.message,"error");console.error(e)}
 }
 
 // ─── PAGOS modal ───────────────────────────────────────────
@@ -1048,7 +1052,7 @@ async function submitPago(){
     toast("💵 Pago registrado: "+fm(monto)+" via "+metodo,"success");
     renderHist();
     if(curMode==="dash")renderDashboard();
-  }catch(e){hideLoader();alert("Error: "+e.message);console.error(e)}
+  }catch(e){hideLoader();toast("Error: "+e.message,"error");console.error(e)}
 }
 
 function openVerPagosModal(docId,kind,ev){
@@ -1133,7 +1137,7 @@ async function onAdjuntarPagoFile(ev,idx){
     }catch(e){
       hideLoader();
       console.error("onAdjuntarPagoFile error:",e);
-      alert("Error subiendo comprobante: "+e.message);
+      toast("Error subiendo comprobante: "+e.message,"error");
     }
   });
 }
@@ -1153,7 +1157,7 @@ async function toggleProduced(docId,kind,ev){
     q.produced=newVal;q.producedAt=newVal?new Date().toISOString():null;
     hideLoader();renderHist();
     if(curMode==="dash")renderDashboard();
-  }catch(e){hideLoader();alert("Error: "+e.message)}
+  }catch(e){hideLoader();toast("Error: "+e.message,"error")}
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1250,7 +1254,7 @@ async function submitDelivery(){
     toast("🎉 Entrega registrada","success");
     renderHist();
     if(curMode==="dash")renderDashboard();
-  }catch(e){hideLoader();alert("Error: "+e.message);console.error(e)}
+  }catch(e){hideLoader();toast("Error: "+e.message,"error");console.error(e)}
 }
 
 // Compat: el botón legacy markAsDelivered (si alguien lo llama) abre el modal nuevo
@@ -1324,7 +1328,7 @@ async function submitComentario(){
     toast("💬 Comentario guardado","success");
     renderHist();
     if(curMode==="dash")renderDashboard();
-  }catch(e){hideLoader();alert("Error: "+e.message);console.error(e)}
+  }catch(e){hideLoader();toast("Error: "+e.message,"error");console.error(e)}
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1345,7 +1349,7 @@ async function deleteWrongDoc(docId,ev){
     toast("✅ Fantasma eliminado","success");
     renderHist();
     if(curMode==="dash")renderDashboard();
-  }catch(e){hideLoader();alert("Error: "+e.message);console.error(e)}
+  }catch(e){hideLoader();toast("Error: "+e.message,"error");console.error(e)}
 }
 
 // v4.12.7: limpieza masiva de fantasmas — llamar desde consola del navegador
@@ -1369,7 +1373,7 @@ async function cleanupWrongDocs(){
     toast("✅ Limpieza completa · Eliminados: "+ok+(fail?" · Fallidos: "+fail:""),fail?"warn":"success");
     renderHist();
     if(curMode==="dash")renderDashboard();
-  }catch(e){hideLoader();alert("Error: "+e.message);console.error(e)}
+  }catch(e){hideLoader();toast("Error: "+e.message,"error");console.error(e)}
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1397,7 +1401,7 @@ function openAnularModal(docId,kind,ev){
   if(!q){if(typeof toast==="function")toast("No se encontró el documento","error");else alert("No se encontró el documento.");return}
   const status=q.status||"enviada";
   if(!["pedido","aprobada","en_produccion"].includes(status)){
-    alert("Solo se pueden anular pedidos/eventos en estado Pedido, Aprobada o En producción.\n\nEstado actual: "+(STATUS_META[status]?.label||status));
+    toast("Solo se pueden anular pedidos en estado Pedido, Aprobada o En producción. Estado actual: "+(STATUS_META[status]?.label||status),"warn",6000);
     return;
   }
   // v6.0.0: si ya fue cobrado al 100%, bloquear la anulación desde el modal también
@@ -1405,7 +1409,7 @@ function openAnularModal(docId,kind,ev){
   const _total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||q.totalReal||0);
   const _cobrado=totalCobrado(q);
   if(_total>0&&_cobrado>=_total){
-    alert("❌ No se puede anular este pedido.\n\nEl cliente ya pagó el 100% ("+fm(_cobrado)+" / "+fm(_total)+").\n\nSi necesitas revertir algo, registra una devolución manual desde 'Ver pagos' o edita el pedido con la razón del cambio.");
+    toast("❌ No se puede anular: cliente ya pagó 100% ("+fm(_cobrado)+"/"+fm(_total)+"). Registra devolución manual desde 'Ver pagos' si necesitas revertir.","warn",8000);
     return;
   }
   _anularCtx={docId:docId,kind:kind,q:q};
@@ -1550,7 +1554,7 @@ async function submitAnular(){
     if(typeof renderMiniDash==="function")renderMiniDash();
   }catch(e){
     hideLoader();
-    alert("Error al anular: "+(e.message||e));
+    toast("Error al anular: "+(e.message||e),"error");
     console.error(e);
   }
 }
@@ -1780,14 +1784,20 @@ function renderAllPdfsList(){
 async function retryAllFailedPdfs(){
   const fallidos=(quotesCache||[]).filter(q=>q.pdfUploadFailed===true);
   if(!fallidos.length){
-    alert("✅ No hay PDFs pendientes de subir. Todo al día.");
+    toast("✅ No hay PDFs pendientes de subir. Todo al día.","success",4000);
     return;
   }
-  const nombres=fallidos.map(q=>(q.quoteNumber||q.id)+" ("+(q.client||"—")+")").slice(0,5).join("\n• ");
-  const msg="Se van a abrir "+fallidos.length+" documento(s) con PDF pendiente de subir:\n\n• "+nombres+
-    (fallidos.length>5?"\n• ...y "+(fallidos.length-5)+" más":"")+
-    "\n\nPROCESO:\n1. Abriré el primer documento\n2. Tú haces clic en \"Generar PDF\" para regenerarlo\n3. Vuelve a este modal y clic \"Reintentar todos\" de nuevo\n4. Repite hasta que la lista esté vacía\n\n¿Continuar con el primero?";
-  if(!confirm(msg))return;
+  const nombres=fallidos.map(q=>(q.quoteNumber||q.id)+" ("+(q.client||"—")+")").slice(0,5).map(n=>h(n)).join("<br>• ");
+  const extra=fallidos.length>5?"<br>• ...y "+(fallidos.length-5)+" más":"";
+  const body="Se van a abrir <strong>"+fallidos.length+"</strong> documento(s) con PDF pendiente:<br><br>• "+nombres+extra+
+    "<br><br><strong>PROCESO:</strong><br>1. Abriré el primer documento<br>2. Clic en \"Generar PDF\" para regenerarlo<br>3. Vuelve y clic \"Reintentar todos\" otra vez<br>4. Repite hasta vaciar la lista";
+  const ok=await confirmModal({
+    title:"Reintentar PDFs pendientes",
+    body,
+    okLabel:"Continuar con el primero",
+    tone:"primary"
+  });
+  if(!ok)return;
   // Abrir el primero
   const q=fallidos[0];
   closeAllPdfsModal();
@@ -1795,11 +1805,11 @@ async function retryAllFailedPdfs(){
     await loadQuote(q.kind,q.id);
     // Toast guía (el alert bloquea menos que otro confirm)
     setTimeout(()=>{
-      alert("📄 Documento abierto: "+(q.quoteNumber||q.id)+"\n\n👉 Clic en \"Generar PDF\" para regenerarlo.\n\nQuedan "+fallidos.length+" pendiente(s).");
+      toast("📄 Documento abierto: "+(q.quoteNumber||q.id)+". Clic en \"Generar PDF\" para regenerarlo. Quedan "+fallidos.length+" pendiente(s).","info",6000);
     },400);
   }catch(e){
     console.error("[retryAllFailedPdfs] error abriendo doc:",e);
-    alert("⚠️ No pude abrir "+(q.quoteNumber||q.id)+". Error: "+(e&&e.message||e));
+    toast("⚠️ No pude abrir "+(q.quoteNumber||q.id)+": "+(e&&e.message||e),"error",6000);
   }
 }
 

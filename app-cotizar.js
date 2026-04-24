@@ -44,7 +44,18 @@ function renderNotasCot(){
   }).join("");
 }
 function resetNotaCot(k){notasCotData[k]=DEFAULT_NOTAS_COT[k];renderNotasCot()}
-function resetAllNotasCot(){if(!confirm("¿Restablecer todas las cláusulas a sus valores por defecto?"))return;Object.keys(DEFAULT_NOTAS_COT).forEach(k=>notasCotData[k]=DEFAULT_NOTAS_COT[k]);renderNotasCot()}
+function resetAllNotasCot(){
+  confirmModal({
+    title:"Restablecer cláusulas",
+    body:"¿Restablecer todas las cláusulas a sus valores por defecto?",
+    okLabel:"Restablecer",
+    tone:"warn",
+    onOk:()=>{
+      Object.keys(DEFAULT_NOTAS_COT).forEach(k=>notasCotData[k]=DEFAULT_NOTAS_COT[k]);
+      renderNotasCot();
+    }
+  });
+}
 
 // ─── RENDER REVIEW ─────────────────────────────────────────
 function renderR(){
@@ -126,23 +137,36 @@ function renderR(){
 }
 
 // v5.5.0: cancela la edición en curso recargando el doc desde Firestore
+// v6.3.0 E3-3: confirms migrados a confirmModal()
 async function cancelEdicion(){
   if(!currentQuoteNumber){
     // Sin doc cargado = borrador local → limpiar
-    if(!confirm("¿Descartar esta cotización (borrador nuevo)?"))return;
+    const ok=await confirmModal({
+      title:"Descartar borrador",
+      body:"¿Descartar esta cotización (borrador nuevo)?",
+      okLabel:"Descartar",
+      tone:"warn"
+    });
+    if(!ok)return;
     cart=[];cust=[];currentQuoteNumber=null;
     ["f-cli","f-idtype","f-idnum","f-att","f-mail","f-tel","f-dir"].forEach(id=>{const e=$(id);if(e)e.value=""});
     go("products");
     return;
   }
-  if(!confirm("¿Descartar cambios y recargar \""+currentQuoteNumber+"\" desde la nube?"))return;
+  const ok=await confirmModal({
+    title:"Descartar cambios",
+    body:"¿Descartar cambios y recargar <strong>"+h(currentQuoteNumber)+"</strong> desde la nube?",
+    okLabel:"Descartar y recargar",
+    tone:"warn"
+  });
+  if(!ok)return;
   try{
     showLoader("Recargando...");
     window._lastSavedQuote=null; // limpiar banner
     await loadQuote("quote",currentQuoteNumber);
     hideLoader();
     if(typeof toast==="function")toast("Cambios descartados","success");
-  }catch(e){hideLoader();alert("Error al recargar: "+e.message)}
+  }catch(e){hideLoader();toast("Error al recargar: "+e.message,"error")}
 }
 
 function chgCartPrice(id,newP){newP=parseInt(newP)||0;if(newP<=0)return;const i=cart.find(x=>x.id===id);if(i){if(!i.origP)i.origP=i.p;i.p=newP;i.edited=newP!==i.origP}renderR();updUI()}
@@ -168,13 +192,19 @@ async function saveCurrentQuote(silent){
         if(["anulada","convertida","superseded"].includes(statusActual)){
           if(!silent){
             const _lbl=(STATUS_META[statusActual]||{}).label||statusActual;
-            alert("🔒 Esta cotización está \""+_lbl+"\" ("+currentQuoteNumber+").\n\nNo se puede modificar. Para ajustes duplica (📋) y arranca una nueva.");
+            toast("🔒 Cotización \""+_lbl+"\" ("+currentQuoteNumber+") no se puede modificar. Duplica (📋) y arranca una nueva.","warn",6000);
           }
           return;
         }
         // Status "entregado": solo notas internas. Avisamos pero permitimos (el usuario sabrá qué toca).
         if(statusActual==="entregado"&&!silent){
-          if(!confirm("ℹ️ Este pedido ya fue entregado.\n\nSolo deberías cambiar NOTAS INTERNAS (no afectan PDF del cliente).\n\n¿Continuar guardando?"))return;
+          const ok=await confirmModal({
+            title:"Pedido ya entregado",
+            body:"ℹ️ Este pedido ya fue entregado.<br><br>Solo deberías cambiar <strong>NOTAS INTERNAS</strong> (no afectan PDF del cliente).<br><br>¿Continuar guardando?",
+            okLabel:"Continuar",
+            tone:"warn"
+          });
+          if(!ok)return;
         }
       }
     }catch(e){console.warn("No se pudo verificar status previo:",e)}
@@ -188,7 +218,13 @@ async function saveCurrentQuote(silent){
     if(qNum&&oldDoc&&shouldVersionWithSuffix(oldDoc,"quote")){
       // Preguntar al usuario: ¿nueva versión (recotización) o sobreescribir?
       if(!silent){
-        const ok=confirm("Esta cotización está en estado \"Enviada\".\n\n¿Quieres guardar como VERSIÓN NUEVA (recotización)?\n\n• Aceptar → Se crea "+buildChildNumber(qNum)+" y la original queda archivada (reemplazada).\n• Cancelar → Se sobreescribe "+qNum+" (perderás la versión anterior).");
+        const ok=await confirmModal({
+          title:"¿Guardar como versión nueva?",
+          body:"Esta cotización está en estado <strong>\"Enviada\"</strong>.<br><br><strong>Continuar</strong> → Se crea <strong>"+h(buildChildNumber(qNum))+"</strong> (recotización) y la original queda archivada.<br><br><strong>Cancelar</strong> → Se sobreescribe "+h(qNum)+" (se pierde la versión anterior).",
+          okLabel:"Crear versión nueva",
+          cancelLabel:"Sobreescribir",
+          tone:"primary"
+        });
         if(ok){
           qNum=buildChildNumber(qNum);
           creatingChild=true;
@@ -264,25 +300,54 @@ async function saveCurrentQuote(silent){
       qObj.parentQuote=currentQuoteNumber;
     }
     if(!silent)showLoader("Guardando en la nube...");
-    // v5.5.0 FIX #2: crear hijo PRIMERO. Si falla, padre no queda huérfano.
-    // Si el save del hijo tiene éxito y luego falla marcar padre, al menos el hijo existe.
-    await saveQuoteToCloud(qObj);
-    // Marcar al padre como superseded (solo tras guardar hijo exitosamente)
+    // v6.3.0 E3-1: al crear versión hija, save-hijo + mark-padre-superseded deben ser ATÓMICOS.
+    // Antes (v5.5.0-v6.2.0): dos operaciones separadas → race condition si cae red entre ellas.
+    // Ahora: runTransaction que hace ambas o ninguna.
+    // Fallback defensivo: si la transacción falla (p.ej. rules strictas, caso edge),
+    // se cae al método legacy (2 operaciones separadas). Solo log en consola — Kathy/JP
+    // no deben ver detalle técnico. Mantener fallback 1-2 versiones antes de eliminar.
     if(creatingChild){
+      const {db,doc,runTransaction,setDoc,updateDoc,serverTimestamp}=window.fb;
+      const parentRef=doc(db,"quotes",currentQuoteNumber);
+      const childRef=doc(db,"quotes",qObj.quoteNumber);
+      let usedFallback=false;
       try{
-        const {db,doc,updateDoc,serverTimestamp}=window.fb;
-        await updateDoc(doc(db,"quotes",currentQuoteNumber),{
-          status:"superseded",
-          supersededBy:qNum,
-          updatedAt:serverTimestamp()
+        await runTransaction(db,async(tx)=>{
+          // Validar que el padre sigue existiendo y no fue supersedeado por alguien más (edge caso colaboración)
+          const parentSnap=await tx.get(parentRef);
+          if(!parentSnap.exists()){
+            throw new Error("Padre "+currentQuoteNumber+" no existe");
+          }
+          tx.set(childRef,{...qObj,createdAt:serverTimestamp()});
+          tx.update(parentRef,{
+            status:"superseded",
+            supersededBy:qNum,
+            updatedAt:serverTimestamp()
+          });
         });
-        // Sync cache local para el padre
-        const padre=(quotesCache||[]).find(x=>x.id===currentQuoteNumber&&x.kind==="quote");
-        if(padre){padre.status="superseded";padre.supersededBy=qNum}
-      }catch(e){
-        console.warn("Hijo creado OK, pero fallo marcar padre superseded:",e);
-        if(!silent)toast&&toast("Versión creada, pero no se pudo archivar la anterior. Reintenta manualmente.","warn",6000);
+      }catch(txErr){
+        // Fallback defensivo: método legacy de v5.5.0-v6.2.0
+        console.warn("[v6.3.0 E3-1] runTransaction falló en creatingChild; usando fallback legacy. Detalle:",txErr);
+        usedFallback=true;
+        await saveQuoteToCloud(qObj);
+        try{
+          await updateDoc(parentRef,{
+            status:"superseded",
+            supersededBy:qNum,
+            updatedAt:serverTimestamp()
+          });
+        }catch(e){
+          console.warn("[v6.3.0 E3-1] Fallback también falló al marcar padre:",e);
+          if(!silent)toast&&toast("Versión creada, pero no se pudo archivar la anterior. Reintenta manualmente.","warn",6000);
+        }
       }
+      // Sync cache local para el padre (ambas rutas terminaron OK si llegamos acá sin toast de error)
+      const padre=(quotesCache||[]).find(x=>x.id===currentQuoteNumber&&x.kind==="quote");
+      if(padre){padre.status="superseded";padre.supersededBy=qNum}
+      if(usedFallback)console.info("[v6.3.0 E3-1] Guardado exitoso en modo compatibilidad (fallback).");
+    }else{
+      // No es versión hija: guardado directo clásico
+      await saveQuoteToCloud(qObj);
     }
     // v5.5.0 FIX #3: sincronizar quotesCache local inmediatamente tras save exitoso
     // Esto es lo que hace que el botón 🕒 aparezca al instante tras la primera edición.
@@ -311,13 +376,13 @@ async function saveCurrentQuote(silent){
       hideLoader();
       if(creatingChild){
         if(typeof toast==="function")toast("✅ Nueva versión creada: "+qNum+" · La anterior ("+padreNumeroParaMsg+") quedó archivada.","success",5000);
-        else alert("✅ Nueva versión creada: "+qNum+"\nLa anterior ("+padreNumeroParaMsg+") quedó archivada.");
+        else toast("✅ Nueva versión creada: "+qNum+". La anterior ("+padreNumeroParaMsg+") quedó archivada.","success",5000);
       }else if(cambiosDetectados.length>0&&statusActual==="en_produccion"){
         // Letrero aparece en renderR — aquí solo toast
         if(typeof toast==="function")toast("⚠️ Pedido en producción modificado. Aviso visible al equipo.","warn",5000);
       }else{
         if(typeof toast==="function")toast("✅ Guardado: "+qNum,"success");
-        else alert("✅ Guardado: "+qNum);
+        else toast("✅ Guardado: "+qNum,"success");
       }
     }
     if(curStep==="review")renderR();

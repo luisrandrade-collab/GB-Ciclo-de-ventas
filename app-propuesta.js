@@ -84,7 +84,18 @@ function renderCondiciones(){
   }).join("");
 }
 function resetCondicion(k){condicionesData[k]=DEFAULT_CONDICIONES[k];renderCondiciones()}
-function resetAllConditions(){if(!confirm("¿Restablecer todas las cláusulas a sus valores por defecto?"))return;Object.keys(DEFAULT_CONDICIONES).forEach(k=>condicionesData[k]=DEFAULT_CONDICIONES[k]);renderCondiciones()}
+function resetAllConditions(){
+  confirmModal({
+    title:"Restablecer cláusulas",
+    body:"¿Restablecer todas las cláusulas a sus valores por defecto?",
+    okLabel:"Restablecer",
+    tone:"warn",
+    onOk:()=>{
+      Object.keys(DEFAULT_CONDICIONES).forEach(k=>condicionesData[k]=DEFAULT_CONDICIONES[k]);
+      renderCondiciones();
+    }
+  });
+}
 
 function renderReposicion(){
   const items=menajeItems.filter(m=>m.name&&(m.qty||m.price)).map(m=>m.name);
@@ -266,7 +277,16 @@ function renderPropSections(){
   }).join("")
 }
 
-function delPropSec(si){if(confirm("¿Eliminar sección "+propSections[si].name+"?")){propSections.splice(si,1);renderPropSections()}}
+function delPropSec(si){
+  const nombre=propSections[si]&&propSections[si].name||"";
+  confirmModal({
+    title:"Eliminar sección",
+    body:"¿Eliminar sección <strong>"+h(nombre)+"</strong>?",
+    okLabel:"Eliminar",
+    tone:"warn",
+    onOk:()=>{propSections.splice(si,1);renderPropSections()}
+  });
+}
 function addPropOpt(si){const letters="ABCDEFGH";const sec=propSections[si];sec.options.push({id:"po"+Date.now(),label:"Opción "+(letters[sec.options.length]||sec.options.length+1),items:[]});renderPropSections()}
 function delPropOpt(si,oi){propSections[si].options.splice(oi,1);renderPropSections()}
 
@@ -335,7 +355,7 @@ async function savePropQuote(silent){
   if(!cloudOnline){if(!silent){if(typeof toast==="function")toast("Sin conexión. No se puede guardar.","error");else alert("Sin conexión. No se puede guardar.")}return}
   // v4.12.7: bloquear guardado como borrador si currentPropNumber es una PF.
   if(currentPropNumber&&currentPropNumber.startsWith("GB-PF-")){
-    if(!silent)alert("🔒 Esta es una Propuesta Final ("+currentPropNumber+").\n\nNo se puede guardar como borrador porque es un registro formal.\n\nPara aplicar cambios:\n1. Vuelve al historial (📁).\n2. Toca 🔄 Nueva versión en esta PF.");
+    if(!silent)toast("🔒 PF ("+currentPropNumber+") es registro formal, no se guarda como borrador. Para cambios: historial → 🔄 Nueva versión.","warn",7000);
     return;
   }
   // v5.5.0: matriz de edición reemplaza el bloqueo duro v4.13.0
@@ -351,12 +371,18 @@ async function savePropQuote(silent){
         if(["anulada","convertida","superseded"].includes(statusActual)){
           if(!silent){
             const _lbl=(STATUS_META[statusActual]||{}).label||statusActual;
-            alert("🔒 Esta propuesta está \""+_lbl+"\" ("+currentPropNumber+").\n\nNo se puede modificar. Duplica (📋) y arranca una nueva.");
+            toast("🔒 Propuesta \""+_lbl+"\" ("+currentPropNumber+") no se puede modificar. Duplica (📋) y arranca una nueva.","warn",6000);
           }
           return;
         }
         if(statusActual==="entregado"&&!silent){
-          if(!confirm("ℹ️ Este evento ya fue ejecutado.\n\nSolo deberías cambiar NOTAS INTERNAS.\n\n¿Continuar guardando?"))return;
+          const ok=await confirmModal({
+            title:"Evento ya ejecutado",
+            body:"ℹ️ Este evento ya fue ejecutado.<br><br>Solo deberías cambiar <strong>NOTAS INTERNAS</strong>.<br><br>¿Continuar guardando?",
+            okLabel:"Continuar",
+            tone:"warn"
+          });
+          if(!ok)return;
         }
       }
     }catch(e){console.warn("No se pudo verificar status previo:",e)}
@@ -369,7 +395,13 @@ async function savePropQuote(silent){
     if(pNum&&oldDoc&&shouldVersionWithSuffix(oldDoc,"proposal")){
       if(!silent){
         const stLbl=(STATUS_META[statusActual]||{}).label||statusActual;
-        const ok=confirm("Esta propuesta está en estado \""+stLbl+"\".\n\n¿Guardar como VERSIÓN NUEVA?\n\n• Aceptar → Se crea "+buildChildNumber(pNum)+" y la original queda archivada.\n• Cancelar → Se sobreescribe "+pNum+".");
+        const ok=await confirmModal({
+          title:"¿Guardar como versión nueva?",
+          body:"Esta propuesta está en estado <strong>\""+h(stLbl)+"\"</strong>.<br><br><strong>Continuar</strong> → Se crea <strong>"+h(buildChildNumber(pNum))+"</strong> y la original queda archivada.<br><br><strong>Cancelar</strong> → Se sobreescribe "+h(pNum)+".",
+          okLabel:"Crear versión nueva",
+          cancelLabel:"Sobreescribir",
+          tone:"primary"
+        });
         if(ok){
           pNum=buildChildNumber(pNum);
           creatingChild=true;
@@ -443,22 +475,50 @@ async function savePropQuote(silent){
       pObj.parentQuote=currentPropNumber;
     }
     if(!silent)showLoader("Guardando en la nube...");
-    // v5.5.0 FIX #2: crear hijo PRIMERO, marcar padre superseded después
-    await saveProposalToCloud(pObj);
+    // v6.3.0 E3-1: al crear versión hija, save-hijo + mark-padre-superseded deben ser ATÓMICOS.
+    // Antes (v5.5.0-v6.2.0): dos operaciones separadas → race condition si cae red entre ellas.
+    // Ahora: runTransaction que hace ambas o ninguna.
+    // Fallback defensivo: si la transacción falla (p.ej. rules strictas, caso edge),
+    // se cae al método legacy (2 operaciones separadas). Solo log en consola — Kathy/JP
+    // no deben ver detalle técnico. Mantener fallback 1-2 versiones antes de eliminar.
     if(creatingChild){
+      const {db,doc,runTransaction,setDoc,updateDoc,serverTimestamp}=window.fb;
+      const parentRef=doc(db,"proposals",currentPropNumber);
+      const childRef=doc(db,"proposals",pObj.quoteNumber);
+      let usedFallback=false;
       try{
-        const {db,doc,updateDoc,serverTimestamp}=window.fb;
-        await updateDoc(doc(db,"proposals",currentPropNumber),{
-          status:"superseded",
-          supersededBy:pNum,
-          updatedAt:serverTimestamp()
+        await runTransaction(db,async(tx)=>{
+          const parentSnap=await tx.get(parentRef);
+          if(!parentSnap.exists()){
+            throw new Error("Padre "+currentPropNumber+" no existe");
+          }
+          tx.set(childRef,{...pObj,createdAt:serverTimestamp()});
+          tx.update(parentRef,{
+            status:"superseded",
+            supersededBy:pNum,
+            updatedAt:serverTimestamp()
+          });
         });
-        const padre=(quotesCache||[]).find(x=>x.id===currentPropNumber&&x.kind==="proposal");
-        if(padre){padre.status="superseded";padre.supersededBy=pNum}
-      }catch(e){
-        console.warn("Hijo propuesta creado OK, pero fallo marcar padre:",e);
-        if(!silent)toast&&toast("Versión creada, pero no se pudo archivar la anterior. Reintenta manualmente.","warn",6000);
+      }catch(txErr){
+        console.warn("[v6.3.0 E3-1] runTransaction falló en creatingChild (propuesta); usando fallback legacy. Detalle:",txErr);
+        usedFallback=true;
+        await saveProposalToCloud(pObj);
+        try{
+          await updateDoc(parentRef,{
+            status:"superseded",
+            supersededBy:pNum,
+            updatedAt:serverTimestamp()
+          });
+        }catch(e){
+          console.warn("[v6.3.0 E3-1] Fallback también falló al marcar padre propuesta:",e);
+          if(!silent)toast&&toast("Versión creada, pero no se pudo archivar la anterior. Reintenta manualmente.","warn",6000);
+        }
       }
+      const padre=(quotesCache||[]).find(x=>x.id===currentPropNumber&&x.kind==="proposal");
+      if(padre){padre.status="superseded";padre.supersededBy=pNum}
+      if(usedFallback)console.info("[v6.3.0 E3-1] Guardado propuesta exitoso en modo compatibilidad (fallback).");
+    }else{
+      await saveProposalToCloud(pObj);
     }
     // v5.5.0 FIX #3: sincronizar quotesCache local
     try{
@@ -487,12 +547,12 @@ async function savePropQuote(silent){
       hideLoader();
       if(creatingChild){
         if(typeof toast==="function")toast("✅ Nueva versión creada: "+pNum+" · La anterior ("+padreNumeroProp+") quedó archivada.","success",5000);
-        else alert("✅ Nueva versión creada: "+pNum+"\nLa anterior ("+padreNumeroProp+") quedó archivada.");
+        else toast("✅ Nueva versión creada: "+pNum+". La anterior ("+padreNumeroProp+") quedó archivada.","success",5000);
       }else if(cambiosDetectados.length>0&&statusActual==="en_produccion"){
         if(typeof toast==="function")toast("⚠️ Propuesta en producción modificada. Aviso visible al equipo.","warn",5000);
       }else{
         if(typeof toast==="function")toast("✅ Guardado: "+pNum,"success");
-        else alert("✅ Guardado: "+pNum);
+        else toast("✅ Guardado: "+pNum,"success");
       }
     }
     // v5.5.0: refrescar banners tras guardar
@@ -557,7 +617,7 @@ async function openPropFinalFlow(propId,ev){
     (propFinalSource.sections||[]).forEach(sec=>{if(sec.options&&sec.options.length){propFinalSelection[sec.id]=sec.options[0].id}});
     renderPropFinalPicker();
     $("propfinal-modal").classList.remove("hidden");
-  }catch(e){hideLoader();alert("Error: "+e.message);console.error(e)}
+  }catch(e){hideLoader();toast("Error: "+e.message,"error");console.error(e)}
 }
 function closePropFinalModal(){$("propfinal-modal").classList.add("hidden");propFinalSource=null;propFinalSelection={}}
 function pfSelectOption(sectionId,optionId){propFinalSelection[sectionId]=optionId;renderPropFinalPicker()}
@@ -687,7 +747,7 @@ async function generarPropuestaFinal(){
     await genPropPDF();
     window.__pfMode=false;
     renderHist();
-  }catch(e){hideLoader();window.__pfMode=false;window.__regenerating_pf=null;alert("Error generando Propuesta Final: "+e.message);console.error(e)}
+  }catch(e){hideLoader();window.__pfMode=false;window.__regenerating_pf=null;toast("Error generando Propuesta Final: "+e.message,"error");console.error(e)}
 }
 
 // v4.12.7: Regenerar una Propuesta Final con cambios (cliente pidió modificaciones).
@@ -697,27 +757,33 @@ async function generarPropuestaFinal(){
 // debe cancelar esto y editar la propuesta base desde el historial primero.
 async function regeneratePropFinal(pfId,ev){
   if(ev){ev.stopPropagation();ev.preventDefault()}
-  if(!cloudOnline){alert("Sin conexión.");return}
+  if(!cloudOnline){toast("Sin conexión.","error");return}
   try{
     showLoader("Cargando PF...");
     const {db,doc,getDoc}=window.fb;
     const snapPF=await getDoc(doc(db,"propfinals",pfId));
-    if(!snapPF.exists()){hideLoader();alert("No se encontró la PF "+pfId);return}
+    if(!snapPF.exists()){hideLoader();toast("No se encontró la PF "+pfId,"error");return}
     const pfData=snapPF.data();
     const srcId=pfData.sourceProposal;
     if(!srcId){
       hideLoader();
-      alert("⚠️ Esta PF no tiene referencia a su propuesta base (sourceProposal).\n\nPuede ser una PF antigua (anterior a v4.6). Para regenerarla tendrías que crear una propuesta nueva desde cero.");
+      toast("⚠️ Esta PF no tiene referencia a su propuesta base. PF antigua (pre-v4.6): crea una propuesta nueva desde cero para regenerar.","warn",8000);
       return;
     }
     const snapSrc=await getDoc(doc(db,"proposals",srcId));
     if(!snapSrc.exists()){
       hideLoader();
-      alert("⚠️ No se encontró la propuesta base "+srcId+" de la que salió esta PF.\n\nProbablemente fue eliminada. Para regenerar tendrías que crearla de cero.");
+      toast("⚠️ Propuesta base "+srcId+" no encontrada (probablemente eliminada). Créala de cero para regenerar.","warn",7000);
       return;
     }
     hideLoader();
-    if(!confirm("🔄 Regenerar "+pfId+"\n\nVoy a abrir el selector de opciones de la propuesta base "+srcId+".\n\nEscoges las opciones que el cliente aprobó → generas la PF nueva:\n • Obtendrá consecutivo nuevo GB-PF-XXXX\n • La PF actual ("+pfId+") quedará como REEMPLAZADA\n\n⚠️ Si necesitas CAMBIAR ítems, precios o cantidades de la propuesta base, cancela esto primero y edita "+srcId+" desde el historial. Luego vuelve aquí.\n\n¿Continuar?"))return;
+    const ok=await confirmModal({
+      title:"Regenerar Propuesta Final",
+      body:"🔄 <strong>"+h(pfId)+"</strong><br><br>Voy a abrir el selector de opciones de la propuesta base <strong>"+h(srcId)+"</strong>. Escoges las opciones aprobadas por el cliente → generas la PF nueva:<br>• Nuevo consecutivo GB-PF-XXXX<br>• La PF actual ("+h(pfId)+") queda como REEMPLAZADA<br><br>⚠️ Si necesitas cambiar ítems/precios de la propuesta base, cancela y edita "+h(srcId)+" desde el historial primero.",
+      okLabel:"Continuar",
+      tone:"primary"
+    });
+    if(!ok)return;
     // Marcador para generarPropuestaFinal
     window.__regenerating_pf={
       oldPfId:pfId,
@@ -729,7 +795,7 @@ async function regeneratePropFinal(pfId,ev){
   }catch(e){
     hideLoader();
     window.__regenerating_pf=null;
-    alert("Error: "+e.message);
+    toast("Error: "+e.message,"error");
     console.error(e);
   }
 }
@@ -1016,20 +1082,33 @@ function renderPropEditBanners(){
 }
 
 // v5.5.0: cancelar edición de propuesta — recarga desde Firestore
+// v6.3.0 E3-3: confirms migrados a confirmModal()
 async function cancelEdicionProp(){
   if(!currentPropNumber){
-    if(!confirm("¿Descartar esta propuesta (borrador nuevo)?"))return;
+    const ok=await confirmModal({
+      title:"Descartar borrador",
+      body:"¿Descartar esta propuesta (borrador nuevo)?",
+      okLabel:"Descartar",
+      tone:"warn"
+    });
+    if(!ok)return;
     propSections=[];menajeItems=[];personalData=[];currentPropNumber=null;
     window._lastSavedProp=null;
     go("dashboard");
     return;
   }
-  if(!confirm("¿Descartar cambios y recargar \""+currentPropNumber+"\" desde la nube?"))return;
+  const ok=await confirmModal({
+    title:"Descartar cambios",
+    body:"¿Descartar cambios y recargar <strong>"+h(currentPropNumber)+"</strong> desde la nube?",
+    okLabel:"Descartar y recargar",
+    tone:"warn"
+  });
+  if(!ok)return;
   try{
     showLoader("Recargando...");
     window._lastSavedProp=null;
     await loadQuote("proposal",currentPropNumber);
     hideLoader();
     if(typeof toast==="function")toast("Cambios descartados","success");
-  }catch(e){hideLoader();alert("Error al recargar: "+e.message)}
+  }catch(e){hideLoader();toast("Error al recargar: "+e.message,"error")}
 }

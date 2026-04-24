@@ -7,7 +7,21 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1a1a1a">
 <title>Gourmet Bites - Cotizador</title>
-<!-- VERSION: 2026-04-24-v6.2.0-hoja-entregas-del-dia -->
+<!-- VERSION: 2026-04-24-v6.3.0-robustez-tecnica-runTransaction-confirmModal-migracion-alerts -->
+<!--
+  v6.3.0 (2026-04-24) — Robustez técnica + higiene (Entrega 3 del roadmap).
+  Cambios (técnicos, invisibles para el usuario final):
+    • E3-1: runTransaction atómico al crear versión hija en cotizaciones y propuestas (elimina
+      race condition save-hijo / mark-padre-superseded). Fallback defensivo al método legacy si
+      la transacción falla, con log en consola (Kathy/JP no ven el detalle técnico).
+    • E3-2: Script scripts/check.sh que valida sintaxis de los 7 JS, consistencia de
+      BUILD_VERSION entre app-core.js e index.html, y estructura del proyecto antes de deploy.
+    • E3-3: Migración de ~14 alerts informativos → toast() y ~10 confirms NO destructivos →
+      confirmModal() genérico. Los confirms destructivos (BORRAR, eliminar con prompt de
+      confirmación escrita) se quedan para v6.4+ (requieren modal con confirmación escrita).
+  Sin cambio de Firestore schema. Rollback = subir archivos de v6.2.0.
+-->
+<!-- VERSION PREV: 2026-04-24-v6.2.0-hoja-entregas-del-dia -->
 <!-- v6.2.0 cambios (E2-1 del roadmap 3 entregas):
 
   E2-1: Hoja de Entregas del Día (feature nuevo)
@@ -2424,12 +2438,27 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
   </div>
 </div>
 
-<script src="app-assets.js?v=6.0.2"></script>
-<script src="app-core.js?v=6.0.2"></script>
-<script src="app-cotizar.js?v=6.0.2"></script>
-<script src="app-propuesta.js?v=6.0.2"></script>
-<script src="app-historial.js?v=6.0.2"></script>
-<script src="app-seguimiento.js?v=6.0.2"></script>
-<script src="app-dashboard.js?v=6.0.2"></script>
+<!-- v6.3.0 E3-3: Modal genérico de confirmación (reemplaza confirm() nativos no destructivos) -->
+<div id="confirm-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeConfirmModal()">
+  <div class="mf-wrap" style="max-width:440px">
+    <div class="mf-head">
+      <div id="cm-title">¿Confirmar?</div>
+      <button class="mf-close" onclick="closeConfirmModal()">×</button>
+    </div>
+    <div class="mf-body" id="cm-body"></div>
+    <div class="mf-foot" style="display:flex;gap:8px">
+      <button id="cm-cancel" class="btn" style="background:#B0BEC5;color:#fff;flex:1">Cancelar</button>
+      <button id="cm-ok" class="btn" style="background:linear-gradient(135deg,#0B6EFB,#0046C2);color:#fff;flex:1;font-weight:700">Continuar</button>
+    </div>
+  </div>
+</div>
+
+<script src="app-assets.js?v=6.3.0"></script>
+<script src="app-core.js?v=6.3.0"></script>
+<script src="app-cotizar.js?v=6.3.0"></script>
+<script src="app-propuesta.js?v=6.3.0"></script>
+<script src="app-historial.js?v=6.3.0"></script>
+<script src="app-seguimiento.js?v=6.3.0"></script>
+<script src="app-dashboard.js?v=6.3.0"></script>
 </body>
 </html>

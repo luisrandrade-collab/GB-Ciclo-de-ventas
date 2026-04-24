@@ -109,8 +109,8 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v6.2.0";
-const BUILD_DATE="2026-04-23";
+const BUILD_VERSION="v6.3.0";
+const BUILD_DATE="2026-04-24";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
 const APP_YEAR=new Date().getFullYear();
@@ -610,7 +610,7 @@ function openEditHistoryModal(docId,kind){
   const q=(quotesCache||[]).find(x=>x.id===docId);
   if(!q||!Array.isArray(q.editHistory)||!q.editHistory.length){
     if(typeof toast==="function")toast("Este documento no tiene ediciones registradas","warn");
-    else alert("Sin ediciones registradas");
+    else toast("Sin ediciones registradas","info");
     return;
   }
   const hist=q.editHistory.slice().reverse();
@@ -633,7 +633,7 @@ function openEditHistoryModal(docId,kind){
   }).join("");
   const body='<div class="eh-list">'+items+'</div>';
   const modal=$("edit-history-modal");
-  if(!modal){alert("Modal de historial no disponible");return}
+  if(!modal){toast("Modal de historial no disponible","error");return}
   $("eh-doc-id").textContent=docId;
   $("eh-body").innerHTML=body;
   modal.classList.remove("hidden");
@@ -723,21 +723,33 @@ async function openForgotPassword(){
     errEl.classList.add("show");
     return;
   }
-  if(!confirm("Te enviaré un email a "+email+" con un link para restablecer tu contraseña.\n\n¿Continuar?"))return;
+  const okReset=await confirmModal({
+    title:"Enviar email de restablecimiento",
+    body:"Te enviaré un email a <strong>"+h(email)+"</strong> con un link para restablecer tu contraseña.",
+    okLabel:"Enviar",
+    tone:"primary"
+  });
+  if(!okReset)return;
   try{
     await fbReady();
     const {auth,sendPasswordResetEmail}=window.fb;
     await sendPasswordResetEmail(auth,email);
-    alert("📧 Email enviado a "+email+".\n\nRevisa tu bandeja de entrada (y spam). El link dura 1 hora.");
+    toast("📧 Email enviado a "+email+". Revisa bandeja y spam. Link válido 1 hora.","success",6000);
   }catch(e){
     console.warn("Reset password falló:",e);
-    alert("No se pudo enviar el email: "+(e?.message||e));
+    toast("No se pudo enviar el email: "+(e?.message||e),"error");
   }
 }
 
 // v5.0: cerrar sesión (signOut de Firebase)
 async function logoutSession(){
-  if(!confirm("¿Cerrar sesión? Tendrás que volver a ingresar tu email y contraseña."))return;
+  const okLogout=await confirmModal({
+    title:"Cerrar sesión",
+    body:"¿Cerrar sesión? Tendrás que volver a ingresar tu email y contraseña.",
+    okLabel:"Cerrar sesión",
+    tone:"warn"
+  });
+  if(!okLogout)return;
   try{
     await fbReady();
     const {auth,signOut}=window.fb;
@@ -745,7 +757,7 @@ async function logoutSession(){
     // onAuthStateChanged se encarga — detecta null y recarga
     location.reload();
   }catch(e){
-    alert("Error cerrando sesión: "+(e?.message||e));
+    toast("Error cerrando sesión: "+(e?.message||e),"error");
   }
 }
 
@@ -817,7 +829,7 @@ function openUserMenu(){
   if(!choice)return;
   const c=choice.trim();
   if(c==="1"){
-    if(isGoogleOnly){alert("Tu cuenta entra con Google. La contraseña se gestiona en tu cuenta de Google, no aquí.");return}
+    if(isGoogleOnly){toast("Tu cuenta entra con Google. La contraseña se gestiona allá, no aquí.","info",5000);return}
     openChangePassword();
   }else if(c==="2"){
     logoutSession();
@@ -826,15 +838,15 @@ function openUserMenu(){
 
 // v5.0.1: Cambiar contraseña (requiere re-autenticación con la actual)
 async function openChangePassword(){
-  if(!currentUser){alert("Debes estar autenticado");return}
+  if(!currentUser){toast("Debes estar autenticado","error");return}
   const email=currentUser.email;
   const current=prompt("🔐 Cambiar contraseña\n\nIngresa tu contraseña ACTUAL:");
   if(!current)return;
   const nueva=prompt("Ingresa la contraseña NUEVA (mínimo 6 caracteres):");
   if(!nueva)return;
-  if(nueva.length<6){alert("La nueva contraseña debe tener al menos 6 caracteres.");return}
+  if(nueva.length<6){toast("La nueva contraseña debe tener al menos 6 caracteres.","warn");return}
   const nueva2=prompt("Confirma la contraseña NUEVA:");
-  if(nueva2!==nueva){alert("Las contraseñas no coinciden. Intenta de nuevo.");return}
+  if(nueva2!==nueva){toast("Las contraseñas no coinciden. Intenta de nuevo.","warn");return}
   try{
     showLoader("Actualizando...");
     await fbReady();
@@ -843,7 +855,7 @@ async function openChangePassword(){
     await reauthenticateWithCredential(auth.currentUser,cred);
     await updatePassword(auth.currentUser,nueva);
     hideLoader();
-    alert("✅ Contraseña actualizada. Úsala en tu próximo inicio de sesión.");
+    toast("✅ Contraseña actualizada. Úsala en tu próximo inicio de sesión.","success",6000);
   }catch(e){
     hideLoader();
     console.warn("Change password falló:",e);
@@ -852,7 +864,7 @@ async function openChangePassword(){
     else if(e?.code==="auth/weak-password")msg="Contraseña nueva muy débil (mínimo 6 caracteres)";
     else if(e?.code==="auth/requires-recent-login")msg="Por seguridad, cierra sesión y vuelve a entrar antes de cambiar la contraseña";
     else if(e?.code==="auth/too-many-requests")msg="Demasiados intentos. Espera unos minutos.";
-    alert("❌ "+msg);
+    toast("❌ "+msg,"error",5000);
   }
 }
 
@@ -1261,7 +1273,7 @@ function getPipelineActivo(){
 // accion: "contactado" | "activa" | "perdida" | "pendiente"
 async function setFollowUp(docId,kind,nuevoEstado,extra){
   if(!FOLLOW_UP_META[nuevoEstado]){throw new Error("Estado followUp inválido: "+nuevoEstado)}
-  if(!cloudOnline){alert("Sin conexión.");return false}
+  if(!cloudOnline){toast("Sin conexión.","error");return false}
   const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
   if(!q)return false;
   const {db,doc,updateDoc,serverTimestamp}=window.fb;
@@ -1299,7 +1311,7 @@ async function setFollowUp(docId,kind,nuevoEstado,extra){
     return true;
   }catch(e){
     console.error("setFollowUp error",e);
-    alert("Error actualizando seguimiento: "+(e.message||e));
+    toast("Error actualizando seguimiento: "+(e.message||e),"error");
     return false;
   }
 }
@@ -1307,7 +1319,7 @@ async function setFollowUp(docId,kind,nuevoEstado,extra){
 // Agrega una nota de seguimiento al doc (al array notasSeguimiento[])
 async function addNotaSeguimiento(docId,kind,texto){
   if(!texto||!texto.trim())return false;
-  if(!cloudOnline){alert("Sin conexión.");return false}
+  if(!cloudOnline){toast("Sin conexión.","error");return false}
   const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
   if(!q)return false;
   const {db,doc,updateDoc,serverTimestamp}=window.fb;
@@ -1335,7 +1347,7 @@ async function addNotaSeguimiento(docId,kind,texto){
     return true;
   }catch(e){
     console.error("addNotaSeguimiento error",e);
-    alert("Error guardando nota: "+(e.message||e));
+    toast("Error guardando nota: "+(e.message||e),"error");
     return false;
   }
 }
@@ -1347,10 +1359,10 @@ async function reactivarPerdida(docId,kind,destino){
   if(destino!=="pendiente"&&destino!=="activa"){
     throw new Error("Destino inválido para reactivar: "+destino);
   }
-  if(!cloudOnline){alert("Sin conexión.");return false}
+  if(!cloudOnline){toast("Sin conexión.","error");return false}
   const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
   if(!q)return false;
-  if(getFollowUp(q)!=="perdida"){alert("El documento no está marcado como perdida");return false}
+  if(getFollowUp(q)!=="perdida"){toast("El documento no está marcado como perdida","warn");return false}
   const {db,doc,updateDoc,serverTimestamp,deleteField}=window.fb;
   let coll;
   if(kind==="quote")coll="quotes";
@@ -1389,7 +1401,7 @@ async function reactivarPerdida(docId,kind,destino){
     return true;
   }catch(e){
     console.error("reactivarPerdida error",e);
-    alert("Error reactivando: "+(e.message||e));
+    toast("Error reactivando: "+(e.message||e),"error");
     return false;
   }
 }
@@ -1447,16 +1459,22 @@ async function markAsSynced(docs){
 // Mantenimiento: fuerza a que todos los agendables futuros queden needsSync=true.
 // Útil si Luis cambia de teléfono o quiere re-sincronizar todo.
 async function markAllUnsyncedAsPending(){
-  if(!cloudOnline){alert("Sin conexión.");return}
+  if(!cloudOnline){toast("Sin conexión.","error");return}
   try{
     if(!quotesCache.length){await loadAllHistory()}
     const pendientes=quotesCache.filter(isAgendable);
     if(!pendientes.length){
       if(typeof toast==="function")toast("No hay pedidos futuros agendables — nada que marcar","info");
-      else alert("No hay pedidos futuros agendables.");
+      else toast("No hay pedidos futuros agendables.","info");
       return;
     }
-    if(!confirm("🔁 Marcar TODOS los "+pendientes.length+" pedidos futuros agendables como 'pendientes de sincronizar'.\n\nEl banner verde de sync aparecerá arriba del dashboard con un conteo de "+pendientes.length+".\n\n¿Continuar?"))return;
+    const okMark=await confirmModal({
+      title:"🔁 Marcar pedidos como pendientes de sincronizar",
+      body:"Voy a marcar <strong>"+pendientes.length+"</strong> pedido(s) futuro(s) agendable(s) como pendientes.<br><br>El banner verde de sync aparecerá arriba del dashboard con un conteo de "+pendientes.length+".",
+      okLabel:"Marcar todos",
+      tone:"primary"
+    });
+    if(!okMark)return;
     showLoader("Marcando "+pendientes.length+" pedidos...");
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
     let ok=0,fail=0;
@@ -1474,7 +1492,7 @@ async function markAllUnsyncedAsPending(){
     if(typeof toast==="function")toast("🔁 "+ok+" pedido(s) marcados"+(fail?" · "+fail+" fallos":""),fail?"warn":"success");
     if(curMode==="dash"&&typeof renderDashboard==="function")renderDashboard();
     if(curMode==="hist"&&typeof renderHist==="function")renderHist();
-  }catch(e){hideLoader();alert("Error: "+(e.message||e));console.error(e)}
+  }catch(e){hideLoader();toast("Error: "+(e.message||e),"error");console.error(e)}
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1525,8 +1543,8 @@ function setCustomRangePreset(kind){
 function applyCustomRange(){
   const f=($("cr-from").value||"").trim();
   const t=($("cr-to").value||"").trim();
-  if(!f||!t){alert("Escoge ambas fechas.");return}
-  if(f>t){alert("La fecha 'Desde' debe ser menor o igual a 'Hasta'.");return}
+  if(!f||!t){toast("Escoge ambas fechas.","warn");return}
+  if(f>t){toast("La fecha 'Desde' debe ser menor o igual a 'Hasta'.","warn");return}
   if(typeof dashCustomFrom!=="undefined"){dashCustomFrom=f;dashCustomTo=t}
   else{window.dashCustomFrom=f;window.dashCustomTo=t}
   if(typeof dashPeriod!=="undefined")dashPeriod="custom";
@@ -1556,7 +1574,7 @@ async function initApp(){
     console.error("initApp error",e);
     setCloudStatus(false);
     hideLoader();
-    alert("No se pudo conectar a la nube. Verifica tu internet y recarga la página.");
+    toast("No se pudo conectar a la nube. Verifica tu internet y recarga la página.","error",8000);
   }
 }
 
@@ -1592,8 +1610,16 @@ function setMode(m){
   window.scrollTo(0,0);
 }
 
-function newQuote(){
-  if(allIt().length&&!confirm("¿Empezar una nueva cotización? Se perderán los productos actuales."))return;
+async function newQuote(){
+  if(allIt().length){
+    const ok=await confirmModal({
+      title:"Nueva cotización",
+      body:"¿Empezar una nueva cotización? Se perderán los productos actuales.",
+      okLabel:"Nueva cotización",
+      tone:"warn"
+    });
+    if(!ok)return;
+  }
   cart=[];cust=[];currentQuoteNumber=null;
   ["f-cli","f-idnum","f-att","f-mail","f-tel","f-dir","f-city-custom","f-tr-custom"].forEach(id=>{const el=$(id);if(el)el.value=""});
   $("f-idtype").value="";$("f-city").value="";
@@ -1604,8 +1630,14 @@ function newQuote(){
   updTr();
   go("info");
 }
-function newProp(){
-  if(!confirm("¿Empezar una nueva propuesta? Se perderán los datos actuales."))return;
+async function newProp(){
+  const ok=await confirmModal({
+    title:"Nueva propuesta",
+    body:"¿Empezar una nueva propuesta? Se perderán los datos actuales.",
+    okLabel:"Nueva propuesta",
+    tone:"warn"
+  });
+  if(!ok)return;
   propSections=[];menajeItems=[];currentPropNumber=null;
   ["fp-cli","fp-idnum","fp-att","fp-mail","fp-tel","fp-dir","fp-pers","fp-momento","fp-date","fp-city-custom","fp-tr-custom"].forEach(id=>{const el=$(id);if(el)el.value=""});
   $("fp-idtype").value="";$("fp-city").value="";$("sel-cli-p").value="";
@@ -1703,12 +1735,12 @@ function selC(c){selCat=c;renderCats();renderP()}
 function renderP(){renderCats();const s=($("sbox").value||"").toLowerCase();const f=C.filter(p=>(selCat==="Todas"||p.c===selCat)&&(!s||p.n.toLowerCase().includes(s)||p.d.toLowerCase().includes(s)));const el=$("plist");const atMax=distIt()>=MX;
 if(!f.length){el.innerHTML='<div class="empty"><div class="ic">🔍</div><p>No se encontraron productos</p><button class="btn bg" onclick="togCF()">+ Personalizado</button></div>';return}
 el.innerHTML=f.map(p=>{const ic=cart.find(x=>x.id===p.id);const canAdd=!atMax||ic;return'<div class="pcard '+(ic?'inc':'')+'"><div class="pinfo"><div class="pname">'+p.n+'</div>'+(p.d?'<div class="pdesc">'+p.d+'</div>':'')+'<div class="punit">'+p.u+'</div><div class="pprice">'+fm(p.p)+'</div></div><div>'+(ic?'<div class="qc"><button class="qb" onclick="chgQ('+p.id+','+(ic.qty-1)+')">−</button><input type="number" class="qn" value="'+ic.qty+'" min="1" onchange="chgQ('+p.id+',+this.value)" onfocus="this.select()"><button class="qb" onclick="chgQ('+p.id+','+(ic.qty+1)+')">+</button></div>':canAdd?'<button class="abtn" onclick="addC('+p.id+')">Agregar</button>':'<span style="font-size:11px;color:var(--soft)">Máx</span>')+'</div></div>'}).join("");updUI()}
-function addC(id){if(distIt()>=MX){alert("Máximo "+MX+" productos");return}const p=C.find(x=>x.id===id);if(!p)return;const e=cart.find(x=>x.id===id);if(e)e.qty++;else cart.push({...p,qty:1,origP:p.p,edited:false});renderP()}
+function addC(id){if(distIt()>=MX){toast("Máximo "+MX+" productos","warn");return}const p=C.find(x=>x.id===id);if(!p)return;const e=cart.find(x=>x.id===id);if(e)e.qty++;else cart.push({...p,qty:1,origP:p.p,edited:false});renderP()}
 function chgQ(id,q){q=parseInt(q)||0;if(q<=0)cart=cart.filter(x=>x.id!==id);else{const i=cart.find(x=>x.id===id);if(i)i.qty=q}renderP()}
 
 // ─── CUSTOM PRODUCTS ───────────────────────────────────────
 function togCF(){$("cform").classList.toggle("hidden")}
-function addCust(){if(distIt()>=MX){alert("Máximo "+MX+" productos");return}const n=$("cf-n").value.trim(),p=parseInt($("cf-p").value);if(!n||!p){alert("Nombre y precio obligatorios");return}cust.push({id:"x"+Date.now(),n,p,d:$("cf-d").value.trim(),u:$("cf-u").value.trim(),qty:parseInt($("cf-q").value)||1,custom:true});$("cf-n").value="";$("cf-p").value="";$("cf-d").value="";$("cf-u").value="";$("cf-q").value="1";togCF();updUI();renderP()}
+function addCust(){if(distIt()>=MX){toast("Máximo "+MX+" productos","warn");return}const n=$("cf-n").value.trim(),p=parseInt($("cf-p").value);if(!n||!p){toast("Nombre y precio obligatorios","warn");return}cust.push({id:"x"+Date.now(),n,p,d:$("cf-d").value.trim(),u:$("cf-u").value.trim(),qty:parseInt($("cf-q").value)||1,custom:true});$("cf-n").value="";$("cf-p").value="";$("cf-d").value="";$("cf-u").value="";$("cf-q").value="1";togCF();updUI();renderP()}
 function remCust(id){cust=cust.filter(x=>x.id!==id);renderR();updUI()}
 function chgCustQ(id,q){q=parseInt(q)||0;if(q<=0){remCust(id);return}const i=cust.find(x=>x.id===id);if(i)i.qty=q;renderR();updUI()}
 function remCart(id){cart=cart.filter(x=>x.id!==id);renderR();updUI()}
@@ -1755,11 +1787,11 @@ function loadClient(){
 }
 async function delClient(){
   const id=$("sel-cli").value;
-  if(!id){alert("Selecciona un cliente primero");return}
+  if(!id){toast("Selecciona un cliente primero","warn");return}
   const c=clientsCache.find(x=>x.id===id);if(!c)return;
   if(!confirm("¿Eliminar a "+c.name+"? (esto afecta a todos los usuarios)"))return;
   try{showLoader("Eliminando...");await deleteClientFromCloud(id);refreshCliSel();hideLoader()}
-  catch(e){hideLoader();alert("Error: "+e.message)}
+  catch(e){hideLoader();toast("Error: "+e.message,"error")}
 }
 function loadClientP(){
   const id=$("sel-cli-p").value;if(!id)return;
@@ -1834,15 +1866,15 @@ async function delHistItem(kind,id,ev){
   const hardBlock=["en_produccion","entregado","anulada"];
   if(hardBlock.includes(status)){
     if(status==="anulada"){
-      alert("⚠️ No se puede eliminar.\n\n"+id+" está anulada — es registro histórico del pedido cancelado (con motivo y pagos/devoluciones registradas).\n\nBorrarla perdería la trazabilidad financiera.\n\nSi necesitas sacarla del historial, usa el filtro 'Anuladas' que ya la tiene oculta por default.");
+      toast("⚠️ No se puede eliminar "+id+". Está anulada — es registro histórico con pagos/devoluciones. Usa el filtro 'Anuladas' para ocultarla.","warn",8000);
     }else{
-      alert("⚠️ No se puede eliminar.\n\n"+id+" está en estado \""+(STATUS_META[status]?.label||status)+"\".\n\nDocumentos en producción o entregados son registro histórico financiero. No se borran — se anulan dejando los productos en 0 y notas del motivo.");
+      toast("⚠️ No se puede eliminar "+id+" (estado: "+(STATUS_META[status]?.label||status)+"). Docs en producción/entregados son histórico financiero. Anúlalos dejando productos en 0.","warn",8000);
     }
     return;
   }
   // Cotizaciones: solo enviada (mantiene regla v4.12.3)
   if(kind==="quote"&&status!=="enviada"){
-    alert("⚠️ No se puede eliminar.\n\n"+id+" ya está en estado \""+(STATUS_META[status]?.label||status)+"\".\n\nUna cotización confirmada como pedido queda como registro permanente. Para anularla ábrela y déjala con productos en 0 y notas del motivo.");
+    toast("⚠️ No se puede eliminar "+id+" (estado: "+(STATUS_META[status]?.label||status)+"). Una cotización confirmada queda como registro permanente. Anúlala dejando productos en 0.","warn",8000);
     return;
   }
   // v5.0.1b: CASO ESPECIAL — propuesta convertida con PF hija viva
@@ -1876,7 +1908,7 @@ async function delHistItem(kind,id,ev){
     if(typed!=="BORRAR "+id){alert("No se eliminó — la confirmación no coincidió.");return}
   }
   try{showLoader("Eliminando...");await deleteHistoryItem(kind,id);hideLoader();renderHist();if(typeof toast==="function")toast("🗑️ "+id+" eliminado","success")}
-  catch(e){hideLoader();alert("Error: "+e.message)}
+  catch(e){hideLoader();toast("Error: "+e.message,"error")}
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1946,7 +1978,7 @@ async function executeDelProposalOnly(){
     if(typeof toast==="function")toast("🗑️ "+propBase.id+" eliminado — la PF quedó huérfana","warn");
     renderHist();
     if(curMode==="dash"&&typeof renderDashboard==="function")renderDashboard();
-  }catch(e){hideLoader();alert("Error: "+e.message);console.error(e)}
+  }catch(e){hideLoader();toast("Error: "+e.message,"error");console.error(e)}
 }
 async function executeDelCascade(){
   if(!_cascadeDelCtx)return;
@@ -1968,7 +2000,7 @@ async function executeDelCascade(){
     if(typeof toast==="function")toast("🗑️ Eliminados "+propBase.id+" + "+pfHija.id,"success");
     renderHist();
     if(curMode==="dash"&&typeof renderDashboard==="function")renderDashboard();
-  }catch(e){hideLoader();alert("Error en cascada: "+e.message);console.error(e)}
+  }catch(e){hideLoader();toast("Error en cascada: "+e.message,"error");console.error(e)}
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2024,7 +2056,7 @@ async function openDocument(kind,id){
       hideLoader();
       if(!snap.exists()){
         if(typeof toast==="function")toast("No se encontró el documento","error");
-        else alert("No se encontró el documento");
+        else toast("No se encontró el documento","error");
         return;
       }
       q={...snap.data(),id,kind};
@@ -2038,7 +2070,7 @@ async function openDocument(kind,id){
   }catch(e){
     hideLoader();
     if(typeof toast==="function")toast("Error al abrir: "+e.message,"error");
-    else alert("Error al abrir: "+e.message);
+    else toast("Error al abrir: "+e.message,"error");
     console.error("[openDocument]",e);
   }
 }
@@ -2192,7 +2224,7 @@ async function loadQuote(kind,id){
     if(kind==="proposal"){
       if(id&&id.startsWith("GB-PF-")&&_qStatus!=="superseded"){
         if(typeof toast==="function")toast("PF firmada: para cambios, usa 🔄 Nueva versión desde historial","warn",5000);
-        else alert("ℹ️ Esta es una Propuesta Final firmada ("+id+").\n\nPara aplicar cambios:\n1. Vuelve al historial.\n2. Toca 🔄 Nueva versión.");
+        else toast("ℹ️ PF firmada ("+id+"). Para cambios: vuelve al historial y toca 🔄 Nueva versión.","info",6000);
       }
       setMode("prop");
       loadPropQuote({...q,quoteNumber:id});
@@ -2256,7 +2288,7 @@ async function loadQuote(kind,id){
     setFirma("cot",firmaCot);
     showClientHistoryPanel(q.client||"","cot");
     go("review");
-  }catch(e){hideLoader();alert("Error: "+e.message)}
+  }catch(e){hideLoader();toast("Error: "+e.message,"error")}
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2284,4 +2316,75 @@ function toast(msg,type,duration){
     ?duration
     :Math.min(6000,2500+msg.length*30);
   setTimeout(()=>{el.classList.add("toast-out");setTimeout(()=>el.remove(),300)},ms);
+}
+
+// ═══════════════════════════════════════════════════════════
+// v6.3.0 E3-3: Modal de confirmación genérico (reemplaza confirm() nativos no destructivos)
+// ═══════════════════════════════════════════════════════════
+// Uso:
+//   confirmModal({title, body, okLabel, cancelLabel, tone, onOk, onCancel})
+//   - title: string (default: "¿Confirmar?")
+//   - body: string o HTML (ya escapado desde el llamador si hace falta)
+//   - okLabel: string (default "Continuar")
+//   - cancelLabel: string (default "Cancelar")
+//   - tone: "primary"|"warn"|"danger" (afecta color del botón OK; default "primary")
+//   - onOk: callback si acepta
+//   - onCancel: callback opcional si cancela
+// Retorna Promise<boolean> también — así se puede usar como `if(await confirmModal({...}))`.
+// Compatible con callbacks (onOk/onCancel) O con await, lo que convenga al llamador.
+function confirmModal(opts){
+  opts=opts||{};
+  const title=opts.title||"¿Confirmar?";
+  const body=opts.body||"";
+  const okLabel=opts.okLabel||"Continuar";
+  const cancelLabel=opts.cancelLabel||"Cancelar";
+  const tone=opts.tone||"primary";
+  const onOk=typeof opts.onOk==="function"?opts.onOk:null;
+  const onCancel=typeof opts.onCancel==="function"?opts.onCancel:null;
+  const btnColors={
+    primary:"linear-gradient(135deg,#0B6EFB,#0046C2)",
+    warn:"linear-gradient(135deg,#FB8C00,#E65100)",
+    danger:"linear-gradient(135deg,#E53935,#B71C1C)"
+  };
+  const btnBg=btnColors[tone]||btnColors.primary;
+  return new Promise(resolve=>{
+    let modal=$("confirm-modal");
+    if(!modal){
+      // Fallback extremo: si por alguna razón el HTML no tiene el modal, degradar a confirm()
+      console.warn("[confirmModal] #confirm-modal no existe en HTML; usando confirm() nativo");
+      const ok=confirm((title?title+"\n\n":"")+(body.replace(/<[^>]+>/g,"")));
+      if(ok&&onOk)onOk();
+      if(!ok&&onCancel)onCancel();
+      resolve(ok);
+      return;
+    }
+    $("cm-title").textContent=title;
+    $("cm-body").innerHTML=body;
+    const okBtn=$("cm-ok");
+    const cancelBtn=$("cm-cancel");
+    okBtn.textContent=okLabel;
+    cancelBtn.textContent=cancelLabel;
+    okBtn.style.background=btnBg;
+    // Limpiar listeners previos clonando
+    const newOk=okBtn.cloneNode(true);
+    const newCancel=cancelBtn.cloneNode(true);
+    okBtn.parentNode.replaceChild(newOk,okBtn);
+    cancelBtn.parentNode.replaceChild(newCancel,cancelBtn);
+    const close=()=>{modal.classList.add("hidden")};
+    newOk.addEventListener("click",()=>{close();if(onOk)onOk();resolve(true)});
+    newCancel.addEventListener("click",()=>{close();if(onCancel)onCancel();resolve(false)});
+    // Cerrar clic fuera = cancelar
+    window._confirmModalClose=()=>{close();if(onCancel)onCancel();resolve(false)};
+    modal.classList.remove("hidden");
+  });
+}
+
+function closeConfirmModal(){
+  const m=$("confirm-modal");
+  if(m)m.classList.add("hidden");
+  if(typeof window._confirmModalClose==="function"){
+    const fn=window._confirmModalClose;
+    window._confirmModalClose=null;
+    fn();
+  }
 }

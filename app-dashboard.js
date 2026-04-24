@@ -1308,7 +1308,7 @@ async function syncAgendaAllFuture(){
       return ok;
     });
     if(!futuros.length){
-      alert("📤 Sincronizar agenda\n\nNo hay pedidos agendados con fecha futura para compartir.\n\nLos pedidos se agendan cuando los marcas como \"pedido\" (cotización) o \"aprobada\" (propuesta), y les asignas fecha de entrega.");
+      toast("📤 No hay pedidos agendados con fecha futura para compartir. Se agendan al marcar como \"pedido\"/\"aprobada\" y asignar fecha de entrega.","info",7000);
       return;
     }
     futuros.sort((a,b)=>(a.eventDate+(a.horaEntrega||"")).localeCompare(b.eventDate+(b.horaEntrega||"")));
@@ -1318,12 +1318,18 @@ async function syncAgendaAllFuture(){
     lines.push(..._icsFooter());
     const filename="Gourmet-Bites-Agenda-"+hoyIso+".ics";
     const resumen=futuros.length+" pedido"+(futuros.length!==1?'s':'')+" · "+futuros.reduce((s,q)=>s+2,0)+" eventos (prod + entrega por pedido)";
-    if(!confirm("📤 Sincronizar agenda con Kathy y JP\n\nSe va a generar un archivo .ics con:\n  "+resumen+"\n\nDespués de confirmar:\n  1. Se abre el menú compartir\n  2. Escoges WhatsApp\n  3. Mandas a Kathy y a JP\n  4. Ellos abren el archivo en su teléfono y se AGREGA/ACTUALIZA en sus calendarios (no duplica)\n\n¿Continuar?"))return;
+    const ok=await confirmModal({
+      title:"📤 Sincronizar agenda con Kathy y JP",
+      body:"Se va a generar un archivo <strong>.ics</strong> con:<br><strong>"+h(resumen)+"</strong><br><br>Al confirmar:<br>1. Se abre el menú compartir<br>2. Escoges WhatsApp<br>3. Mandas a Kathy y JP<br>4. Abren el archivo → sus calendarios se actualizan (no duplica)",
+      okLabel:"Continuar",
+      tone:"primary"
+    });
+    if(!ok)return;
     await shareOrDownloadIcs(filename,lines);
     if(typeof toast==="function")toast("✅ Agenda lista para compartir · "+futuros.length+" pedidos","success");
   }catch(e){
     console.error("syncAgendaAllFuture error",e);
-    alert("Error generando agenda: "+(e.message||e));
+    toast("Error generando agenda: "+(e.message||e),"error");
   }
 }
 
@@ -1362,7 +1368,13 @@ async function syncPendingOnly(){
     }
     pendientes.sort((a,b)=>(a.eventDate+(a.horaEntrega||"")).localeCompare(b.eventDate+(b.horaEntrega||"")));
     const resumen=pendientes.length+" pedido"+(pendientes.length!==1?'s':'')+" nuevo"+(pendientes.length!==1?'s':'');
-    if(!confirm("📤 Sincronizar pendientes con Kathy y JP\n\nSolo se incluyen los "+resumen+" que están pendientes.\n\nDespués de confirmar:\n  1. Se abre el menú compartir\n  2. Escoges WhatsApp → mandar a Kathy y a JP\n  3. Ellos abren el archivo → sus calendarios se actualizan\n\n¿Continuar?"))return;
+    const ok=await confirmModal({
+      title:"📤 Sincronizar pendientes",
+      body:"Solo se incluyen los <strong>"+h(resumen)+"</strong> que están pendientes.<br><br>Al confirmar:<br>1. Se abre el menú compartir<br>2. Escoges WhatsApp → mandar a Kathy y JP<br>3. Ellos abren el archivo → calendarios se actualizan",
+      okLabel:"Continuar",
+      tone:"primary"
+    });
+    if(!ok)return;
     // Construir .ics solo con los pendientes
     const lines=[..._icsHeader()];
     pendientes.forEach(q=>{lines.push(..._buildVeventsForDoc(q))});
@@ -1379,7 +1391,7 @@ async function syncPendingOnly(){
     if(curMode==="hist"&&typeof renderHist==="function")renderHist();
   }catch(e){
     console.error("syncPendingOnly error",e);
-    alert("Error: "+(e.message||e));
+    toast("Error: "+(e.message||e),"error");
   }
 }
 
@@ -1659,8 +1671,14 @@ async function migrarFotosStorage(){
       tareas.push({docId:q.id,kind:q.kind,tipo:"comentario",base64:q.comentarioCliente.fotoBase64,path:"comentarios"});
     }
   });
-  if(!tareas.length){alert("🎉 No hay fotos base64 para migrar. Todo ya está en Storage.");return}
-  if(!confirm("🔄 Migrar "+tareas.length+" fotos a Firebase Storage\n\nVoy a subir cada foto a Storage y reemplazar el base64 en Firestore por la URL de descarga.\n\n• Los docs quedarán mucho más livianos (dashboard cargará más rápido)\n• Operación segura: si falla una foto, se salta y continúa\n• Tiempo estimado: ~1 segundo por foto\n\n¿Continuar?"))return;
+  if(!tareas.length){toast("🎉 No hay fotos base64 para migrar. Todo ya está en Storage.","success",5000);return}
+  const ok2=await confirmModal({
+    title:"🔄 Migrar fotos a Firebase Storage",
+    body:"Voy a subir <strong>"+tareas.length+"</strong> foto(s) a Storage y reemplazar el base64 en Firestore por la URL de descarga.<br><br>• Los docs quedarán mucho más livianos (dashboard más rápido)<br>• Operación segura: si falla una, se salta y continúa<br>• Tiempo estimado: ~1 segundo por foto",
+    okLabel:"Continuar",
+    tone:"primary"
+  });
+  if(!ok2)return;
 
   showLoader("Migrando fotos a Storage · 0/"+tareas.length);
   const {db,doc,getDoc,updateDoc,serverTimestamp}=window.fb;
@@ -1701,7 +1719,7 @@ async function migrarFotosStorage(){
   hideLoader();
   // Recargar historial para ver cambios
   try{await loadAllHistory()}catch{}
-  alert("✅ Migración completa\n\n• Migradas OK: "+ok+"\n• Saltadas: "+skip+"\n• Errores: "+err+"\n\nLos docs migrados ya tienen fotoUrl en lugar de base64. Recomendado: cerrar y abrir la app para ver el dashboard más ligero.");
+  toast("✅ Migración completa · OK: "+ok+" · Saltadas: "+skip+" · Errores: "+err+". Recarga la app para ver dashboard más ligero.","success",8000);
   renderDashboard();
 }
 
@@ -1713,23 +1731,29 @@ async function migrarFotosStorage(){
 // Esta función los detecta y les asigna `status: "enviada"` (o "propfinal" para PFs).
 // Idempotente: si no hay docs sin status, informa y sale.
 async function normalizarDocsSinStatus(){
-  if(!currentUser){alert("🔒 Debes estar autenticado para normalizar docs.");return}
+  if(!currentUser){toast("🔒 Debes estar autenticado para normalizar docs.","error");return}
   if(!quotesCache.length){try{await loadAllHistory()}catch{}}
 
   // Detectar docs sin status (undefined, null o string vacío)
   const candidatos=quotesCache.filter(q=>!q.status&&!q._wrongCollection);
   if(!candidatos.length){
-    alert("🎉 No hay docs pendientes de normalizar. Todos tienen status correcto.");
+    toast("🎉 No hay docs pendientes de normalizar. Todos tienen status correcto.","success",5000);
     return;
   }
 
   // Preview para Luis: mostrar qué docs se van a tocar y qué status va a recibir cada uno
-  const preview=candidatos.map(q=>{
+  const previewHtml=candidatos.map(q=>{
     const nuevoStatus=(q.kind==="proposal"&&q.id&&q.id.startsWith("GB-PF-"))?"propfinal":"enviada";
-    return "• "+(q.quoteNumber||q.id)+" — "+(q.client||"sin cliente")+" → "+nuevoStatus;
-  }).join("\n");
+    return "• "+h(q.quoteNumber||q.id)+" — "+h(q.client||"sin cliente")+" → "+h(nuevoStatus);
+  }).join("<br>");
 
-  if(!confirm("🔧 Normalizar "+candidatos.length+" doc"+(candidatos.length!==1?"s":"")+" sin status\n\nSe les va a asignar el status que les corresponde por tipo:\n\n"+preview+"\n\n• No se tocan los datos, solo se agrega el campo `status`\n• Operación segura: cada doc en su propia escritura\n• Después podrás etiquetarlos Viva/Perdida normalmente\n\n¿Continuar?"))return;
+  const ok3=await confirmModal({
+    title:"🔧 Normalizar docs sin status",
+    body:"Se va a asignar status por tipo a <strong>"+candidatos.length+" doc"+(candidatos.length!==1?"s":"")+"</strong>:<br><br>"+previewHtml+"<br><br>• No se tocan los datos, solo se agrega el campo <code>status</code><br>• Operación segura: cada doc en su propia escritura<br>• Después podrás etiquetarlos Viva/Perdida normalmente",
+    okLabel:"Continuar",
+    tone:"primary"
+  });
+  if(!ok3)return;
 
   showLoader("Normalizando docs · 0/"+candidatos.length);
   const {db,doc,updateDoc,serverTimestamp}=window.fb;
@@ -1756,7 +1780,7 @@ async function normalizarDocsSinStatus(){
   }
   hideLoader();
   try{await loadAllHistory()}catch{}
-  alert("✅ Normalización completa\n\n• Normalizados OK: "+ok+"\n• Errores: "+err+"\n\nLos docs ahora aparecerán correctamente en Pipeline, Historial Vivas y Seguimiento. Puedes etiquetarlos Viva/Perdida normalmente.");
+  toast("✅ Normalización completa · OK: "+ok+" · Errores: "+err+". Los docs ahora aparecen en Pipeline, Vivas y Seguimiento.","success",7000);
   renderDashboard();
   if(typeof renderSeguimiento==="function"&&curMode==="seg")renderSeguimiento();
   if(typeof renderHist==="function"&&curMode==="hist")renderHist();
@@ -2572,12 +2596,12 @@ async function confirmarGenerarHojaEntregas(){
   const solo=($("he-solo-pendientes")||{}).checked;
   if(!from||!to){
     if(typeof toast==="function")toast("Selecciona ambas fechas","warn");
-    else alert("Selecciona ambas fechas");
+    else toast("Selecciona ambas fechas","warn");
     return;
   }
   if(from>to){
     if(typeof toast==="function")toast("La fecha 'desde' debe ser anterior o igual a 'hasta'","warn");
-    else alert("La fecha 'desde' debe ser anterior o igual a 'hasta'");
+    else toast("La fecha 'desde' debe ser anterior o igual a 'hasta'","warn");
     return;
   }
   closeHojaEntregasModal();
@@ -2589,7 +2613,7 @@ async function generarHojaEntregas(fromDate,toDate,soloPendientes){
   // Verifica jsPDF disponible
   if(!window.jspdf||!window.jspdf.jsPDF){
     if(typeof toast==="function")toast("Error: jsPDF no cargado","error");
-    else alert("Error: jsPDF no cargado");
+    else toast("Error: jsPDF no cargado","error");
     return;
   }
   const docs=hojaFiltrarDocs(fromDate,toDate,soloPendientes);
@@ -2598,7 +2622,7 @@ async function generarHojaEntregas(fromDate,toDate,soloPendientes){
       "Sin entregas pendientes en el rango seleccionado":
       "Sin entregas en el rango seleccionado";
     if(typeof toast==="function")toast(msg,"warn",4000);
-    else alert(msg);
+    else toast(msg,"info",5000);
     return;
   }
 
@@ -2719,6 +2743,6 @@ async function generarHojaEntregas(fromDate,toDate,soloPendientes){
     console.error("[generarHojaEntregas] error:",e);
     if(typeof hideLoader==="function")hideLoader();
     if(typeof toast==="function")toast("Error al generar la hoja: "+(e.message||e),"error",5000);
-    else alert("Error al generar la hoja: "+(e.message||e));
+    else toast("Error al generar la hoja: "+(e.message||e),"error");
   }
 }
