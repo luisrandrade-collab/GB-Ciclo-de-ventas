@@ -110,10 +110,15 @@ async function renderDashboard(){
     inRange=fecha=>fecha&&fecha>=range.start&&fecha<=range.end;
     quotesCache.forEach(q=>{
       try{
-        if(q._wrongCollection)return;
+        // v6.4.0 P1: defensa centralizada — excluye fantasmas/superseded/anuladas/convertidas
+        if(typeof noSumaEnKpis==="function"){
+          if(noSumaEnKpis(q,"dash-kpis"))return;
+        }else{
+          if(q._wrongCollection)return;
+          const _st=q.status||"enviada";
+          if(_st==="superseded"||_st==="anulada"||_st==="convertida")return;
+        }
         const status=q.status||"enviada";
-        if(status==="superseded")return;
-        if(status==="anulada")return;
         if(typeof getFollowUp==="function"&&getFollowUp(q)==="perdida"&&(status==="enviada"||status==="propfinal"))return;
         const total=getDocTotal(q);
         const fCre=dateOfCreation(q);
@@ -2581,7 +2586,46 @@ function openHojaEntregasModal(){
   if(fromInput)fromInput.value=hoy;
   if(toInput)toInput.value=hoy;
   if(soloInput)soloInput.checked=true;
+  // v6.4.0 P5: arranca con "Hoy" activo y campos colapsados
+  if(typeof heQuickRange==="function")heQuickRange("hoy",true);
   modal.classList.remove("hidden");
+}
+
+// v6.4.0 P5: aplica un preset rápido al rango de fechas.
+// Modos: 'hoy' | 'manana' | '3dias' | 'rango'.
+// 'rango' = revela los inputs Desde/Hasta para edición manual.
+// Los demás modos los rellenan automáticamente y los ocultan visualmente
+// (siguen accesibles, solo se reduce el ruido visual en móvil).
+function heQuickRange(modo,silent){
+  const hoy=new Date();
+  const isoOf=(d)=>{
+    const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),dd=String(d.getDate()).padStart(2,"0");
+    return y+"-"+m+"-"+dd;
+  };
+  const addDays=(d,n)=>{const r=new Date(d);r.setDate(r.getDate()+n);return r};
+  const fromInput=$("he-from"),toInput=$("he-to");
+  if(!fromInput||!toInput)return;
+  let f=isoOf(hoy),t=isoOf(hoy);
+  if(modo==="hoy"){f=isoOf(hoy);t=isoOf(hoy)}
+  else if(modo==="manana"){const m=addDays(hoy,1);f=isoOf(m);t=isoOf(m)}
+  else if(modo==="3dias"){f=isoOf(hoy);t=isoOf(addDays(hoy,3))}
+  else if(modo==="rango"){/* mantener valores actuales */}
+  if(modo!=="rango"){fromInput.value=f;toInput.value=t}
+  // Estilo visual del botón activo
+  document.querySelectorAll(".he-quick-btn").forEach(b=>{
+    const activo=b.dataset.heRange===modo;
+    b.style.background=activo?"#455A64":"#fff";
+    b.style.color=activo?"#fff":"#455A64";
+  });
+  // Mostrar/ocultar inputs Desde/Hasta. En modo rango se revelan; en otros, se compactan.
+  const fromWrap=fromInput.closest(".mf-field");
+  const toWrap=toInput.closest(".mf-field");
+  if(fromWrap)fromWrap.style.display=(modo==="rango")?"":"none";
+  if(toWrap)toWrap.style.display=(modo==="rango")?"":"none";
+  if(!silent&&typeof toast==="function"){
+    const lbl=modo==="hoy"?"📅 Hoy":modo==="manana"?"🌅 Mañana":modo==="3dias"?"📆 Próximos 3 días":"⚙️ Rango personalizado";
+    toast(lbl+" · "+f+(f!==t?" → "+t:""),"info",2200);
+  }
 }
 
 function closeHojaEntregasModal(){

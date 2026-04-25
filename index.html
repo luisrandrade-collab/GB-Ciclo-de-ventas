@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1a1a1a">
 <title>Gourmet Bites - Cotizador</title>
-<!-- VERSION: 2026-04-24-v6.3.0-robustez-tecnica-runTransaction-confirmModal-migracion-alerts -->
+<!-- VERSION: 2026-04-25-v6.4.0-fix-anuladas-edit-pedido-hoja-rapida-foto-entrega -->
 <!--
   v6.3.0 (2026-04-24) — Robustez técnica + higiene (Entrega 3 del roadmap).
   Cambios (técnicos, invisibles para el usuario final):
@@ -1447,7 +1447,10 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
   <div class="fld"><label class="flbl">Teléfono / WhatsApp *</label><input class="fin" id="f-tel" type="tel" placeholder="Ej: 310 555 1234"></div>
   <div class="fld"><label class="flbl">Dirección de entrega (opcional)</label><input class="fin" id="f-dir" placeholder="Ej: Cra 7 #45-12, Oficina 301"></div>
   <div class="fld"><label class="flbl">Fecha y momento de entrega (opcional)</label>
-    <div class="fld" style="margin-bottom:8px"><input class="fin" id="f-date" type="date"></div>
+    <div class="fld" style="margin-bottom:8px;display:flex;gap:8px">
+      <input class="fin" id="f-date" type="date" style="flex:1">
+      <input class="fin" id="f-hora-entrega" type="time" placeholder="Hora" style="flex:0 0 110px" title="Hora de entrega (v6.4.0)">
+    </div>
     <div id="f-moments" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">
       <label style="display:flex;align-items:center;gap:5px;background:var(--wh);border:1.5px solid var(--lt);border-radius:8px;padding:8px 12px;font-size:13px;cursor:pointer;transition:all .2s"><input type="checkbox" value="Desayuno" onchange="togMom(this)" style="accent-color:var(--gr)">Desayuno</label>
       <label style="display:flex;align-items:center;gap:5px;background:var(--wh);border:1.5px solid var(--lt);border-radius:8px;padding:8px 12px;font-size:13px;cursor:pointer;transition:all .2s"><input type="checkbox" value="Refrigerio mañana" onchange="togMom(this)" style="accent-color:var(--gr)">Refrigerio AM</label>
@@ -1555,7 +1558,10 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
       <div class="fld"><label class="flbl">Número de personas *</label><input class="fin" id="fp-pers" type="number" placeholder="35" min="1" oninput="onPaxChange()"></div>
       <div class="fld"><label class="flbl">Momento</label><input class="fin" id="fp-momento" placeholder="Ej: Almuerzo"></div>
     </div>
-    <div class="fld" style="margin-bottom:0"><label class="flbl">Fecha del evento</label><input class="fin" id="fp-date" type="date"></div>
+    <div class="fld" style="margin-bottom:0;display:flex;gap:8px">
+      <div style="flex:1"><label class="flbl">Fecha del evento</label><input class="fin" id="fp-date" type="date"></div>
+      <div style="flex:0 0 110px"><label class="flbl">Hora</label><input class="fin" id="fp-hora-entrega" type="time" title="Hora de entrega (v6.4.0)"></div>
+    </div>
   </div>
   <div class="fld">
     <label class="flbl">Ciudad / Lugar de entrega</label>
@@ -1908,19 +1914,63 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
       </div>
       <div class="mf-field"><label>Notas de entrega (van al .ics — visibles en Outlook)</label><textarea id="dm-notas-entrega" placeholder="Ej: entregar en parqueadero, no portería · llamar 5 min antes · cliente prefiere dejarlo en cocina"></textarea></div>
       <div class="mf-field">
-        <label>Foto de entrega (opcional — solo UNA)</label>
+        <label>Foto 1 de entrega (opcional)</label>
         <div class="entrega-foto-tipo">
           <label><input type="radio" name="dm-foto-tipo" value="producto" checked> Foto del producto</label>
           <label><input type="radio" name="dm-foto-tipo" value="planilla"> Planilla firmada</label>
         </div>
-        <input type="file" id="dm-foto" accept="image/*" onchange="previewEntregaFoto(event)">
+        <input type="file" id="dm-foto" accept="image/*" capture="environment" onchange="previewEntregaFoto(event)">
         <div id="dm-foto-preview" style="margin-top:6px"></div>
+        <button type="button" id="dm-foto-clear-btn" onclick="clearEntregaFoto(1)" class="hidden" style="margin-top:4px;background:none;border:none;color:#C62828;font-size:11px;cursor:pointer;padding:2px 0">🗑️ Quitar foto 1</button>
+      </div>
+      <!-- v6.4.0 P6: segunda foto opcional -->
+      <div class="mf-field">
+        <label>Foto 2 de entrega (opcional · ej: detalle adicional o segunda bandeja)</label>
+        <input type="file" id="dm-foto2" accept="image/*" capture="environment" onchange="previewEntregaFoto2(event)">
+        <div id="dm-foto2-preview" style="margin-top:6px"></div>
+        <button type="button" id="dm-foto2-clear-btn" onclick="clearEntregaFoto(2)" class="hidden" style="margin-top:4px;background:none;border:none;color:#C62828;font-size:11px;cursor:pointer;padding:2px 0">🗑️ Quitar foto 2</button>
       </div>
       <div class="mf-field" style="background:#E8F5E9;padding:10px;border-radius:8px;border:1px solid #A5D6A7">
         <label style="cursor:pointer;display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-size:13px;color:#1B5E20"><input type="checkbox" id="dm-recibido-conforme" style="width:auto;margin:0"> ✓ Cliente recibió conforme</label>
         <input type="text" id="dm-receptor" placeholder="Nombre de quien recibió (opcional)" style="margin-top:8px">
       </div>
       <button class="mf-submit" style="background:#689F38" onclick="submitDelivery()">Confirmar entrega</button>
+    </div>
+  </div>
+</div>
+
+<!-- v6.4.0 P6: modal post-entrega para enviar foto(s) a Kathy por WhatsApp -->
+<div id="entrega-wa-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeEntregaWhatsAppModal()">
+  <div class="modal-box" style="max-height:92vh">
+    <div class="modal-head" style="background:linear-gradient(135deg,#25D366,#128C7E)">
+      <span class="mtitle">📸 Enviar foto a Kathy</span>
+      <button class="mclose" onclick="closeEntregaWhatsAppModal()">×</button>
+    </div>
+    <div class="mform">
+      <div class="mf-intro" style="background:#E8F5E9;border-color:#A5D6A7;color:#1B5E20">
+        Entrega registrada. Envía las fotos a <strong>Kathy</strong> por WhatsApp para que ella las reenvíe al cliente desde el WhatsApp Business de Gourmet Bites.
+      </div>
+      <div class="mf-field" style="background:#F5F5F5;padding:10px;border-radius:8px;font-size:12.5px;line-height:1.5">
+        <div>👤 Cliente: <strong id="ewm-cli">—</strong></div>
+        <div>📅 Fecha: <strong id="ewm-fecha">—</strong></div>
+        <div>✍️ Recibió: <strong id="ewm-receptor">—</strong></div>
+      </div>
+      <div class="mf-field">
+        <label>Fotos guardadas</label>
+        <div id="ewm-fotos-preview" style="text-align:center;padding:6px 0"></div>
+      </div>
+      <div class="mf-field">
+        <label>Mensaje (puedes editarlo antes de enviar)</label>
+        <textarea id="ewm-texto" rows="9" style="font-family:ui-monospace,monospace;font-size:12px"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+        <button type="button" class="btn bo" onclick="copyEntregaWhatsAppText()" style="flex:1;min-width:120px;background:#fff;border:1.5px solid #128C7E;color:#128C7E;font-weight:700">📋 Copiar texto</button>
+        <button type="button" class="btn bo" onclick="closeEntregaWhatsAppModal()" style="flex:1;min-width:120px;background:#ECEFF1;color:#455A64;border:none">Más tarde</button>
+        <button type="button" onclick="sendEntregaWhatsApp()" style="flex:2;min-width:160px;background:linear-gradient(135deg,#25D366,#128C7E);color:#fff;border:none;border-radius:8px;font-weight:700;padding:10px;cursor:pointer">💬 Abrir WhatsApp con Kathy</button>
+      </div>
+      <div style="font-size:10.5px;color:#666;margin-top:8px;line-height:1.4">
+        Las fotos quedan guardadas en el documento. Si Kathy no está disponible ahora, puedes reenviarlas más tarde desde Historial → entrega → 📸 Enviar fotos a Kathy.
+      </div>
     </div>
   </div>
 </div>
@@ -2071,6 +2121,13 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
     <div class="mform">
       <div class="mf-intro" style="background:#ECEFF1;border-left-color:#455A64">
         Genera un PDF con las entregas del rango para imprimir y que el cliente firme al recibir. Reemplaza la hoja manual.
+      </div>
+      <!-- v6.4.0 P5: botones rápidos de selección de rango -->
+      <div style="display:flex;gap:6px;margin:0 0 12px 0;flex-wrap:wrap">
+        <button type="button" class="btn bo he-quick-btn" data-he-range="hoy" onclick="heQuickRange('hoy')" style="flex:1;min-width:64px;padding:8px 6px;font-size:12px;background:#fff;border:1.5px solid #455A64;color:#455A64;font-weight:700">📅 Hoy</button>
+        <button type="button" class="btn bo he-quick-btn" data-he-range="manana" onclick="heQuickRange('manana')" style="flex:1;min-width:64px;padding:8px 6px;font-size:12px;background:#fff;border:1.5px solid #455A64;color:#455A64;font-weight:700">🌅 Mañana</button>
+        <button type="button" class="btn bo he-quick-btn" data-he-range="3dias" onclick="heQuickRange('3dias')" style="flex:1;min-width:64px;padding:8px 6px;font-size:12px;background:#fff;border:1.5px solid #455A64;color:#455A64;font-weight:700">📆 +3 días</button>
+        <button type="button" class="btn bo he-quick-btn" data-he-range="rango" onclick="heQuickRange('rango')" style="flex:1;min-width:64px;padding:8px 6px;font-size:12px;background:#fff;border:1.5px solid #455A64;color:#455A64;font-weight:700">⚙️ Rango</button>
       </div>
       <div class="mf-field">
         <label>Desde</label>
@@ -2453,12 +2510,12 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--cl);color:v
   </div>
 </div>
 
-<script src="app-assets.js?v=6.3.0"></script>
-<script src="app-core.js?v=6.3.0"></script>
-<script src="app-cotizar.js?v=6.3.0"></script>
-<script src="app-propuesta.js?v=6.3.0"></script>
-<script src="app-historial.js?v=6.3.0"></script>
-<script src="app-seguimiento.js?v=6.3.0"></script>
-<script src="app-dashboard.js?v=6.3.0"></script>
+<script src="app-assets.js?v=6.4.0"></script>
+<script src="app-core.js?v=6.4.0"></script>
+<script src="app-cotizar.js?v=6.4.0"></script>
+<script src="app-propuesta.js?v=6.4.0"></script>
+<script src="app-historial.js?v=6.4.0"></script>
+<script src="app-seguimiento.js?v=6.4.0"></script>
+<script src="app-dashboard.js?v=6.4.0"></script>
 </body>
 </html>

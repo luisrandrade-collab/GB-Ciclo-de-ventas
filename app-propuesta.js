@@ -453,7 +453,14 @@ async function savePropQuote(silent){
     if(prevComentarioCliente)pObj.comentarioCliente=prevComentarioCliente;
     if(prevProductionDate)pObj.productionDate=prevProductionDate;
     if(prevProduced!==null)pObj.produced=prevProduced;
-    if(prevHoraEntrega)pObj.horaEntrega=prevHoraEntrega;
+    // v6.4.0 P2: NO sobreescribir horaEntrega si el usuario la editó en el form.
+    // (eventDate ya se lee del form en pObj — fp-date.value)
+    // v6.4.0 hallazgo-4: log defensivo si form viene vacío y se preserva el previo.
+    const _formHoraP=($("fp-hora-entrega")?.value)||"";
+    if(_formHoraP){pObj.horaEntrega=_formHoraP}else if(prevHoraEntrega){
+      pObj.horaEntrega=prevHoraEntrega;
+      if(typeof window!=="undefined"&&window.__GB_DEBUG_EDIT)console.warn("[v6.4.0 P2] form sin horaEntrega → preservando previa",prevHoraEntrega,"doc:",qNum);
+    }
     // v5.5.0: preservar historial PDFs y audit trail
     if(prevPdfHistorial)pObj.pdfHistorial=prevPdfHistorial;
     if(prevPdfRegenCount)pObj.pdfRegenCount=prevPdfRegenCount;
@@ -567,6 +574,8 @@ function loadPropQuote(q){
   if($("fp-idnum"))$("fp-idnum").value=idParts.slice(1).join(" ")||"";
   $("fp-att").value=q.att||"";$("fp-mail").value=q.mail||"";$("fp-tel").value=q.tel||"";$("fp-dir").value=q.dir||"";
   $("fp-pers").value=q.pers||"";$("fp-momento").value=q.momento||"";$("fp-date").value=q.eventDate||"";
+  // v6.4.0 P2: cargar horaEntrega editable
+  if($("fp-hora-entrega"))$("fp-hora-entrega").value=q.horaEntrega||"";
   if(q.city){
     const known=["La Calera","Bogotá","Chía","Cajicá"];
     if(q.cityType){$("fp-city").value=q.cityType;if(q.cityType==="Otra"){$("fp-city-custom").value=q.city||""}}

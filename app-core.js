@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v6.3.0";
+const BUILD_VERSION="v6.4.0";
 const BUILD_DATE="2026-04-24";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -415,6 +415,38 @@ function canEdit(q){
   const st=q.status||"enviada";
   const blocked=["anulada","convertida","superseded"];
   return !blocked.includes(st);
+}
+
+// v6.4.0 P1: helpers centralizados de exclusión.
+// Uso: en CUALQUIER cálculo que sume montos (KPIs, reportes, gráficos, exports),
+// llamar primero a noSumaEnKpis(q) y hacer return si devuelve true.
+// Si activas window.__GB_DEBUG_ANULADAS=true en consola, loguea cada anulada que
+// se intentó sumar (ayuda a detectar lugares no migrados).
+function isAnulada(q){
+  if(!q)return false;
+  if(q.status==="anulada")return true;
+  // Defensa: también detectar docs con anuladaData pero status desincronizado
+  if(q.anuladaData&&q.anuladaData.fecha&&q.status!=="superseded"&&q.status!=="convertida"){
+    if(typeof window!=="undefined"&&window.__GB_DEBUG_ANULADAS){
+      console.warn("[v6.4.0 P1] Doc con anuladaData pero status="+q.status,q.id||q.quoteNumber);
+    }
+    return true;
+  }
+  return false;
+}
+
+function noSumaEnKpis(q,contextLabel){
+  if(!q)return true;
+  if(q._wrongCollection)return true;
+  if(q.status==="superseded")return true;
+  if(q.status==="convertida")return true;
+  if(isAnulada(q)){
+    if(typeof window!=="undefined"&&window.__GB_DEBUG_ANULADAS){
+      console.warn("[v6.4.0 P1] Anulada bloqueada en KPI"+(contextLabel?" ("+contextLabel+")":""),q.id||q.quoteNumber);
+    }
+    return true;
+  }
+  return false;
 }
 
 function requiresWarning(q){
@@ -2255,6 +2287,9 @@ async function loadQuote(kind,id){
     try{
       const fDate=$("f-date");
       if(fDate)fDate.value=q.eventDate||"";
+      // v6.4.0 P2: cargar horaEntrega en el nuevo input editable
+      const fHora=$("f-hora-entrega");
+      if(fHora)fHora.value=q.horaEntrega||"";
       // Reset todos los checkboxes de momentos
       document.querySelectorAll('#f-moments input[type=checkbox]').forEach(cb=>{cb.checked=false});
       const fOther=$("f-time-other");if(fOther)fOther.value="";

@@ -462,6 +462,10 @@ async function renderHist(){
     if(status==="entregado"||q.comentarioCliente){
       actionBtns.push('<button class="btn hc-btn-coment" onclick="openComentModal(\''+q.id+'\',\''+q.kind+'\',event)">💬 '+(q.comentarioCliente?'Editar':'Registrar')+' comentario</button>');
     }
+    // v6.4.0 P6: si ya está entregado y tiene foto guardada, permitir reenviar a Kathy por WhatsApp
+    if(status==="entregado"&&q.entregaData&&(q.entregaData.fotoUrl||q.entregaData.foto2Url||q.entregaData.fotoBase64||q.entregaData.foto2Base64)){
+      actionBtns.push('<button class="btn hc-btn-coment" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" onclick="event.stopPropagation();reopenEntregaWhatsApp(\''+q.id+'\',\''+q.kind+'\')">📸 Enviar fotos a Kathy</button>');
+    }
     // v5.4.1 (Bloque B): botón para ver PDFs anteriores si hay historial de regeneraciones
     if(Array.isArray(q.pdfHistorial)&&q.pdfHistorial.length>0){
       actionBtns.push('<button class="btn hc-btn-pdfs" onclick="openPdfHistorialModal(\''+q.id+'\',\''+q.kind+'\',event)">📎 PDFs ('+q.pdfHistorial.length+')</button>');
@@ -1165,6 +1169,7 @@ async function toggleProduced(docId,kind,ev){
 // ═══════════════════════════════════════════════════════════
 let deliverySrc=null;
 let entregaFotoBase64=null;
+let entregaFoto2Base64=null; // v6.4.0 P6: segunda foto opcional
 
 function openDeliveryModal(docId,kind,ev){
   if(ev){ev.stopPropagation();ev.preventDefault()}
@@ -1173,6 +1178,8 @@ function openDeliveryModal(docId,kind,ev){
   deliverySrc={id:docId,kind:kind,doc:q};
   // v5.0: soporta fotoUrl (Storage) o fotoBase64 (legacy)
   entregaFotoBase64=q.entregaData?.fotoUrl||q.entregaData?.fotoBase64||null;
+  // v6.4.0 P6: cargar segunda foto si existe
+  entregaFoto2Base64=q.entregaData?.foto2Url||q.entregaData?.foto2Base64||null;
   $("dm-num").value=q.quoteNumber||q.id;
   $("dm-cli").value=q.client||"";
   $("dm-fecha").value=q.entregaData?.fechaEntrega||new Date().toISOString().slice(0,10);
@@ -1185,11 +1192,29 @@ function openDeliveryModal(docId,kind,ev){
   document.querySelectorAll('input[name="dm-foto-tipo"]').forEach(r=>{r.checked=(r.value===(q.entregaData?.fotoTipo||"producto"))});
   $("dm-foto").value="";
   if(entregaFotoBase64){
-    $("dm-foto-preview").innerHTML='<img src="'+entregaFotoBase64+'" style="max-width:100%;max-height:160px;border-radius:6px;border:1px solid #ddd"><div style="font-size:10px;color:#666;margin-top:3px">Foto previa cargada (cambiar = subir nueva)</div>';
+    $("dm-foto-preview").innerHTML='<img src="'+entregaFotoBase64+'" style="max-width:100%;max-height:160px;border-radius:6px;border:1px solid #ddd"><div style="font-size:10px;color:#666;margin-top:3px">Foto 1 cargada (cambiar = subir nueva)</div>';
   }else{$("dm-foto-preview").innerHTML=""}
+  // v6.4.0 P6: preview foto 2
+  if($("dm-foto2"))$("dm-foto2").value="";
+  if($("dm-foto2-preview")){
+    if(entregaFoto2Base64){
+      $("dm-foto2-preview").innerHTML='<img src="'+entregaFoto2Base64+'" style="max-width:100%;max-height:160px;border-radius:6px;border:1px solid #ddd"><div style="font-size:10px;color:#666;margin-top:3px">Foto 2 cargada (opcional)</div>';
+    }else{$("dm-foto2-preview").innerHTML=""}
+  }
+  // v6.4.0 hallazgo-2: sincronizar botones de quitar al abrir modal
+  if(typeof _syncFotoClearBtns==="function")_syncFotoClearBtns();
   $("delivery-modal").classList.remove("hidden");
 }
-function closeDeliveryModal(){$("delivery-modal").classList.add("hidden");deliverySrc=null;entregaFotoBase64=null}
+function closeDeliveryModal(){$("delivery-modal").classList.add("hidden");deliverySrc=null;entregaFotoBase64=null;entregaFoto2Base64=null}
+
+// v6.4.0 hallazgo-2: sincroniza visibilidad de los botones "Quitar foto"
+// con la presencia real de cada foto. Llamado desde openDeliveryModal,
+// previewEntregaFoto, previewEntregaFoto2 y clearEntregaFoto.
+function _syncFotoClearBtns(){
+  const b1=$("dm-foto-clear-btn"),b2=$("dm-foto2-clear-btn");
+  if(b1)b1.classList.toggle("hidden",!entregaFotoBase64);
+  if(b2)b2.classList.toggle("hidden",!entregaFoto2Base64);
+}
 
 function onEntregadoPorChange(){
   $("dm-entregado-otro").classList.toggle("hidden",$("dm-entregado-por").value!=="Otro");
@@ -1200,8 +1225,33 @@ function previewEntregaFoto(ev){
   _compressImageFile(file,b64=>{
     entregaFotoBase64=b64;
     const sizeKB=Math.round(b64.length*0.75/1024);
-    $("dm-foto-preview").innerHTML='<img src="'+b64+'" style="max-width:100%;max-height:160px;border-radius:6px;border:1px solid #ddd"><div style="font-size:10px;color:#666;margin-top:3px">Comprimida: '+sizeKB+' KB</div>';
+    $("dm-foto-preview").innerHTML='<img src="'+b64+'" style="max-width:100%;max-height:160px;border-radius:6px;border:1px solid #ddd"><div style="font-size:10px;color:#666;margin-top:3px">Foto 1 comprimida: '+sizeKB+' KB</div>';
+    if(typeof _syncFotoClearBtns==="function")_syncFotoClearBtns();
   });
+}
+// v6.4.0 P6: handler para la segunda foto
+function previewEntregaFoto2(ev){
+  const file=ev.target.files[0];
+  if(!file){return}
+  _compressImageFile(file,b64=>{
+    entregaFoto2Base64=b64;
+    const sizeKB=Math.round(b64.length*0.75/1024);
+    $("dm-foto2-preview").innerHTML='<img src="'+b64+'" style="max-width:100%;max-height:160px;border-radius:6px;border:1px solid #ddd"><div style="font-size:10px;color:#666;margin-top:3px">Foto 2 comprimida: '+sizeKB+' KB</div>';
+    if(typeof _syncFotoClearBtns==="function")_syncFotoClearBtns();
+  });
+}
+// v6.4.0 P6: borra una de las fotos (1 o 2)
+function clearEntregaFoto(idx){
+  if(idx===2){
+    entregaFoto2Base64=null;
+    if($("dm-foto2-preview"))$("dm-foto2-preview").innerHTML="";
+    if($("dm-foto2"))$("dm-foto2").value="";
+  }else{
+    entregaFotoBase64=null;
+    if($("dm-foto-preview"))$("dm-foto-preview").innerHTML="";
+    if($("dm-foto"))$("dm-foto").value="";
+  }
+  if(typeof _syncFotoClearBtns==="function")_syncFotoClearBtns();
 }
 
 async function submitDelivery(){
@@ -1235,6 +1285,20 @@ async function submitDelivery(){
       entregaData.fotoUrl=entregaFotoBase64;
     }
   }
+  // v6.4.0 P6: misma lógica para la segunda foto
+  if(entregaFoto2Base64){
+    if(entregaFoto2Base64.startsWith("data:")){
+      try{
+        const {url}=await uploadFotoFromBase64(entregaFoto2Base64,"entrega2",deliverySrc.id,"entregas");
+        entregaData.foto2Url=url;
+      }catch(e){
+        console.warn("Upload foto2 entrega falló, fallback a base64:",e);
+        entregaData.foto2Base64=entregaFoto2Base64;
+      }
+    }else{
+      entregaData.foto2Url=entregaFoto2Base64;
+    }
+  }
   try{
     showLoader("Registrando entrega...");
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
@@ -1250,11 +1314,123 @@ async function submitDelivery(){
     deliverySrc.doc.status="entregado";
     deliverySrc.doc.fechaEntrega=fecha;
     deliverySrc.doc.entregaData=entregaData;
-    hideLoader();closeDeliveryModal();
+    hideLoader();
+    // v6.4.0 P6: si hay al menos una foto, ofrecer envío por WhatsApp a Kathy ANTES de cerrar
+    const tieneFotos=!!(entregaData.fotoUrl||entregaData.foto2Url||entregaData.fotoBase64||entregaData.foto2Base64);
+    const docInfoForWA={
+      id:deliverySrc.id,
+      kind:deliverySrc.kind,
+      cliente:deliverySrc.doc.client||"—",
+      direccion:deliverySrc.doc.dir||"",
+      fecha:fecha,
+      hora:deliverySrc.doc.horaEntrega||"",
+      receptor:nombreReceptor||"",
+      foto1:entregaData.fotoUrl||"",
+      foto2:entregaData.foto2Url||""
+    };
+    closeDeliveryModal();
     toast("🎉 Entrega registrada","success");
     renderHist();
     if(curMode==="dash")renderDashboard();
+    if(tieneFotos&&typeof openEntregaWhatsAppModal==="function"){
+      // Pequeño delay para que se vea el toast antes del modal
+      setTimeout(()=>openEntregaWhatsAppModal(docInfoForWA),700);
+    }
   }catch(e){hideLoader();toast("Error: "+e.message,"error");console.error(e)}
+}
+
+// v6.4.0 P6: modal post-entrega para enviar foto(s) a Kathy por WhatsApp.
+// Como solo Kathy tiene WhatsApp Business de GourmetBites, el flujo es:
+//  1) Quien entrega registra la entrega + sube foto(s) a Firebase Storage
+//  2) Aparece este modal con un mensaje pre-armado y los links de las fotos
+//  3) Botón abre WhatsApp con el mensaje hacia el número de Kathy
+//  4) Kathy descarga las fotos del link y las reenvía al cliente desde el WhatsApp Business
+// La foto queda guardada en el doc → se puede reenviar después desde el historial.
+const KATHY_WA_TEL=(typeof window!=="undefined"&&window.__GB_KATHY_WA)||"573104441588"; // GB WhatsApp Business (Kathy)
+function openEntregaWhatsAppModal(info){
+  const modal=$("entrega-wa-modal");
+  if(!modal){
+    // Fallback si el modal no existe (HTML viejo): abrir wa.me directo con texto
+    const txt=_buildEntregaWaText(info);
+    window.open("https://wa.me/"+KATHY_WA_TEL+"?text="+encodeURIComponent(txt),"_blank");
+    return;
+  }
+  // Almacenar info para los botones
+  modal._info=info;
+  const cli=$("ewm-cli"),fec=$("ewm-fecha"),rec=$("ewm-receptor"),txt=$("ewm-texto");
+  if(cli)cli.textContent=info.cliente;
+  if(fec)fec.textContent=info.fecha+(info.hora?" "+info.hora:"");
+  if(rec)rec.textContent=info.receptor||"—";
+  if(txt)txt.value=_buildEntregaWaText(info);
+  // Preview de fotos
+  const prev=$("ewm-fotos-preview");
+  if(prev){
+    let html="";
+    if(info.foto1)html+='<a href="'+info.foto1+'" target="_blank" style="display:inline-block;margin:4px"><img src="'+info.foto1+'" style="max-width:120px;max-height:120px;border-radius:6px;border:1px solid #ddd"></a>';
+    if(info.foto2)html+='<a href="'+info.foto2+'" target="_blank" style="display:inline-block;margin:4px"><img src="'+info.foto2+'" style="max-width:120px;max-height:120px;border-radius:6px;border:1px solid #ddd"></a>';
+    prev.innerHTML=html||'<div style="color:#999;font-size:11px;padding:6px">Sin fotos adjuntas</div>';
+  }
+  modal.classList.remove("hidden");
+}
+function closeEntregaWhatsAppModal(){
+  const modal=$("entrega-wa-modal");
+  if(modal){modal.classList.add("hidden");modal._info=null}
+}
+function _buildEntregaWaText(info){
+  const li=[];
+  li.push("✅ *Entrega completada — Gourmet Bites*");
+  li.push("");
+  li.push("👤 Cliente: "+info.cliente);
+  if(info.direccion)li.push("📍 Dirección: "+info.direccion);
+  li.push("📅 Fecha: "+info.fecha+(info.hora?" "+info.hora:""));
+  if(info.receptor)li.push("✍️ Recibió: "+info.receptor);
+  li.push("");
+  if(info.foto1||info.foto2){
+    li.push("📸 Fotos:");
+    if(info.foto1)li.push(info.foto1);
+    if(info.foto2)li.push(info.foto2);
+    li.push("");
+    li.push("(Descarga las fotos del link y reenvíalas al cliente desde el WhatsApp Business)");
+  }
+  return li.join("\n");
+}
+function sendEntregaWhatsApp(){
+  const modal=$("entrega-wa-modal");
+  const info=modal&&modal._info;
+  if(!info)return;
+  const customTxt=$("ewm-texto")?.value||_buildEntregaWaText(info);
+  const url="https://wa.me/"+KATHY_WA_TEL+"?text="+encodeURIComponent(customTxt);
+  window.open(url,"_blank");
+  closeEntregaWhatsAppModal();
+}
+function copyEntregaWhatsAppText(){
+  const txt=$("ewm-texto")?.value||"";
+  if(!txt)return;
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(()=>{
+      if(typeof toast==="function")toast("📋 Mensaje copiado","success",2000);
+    }).catch(()=>{
+      if(typeof toast==="function")toast("No se pudo copiar","error");
+    });
+  }
+}
+// v6.4.0 P6: reabrir el modal WhatsApp desde el historial (entregas pasadas)
+function reopenEntregaWhatsApp(docId,kind){
+  const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
+  if(!q||!q.entregaData){if(typeof toast==="function")toast("No hay datos de entrega","warn");return}
+  const ed=q.entregaData;
+  const tieneFotos=!!(ed.fotoUrl||ed.foto2Url||ed.fotoBase64||ed.foto2Base64);
+  if(!tieneFotos){if(typeof toast==="function")toast("Esta entrega no tiene fotos guardadas","warn");return}
+  openEntregaWhatsAppModal({
+    id:docId,kind:kind,
+    cliente:q.client||"—",
+    direccion:q.dir||"",
+    fecha:ed.fechaEntrega||q.fechaEntrega||"",
+    hora:q.horaEntrega||"",
+    receptor:ed.nombreReceptor||"",
+    foto1:ed.fotoUrl||"",
+    foto2:ed.foto2Url||""
+  });
 }
 
 // Compat: el botón legacy markAsDelivered (si alguien lo llama) abre el modal nuevo

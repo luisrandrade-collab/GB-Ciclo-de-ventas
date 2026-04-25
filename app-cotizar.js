@@ -277,8 +277,23 @@ async function saveCurrentQuote(silent){
     if(prevComentarioCliente)qObj.comentarioCliente=prevComentarioCliente;
     if(prevProductionDate)qObj.productionDate=prevProductionDate;
     if(prevProduced!==null)qObj.produced=prevProduced;
-    if(prevEventDate)qObj.eventDate=prevEventDate;
-    if(prevHoraEntrega)qObj.horaEntrega=prevHoraEntrega;
+    // v6.4.0 P2: NO sobreescribir eventDate/horaEntrega si el usuario los editó en el form.
+    // Antes (v5.5.0-v6.3.0): siempre se restauraban los valores previos → era imposible
+    // cambiar fecha/hora de entrega de un pedido sin anular y crear de cero.
+    // Ahora: si el form tiene un valor distinto al guardado, se respeta el del form.
+    // Aplica para status logísticos (pedido, aprobada, en_produccion, entregado).
+    // v6.4.0 hallazgo-4: si el form viene vacío pero había valor previo, log defensivo
+    // (window.__GB_DEBUG_EDIT=true) para que Luis pueda detectar borrados accidentales.
+    const _formEventDate=$("f-date")?.value||"";
+    const _formHora=($("f-hora-entrega")?.value)||"";
+    if(_formEventDate){qObj.eventDate=_formEventDate}else if(prevEventDate){
+      qObj.eventDate=prevEventDate;
+      if(typeof window!=="undefined"&&window.__GB_DEBUG_EDIT)console.warn("[v6.4.0 P2] form sin eventDate → preservando previo",prevEventDate,"doc:",qNum);
+    }
+    if(_formHora){qObj.horaEntrega=_formHora}else if(prevHoraEntrega){
+      qObj.horaEntrega=prevHoraEntrega;
+      if(typeof window!=="undefined"&&window.__GB_DEBUG_EDIT)console.warn("[v6.4.0 P2] form sin horaEntrega → preservando previa",prevHoraEntrega,"doc:",qNum);
+    }
     // v5.5.0: preservar historial PDFs y audit trail en ediciones sobre mismo doc
     if(prevPdfHistorial)qObj.pdfHistorial=prevPdfHistorial;
     if(prevPdfRegenCount)qObj.pdfRegenCount=prevPdfRegenCount;
