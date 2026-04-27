@@ -55,6 +55,8 @@ function getDashRange(){
   const today=new Date();
   const todayIso=today.toISOString().slice(0,10);
   if(dashPeriod==="all")return{start:"0000-01-01",end:"9999-12-31",label:"Histórico completo"};
+  // v7.0-α D1.1: período "Hoy" — start y end son el mismo día
+  if(dashPeriod==="today")return{start:todayIso,end:todayIso,label:"Hoy ("+todayIso+")"};
   if(dashPeriod==="week"){const start=new Date(today);start.setDate(start.getDate()-6);return{start:start.toISOString().slice(0,10),end:todayIso,label:"Últimos 7 días ("+start.toISOString().slice(0,10)+" → "+todayIso+")"}}
   if(dashPeriod==="month"){const start=new Date(today.getFullYear(),today.getMonth(),1);return{start:start.toISOString().slice(0,10),end:todayIso,label:"Mes en curso ("+start.toISOString().slice(0,10).slice(0,7)+")"}}
   if(dashPeriod==="year"){const start=new Date(today.getFullYear(),0,1);return{start:start.toISOString().slice(0,10),end:todayIso,label:"Año en curso ("+today.getFullYear()+")"}}
@@ -66,12 +68,308 @@ function getDashRange(){
   const start=new Date(today.getFullYear(),today.getMonth(),1);
   return{start:start.toISOString().slice(0,10),end:todayIso,label:"Mes en curso ("+start.toISOString().slice(0,10).slice(0,7)+")"};
 }
+// v7.0-α D1.4: período anterior con misma duración que el actual, para Δ%.
+// 'all' no tiene anterior → null. Custom usa misma duración del rango.
+function getDashRangePrev(){
+  if(dashPeriod==="all")return null;
+  const r=getDashRange();
+  if(!r||!r.start||!r.end)return null;
+  const startD=new Date(r.start+"T00:00:00");
+  const endD=new Date(r.end+"T00:00:00");
+  if(isNaN(startD)||isNaN(endD))return null;
+  const days=Math.round((endD-startD)/86400000)+1;
+  const prevEnd=new Date(startD);prevEnd.setDate(prevEnd.getDate()-1);
+  const prevStart=new Date(prevEnd);prevStart.setDate(prevStart.getDate()-(days-1));
+  const labelMap={
+    "today":"vs ayer",
+    "week":"vs semana anterior",
+    "month":"vs mes anterior",
+    "year":"vs año anterior",
+    "custom":"vs rango anterior"
+  };
+  return {
+    start:prevStart.toISOString().slice(0,10),
+    end:prevEnd.toISOString().slice(0,10),
+    label:labelMap[dashPeriod]||"vs período anterior"
+  };
+}
+// v7.0-α D1.4: span Δ% honesto. previo=0 → "—" (placeholder honesto, sin engañar).
+function _deltaSpan(actual,previo,label){
+  if(previo===null||previo===undefined||!isFinite(previo)||previo===0){
+    return '<span class="dash-card-delta is-flat" title="Sin datos en '+(label||"período anterior")+'">— '+(label||"")+'</span>';
+  }
+  const pct=Math.round(((actual-previo)/previo)*100);
+  let cls="is-flat",arrow="→";
+  if(pct>0){cls="is-up";arrow="↑"}
+  else if(pct<0){cls="is-down";arrow="↓"}
+  const sign=pct>0?"+":"";
+  return '<span class="dash-card-delta '+cls+'">'+arrow+' '+sign+pct+'% '+(label||"")+'</span>';
+}
 function dateOfCreation(q){
   if(q.dateISO)return q.dateISO.slice(0,10);
   if(q.createdAt?.toDate)try{return q.createdAt.toDate().toISOString().slice(0,10)}catch{}
   return null;
 }
+
+// ─── v7.0-α D1.5 · Tendencia 6 meses (cot/ven/rec) ─────────
+// Q3: placeholder honesto. Mes sin datos en NINGUNA serie → no se dibuja punto.
+// La polilínea conecta solo los meses con datos. 1 mes con datos → solo dot.
+function computeTrend6m(){
+  const today=new Date();
+  const meses=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+  const out=[];
+  for(let i=5;i>=0;i--){
+    const d=new Date(today.getFullYear(),today.getMonth()-i,1);
+    const ymKey=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+    const isCurrent=(i===0);
+    out.push({key:ymKey,year:d.getFullYear(),month:d.getMonth(),label:meses[d.getMonth()],labelFull:meses[d.getMonth()]+" "+d.getFullYear(),cot:0,ven:0,rec:0,isCurrent:isCurrent,hasData:false});
+  }
+  const idxByKey={};out.forEach((m,i)=>{idxByKey[m.key]=i});
+  quotesCache.forEach(q=>{
+    try{
+      if(typeof noSumaEnKpis==="function"){if(noSumaEnKpis(q,"dash-trend"))return}
+      else{if(q._wrongCollection)return;const _st=q.status||"enviada";if(_st==="superseded"||_st==="anulada"||_st==="convertida")return}
+      const status=q.status||"enviada";
+      if(typeof getFollowUp==="function"&&getFollowUp(q)==="perdida"&&(status==="enviada"||status==="propfinal"))return;
+      const total=getDocTotal(q);
+      const fCre=dateOfCreation(q);const fVen=dateOfSale(q);
+      if(fCre&&status!=="convertida"){const k=fCre.slice(0,7);if(idxByKey[k]!==undefined)out[idxByKey[k]].cot+=total}
+      if(fVen&&["pedido","aprobada","en_produccion","entregado"].includes(status)){const k=fVen.slice(0,7);if(idxByKey[k]!==undefined)out[idxByKey[k]].ven+=total}
+      getPagos(q).forEach(p=>{if(p.fecha){const k=String(p.fecha).slice(0,7);if(idxByKey[k]!==undefined)out[idxByKey[k]].rec+=parseInt(p.monto)||0}});
+    }catch{}
+  });
+  out.forEach(m=>{m.hasData=(m.cot+m.ven+m.rec)>0});
+  return out;
+}
+function _trendFmt(n){if(n===0)return"$0";return"$"+(n/1e6).toFixed(2)+"M"}
+function _trendNiceCeil(max){
+  if(max<=0)return 1e6;
+  const exp=Math.pow(10,Math.floor(Math.log10(max)));
+  const m=max/exp;
+  let nice;
+  if(m<=1)nice=1;else if(m<=2)nice=2;else if(m<=5)nice=5;else nice=10;
+  return nice*exp;
+}
+function renderTrend6m(){
+  const el=$("dash-trend-6m");if(!el)return;
+  const data=computeTrend6m();
+  const dataValid=data.filter(m=>m.hasData);
+  const W=600,H=200,padL=58,padR=18,padT=18,padB=30;
+  const innerW=W-padL-padR,innerH=H-padT-padB;
+  const xStep=innerW/5;
+  const xOf=i=>padL+i*xStep;
+  // Y scale
+  let maxV=0;data.forEach(m=>{if(m.cot>maxV)maxV=m.cot;if(m.ven>maxV)maxV=m.ven;if(m.rec>maxV)maxV=m.rec});
+  const yMax=_trendNiceCeil(maxV||1);
+  const yOf=v=>padT+innerH*(1-(v/yMax));
+  // Header
+  const subRange=data[0].label.toUpperCase()+" "+data[0].year+" — "+data[5].label.toUpperCase()+" "+data[5].year;
+  // Build SVG
+  const grid=[0,.25,.5,.75,1].map(t=>{
+    const y=padT+innerH*t;
+    return '<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="#eceef2" stroke-width="1"/>';
+  }).join("");
+  const ylab=[0,.25,.5,.75,1].map(t=>{
+    const y=padT+innerH*t+3;
+    const v=yMax*(1-t);
+    return '<text x="'+(padL-8)+'" y="'+y+'" text-anchor="end" font-family="ui-monospace,monospace" font-size="10" fill="#9aa3b3">'+_trendFmt(v)+'</text>';
+  }).join("");
+  const xlab=data.map((m,i)=>{
+    const fill=m.isCurrent?"#21252f":"#6b7384";
+    const fw=m.isCurrent?"600":"400";
+    return '<text x="'+xOf(i)+'" y="'+(H-10)+'" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="'+fill+'" font-weight="'+fw+'">'+m.label.toUpperCase()+'</text>';
+  }).join("");
+  // Polilíneas: solo puntos con hasData; serie cot/ven/rec usa su valor (puede ser 0 aún con hasData=true en otra serie)
+  const seriesPoly=(key,color,strokeW)=>{
+    const pts=data.map((m,i)=>m.hasData?(xOf(i)+","+yOf(m[key])):null).filter(Boolean);
+    if(pts.length<2)return"";
+    return '<polyline points="'+pts.join(" ")+'" fill="none" stroke="'+color+'" stroke-width="'+strokeW+'" stroke-linejoin="round" stroke-linecap="round"/>';
+  };
+  const seriesDots=(key,color,r)=>{
+    return data.map((m,i)=>{
+      if(!m.hasData)return"";
+      const cur=m.isCurrent;
+      const rr=cur?r+0.5:r;
+      const stroke=cur?' stroke="white" stroke-width="2"':"";
+      return '<circle cx="'+xOf(i)+'" cy="'+yOf(m[key])+'" r="'+rr+'" fill="'+color+'"'+stroke+'/>';
+    }).join("");
+  };
+  // Línea vertical mes actual
+  const curIdx=data.findIndex(m=>m.isCurrent);
+  const curLine=curIdx>=0?'<line x1="'+xOf(curIdx)+'" y1="'+padT+'" x2="'+xOf(curIdx)+'" y2="'+(H-padB)+'" stroke="#dde1e8" stroke-width="1" stroke-dasharray="2 3"/>':"";
+  // Empty state si NO hay ningún mes con datos
+  if(dataValid.length===0){
+    el.innerHTML='<div class="trend-empty">Sin datos en los últimos 6 meses</div>';
+    return;
+  }
+  // Mensaje meses sin datos (placeholder honesto)
+  const mesesSinDatos=data.filter(m=>!m.hasData).length;
+  const footMsg=mesesSinDatos>0
+    ? '<div class="trend-foot">'+mesesSinDatos+' mes'+(mesesSinDatos!==1?'es':'')+' sin datos (piloto reciente)</div>'
+    : '';
+  el.innerHTML=
+    '<div class="trend-header"><div class="trend-title">Tendencia · 6 meses</div><div class="trend-sub">'+subRange+'</div></div>'+
+    '<div class="trend-legend">'+
+      '<span class="trend-legend__item"><span class="trend-legend__swatch" style="background:#9aa3b3"></span>Cotizado</span>'+
+      '<span class="trend-legend__item"><span class="trend-legend__swatch" style="background:#4853d4"></span>Vendido</span>'+
+      '<span class="trend-legend__item"><span class="trend-legend__swatch" style="background:#15a34a"></span>Recaudado</span>'+
+    '</div>'+
+    '<svg class="trend-svg" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">'+
+      grid+ylab+curLine+
+      seriesPoly("cot","#9aa3b3",2)+
+      seriesPoly("ven","#4853d4",2.5)+
+      seriesPoly("rec","#15a34a",2)+
+      seriesDots("cot","#9aa3b3",3)+
+      seriesDots("ven","#4853d4",3.5)+
+      seriesDots("rec","#15a34a",3)+
+      xlab+
+    '</svg>'+
+    footMsg;
+}
 function dateOfSale(q){return q.orderData?.fechaAprobacion||q.approvalData?.fechaAprobacion||null}
+
+// ─── v7.0-α D1.3 · Zona "Lo que pasa hoy" ──────────────────
+// 3 categorías reales (tareas → v7.1, no aplica). Orden por urgencia:
+// 1) Cobros vencidos (saldo>0 + entregado hace >7 días, mayor antigüedad primero)
+// 2) Producir hoy (pedido/aprobada con fechaEntrega=hoy, sin q.produced)
+// 3) Entregar hoy (en_produccion con fechaEntrega=hoy)
+function computeTodayZone(){
+  const today=new Date();today.setHours(0,0,0,0);
+  const todayIso=today.toISOString().slice(0,10);
+  const items=[];
+  (quotesCache||[]).forEach(q=>{
+    if(q._wrongCollection)return;
+    const s=q.status||"enviada";
+    if(["anulada","superseded","convertida"].includes(s))return;
+    const fEnt=q.fechaEntrega||q.eventDate;
+    if(!fEnt)return;
+    // 1) Cobros vencidos: status entregado con saldo>0, hace >7 días
+    if(s==="entregado"){
+      const saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
+      if(saldo>0){
+        const dias=Math.round((today-new Date(fEnt+"T00:00:00"))/86400000);
+        if(dias>7){
+          items.push({
+            urgency:0,q:q,
+            when:"VENCIDO",whenSub:"hace "+dias+" día"+(dias!==1?"s":""),
+            tag:"COBRO",
+            title:(q.client||"—")+" · saldo sin pagar",
+            sub:(q.id||"")+" · entregado "+fEnt,
+            amount:saldo,
+            sortKey:dias // mayor = más urgente dentro de vencidos
+          });
+        }
+      }
+      return;
+    }
+    // 2) Producir hoy
+    if(["pedido","aprobada"].includes(s)&&fEnt===todayIso&&!q.produced){
+      const hora=q.horaEntrega||"";
+      items.push({
+        urgency:1,q:q,
+        when:"HOY"+(hora?" "+hora:""),whenSub:"falta producir",
+        tag:"PRODUCCIÓN",
+        title:(q.client||"—")+" · falta producir",
+        sub:(q.id||"")+(hora?" · entrega "+hora:""),
+        amount:getDocTotal(q),
+        sortKey:hora||"99:99"
+      });
+    }
+    // 3) Entregar hoy
+    if(s==="en_produccion"&&fEnt===todayIso){
+      const hora=q.horaEntrega||"";
+      const saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
+      items.push({
+        urgency:2,q:q,
+        when:"HOY"+(hora?" "+hora:""),whenSub:"entregar",
+        tag:"ENTREGA",
+        title:(q.client||"—")+" · entrega",
+        sub:(q.id||"")+(saldo>0?" · saldo "+fm(saldo)+" al recibir":" · pagado"),
+        amount:getDocTotal(q),
+        sortKey:hora||"99:99"
+      });
+    }
+  });
+  items.sort((a,b)=>{
+    if(a.urgency!==b.urgency)return a.urgency-b.urgency;
+    if(a.urgency===0)return b.sortKey-a.sortKey;
+    return String(a.sortKey).localeCompare(String(b.sortKey));
+  });
+  return items;
+}
+function renderTodayZone(){
+  const list=$("dash-today-zone-list");
+  const countEl=$("dash-today-zone-count");
+  if(!list)return;
+  const items=computeTodayZone();
+  const total=items.length;
+  const vencidos=items.filter(i=>i.urgency===0).length;
+  if(countEl){
+    let txt=total+" item"+(total!==1?"s":"");
+    if(vencidos>0)txt+=" · "+vencidos+" vencido"+(vencidos!==1?"s":"");
+    countEl.textContent=txt;
+  }
+  if(!items.length){
+    list.innerHTML='<div class="today-empty">Nada urgente hoy ✓</div>';
+    return;
+  }
+  list.innerHTML=items.map(it=>{
+    const variantCls=it.urgency===0?"today-item--vencido":"today-item--hoy";
+    const amount=it.amount?fm(it.amount):"—";
+    const cli=String(it.title).replace(/[<>]/g,"");
+    const sub=String(it.sub).replace(/[<>]/g,"");
+    return '<div class="today-item '+variantCls+'" onclick="openDocument(\''+it.q.kind+'\',\''+it.q.id+'\')">'+
+      '<div class="today-item__bar"></div>'+
+      '<div class="today-item__when">'+it.when+(it.whenSub?'<small>'+it.whenSub+'</small>':'')+'</div>'+
+      '<div class="today-item__main">'+
+        '<div class="today-item__title">'+cli+' <span class="today-item__type-tag">'+it.tag+'</span></div>'+
+        '<div class="today-item__sub">'+sub+'</div>'+
+      '</div>'+
+      '<div class="today-item__action">'+
+        '<span class="today-item__amount">'+amount+'</span>'+
+        '<svg class="today-item__chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg>'+
+      '</div>'+
+    '</div>';
+  }).join("");
+}
+
+// v7.0-α D1.1 — saludo dinámico + sub fecha/semana en dash-head
+function renderDashHead(){
+  const today=new Date();
+  const dias=["domingo","lunes","martes","miércoles","jueves","viernes","sábado"];
+  const meses=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+  // ISO week number (lunes-domingo)
+  const _isoWeek=d=>{const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));t.setUTCDate(t.getUTCDate()+4-(t.getUTCDay()||7));const y=new Date(Date.UTC(t.getUTCFullYear(),0,1));return Math.ceil(((t-y)/86400000+1)/7)};
+  const subText=dias[today.getDay()]+" "+today.getDate()+" de "+meses[today.getMonth()]+", "+today.getFullYear()+" · semana "+_isoWeek(today);
+  const h=today.getHours();
+  let saludo="Buenos días";
+  if(h>=12&&h<19)saludo="Buenas tardes";
+  else if(h>=19||h<5)saludo="Buenas noches";
+  // Nombre del usuario: override por email del equipo, fallback displayName, fallback email split
+  const NOMBRE_POR_EMAIL={
+    "juanpanadrade2005@gmail.com":"Juan Pablo",
+    "kathy.matuk@gmail.com":"Kathy",
+    "luisrandrade@gmail.com":"Luis R"
+  };
+  let nombre="";
+  try{
+    const u=window.currentUser||window.fbUser||(window.fb&&window.fb.auth&&window.fb.auth.currentUser);
+    if(u){
+      const email=(u.email||"").toLowerCase();
+      if(NOMBRE_POR_EMAIL[email])nombre=NOMBRE_POR_EMAIL[email];
+      else nombre=(u.displayName||"").split(" ")[0]||email.split("@")[0]||"";
+    }
+  }catch{}
+  // Si vino del map, no capitalizar (ya está como debe ser); si vino del fallback, capitalizar primera letra
+  const nombreFinal=NOMBRE_POR_EMAIL[(window.currentUser?.email||"").toLowerCase()]
+    ?nombre
+    :(nombre?nombre.charAt(0).toUpperCase()+nombre.slice(1):"");
+  const greetText=saludo+(nombreFinal?", "+nombreFinal:"")+".";
+  const subEl=document.getElementById("dash-head-sub");
+  const grEl=document.getElementById("dash-head-greeting");
+  if(subEl)subEl.textContent=subText;
+  if(grEl)grEl.textContent=greetText;
+}
 
 async function renderDashboard(){
   if(!quotesCache.length){try{await loadAllHistory()}catch{}}
@@ -82,6 +380,7 @@ async function renderDashboard(){
   // quotesCache tiene datos corruptos.
   const _safe=(fn,name)=>{try{fn()}catch(e){console.warn("[Dashboard] sección '"+name+"' falló:",e);console.warn("  stack:",e?.stack)}};
 
+  _safe(renderDashHead,"dash-head"); // v7.0-α D1.1
   _safe(renderFantasmasBanner,"fantasmas-banner");
   _safe(renderBannerEntregasHoy,"banner-hoy");
   _safe(renderBannerConvertidasArchivables,"banner-convertidas");
@@ -102,12 +401,16 @@ async function renderDashboard(){
   let porCobrarTotal=0,porCobrarN=0;
   const recaudoMet={};METODOS_PAGO.forEach(m=>recaudoMet[m]=0);
   let totalRecaudo=0;
-  let range=null,inRange=null;
+  // v7.0-α D1.4: acumuladores del período anterior para Δ%
+  let cotMontoPrev=0,venMontoPrev=0,entMontoPrev=0,recaudoPrev=0;
+  let range=null,inRange=null,rangePrev=null,inRangePrev=null;
   _safe(()=>{
     range=getDashRange();
     const pInfoEl=$("dash-period-info");
     if(pInfoEl)pInfoEl.textContent=range.label;
     inRange=fecha=>fecha&&fecha>=range.start&&fecha<=range.end;
+    rangePrev=getDashRangePrev();
+    inRangePrev=rangePrev?(fecha=>fecha&&fecha>=rangePrev.start&&fecha<=rangePrev.end):()=>false;
     quotesCache.forEach(q=>{
       try{
         // v6.4.0 P1: defensa centralizada — excluye fantasmas/superseded/anuladas/convertidas
@@ -134,27 +437,41 @@ async function renderDashboard(){
         }
         if(["pedido","aprobada","en_produccion","entregado"].includes(status)){const pend=saldoPendiente(q);if(pend>0){porCobrarTotal+=pend;porCobrarN++}}
         getPagos(q).forEach(p=>{if(inRange(p.fecha)){const m=METODOS_PAGO.includes(p.metodo)?p.metodo:"Otro";recaudoMet[m]+=parseInt(p.monto)||0}});
+        // v7.0-α D1.4: misma lógica para período anterior (acumula solo montos para Δ%)
+        if(rangePrev){
+          if(inRangePrev(fCre)&&status!=="convertida")cotMontoPrev+=total;
+          if(inRangePrev(fVen)&&["pedido","aprobada","en_produccion","entregado"].includes(status))venMontoPrev+=total;
+          if(inRangePrev(fEnt)&&status==="entregado")entMontoPrev+=total;
+          getPagos(q).forEach(p=>{if(inRangePrev(p.fecha))recaudoPrev+=parseInt(p.monto)||0});
+        }
       }catch(eDoc){
         console.warn("[Dashboard] doc con error en loop:",q?.id,q?.kind,eDoc);
       }
     });
     totalRecaudo=Object.values(recaudoMet).reduce((s,v)=>s+v,0);
   },"metricas-loop");
-  const _hint='<div style="position:absolute;bottom:6px;right:8px;font-size:9px;color:var(--soft)">Toca para ver →</div>';
+  const _hint='<div style="position:absolute;bottom:6px;right:8px;font-size:9px;color:var(--gb-neutral-400)">Toca para ver →</div>';
+  // v7.0-α D1.4: span Δ% (solo si hay rangePrev; "Histórico completo" no tiene anterior)
+  const _prevLabel=rangePrev?rangePrev.label:"";
+  const _dCot=rangePrev?_deltaSpan(cotMonto,cotMontoPrev,_prevLabel):"";
+  const _dVen=rangePrev?_deltaSpan(venMonto,venMontoPrev,_prevLabel):"";
+  const _dEnt=rangePrev?_deltaSpan(entMonto,entMontoPrev,_prevLabel):"";
+  const _dRec=rangePrev?_deltaSpan(totalRecaudo,recaudoPrev,_prevLabel):"";
   // KPIs del período (bento)
   _safe(()=>{
     const el=$("dash-cards");
     if(!el){console.warn("[Dashboard] #dash-cards no existe en el DOM");return}
     el.innerHTML=
-      '<div class="dash-card cot" style="cursor:pointer" onclick="openDashDetail(\'cotizado\')"><div class="dash-card-icon">🧾</div><div class="dash-card-lab">Cotizado</div><div class="dash-card-val">'+fm(cotMonto)+'</div><div class="dash-card-sub">'+cotCount+' doc · '+cotClientes.size+' cliente'+(cotClientes.size!==1?'s':'')+'</div>'+_hint+'</div>'+
-      '<div class="dash-card vendido" style="cursor:pointer" onclick="openDashDetail(\'vendido\')"><div class="dash-card-icon">🤝</div><div class="dash-card-lab">Vendido</div><div class="dash-card-val">'+fm(venMonto)+'</div><div class="dash-card-sub">'+venCount+' pedido'+(venCount!==1?'s':'')+' · '+venClientes.size+' cliente'+(venClientes.size!==1?'s':'')+'</div>'+_hint+'</div>'+
-      '<div class="dash-card entregado" style="cursor:pointer" onclick="openDashDetail(\'entregado\')"><div class="dash-card-icon">🎉</div><div class="dash-card-lab">Entregado</div><div class="dash-card-val">'+fm(entMonto)+'</div><div class="dash-card-sub">'+entCount+' entrega'+(entCount!==1?'s':'')+(entCount>0?' · '+entCumplidasN+' cumplida'+(entCumplidasN!==1?'s':'')+' · '+entConSaldoN+' con saldo':'')+'</div>'+_hint+'</div>'+
-      '<div class="dash-card recaudo" style="cursor:pointer" onclick="openDashDetail(\'recaudo\')"><div class="dash-card-icon">💵</div><div class="dash-card-lab">Recaudado</div><div class="dash-card-val">'+fm(totalRecaudo)+'</div><div class="dash-card-sub">en el período</div>'+_hint+'</div>'+
+      '<div class="dash-card cot" style="cursor:pointer" onclick="openDashDetail(\'cotizado\')"><div class="dash-card-icon">🧾</div><div class="dash-card-lab">Cotizado</div><div class="dash-card-val">'+fm(cotMonto)+'</div><div class="dash-card-sub">'+cotCount+' doc · '+cotClientes.size+' cliente'+(cotClientes.size!==1?'s':'')+'</div>'+_dCot+_hint+'</div>'+
+      '<div class="dash-card vendido" style="cursor:pointer" onclick="openDashDetail(\'vendido\')"><div class="dash-card-icon">🤝</div><div class="dash-card-lab">Vendido</div><div class="dash-card-val">'+fm(venMonto)+'</div><div class="dash-card-sub">'+venCount+' pedido'+(venCount!==1?'s':'')+' · '+venClientes.size+' cliente'+(venClientes.size!==1?'s':'')+'</div>'+_dVen+_hint+'</div>'+
+      '<div class="dash-card entregado" style="cursor:pointer" onclick="openDashDetail(\'entregado\')"><div class="dash-card-icon">🎉</div><div class="dash-card-lab">Entregado</div><div class="dash-card-val">'+fm(entMonto)+'</div><div class="dash-card-sub">'+entCount+' entrega'+(entCount!==1?'s':'')+(entCount>0?' · '+entCumplidasN+' cumplida'+(entCumplidasN!==1?'s':'')+' · '+entConSaldoN+' con saldo':'')+'</div>'+_dEnt+_hint+'</div>'+
+      '<div class="dash-card recaudo" style="cursor:pointer" onclick="openDashDetail(\'recaudo\')"><div class="dash-card-icon">💵</div><div class="dash-card-lab">Recaudado</div><div class="dash-card-val">'+fm(totalRecaudo)+'</div><div class="dash-card-sub">en el período</div>'+_dRec+_hint+'</div>'+
       '<div class="dash-card cobrar" style="cursor:pointer" onclick="openDashDetail(\'cobrar\')"><div class="dash-card-icon">⚠️</div><div class="dash-card-lab">Por cobrar</div><div class="dash-card-val">'+fm(porCobrarTotal)+'</div><div class="dash-card-sub">'+porCobrarN+' documento'+(porCobrarN!==1?'s':'')+' (todos los activos)</div>'+_hint+'</div>';
   },"kpis-cards");
 
   // v5.2.0: Reportes comerciales (solo si range/inRange se calcularon OK)
   if(range&&inRange){
+    _safe(renderTrend6m,"trend-6m"); // v7.0-α D1.5
     _safe(()=>renderReporteConversion(range,inRange),"reporte-conversion");
     _safe(()=>renderReportePerdidas(range,inRange),"reporte-perdidas");
   }
@@ -163,6 +480,7 @@ async function renderDashboard(){
 
   // v5.3.0: Operación urgente (por producir + por entregar en próximos 3 días)
   // SIEMPRE VISIBLE — lo más importante del día a día operativo
+  _safe(renderTodayZone,"today-zone"); // v7.0-α D1.3
   _safe(renderUrgent3d,"urgent-3d");
 
   // v5.3.0: aplicar estado guardado de collapsibles (localStorage)
@@ -245,15 +563,15 @@ async function renderDashboard(){
       $("dash-coments").innerHTML=coments.slice(0,5).map(({q,c})=>{
         const fotoIcon=(c.fotoUrl||c.fotoBase64)?' 📷':'';
         const txt=(c.texto||"(solo foto)").slice(0,120)+((c.texto||"").length>120?'...':'');
-        return '<div class="dash-up-item" style="flex-direction:column;align-items:flex-start;gap:2px;padding:8px 0;border-bottom:1px solid var(--cl)" onclick="openComentModal(\''+q.id+'\',\''+q.kind+'\')">'+
-          '<div style="font-size:11px;color:var(--mid)"><strong>'+(q.client||"—")+'</strong> · '+(c.fecha||"—")+fotoIcon+'</div>'+
-          '<div style="font-size:12.5px;color:var(--bk);font-style:italic">"'+txt+'"</div>'+
+        return '<div class="dash-up-item" style="flex-direction:column;align-items:flex-start;gap:2px;padding:8px 0;border-bottom:1px solid var(--gb-cream)" onclick="openComentModal(\''+q.id+'\',\''+q.kind+'\')">'+
+          '<div style="font-size:11px;color:var(--gb-neutral-500)"><strong>'+(q.client||"—")+'</strong> · '+(c.fecha||"—")+fotoIcon+'</div>'+
+          '<div style="font-size:12.5px;color:var(--gb-neutral-900);font-style:italic">"'+txt+'"</div>'+
         '</div>';
       }).join("");
     }
   },"comentarios");
-  // v5.2.0: marcar visita actual para comparar en siguiente sesión (R5 simple)
-  try{saveLastVisit()}catch(e){console.warn("saveLastVisit falló:",e)}
+  // D1.2: el anchor del banner novedades se congela al primer render (ver renderBannerNovedades)
+  // y solo se persiste con saveLastVisit() en dismissNovedades(). NO guardar acá: rompería el delta.
 }
 
 // ─── MINI-DASHBOARD landing cotización ─────────────────────
@@ -424,7 +742,7 @@ function renderWeekEventCard(q,iso,todayIso){
   // Chip 🔪 acción rápida: solo si es pedido en un día próximo sin producir aún
   let accionChip="";
   if(q.kind==="quote"&&["pedido","en_produccion"].includes(sCls)&&!q.produced&&iso>=todayIso){
-    accionChip='<button class="we-accion-chip" onclick="event.stopPropagation();toggleProduced(\''+q.id+'\',event)" title="Marcar como producido">🔪 Producido</button>';
+    accionChip='<button class="we-accion-chip" onclick="event.stopPropagation();toggleProduced(\''+q.id+'\',event)" title="Marcar como producido">🔪 Marcar producido</button>';
   }
   return '<div class="wd-ev '+sCls+(opEstado?' op-'+opEstado.cls:'')+'" onclick="openDocument(\''+q.kind+'\',\''+q.id+'\')">'+
     '<div class="we-row-top">'+
@@ -1864,8 +2182,8 @@ function urgentItemHtml(q){
   // Chip "Producido" solo si aún no está producido. stopPropagation en el
   // onclick del chip para que NO dispare el loadQuote del contenedor.
   const prodChip=q.produced?
-    '<span class="urgent-prod-done" title="Producido '+(q.producedAt||"").slice(0,10)+'">🔪 Producido</span>':
-    '<button class="urgent-prod-chip" onclick="event.stopPropagation();toggleProduced(\''+q.id+'\',\''+q.kind+'\',event)">🔪 Producido</button>';
+    '<span class="urgent-prod-done" title="Producido '+(q.producedAt||"").slice(0,10)+'">✓ Producido</span>':
+    '<button class="urgent-prod-chip" onclick="event.stopPropagation();toggleProduced(\''+q.id+'\',\''+q.kind+'\',event)">🔪 Marcar producido</button>';
   return '<div class="urgent-item" onclick="openDocument(\''+q.kind+'\',\''+q.id+'\')">'+
     '<div class="urgent-item-top">'+
       '<div class="urgent-item-txt">'+
@@ -2398,9 +2716,13 @@ function toggleMantenimiento(){
   if(chev)chev.classList.toggle("open",_mantOpen);
 }
 
-// ─── R5 simple · Banner de novedades desde última visita ──
-// Guarda en localStorage la fecha de última visita del usuario actual.
-// Al entrar al dashboard, compara y muestra un banner si hay cambios relevantes.
+// ─── D1.2 · Banner novedades — delta real desde última visita acuse-recibido ──
+// Anchor congelado por sesión-dash: se captura UNA vez con getLastVisit() al primer
+// render y persiste hasta dismiss explícito. saveLastVisit() solo se llama en dismiss
+// (Q1.A confirmado por Luis: "lo nuevo desde la última vez que ack'easte, no desde
+// el render anterior"). Si renderDashboard re-corre durante la sesión, el banner
+// sigue mostrando el mismo delta acumulado vs el anchor.
+let _dashVisitAnchor=null;
 function _lastVisitKey(){
   const uid=(typeof currentUser!=="undefined"&&currentUser?.uid)||"anon";
   return "gb_last_visit_"+uid;
@@ -2415,12 +2737,9 @@ function renderBannerNovedades(){
   const el=$("dash-banner-novedades");
   if(!el)return;
   el.classList.add("hidden");
-  const last=getLastVisit();
+  if(_dashVisitAnchor===null)_dashVisitAnchor=getLastVisit();
+  const last=_dashVisitAnchor;
   if(!last)return; // primera visita, no hay con qué comparar
-  // Detectar cambios desde last:
-  //   - Pedidos nuevos (status pedido/aprobada con createdAt o updatedAt > last)
-  //   - Entregas registradas (status entregado con updatedAt > last)
-  //   - Pagos recibidos (algún pago con fecha > last)
   let nuevosPedidos=0,nuevasEntregas=0,nuevosPagos=0;
   const lastTs=new Date(last).getTime();
   quotesCache.forEach(q=>{
@@ -2433,7 +2752,6 @@ function renderBannerNovedades(){
       if(["pedido","aprobada","en_produccion"].includes(s))nuevosPedidos++;
       if(s==="entregado")nuevasEntregas++;
     }
-    // pagos
     const pagos=typeof getPagos==="function"?getPagos(q):[];
     pagos.forEach(p=>{
       if(p.registradoEn){
@@ -2452,19 +2770,40 @@ function renderBannerNovedades(){
   if(nuevasEntregas)partes.push(nuevasEntregas+" entrega"+(nuevasEntregas!==1?"s":"")+" registrada"+(nuevasEntregas!==1?"s":""));
   if(nuevosPagos)partes.push(nuevosPagos+" pago"+(nuevosPagos!==1?"s":"")+" recibido"+(nuevosPagos!==1?"s":""));
   const desde=new Date(last);
-  const desdeStr=desde.toLocaleDateString("es-CO",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
+  const desdeStr=desde.toLocaleString("es-CO",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
   el.classList.remove("hidden");
-  el.innerHTML='<div class="dbn-ic">🔔</div>'+
-    '<div class="dbn-body">'+
-      '<div class="dbn-title">Novedades desde tu última visita</div>'+
-      '<div class="dbn-desc">'+partes.join(" · ")+' · desde '+desdeStr+'</div>'+
+  el.innerHTML=
+    '<svg class="news-banner__icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+
+      '<path d="M14 6a5 5 0 00-10 0v3l-1.5 3h13L14 9V6z"/>'+
+      '<path d="M7 14a2 2 0 004 0"/>'+
+    '</svg>'+
+    '<div class="news-banner__body">'+
+      '<strong>'+partes.join(" · ")+'</strong>'+
+      '<span class="since">desde tu última visita el '+desdeStr+'</span>'+
     '</div>'+
-    '<button class="dbn-close" onclick="dismissNovedades(event)" title="Descartar">×</button>';
+    '<button class="news-banner__close" onclick="dismissNovedades(event)" aria-label="Descartar">'+
+      '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8"/></svg>'+
+    '</button>';
 }
 function dismissNovedades(ev){
   if(ev){ev.stopPropagation();ev.preventDefault()}
+  const el=$("dash-banner-novedades");
   saveLastVisit();
-  const el=$("dash-banner-novedades");if(el)el.classList.add("hidden");
+  _dashVisitAnchor=null; // próximo render releerá el nuevo anchor (=ahora) → sin novedades
+  if(!el){return}
+  el.style.transition="opacity 200ms, transform 200ms, max-height 300ms 200ms, margin 300ms 200ms, padding 300ms 200ms, border 300ms 200ms";
+  el.style.opacity="0";
+  el.style.transform="translateY(-4px)";
+  setTimeout(()=>{
+    el.style.maxHeight="0";
+    el.style.margin="0";
+    el.style.padding="0";
+    el.style.border="none";
+    setTimeout(()=>{
+      el.classList.add("hidden");
+      el.removeAttribute("style"); // limpia para próximo render
+    },320);
+  },200);
 }
 
 // ═══════════════════════════════════════════════════════════════════

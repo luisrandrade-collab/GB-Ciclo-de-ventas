@@ -94,21 +94,21 @@ function renderR(){
   if(!all.length){$("rev-content").innerHTML='<div class="empty"><div class="ic">📋</div><p>No hay productos</p><button class="btn bp" onclick="go(\'products\')">Agregar Productos</button></div>';return}
   let rows="";
   cart.forEach(i=>{
-    const editedBadge=i.edited?' <span style="font-size:9px;background:var(--gd);color:#fff;padding:1px 5px;border-radius:3px">AJUSTADO</span>':'';
+    const editedBadge=i.edited?' <span style="font-size:9px;background:var(--gb-gold-500);color:#fff;padding:1px 5px;border-radius:3px">AJUSTADO</span>':'';
     const priceInput='<input type="number" class="pinput'+(i.edited?' edited':'')+'" value="'+i.p+'" onchange="chgCartPrice('+i.id+',+this.value)" onfocus="this.select()">';
-    rows+='<tr><td style="text-align:left"><strong>'+i.n+'</strong>'+editedBadge+(i.d?'<br><span style="font-size:10px;color:#999">'+i.d+'</span>':'')+'</td><td style="text-align:center"><div class="qc" style="justify-content:center"><button class="qb" style="width:24px;height:24px;font-size:14px" onclick="chgCartR('+i.id+','+(i.qty-1)+')">−</button><input type="number" class="qn" value="'+i.qty+'" min="1" onchange="chgCartR('+i.id+',+this.value)" onfocus="this.select()" style="width:34px;font-size:12px"><button class="qb" style="width:24px;height:24px;font-size:14px" onclick="chgCartR('+i.id+','+(i.qty+1)+')">+</button></div></td><td style="text-align:right">'+priceInput+'</td><td style="text-align:right;font-weight:600">'+fm(i.p*i.qty)+'</td><td><button style="background:none;border:none;color:var(--rd);font-size:18px;cursor:pointer" onclick="remCart('+i.id+')">×</button></td></tr>';
+    rows+='<tr><td style="text-align:left"><strong>'+i.n+'</strong>'+editedBadge+(i.d?'<br><span style="font-size:10px;color:#999">'+i.d+'</span>':'')+'</td><td style="text-align:center"><div class="qc" style="justify-content:center"><button class="qb" style="width:24px;height:24px;font-size:14px" onclick="chgCartR('+i.id+','+(i.qty-1)+')">−</button><input type="number" class="qn" value="'+i.qty+'" min="1" onchange="chgCartR('+i.id+',+this.value)" onfocus="this.select()" style="width:34px;font-size:12px"><button class="qb" style="width:24px;height:24px;font-size:14px" onclick="chgCartR('+i.id+','+(i.qty+1)+')">+</button></div></td><td style="text-align:right">'+priceInput+'</td><td style="text-align:right;font-weight:600">'+fm(i.p*i.qty)+'</td><td><button style="background:none;border:none;color:var(--gb-danger-500);font-size:18px;cursor:pointer" onclick="remCart('+i.id+')">×</button></td></tr>';
   });
   cust.forEach(i=>{
     const priceInput='<input type="number" class="pinput" value="'+i.p+'" onchange="chgCustPrice(\''+i.id+'\',+this.value)" onfocus="this.select()">';
-    rows+='<tr style="background:#FFFDE7"><td style="text-align:left"><strong>'+i.n+'</strong> <span style="font-size:9px;background:var(--gd);color:#fff;padding:1px 5px;border-radius:3px">CUSTOM</span>'+(i.d?'<br><span style="font-size:10px;color:#999">'+i.d+'</span>':'')+'</td><td style="text-align:center"><div class="qc" style="justify-content:center"><button class="qb" style="width:24px;height:24px;font-size:14px" onclick="chgCustQ(\''+i.id+'\','+(i.qty-1)+')">−</button><input type="number" class="qn" value="'+i.qty+'" min="1" onchange="chgCustQ(\''+i.id+'\',+this.value)" onfocus="this.select()" style="width:34px;font-size:12px"><button class="qb" style="width:24px;height:24px;font-size:14px" onclick="chgCustQ(\''+i.id+'\','+(i.qty+1)+')">+</button></div></td><td style="text-align:right">'+priceInput+'</td><td style="text-align:right;font-weight:600">'+fm(i.p*i.qty)+'</td><td><button style="background:none;border:none;color:var(--rd);font-size:18px;cursor:pointer" onclick="remCust(\''+i.id+'\')">×</button></td></tr>';
+    rows+='<tr style="background:#FFFDE7"><td style="text-align:left"><strong>'+i.n+'</strong> <span style="font-size:9px;background:var(--gb-gold-500);color:#fff;padding:1px 5px;border-radius:3px">CUSTOM</span>'+(i.d?'<br><span style="font-size:10px;color:#999">'+i.d+'</span>':'')+'</td><td style="text-align:center"><div class="qc" style="justify-content:center"><button class="qb" style="width:24px;height:24px;font-size:14px" onclick="chgCustQ(\''+i.id+'\','+(i.qty-1)+')">−</button><input type="number" class="qn" value="'+i.qty+'" min="1" onchange="chgCustQ(\''+i.id+'\',+this.value)" onfocus="this.select()" style="width:34px;font-size:12px"><button class="qb" style="width:24px;height:24px;font-size:14px" onclick="chgCustQ(\''+i.id+'\','+(i.qty+1)+')">+</button></div></td><td style="text-align:right">'+priceInput+'</td><td style="text-align:right;font-weight:600">'+fm(i.p*i.qty)+'</td><td><button style="background:none;border:none;color:var(--gb-danger-500);font-size:18px;cursor:pointer" onclick="remCust(\''+i.id+'\')">×</button></td></tr>';
   });
-  if(tr)rows+='<tr style="background:var(--cl)"><td style="text-align:left"><strong>'+tr.n+'</strong></td><td style="text-align:center">1</td><td style="text-align:right">'+fm(tr.p)+'</td><td style="text-align:right;font-weight:600">'+fm(tr.p)+'</td><td></td></tr>';
+  if(tr)rows+='<tr style="background:var(--gb-cream)"><td style="text-align:left"><strong>'+tr.n+'</strong></td><td style="text-align:center">1</td><td style="text-align:right">'+fm(tr.p)+'</td><td style="text-align:right;font-weight:600">'+fm(tr.p)+'</td><td></td></tr>';
   const payBoxHtml='<div class="paybox"><div class="paytit">INSTRUCCIONES DE PAGO</div><div class="paybody">'+
-    '<div style="margin-bottom:8px"><div style="font-size:10px;font-weight:700;color:var(--gd);letter-spacing:.6px;margin-bottom:3px">PERSONAS NATURALES</div>'+
+    '<div style="margin-bottom:8px"><div style="font-size:10px;font-weight:700;color:var(--gb-gold-500);letter-spacing:.6px;margin-bottom:3px">PERSONAS NATURALES</div>'+
     '<strong>Nequi / Daviplata:</strong> 3176654635<br>'+
     '<strong>Bre-B (al banco):</strong> juanpandrade2005@gmail.com<br>'+
     '<strong>Titular:</strong> Juan Pablo Andrade</div>'+
-    '<div style="margin-bottom:8px;padding-top:6px;border-top:1px dashed rgba(201,169,110,.3)"><div style="font-size:10px;font-weight:700;color:var(--gd);letter-spacing:.6px;margin-bottom:3px">EMPRESAS (transferencia ACH)</div>'+
+    '<div style="margin-bottom:8px;padding-top:6px;border-top:1px dashed rgba(201,169,110,.3)"><div style="font-size:10px;font-weight:700;color:var(--gb-gold-500);letter-spacing:.6px;margin-bottom:3px">EMPRESAS (transferencia ACH)</div>'+
     '<strong>Banco Falabella:</strong> Cuenta de Ahorros No. 111820028616<br>'+
     '<strong>Titular:</strong> Juan Pablo Andrade Matuk — C.C. 1.032.876.662</div>'+
     '<div class="paynote">Envía el comprobante del pago por WhatsApp para procesar la confirmación del pedido. Mínimo 24 horas de anticipación a la entrega.</div>'+
@@ -271,7 +271,8 @@ async function saveCurrentQuote(silent){
       total:getTotal(),status:prevStatus,
       notasCotData:{...notasCotData},firma:firmaCot
     };
-    if(prevOrderData)qObj.orderData=prevOrderData;
+    // v7.0-α FIX-01-Q9: orderData se reconcilia más abajo, después de que qObj
+    // tenga eventDate/horaEntrega/productionDate finales (del form o preservados).
     if(prevPagos)qObj.pagos=prevPagos;
     if(prevEntregaData)qObj.entregaData=prevEntregaData;
     if(prevComentarioCliente)qObj.comentarioCliente=prevComentarioCliente;
@@ -293,6 +294,21 @@ async function saveCurrentQuote(silent){
     if(_formHora){qObj.horaEntrega=_formHora}else if(prevHoraEntrega){
       qObj.horaEntrega=prevHoraEntrega;
       if(typeof window!=="undefined"&&window.__GB_DEBUG_EDIT)console.warn("[v6.4.0 P2] form sin horaEntrega → preservando previa",prevHoraEntrega,"doc:",qNum);
+    }
+    // v7.0-α FIX-01-Q9: reconciliar orderData con valores del form (única fuente de verdad).
+    // Antes (v6.4.x): orderData se preservaba intacto → si el usuario editaba fecha/hora desde
+    // el form, q.eventDate/q.horaEntrega se actualizaban pero q.orderData.* quedaba viejo.
+    // Resultado: módulos que leen de orderData mostraban fecha desincronizada.
+    if(prevOrderData){
+      qObj.orderData={
+        ...prevOrderData,
+        fechaEntrega:qObj.eventDate||prevOrderData.fechaEntrega||"",
+        horaEntrega:qObj.horaEntrega||prevOrderData.horaEntrega||"",
+        productionDate:qObj.productionDate||prevOrderData.productionDate||""
+      };
+      if(typeof window!=="undefined"&&window.__GB_V7_DEBUG){
+        console.log("[FIX-01-Q9] orderData reconciliado en save",{doc:qNum,orderData:qObj.orderData});
+      }
     }
     // v5.5.0: preservar historial PDFs y audit trail en ediciones sobre mismo doc
     if(prevPdfHistorial)qObj.pdfHistorial=prevPdfHistorial;

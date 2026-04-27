@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v6.4.0";
+const BUILD_VERSION="v7.0.0-α";
 const BUILD_DATE="2026-04-24";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -389,6 +389,53 @@ const STATUS_META={
   superseded:   {label:"Reemplazada",     cls:"superseded",    desc:"PF reemplazada por una versión nueva"},
   anulada:      {label:"Anulada",         cls:"anulada",       desc:"Cancelada antes de entregar — registro histórico"}
 };
+
+// ═══════════════════════════════════════════════════════════
+// v7.0-α FIX-05: MÁQUINA DE ESTADOS — grafo formal de transiciones
+// ═══════════════════════════════════════════════════════════
+// Define qué transiciones de status están permitidas. Modo de operación:
+//   • Por defecto (audit): NO bloquea, solo loguea con window.__GB_V7_DEBUG
+//   • Enforce: window.__GB_V7_ENFORCE_FSM = true bloquea con toast
+//
+// Estados terminales (no hay transición saliente): anulada, convertida, superseded.
+// 'perdida' es reactivable a 'enviada' (legacy, raro pero existe en STATUS_META extendido).
+// 'entregado → en_produccion' es la reversión introducida en FIX-03.
+const STATE_TRANSITIONS={
+  enviada:      ["pedido","aprobada","propfinal","perdida","anulada","convertida","superseded"],
+  propfinal:    ["aprobada","superseded","anulada"],
+  aprobada:     ["en_produccion","entregado","anulada"],
+  pedido:       ["en_produccion","entregado","anulada"],
+  en_produccion:["entregado","anulada"],
+  entregado:    ["en_produccion"],
+  perdida:      ["enviada"],
+  anulada:      [],
+  convertida:   [],
+  superseded:   []
+};
+
+// auditTransition(fromStatus, toStatus, context) → boolean
+// Llamado desde los call sites principales antes de hacer updateDoc con un cambio de status.
+// Retorna false SOLO si está en modo enforce y la transición no es válida.
+// En audit puro: siempre retorna true, solo registra console.warn si la transición es sospechosa.
+function auditTransition(fromStatus,toStatus,context){
+  if(!fromStatus||!toStatus)return true; // sin info para auditar
+  if(fromStatus===toStatus)return true;  // no es transición real
+  const allowed=STATE_TRANSITIONS[fromStatus];
+  if(!Array.isArray(allowed)){
+    if(window.__GB_V7_DEBUG)console.warn("[FIX-05] estado desconocido en grafo",{from:fromStatus,to:toStatus,context:context||""});
+    return true;
+  }
+  if(allowed.includes(toStatus)){
+    if(window.__GB_V7_DEBUG)console.log("[FIX-05] transición OK",{from:fromStatus,to:toStatus,context:context||""});
+    return true;
+  }
+  console.warn("[FIX-05] ⚠️ transición SOSPECHOSA (audit mode)",{from:fromStatus,to:toStatus,context:context||"",allowed});
+  if(window.__GB_V7_ENFORCE_FSM){
+    if(typeof toast==="function")toast("⚠️ Transición no permitida: "+fromStatus+" → "+toStatus+(context?" ("+context+")":""),"error",6000);
+    return false;
+  }
+  return true; // audit mode: NO bloquea
+}
 
 // ═══════════════════════════════════════════════════════════
 // v5.5.0: EDICIÓN DE PEDIDOS — Helpers de política de edición
@@ -1129,14 +1176,10 @@ async function loadAllHistory(){
 async function autoTransitionToEnProduccion(list){
   if(!cloudOnline)return;
   const todayIso=new Date().toISOString().slice(0,10);
-  const candidatos=list.filter(q=>{
-    if(q.status==="aprobada" && q.eventDate && q.eventDate<=todayIso)return true;
-    if(q.status==="pedido"){
-      const fechaTrigger=q.productionDate||q.eventDate;
-      if(fechaTrigger && fechaTrigger<=todayIso)return true;
-    }
-    return false;
-  });
+  // E1.1 (2026-04-26): solo 'aprobada' se auto-promueve (limbo de propuestas que llegaron al
+  // día del evento sin cerrar wizard). 'pedido' → 'en_produccion' YA NO es automático: requiere
+  // botón "🔥 Iniciar producción" explícito que dispara Kathy cuando realmente prende la cocina.
+  const candidatos=list.filter(q=>q.status==="aprobada" && q.eventDate && q.eventDate<=todayIso);
   if(!candidatos.length)return;
   try{
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
@@ -1731,11 +1774,11 @@ async function doSearch(){
   el.innerHTML=dedup.slice(0,30).map(r=>{
     if(r.type==="cot"||r.type==="prop"){
       const q=r.data;const qn=q.quoteNumber||r.id;
-      return '<div class="search-result" onclick="openDocument(\''+(r.type==="cot"?"quote":"proposal")+'\',\''+r.id+'\')"><div class="sr-top"><div><span class="qnum">'+h(qn)+'</span> <strong>'+h(q.client||"—")+'</strong></div><span class="sr-type t-'+r.type+'">'+(r.type==="cot"?"Cotización":"Propuesta")+'</span></div>'+(q.total?'<div style="font-size:13px;color:var(--gr);font-weight:700">'+fm(q.total)+'</div>':'')+'<div style="font-size:11px;color:var(--soft)">'+(q.dateISO?new Date(q.dateISO).toLocaleDateString("es-CO"):"")+'</div></div>';
+      return '<div class="search-result" onclick="openDocument(\''+(r.type==="cot"?"quote":"proposal")+'\',\''+r.id+'\')"><div class="sr-top"><div><span class="qnum">'+h(qn)+'</span> <strong>'+h(q.client||"—")+'</strong></div><span class="sr-type t-'+r.type+'">'+(r.type==="cot"?"Cotización":"Propuesta")+'</span></div>'+(q.total?'<div style="font-size:13px;color:var(--gb-success-500);font-weight:700">'+fm(q.total)+'</div>':'')+'<div style="font-size:11px;color:var(--gb-neutral-400)">'+(q.dateISO?new Date(q.dateISO).toLocaleDateString("es-CO"):"")+'</div></div>';
     }
-    if(r.type==="cli"){const c=r.data;return '<div class="search-result" onclick="pickClientFromSearch(\''+c.id+'\')"><div class="sr-top"><div><strong>'+c.name+'</strong>'+(c.idtype?' — '+c.idtype+' '+c.idnum:'')+'</div><span class="sr-type t-cli">Cliente</span></div><div style="font-size:11px;color:var(--mid)">'+(c.tel||"")+(c.mail?' · '+c.mail:'')+'</div></div>'}
-    if(r.type==="prod"){const p=r.data;return '<div class="search-result" style="border-left-color:#6A1B9A"><div class="sr-top"><div><strong>'+p.n+'</strong></div><span class="sr-type t-prod">Catálogo</span></div>'+(p.d?'<div style="font-size:11px;color:var(--soft)">'+p.d+'</div>':'')+'<div style="font-size:13px;color:var(--gr);font-weight:700">'+fm(p.p)+' · '+p.u+'</div><div style="font-size:10px;color:var(--mid)">'+p.c+'</div></div>'}
-    if(r.type==="cprod"){const p=r.data;return '<div class="search-result" style="border-left-color:var(--gd)"><div class="sr-top"><div><strong>'+p.n+'</strong> <span style="font-size:9px;background:var(--gd);color:#fff;padding:1px 5px;border-radius:3px">CUSTOM</span></div><span class="sr-type t-prod">'+(p.useCount||1)+' usos'+(p.promoted?' ✓':"")+'</span></div>'+(p.d?'<div style="font-size:11px;color:var(--soft)">'+p.d+'</div>':'')+'<div style="font-size:13px;color:var(--gr);font-weight:700">'+fm(p.p||0)+(p.u?' · '+p.u:"")+'</div></div>'}
+    if(r.type==="cli"){const c=r.data;return '<div class="search-result" onclick="pickClientFromSearch(\''+c.id+'\')"><div class="sr-top"><div><strong>'+c.name+'</strong>'+(c.idtype?' — '+c.idtype+' '+c.idnum:'')+'</div><span class="sr-type t-cli">Cliente</span></div><div style="font-size:11px;color:var(--gb-neutral-500)">'+(c.tel||"")+(c.mail?' · '+c.mail:'')+'</div></div>'}
+    if(r.type==="prod"){const p=r.data;return '<div class="search-result" style="border-left-color:#6A1B9A"><div class="sr-top"><div><strong>'+p.n+'</strong></div><span class="sr-type t-prod">Catálogo</span></div>'+(p.d?'<div style="font-size:11px;color:var(--gb-neutral-400)">'+p.d+'</div>':'')+'<div style="font-size:13px;color:var(--gb-success-500);font-weight:700">'+fm(p.p)+' · '+p.u+'</div><div style="font-size:10px;color:var(--gb-neutral-500)">'+p.c+'</div></div>'}
+    if(r.type==="cprod"){const p=r.data;return '<div class="search-result" style="border-left-color:var(--gb-gold-500)"><div class="sr-top"><div><strong>'+p.n+'</strong> <span style="font-size:9px;background:var(--gb-gold-500);color:#fff;padding:1px 5px;border-radius:3px">CUSTOM</span></div><span class="sr-type t-prod">'+(p.useCount||1)+' usos'+(p.promoted?' ✓':"")+'</span></div>'+(p.d?'<div style="font-size:11px;color:var(--gb-neutral-400)">'+p.d+'</div>':'')+'<div style="font-size:13px;color:var(--gb-success-500);font-weight:700">'+fm(p.p||0)+(p.u?' · '+p.u:"")+'</div></div>'}
     return "";
   }).join("");
 }
@@ -1766,7 +1809,7 @@ function renderCats(){$("cats").innerHTML=CATS.map(c=>`<button class="cpill ${c=
 function selC(c){selCat=c;renderCats();renderP()}
 function renderP(){renderCats();const s=($("sbox").value||"").toLowerCase();const f=C.filter(p=>(selCat==="Todas"||p.c===selCat)&&(!s||p.n.toLowerCase().includes(s)||p.d.toLowerCase().includes(s)));const el=$("plist");const atMax=distIt()>=MX;
 if(!f.length){el.innerHTML='<div class="empty"><div class="ic">🔍</div><p>No se encontraron productos</p><button class="btn bg" onclick="togCF()">+ Personalizado</button></div>';return}
-el.innerHTML=f.map(p=>{const ic=cart.find(x=>x.id===p.id);const canAdd=!atMax||ic;return'<div class="pcard '+(ic?'inc':'')+'"><div class="pinfo"><div class="pname">'+p.n+'</div>'+(p.d?'<div class="pdesc">'+p.d+'</div>':'')+'<div class="punit">'+p.u+'</div><div class="pprice">'+fm(p.p)+'</div></div><div>'+(ic?'<div class="qc"><button class="qb" onclick="chgQ('+p.id+','+(ic.qty-1)+')">−</button><input type="number" class="qn" value="'+ic.qty+'" min="1" onchange="chgQ('+p.id+',+this.value)" onfocus="this.select()"><button class="qb" onclick="chgQ('+p.id+','+(ic.qty+1)+')">+</button></div>':canAdd?'<button class="abtn" onclick="addC('+p.id+')">Agregar</button>':'<span style="font-size:11px;color:var(--soft)">Máx</span>')+'</div></div>'}).join("");updUI()}
+el.innerHTML=f.map(p=>{const ic=cart.find(x=>x.id===p.id);const canAdd=!atMax||ic;return'<div class="pcard '+(ic?'inc':'')+'"><div class="pinfo"><div class="pname">'+p.n+'</div>'+(p.d?'<div class="pdesc">'+p.d+'</div>':'')+'<div class="punit">'+p.u+'</div><div class="pprice">'+fm(p.p)+'</div></div><div>'+(ic?'<div class="qc"><button class="qb" onclick="chgQ('+p.id+','+(ic.qty-1)+')">−</button><input type="number" class="qn" value="'+ic.qty+'" min="1" onchange="chgQ('+p.id+',+this.value)" onfocus="this.select()"><button class="qb" onclick="chgQ('+p.id+','+(ic.qty+1)+')">+</button></div>':canAdd?'<button class="abtn" onclick="addC('+p.id+')">Agregar</button>':'<span style="font-size:11px;color:var(--gb-neutral-400)">Máx</span>')+'</div></div>'}).join("");updUI()}
 function addC(id){if(distIt()>=MX){toast("Máximo "+MX+" productos","warn");return}const p=C.find(x=>x.id===id);if(!p)return;const e=cart.find(x=>x.id===id);if(e)e.qty++;else cart.push({...p,qty:1,origP:p.p,edited:false});renderP()}
 function chgQ(id,q){q=parseInt(q)||0;if(q<=0)cart=cart.filter(x=>x.id!==id);else{const i=cart.find(x=>x.id===id);if(i)i.qty=q}renderP()}
 
@@ -1780,7 +1823,7 @@ function chgCartR(id,q){q=parseInt(q)||0;if(q<=0){remCart(id);return}const i=car
 
 // ─── DATE/MOMENT HELPERS ───────────────────────────────────
 function dateStr(){const d=new Date(),m=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];return d.getDate()+" de "+m[d.getMonth()]+" de "+d.getFullYear()}
-function togMom(el){el.parentElement.style.background=el.checked?'var(--grl)':'var(--wh)';el.parentElement.style.borderColor=el.checked?'#4CAF50':'var(--lt)'}
+function togMom(el){el.parentElement.style.background=el.checked?'var(--gb-success-50)':'var(--gb-neutral-0)';el.parentElement.style.borderColor=el.checked?'#4CAF50':'var(--gb-neutral-200)'}
 function togOtherTime(){$("f-time-other-wrap").classList.toggle("hidden",!$("chk-otro").checked)}
 function getMomentos(){const cbs=document.querySelectorAll('#f-moments input[type=checkbox]:checked');const vals=[...cbs].map(c=>c.value).filter(v=>v!=="Otro");if($("chk-otro").checked&&$("f-time-other").value.trim())vals.push($("f-time-other").value.trim());return vals}
 function getDelivStr(){const d=$("f-date").value,moms=getMomentos();if(!d&&!moms.length)return"";const parts=d?d.split("-"):null;let ds="";if(parts){const ms=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];ds=parseInt(parts[2])+" de "+ms[parseInt(parts[1])-1]+" de "+parts[0]}const momStr=moms.join(", ");if(ds&&momStr)return ds+" — "+momStr;return ds||momStr}
@@ -2055,6 +2098,83 @@ function h(s){
 }
 
 // ═══════════════════════════════════════════════════════════
+// v7.0-α FIX-03: REVERTIR ENTREGA · revertDelivery(id,kind,opts)
+// ═══════════════════════════════════════════════════════════
+// Deshace una transición a 'entregado'. Vuelve status → 'en_produccion',
+// borra entregaData, agrega entrada en auditTrail tipo 'reverted_delivery'.
+// Guard rail: si hay un cobro con fecha == entregaData.fechaEntrega,
+// abort (revertir cobros está fuera de scope).
+// Atómico vía runTransaction: relee el doc dentro de la transacción para
+// validar status y pagos contra estado fresco.
+// q.fechaEntrega del raíz NO se borra: en v6.4.0 se usa también como
+// fecha del evento programado (ver app-historial.js:202).
+async function revertDelivery(quoteId,kind,opts){
+  opts=opts||{};
+  if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión","error");return false}
+  try{
+    const {db,doc,runTransaction,serverTimestamp,deleteField}=window.fb;
+    let coll;
+    if(kind==="quote")coll="quotes";
+    else if(quoteId&&quoteId.startsWith("GB-PF-"))coll="propfinals";
+    else coll="proposals";
+    const ref=doc(db,coll,quoteId);
+    const reasonClean=(opts.reason||"").trim();
+    const result=await runTransaction(db,async tx=>{
+      const snap=await tx.get(ref);
+      if(!snap.exists())return {ok:false,reason:"not_found"};
+      const q=snap.data();
+      if((q.status||"")!=="entregado")return {ok:false,reason:"not_delivered",status:q.status||"(sin status)"};
+      // v7.0-α FIX-05: audit FSM dentro de la transacción (entregado → en_produccion)
+      if(typeof auditTransition==="function"&&!auditTransition("entregado","en_produccion","revertDelivery "+quoteId))return {ok:false,reason:"fsm_blocked"};
+      const ed=q.entregaData||{};
+      const fechaEntrega=ed.fechaEntrega||q.fechaEntrega||"";
+      const pagos=Array.isArray(q.pagos)?q.pagos:[];
+      const pagoMismaFecha=pagos.find(p=>(p.fecha||"")===fechaEntrega&&fechaEntrega);
+      if(pagoMismaFecha)return {ok:false,reason:"pago_mismo_dia",fecha:fechaEntrega,pago:pagoMismaFecha};
+      const auditTrail=Array.isArray(q.auditTrail)?q.auditTrail.slice():[];
+      const entry={
+        type:"reverted_delivery",
+        ts:new Date().toISOString(),
+        user:currentUser?(currentUser.email||currentUser.uid):"(desconocido)",
+        prevFechaEntrega:fechaEntrega||null,
+        reason:reasonClean||null
+      };
+      auditTrail.push(entry);
+      const patch={
+        status:"en_produccion",
+        entregaData:deleteField(),
+        auditTrail:auditTrail,
+        updatedAt:serverTimestamp()
+      };
+      if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
+      tx.update(ref,patch);
+      return {ok:true,entry:entry};
+    });
+    if(!result.ok){
+      if(result.reason==="not_found")toast("Pedido no encontrado","error");
+      else if(result.reason==="not_delivered")toast("El pedido ya no está marcado como entregado (estado actual: "+result.status+")","warn",6000);
+      else if(result.reason==="pago_mismo_dia")toast("⚠️ No se puede revertir: hay un cobro registrado el mismo día de la entrega ("+result.fecha+", "+(result.pago.tipo||"pago")+" $"+(result.pago.monto||0)+"). Borra ese cobro primero.","error",9000);
+      else if(result.reason==="fsm_blocked")return false; // toast ya emitido por auditTransition
+      return false;
+    }
+    // Sync cache local (mismo patrón que submitDelivery)
+    const cached=(quotesCache||[]).find(x=>x.id===quoteId&&x.kind===kind);
+    if(cached){
+      cached.status="en_produccion";
+      delete cached.entregaData;
+      cached.auditTrail=Array.isArray(cached.auditTrail)?cached.auditTrail:[];
+      cached.auditTrail.push(result.entry);
+    }
+    if(window.__GB_V7_DEBUG)console.log("[FIX-03] revertDelivery OK",{quoteId,kind,reason:reasonClean,entry:result.entry});
+    return true;
+  }catch(e){
+    console.error("[revertDelivery]",e);
+    if(typeof toast==="function")toast("Error al revertir: "+e.message,"error");
+    return false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
 // v6.1.0: MODAL PREVIEW UNIFICADO · openDocument(kind,id)
 // ═══════════════════════════════════════════════════════════
 // Bug UX-1: 12 sitios (historial, dashboard, seguimiento, búsqueda) hacían
@@ -2176,6 +2296,11 @@ function _docPreviewRender(q,kind,id){
     }
     // Generar PDF: siempre (si no hay PDF, primero; si hay, regenerar)
     btns.push('<button class="btn dp-btn-genpdf" onclick="docPreviewGenerarPdf()">📄 '+(hasPdf?"Regenerar":"Generar")+' PDF</button>');
+    // v7.0-α FIX-03: Revertir entrega (solo si está entregado). Estilo destructivo inline
+    // para no tocar CSS files. Confirma con sub-modal "escribe REVERTIR".
+    if(st==="entregado"){
+      btns.push('<button class="btn dp-btn-revert" style="background:#FFF3E0;color:#BF360C;border-color:#FFAB91" onclick="docPreviewRevertDelivery()">↩️ Revertir entrega</button>');
+    }
     footerEl.innerHTML=btns.join("");
   }
 }
@@ -2237,6 +2362,90 @@ async function docPreviewGenerarPdf(){
   if(typeof loadQuote==="function")await loadQuote(kind,id);
 }
 
+// v7.0-α FIX-03: handler del botón "↩️ Revertir entrega" del modal preview.
+// Abre sub-modal dinámico (DOM-injected) con confirmación tipo "escribe REVERTIR".
+function docPreviewRevertDelivery(){
+  if(!_docPreviewCtx)return;
+  const {kind,id,q}=_docPreviewCtx;
+  if((q.status||"")!=="entregado"){
+    if(typeof toast==="function")toast("Este pedido no está entregado","warn");
+    return;
+  }
+  _openRevertDeliveryConfirmModal({
+    qNum:q.quoteNumber||id,
+    cliente:q.client||"—",
+    fechaEntrega:q.entregaData?.fechaEntrega||q.fechaEntrega||"—",
+    onConfirm:async (reason)=>{
+      const ok=await revertDelivery(id,kind,{reason});
+      if(ok){
+        if(typeof toast==="function")toast("↩️ Entrega revertida — pedido vuelve a 'En producción'","success",4000);
+        closeDocPreviewModal();
+        if(typeof renderHist==="function")renderHist();
+        if(typeof curMode!=="undefined"&&curMode==="dash"&&typeof renderDashboard==="function")renderDashboard();
+      }
+    }
+  });
+}
+
+// v7.0-α FIX-03: sub-modal dinámico de confirmación destructiva.
+// Aislado con prefijo .gb-revert-modal-* (cero colisiones con cascarón A o legacy).
+// Construido en JS — no toca index.html ni CSS files. Se autodestruye al cerrar.
+function _openRevertDeliveryConfirmModal(opts){
+  // Idempotente: si ya hay uno abierto, lo cierra primero
+  const prev=document.getElementById("gb-revert-modal-bk");
+  if(prev)prev.remove();
+  const bk=document.createElement("div");
+  bk.id="gb-revert-modal-bk";
+  bk.setAttribute("style","position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;font-family:inherit");
+  bk.innerHTML=
+    '<div class="gb-revert-modal-box" style="background:#fff;border-radius:10px;max-width:460px;width:100%;padding:20px 22px;box-shadow:0 12px 40px rgba(0,0,0,.3);font-size:14px;color:#263238">'+
+      '<div style="font-size:17px;font-weight:700;margin-bottom:10px;color:#BF360C">↩️ Revertir entrega</div>'+
+      '<div style="background:#FFF3E0;border:1px solid #FFAB91;border-radius:6px;padding:10px 12px;margin-bottom:14px;line-height:1.45;font-size:12.5px;color:#5D4037">'+
+        '<strong>Esta acción es destructiva.</strong> El pedido vuelve al estado <strong>«En producción»</strong> y se borran los datos de entrega registrados (fecha, fotos, receptor, notas).<br>'+
+        'Solo úsala si la entrega se marcó por error.'+
+      '</div>'+
+      '<div style="background:#FAFAFA;border:1px solid #E0E0E0;border-radius:6px;padding:9px 12px;margin-bottom:14px;font-size:12.5px;line-height:1.5">'+
+        '<div><strong>Pedido:</strong> '+h(opts.qNum)+'</div>'+
+        '<div><strong>Cliente:</strong> '+h(opts.cliente)+'</div>'+
+        '<div><strong>Fecha entrega registrada:</strong> '+h(opts.fechaEntrega)+'</div>'+
+      '</div>'+
+      '<label style="display:block;font-size:12.5px;margin-bottom:5px;font-weight:600">Para confirmar, escribe <span style="color:#BF360C;font-family:monospace">REVERTIR</span>:</label>'+
+      '<input id="gb-revert-modal-input" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1.5px solid #CFD8DC;border-radius:6px;font-size:14px;font-family:monospace;margin-bottom:12px">'+
+      '<label style="display:block;font-size:12.5px;margin-bottom:5px;font-weight:600">Razón (opcional):</label>'+
+      '<textarea id="gb-revert-modal-reason" rows="2" placeholder="Ej: pedido cruzado con GB-2026-0122" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1.5px solid #CFD8DC;border-radius:6px;font-size:13px;font-family:inherit;resize:vertical;margin-bottom:14px"></textarea>'+
+      '<div style="display:flex;gap:8px;justify-content:flex-end">'+
+        '<button id="gb-revert-modal-cancel" type="button" style="padding:8px 16px;border:1px solid #B0BEC5;background:#fff;color:#37474F;border-radius:6px;cursor:pointer;font-size:13px;font-family:inherit">Cancelar</button>'+
+        '<button id="gb-revert-modal-confirm" type="button" disabled style="padding:8px 16px;border:1px solid #BF360C;background:#BF360C;color:#fff;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;font-family:inherit;opacity:.45">Revertir entrega</button>'+
+      '</div>'+
+    '</div>';
+  document.body.appendChild(bk);
+  const input=document.getElementById("gb-revert-modal-input");
+  const reasonEl=document.getElementById("gb-revert-modal-reason");
+  const btnConfirm=document.getElementById("gb-revert-modal-confirm");
+  const btnCancel=document.getElementById("gb-revert-modal-cancel");
+  const close=()=>{bk.remove()};
+  input.focus();
+  input.addEventListener("input",()=>{
+    const ok=input.value.trim().toUpperCase()==="REVERTIR";
+    btnConfirm.disabled=!ok;
+    btnConfirm.style.opacity=ok?"1":".45";
+    btnConfirm.style.cursor=ok?"pointer":"not-allowed";
+  });
+  btnCancel.addEventListener("click",close);
+  bk.addEventListener("click",e=>{if(e.target===bk)close()});
+  btnConfirm.addEventListener("click",async ()=>{
+    if(btnConfirm.disabled)return;
+    btnConfirm.disabled=true;btnConfirm.textContent="Revirtiendo…";btnConfirm.style.opacity=".6";
+    const reason=reasonEl.value.trim();
+    close();
+    try{await opts.onConfirm(reason)}catch(e){console.error("[revert onConfirm]",e)}
+  });
+  // ESC cierra
+  const onKey=(e)=>{if(e.key==="Escape"){close();document.removeEventListener("keydown",onKey)}};
+  document.addEventListener("keydown",onKey);
+}
+
+
 async function loadQuote(kind,id){
   try{
     const {db,doc,getDoc}=window.fb;
@@ -2249,6 +2458,16 @@ async function loadQuote(kind,id){
     hideLoader();
     if(!snap.exists()){alert("No se encontró");return}
     const q=snap.data();
+    // v7.0-α FIX-01-Q9: migración silenciosa en lectura — reconcilia orderData
+    // con valores del raíz si están desincronizados. Solo agrega campos faltantes,
+    // nunca sobrescribe. Ocurre solo en memoria; la próxima edición lo persiste.
+    if(q.orderData&&typeof q.orderData==="object"){
+      let _migrated=false;
+      if(!q.orderData.fechaEntrega&&q.eventDate){q.orderData.fechaEntrega=q.eventDate;_migrated=true}
+      if(!q.orderData.horaEntrega&&q.horaEntrega){q.orderData.horaEntrega=q.horaEntrega;_migrated=true}
+      if(!q.orderData.productionDate&&q.productionDate){q.orderData.productionDate=q.productionDate;_migrated=true}
+      if(_migrated&&window.__GB_V7_DEBUG)console.log("[FIX-01-Q9] orderData reconciliado en load (migración silenciosa)",{id,orderData:q.orderData});
+    }
     // v5.5.0: ya no bloqueamos la apertura de docs en producción/entregados/etc.
     // La matriz de edición se evalúa al momento de guardar (canEdit/requiresWarning).
     // Solo avisamos con toast informativo al abrir PFs directas.

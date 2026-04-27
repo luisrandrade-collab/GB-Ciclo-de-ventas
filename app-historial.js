@@ -415,8 +415,14 @@ async function renderHist(){
       }
     }else if(!isProp&&(status==="pedido"||status==="en_produccion")){
       if(!q.eventDate)actionBtns.push('<button class="btn hc-btn-order" onclick="assignDeliveryDate(\''+q.id+'\',event)">📅 Asignar fecha de entrega</button>');
+      // E1.1: botón "Iniciar producción" solo si status==='pedido' y no está ya producido.
+      if(status==="pedido"&&!q.produced)actionBtns.push('<button class="btn hc-btn-order" style="background:#FFF3E0;color:#E65100;border-color:#FFB74D" onclick="markAsInProduction(\''+q.id+'\',\'quote\',event)">🔥 Iniciar producción</button>');
+      // v7.0-α FIX-02b: si NO producido → botón normal "Marcar producido". Si SÍ producido →
+      // botón verde "Producido ✓" clickeable para desmarcar (con confirm).
       if(!q.produced)actionBtns.push('<button class="btn hc-btn-edit" onclick="toggleProduced(\''+q.id+'\',\'quote\',event)">🔪 Marcar producido</button>');
-      actionBtns.push('<button class="btn hc-btn-deliver" onclick="openDeliveryModal(\''+q.id+'\',\'quote\',event)">🎉 Marcar como entregado</button>');
+      else actionBtns.push('<button class="btn hc-btn-edit" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" title="Toca para desmarcar producido" onclick="confirmUnproduced(\''+q.id+'\',\'quote\',event)">🔪 Producido ✓</button>');
+      // v7.0-α FIX-02a: gate — solo permitir entregar si está producido
+      if(q.produced)actionBtns.push('<button class="btn hc-btn-deliver" onclick="openDeliveryModal(\''+q.id+'\',\'quote\',event)">🎉 Marcar como entregado</button>');
       if(q.eventDate||q.productionDate)actionBtns.push('<button class="btn hc-btn-ics" onclick="exportPedidoIcs(\''+q.id+'\',\'quote\',event)">📅 .ics</button>');
     }else if(isProp&&status==="enviada"){
       // v5.0.5: bloquear PF/aprobada si es perdida; ofrecer Reactivar
@@ -435,8 +441,13 @@ async function renderHist(){
         actionBtns.push('<button class="btn hc-btn-reactivar" onclick="openReactivarModal(\''+q.id+'\',\'proposal\',event)">♻️ Reactivar</button>');
       }
     }else if(isProp&&(status==="aprobada"||status==="en_produccion")){
+      // E1.1: botón "Iniciar producción" solo si status==='aprobada' (equivalente a 'pedido' del lado quotes) y no producido.
+      if(status==="aprobada"&&!q.produced)actionBtns.push('<button class="btn hc-btn-order" style="background:#FFF3E0;color:#E65100;border-color:#FFB74D" onclick="markAsInProduction(\''+q.id+'\',\'proposal\',event)">🔥 Iniciar producción</button>');
+      // v7.0-α FIX-02b: ver explicación arriba (mismo patrón para propuestas)
       if(!q.produced)actionBtns.push('<button class="btn hc-btn-edit" onclick="toggleProduced(\''+q.id+'\',\'proposal\',event)">🔪 Marcar producido</button>');
-      actionBtns.push('<button class="btn hc-btn-deliver" onclick="openDeliveryModal(\''+q.id+'\',\'proposal\',event)">🎉 Marcar como entregado</button>');
+      else actionBtns.push('<button class="btn hc-btn-edit" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" title="Toca para desmarcar producido" onclick="confirmUnproduced(\''+q.id+'\',\'proposal\',event)">🔪 Producido ✓</button>');
+      // v7.0-α FIX-02a: gate — solo permitir entregar si está producido
+      if(q.produced)actionBtns.push('<button class="btn hc-btn-deliver" onclick="openDeliveryModal(\''+q.id+'\',\'proposal\',event)">🎉 Marcar como entregado</button>');
       if(q.eventDate||q.productionDate)actionBtns.push('<button class="btn hc-btn-ics" onclick="exportPedidoIcs(\''+q.id+'\',\'proposal\',event)">📅 .ics</button>');
     }
     // v4.12.7: botón 🔄 Nueva versión para PFs (cliente pidió cambios → regenerar PF nueva)
@@ -694,7 +705,11 @@ async function submitMarkAsOrder(){
   };
   const pagos=[];
   if(anticipo>0)pagos.push({fecha:fecha,monto:anticipo,metodo:metodo||"Sin especificar",tipo:"anticipo",notas:notas,registradoEn:new Date().toISOString()});
-  const initialStatus=(productionDate<=todayIso)?"en_produccion":"pedido";
+  // E1.1 (2026-04-26): siempre arranca en 'pedido'. La transición a 'en_produccion' es manual
+  // vía botón "🔥 Iniciar producción" cuando Kathy realmente prende la cocina.
+  const initialStatus="pedido";
+  const _prevStatusOM=(quotesCache.find(x=>x.id===quoteId&&x.kind==="quote")||{}).status||"enviada";
+  if(typeof auditTransition==="function"&&!auditTransition(_prevStatusOM,initialStatus,"submitMarkAsOrder "+quoteId))return;
   try{
     showLoader("Actualizando estado...");
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
@@ -805,6 +820,9 @@ async function submitApproveProposal(){
   };
   const pagos=[];
   if(anticipo>0)pagos.push({fecha:fecha,monto:anticipo,metodo:metodo||"Sin especificar",tipo:"anticipo",notas:notas,registradoEn:new Date().toISOString()});
+  // v7.0-α FIX-05: audit FSM (no bloquea en audit, sí en enforce)
+  const _prevStatusAP=(quotesCache.find(x=>x.id===propId&&x.kind===kind)||{}).status||"enviada";
+  if(typeof auditTransition==="function"&&!auditTransition(_prevStatusAP,"aprobada","submitApproveProposal "+propId))return;
   try{
     showLoader("Actualizando estado...");
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
@@ -1147,6 +1165,28 @@ async function onAdjuntarPagoFile(ev,idx){
 }
 
 // ─── PRODUCED FLAG ─────────────────────────────────────────
+// E1.1 (2026-04-26): transición manual pedido/aprobada → en_produccion. Disparada por Kathy
+// cuando realmente prende la cocina. Reemplaza el auto-promote por fecha que existía antes.
+async function markAsInProduction(docId,kind,ev){
+  if(ev){ev.stopPropagation();ev.preventDefault()}
+  const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
+  if(!q)return;
+  if(q.status==="en_produccion"){if(typeof toast==="function")toast("Ya está en producción","info");return}
+  if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión","error");else alert("Sin conexión");return}
+  const _prev=q.status;
+  if(typeof auditTransition==="function"&&!auditTransition(_prev,"en_produccion","markAsInProduction "+docId))return;
+  try{
+    showLoader("Iniciando producción...");
+    const {db,doc,updateDoc,serverTimestamp}=window.fb;
+    const coll=kind==="quote"?"quotes":(docId.startsWith("GB-PF-")?"propfinals":"proposals");
+    await updateDoc(doc(db,coll,docId),{status:"en_produccion",updatedAt:serverTimestamp()});
+    q.status="en_produccion";
+    hideLoader();renderHist();
+    if(curMode==="dash"&&typeof renderDashboard==="function")renderDashboard();
+    if(typeof toast==="function")toast("🔥 Producción iniciada","success",3000);
+  }catch(e){hideLoader();toast("Error: "+e.message,"error")}
+}
+
 async function toggleProduced(docId,kind,ev){
   if(ev){ev.stopPropagation();ev.preventDefault()}
   const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
@@ -1161,7 +1201,41 @@ async function toggleProduced(docId,kind,ev){
     q.produced=newVal;q.producedAt=newVal?new Date().toISOString():null;
     hideLoader();renderHist();
     if(curMode==="dash")renderDashboard();
+    // v7.0-α FIX-02b: toast de confirmación visible
+    if(typeof toast==="function"){
+      toast(newVal?"🔪 Marcado como producido":"↩️ Desmarcado producido — el pedido vuelve a 'pendiente de producir'",newVal?"success":"info",newVal?3000:5000);
+    }
   }catch(e){hideLoader();toast("Error: "+e.message,"error")}
+}
+
+// v7.0-α FIX-02c: setea estado del toggle "Recibido conforme" en el delivery-modal.
+// Sincroniza el checkbox hidden (para que submitDelivery siga leyendo .checked) +
+// pinta los dos botones pill (activo verde sólido, inactivo outline) +
+// muestra/oculta el campo "nombre receptor" según corresponda.
+function _setRecibidoConforme(val){
+  const cb=document.getElementById("dm-recibido-conforme");
+  if(cb)cb.checked=!!val;
+  const btnYes=document.getElementById("dm-recibido-yes");
+  const btnNo=document.getElementById("dm-recibido-no");
+  const receptor=document.getElementById("dm-receptor");
+  if(btnYes&&btnNo){
+    if(val){
+      btnYes.style.background="#2E7D32";btnYes.style.color="#fff";btnYes.style.borderColor="#2E7D32";
+      btnNo.style.background="#fff";btnNo.style.color="#546E7A";btnNo.style.borderColor="#B0BEC5";
+    }else{
+      btnYes.style.background="#fff";btnYes.style.color="#388E3C";btnYes.style.borderColor="#66BB6A";
+      btnNo.style.background="#ECEFF1";btnNo.style.color="#37474F";btnNo.style.borderColor="#90A4AE";
+    }
+  }
+  if(receptor)receptor.style.display=val?"":"none";
+}
+
+// v7.0-α FIX-02b: confirmación antes de desmarcar producido (con bullet de impacto).
+// Llamado solo desde el card cuando el pedido ya está producido.
+function confirmUnproduced(docId,kind,ev){
+  if(ev){ev.stopPropagation();ev.preventDefault()}
+  if(!confirm("¿Desmarcar como producido?\n\nEl pedido va a aparecer como 'pendiente de producir' otra vez y no podrás marcarlo entregado hasta volver a producirlo."))return;
+  toggleProduced(docId,kind,null);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1171,10 +1245,129 @@ let deliverySrc=null;
 let entregaFotoBase64=null;
 let entregaFoto2Base64=null; // v6.4.0 P6: segunda foto opcional
 
+// v7.0-α FIX-04: estados considerados "abiertos" para el chequeo multi-pedido.
+// 'producto_producido' del spec original no existe en v6.4.0 — q.produced es flag boolean.
+// Cuando llegue FIX-05 (máquina de estados formal) se podrá ampliar esta lista.
+const _OPEN_STATUSES_FIX04=["pedido","aprobada","en_produccion"];
+
+// Normaliza nombre de cliente para comparación tolerante (case + espacios).
+function _normClientName(s){
+  return String(s||"").toLowerCase().trim().replace(/\s+/g," ");
+}
+
+// Busca pedidos abiertos del mismo cliente, excluyendo el target.
+function _findOpenSiblingsByClient(targetId,targetKind,clientName){
+  const target=_normClientName(clientName);
+  if(!target)return [];
+  return (quotesCache||[]).filter(x=>{
+    if(x.id===targetId&&x.kind===targetKind)return false;
+    if(!_OPEN_STATUSES_FIX04.includes(x.status||""))return false;
+    return _normClientName(x.client)===target;
+  });
+}
+
+// v7.0-α FIX-04: entry point con chequeo multi-pedido.
+// Si el cliente tiene 2+ pedidos abiertos (target + ≥1 hermano), abre primero
+// modal de contexto. Si solo es el target, sigue al flujo original.
 function openDeliveryModal(docId,kind,ev){
   if(ev){ev.stopPropagation();ev.preventDefault()}
   const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
   if(!q){alert("No encontrado");return}
+  // v7.0-α FIX-02a: gate de transición — defensa profunda contra apertura forzada del modal
+  if(!q.produced){
+    if(typeof toast==="function")toast("⚠️ Falta marcar como producido antes de entregar","warn",5000);
+    return;
+  }
+  const siblings=_findOpenSiblingsByClient(docId,kind,q.client);
+  if(siblings.length>=1){
+    if(window.__GB_V7_DEBUG)console.log("[FIX-04] multi-pedido detectado",{target:docId,cliente:q.client,siblings:siblings.map(s=>s.id)});
+    _openMultiPedidoConfirmModal({
+      target:q,
+      siblings:siblings,
+      onConfirm:()=>_doOpenDeliveryModal(docId,kind,q)
+    });
+    return;
+  }
+  _doOpenDeliveryModal(docId,kind,q);
+}
+
+// v7.0-α FIX-04: sub-modal informativo (NO destructivo, sin typing requerido).
+// Muestra el pedido objetivo + lista de OTROS pedidos abiertos del cliente.
+// DOM-injected, prefijo .gb-multipedido-* (cero colisiones).
+function _openMultiPedidoConfirmModal(opts){
+  const prev=document.getElementById("gb-multipedido-modal-bk");
+  if(prev)prev.remove();
+  const tgt=opts.target;
+  const fmt=(typeof fm==="function")?fm:(n=>"$"+n);
+  const totFn=(typeof getDocTotal==="function")?getDocTotal:(q=>q.total||0);
+  const tgtTotal=totFn(tgt);
+  const tgtFecha=tgt.eventDate||tgt.fechaEntrega||tgt.entregaData?.fechaEntrega||"—";
+  const tgtNumProd=((tgt.cart||[]).length+(tgt.cust||[]).length);
+  const tgtProdNames=[
+    ...(tgt.cart||[]).slice(0,3).map(c=>c.n||c.id||""),
+    ...(tgt.cust||[]).slice(0,3).map(c=>c.n||"")
+  ].filter(Boolean).slice(0,3);
+  const tgtProdLbl=tgtProdNames.length?tgtProdNames.join(", ")+(tgtNumProd>tgtProdNames.length?" +"+(tgtNumProd-tgtProdNames.length)+" más":""):tgtNumProd+" producto"+(tgtNumProd!==1?"s":"");
+  const sibsHtml=opts.siblings.map(s=>{
+    const sMeta=(typeof STATUS_META!=="undefined"&&STATUS_META[s.status])||{label:s.status,cls:s.status};
+    const sFecha=s.eventDate||s.fechaEntrega||"—";
+    const sTotal=totFn(s);
+    const sNumP=((s.cart||[]).length+(s.cust||[]).length);
+    const sQNum=s.quoteNumber||s.id;
+    return '<div style="background:#fff;border:1px solid #E0E0E0;border-radius:6px;padding:8px 10px;margin-bottom:6px;font-size:12px;line-height:1.45">'+
+      '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:3px">'+
+        '<strong style="font-family:monospace;color:#37474F">'+h(sQNum)+'</strong>'+
+        '<span class="hc-status '+h(sMeta.cls)+'" style="font-size:10.5px;padding:1.5px 7px">'+h(sMeta.label)+'</span>'+
+      '</div>'+
+      '<div style="color:#546E7A;font-size:11.5px">📅 '+h(sFecha)+' · <strong>'+h(fmt(sTotal))+'</strong> · '+sNumP+' producto'+(sNumP!==1?"s":"")+'</div>'+
+      '</div>';
+  }).join("");
+  const bk=document.createElement("div");
+  bk.id="gb-multipedido-modal-bk";
+  bk.setAttribute("style","position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;font-family:inherit");
+  bk.innerHTML=
+    '<div class="gb-multipedido-modal-box" style="background:#fff;border-radius:10px;max-width:520px;width:100%;max-height:90vh;overflow-y:auto;padding:20px 22px;box-shadow:0 12px 40px rgba(0,0,0,.3);font-size:14px;color:#263238">'+
+      '<div style="font-size:17px;font-weight:700;margin-bottom:10px;color:#0277BD">⚠️ Este cliente tiene varios pedidos abiertos</div>'+
+      '<div style="background:#E1F5FE;border:1px solid #81D4FA;border-radius:6px;padding:10px 12px;margin-bottom:14px;line-height:1.45;font-size:12.5px;color:#01579B">'+
+        '<strong>'+h(tgt.client||"—")+'</strong> tiene <strong>'+(opts.siblings.length+1)+' pedidos abiertos</strong>. Confirma que el pedido que vas a marcar entregado es el correcto antes de continuar.'+
+      '</div>'+
+      '<div style="font-size:12px;font-weight:700;color:#37474F;margin-bottom:6px;text-transform:uppercase;letter-spacing:.4px">Pedido a marcar entregado</div>'+
+      '<div style="background:#E8F5E9;border:1.5px solid #66BB6A;border-radius:6px;padding:10px 12px;margin-bottom:14px;font-size:12.5px;line-height:1.55">'+
+        '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:4px">'+
+          '<strong style="font-family:monospace;font-size:13px;color:#1B5E20">'+h(tgt.quoteNumber||tgt.id)+'</strong>'+
+          '<strong style="color:#1B5E20">'+h(fmt(tgtTotal))+'</strong>'+
+        '</div>'+
+        '<div style="color:#33691E"><strong>📅 Entrega:</strong> '+h(tgtFecha)+(tgt.horaEntrega?' a las '+h(tgt.horaEntrega):'')+'</div>'+
+        '<div style="color:#33691E;margin-top:2px"><strong>🍽️ Productos:</strong> '+h(tgtProdLbl)+'</div>'+
+        (tgt.dir?'<div style="color:#33691E;margin-top:2px"><strong>📍 Dirección:</strong> '+h(tgt.dir)+'</div>':'')+
+      '</div>'+
+      '<div style="font-size:12px;font-weight:700;color:#37474F;margin-bottom:6px;text-transform:uppercase;letter-spacing:.4px">Otros pedidos abiertos del cliente ('+opts.siblings.length+')</div>'+
+      '<div style="background:#FAFAFA;border:1px solid #E0E0E0;border-radius:6px;padding:8px;margin-bottom:14px;max-height:220px;overflow-y:auto">'+
+        sibsHtml+
+      '</div>'+
+      '<div style="display:flex;gap:8px;justify-content:flex-end">'+
+        '<button id="gb-multipedido-modal-cancel" type="button" style="padding:9px 16px;border:1px solid #B0BEC5;background:#fff;color:#37474F;border-radius:6px;cursor:pointer;font-size:13px;font-family:inherit">Cancelar</button>'+
+        '<button id="gb-multipedido-modal-confirm" type="button" style="padding:9px 18px;border:1px solid #2E7D32;background:#2E7D32;color:#fff;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;font-family:inherit">Sí, continuar con esta entrega</button>'+
+      '</div>'+
+    '</div>';
+  document.body.appendChild(bk);
+  const btnConfirm=document.getElementById("gb-multipedido-modal-confirm");
+  const btnCancel=document.getElementById("gb-multipedido-modal-cancel");
+  const close=()=>{bk.remove()};
+  btnCancel.addEventListener("click",close);
+  bk.addEventListener("click",e=>{if(e.target===bk)close()});
+  btnConfirm.addEventListener("click",()=>{
+    close();
+    try{opts.onConfirm()}catch(e){console.error("[multipedido onConfirm]",e)}
+  });
+  const onKey=(e)=>{if(e.key==="Escape"){close();document.removeEventListener("keydown",onKey)}};
+  document.addEventListener("keydown",onKey);
+  btnConfirm.focus();
+}
+
+// v7.0-α FIX-04: lógica original de openDeliveryModal — extraída para que el
+// chequeo multi-pedido pueda invocarla post-confirmación o directo si solo hay 1 pedido.
+function _doOpenDeliveryModal(docId,kind,q){
   deliverySrc={id:docId,kind:kind,doc:q};
   // v5.0: soporta fotoUrl (Storage) o fotoBase64 (legacy)
   entregaFotoBase64=q.entregaData?.fotoUrl||q.entregaData?.fotoBase64||null;
@@ -1187,7 +1380,8 @@ function openDeliveryModal(docId,kind,ev){
   $("dm-entregado-otro").value=q.entregaData?.entregadoPor&&!["Kathy","Juan Pablo","Luis"].includes(q.entregaData.entregadoPor)?q.entregaData.entregadoPor:"";
   $("dm-entregado-otro").classList.toggle("hidden",$("dm-entregado-por").value!=="Otro");
   $("dm-notas-entrega").value=q.entregaData?.notasEntrega||"";
-  $("dm-recibido-conforme").checked=!!q.entregaData?.recibidoConforme;
+  // v7.0-α FIX-02c: setear toggle visual (sincroniza checkbox hidden + estilos de los pills + visibilidad del receptor)
+  _setRecibidoConforme(!!q.entregaData?.recibidoConforme);
   $("dm-receptor").value=q.entregaData?.nombreReceptor||"";
   document.querySelectorAll('input[name="dm-foto-tipo"]').forEach(r=>{r.checked=(r.value===(q.entregaData?.fotoTipo||"producto"))});
   $("dm-foto").value="";
@@ -1256,6 +1450,13 @@ function clearEntregaFoto(idx){
 
 async function submitDelivery(){
   if(!deliverySrc)return;
+  // v7.0-α FIX-02a: gate de transición — defensa profunda en el save final
+  if(!deliverySrc.doc.produced){
+    if(typeof toast==="function")toast("⚠️ Falta marcar como producido antes de entregar","warn",5000);
+    return;
+  }
+  // v7.0-α FIX-05: audit de transición FSM (no bloquea en audit, sí en enforce)
+  if(typeof auditTransition==="function"&&!auditTransition(deliverySrc.doc.status,"entregado","submitDelivery "+deliverySrc.id))return;
   if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión","error");else alert("Sin conexión");return}
   const fecha=$("dm-fecha").value||new Date().toISOString().slice(0,10);
   let entregadoPor=$("dm-entregado-por").value;
