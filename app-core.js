@@ -498,7 +498,7 @@ function noSumaEnKpis(q,contextLabel){
 }
 
 // BUG-E: builds a Set of doc IDs that should be excluded from KPI sums
-// because they belong to an option group and are NOT the highest-total sibling.
+// because they belong to an option group and are NOT the lowest-total sibling (conservative).
 function buildOptionExclusions(docs){
   const excluded=new Set();
   const groups={};
@@ -509,7 +509,7 @@ function buildOptionExclusions(docs){
   });
   Object.values(groups).forEach(siblings=>{
     if(siblings.length<2)return;
-    siblings.sort((a,b)=>(b.total||0)-(a.total||0));
+    siblings.sort((a,b)=>(a.total||0)-(b.total||0));
     for(let i=1;i<siblings.length;i++)excluded.add(siblings[i].id);
   });
   return excluded;
