@@ -233,8 +233,8 @@ async function saveCurrentQuote(silent){
     }
     if(!qNum)qNum=await getNextNumber("quote");
     await autoSaveClientFromCot();
-    for(const cu of cust){try{await registerCustomProduct(cu.n,cu.d,cu.p,cu.u)}catch(e){console.warn("custom register skipped:",e)}}
-    let prevStatus="enviada",prevOrderData=null,prevPagos=null,prevEntregaData=null,prevComentarioCliente=null,prevProductionDate=null,prevProduced=null,prevEventDate=null,prevHoraEntrega=null,prevPdfHistorial=null,prevPdfRegenCount=null,prevEditHistory=null;
+    for(const cu of cust){try{await registerCustomProduct(cu.n,cu.d,cu.p,cu.u,cu.inCatalog)}catch(e){console.warn("custom register skipped:",e)}}
+    let prevStatus="enviada",prevOrderData=null,prevPagos=null,prevEntregaData=null,prevComentarioCliente=null,prevProductionDate=null,prevProduced=null,prevEventDate=null,prevHoraEntrega=null,prevPdfHistorial=null,prevPdfRegenCount=null,prevEditHistory=null,prevOptionGroupId=null,prevFeData=null;
     if(currentQuoteNumber&&!creatingChild){
       // Guardando sobre el mismo doc: preservar campos operativos existentes
       if(oldDoc){
@@ -250,6 +250,9 @@ async function saveCurrentQuote(silent){
         if(Array.isArray(oldDoc.pdfHistorial))prevPdfHistorial=oldDoc.pdfHistorial;
         if(typeof oldDoc.pdfRegenCount==="number")prevPdfRegenCount=oldDoc.pdfRegenCount;
         if(Array.isArray(oldDoc.editHistory))prevEditHistory=oldDoc.editHistory;
+        if(oldDoc.optionGroupId)prevOptionGroupId=oldDoc.optionGroupId;
+        if(oldDoc.feData)prevFeData=oldDoc.feData;
+        if($("f-requiere-fe"))$("f-requiere-fe").checked=!!oldDoc.requiereFE;
       }
     }else if(creatingChild&&oldDoc){
       // Versión hija: copia estado pero reinicia audit trail (nuevo doc)
@@ -269,11 +272,14 @@ async function saveCurrentQuote(silent){
       cart:cart.map(i=>({id:i.id,n:i.n,d:i.d||"",u:i.u||"",p:i.p,origP:i.origP||i.p,qty:i.qty,edited:!!i.edited})),
       cust:cust.map(i=>({n:i.n,p:i.p,d:i.d||"",u:i.u||"",qty:i.qty})),
       total:getTotal(),status:prevStatus,
-      notasCotData:{...notasCotData},firma:firmaCot
+      notasCotData:{...notasCotData},firma:firmaCot,
+      requiereFE:!!($("f-requiere-fe")&&$("f-requiere-fe").checked)
     };
     // v7.0-α FIX-01-Q9: orderData se reconcilia más abajo, después de que qObj
     // tenga eventDate/horaEntrega/productionDate finales (del form o preservados).
     if(prevPagos)qObj.pagos=prevPagos;
+    if(prevOptionGroupId)qObj.optionGroupId=prevOptionGroupId;
+    if(prevFeData)qObj.feData=prevFeData;
     if(prevEntregaData)qObj.entregaData=prevEntregaData;
     if(prevComentarioCliente)qObj.comentarioCliente=prevComentarioCliente;
     if(prevProductionDate)qObj.productionDate=prevProductionDate;
@@ -390,6 +396,7 @@ async function saveCurrentQuote(silent){
         else quotesCache.unshift(cacheEntry);
       }
     }catch(e){console.warn("No se pudo sincronizar quotesCache:",e)}
+    if(!creatingChild&&typeof linkPendingReplacement==="function"){try{await linkPendingReplacement(qNum,"quote",qObj.client)}catch(e){console.warn("linkPendingReplacement:",e)}}
     // v5.5.0: guardar referencias para el renderR post-guardado
     window._lastSavedQuote={
       id:qNum,

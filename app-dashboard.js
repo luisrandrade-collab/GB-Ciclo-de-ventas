@@ -411,6 +411,7 @@ async function renderDashboard(){
     inRange=fecha=>fecha&&fecha>=range.start&&fecha<=range.end;
     rangePrev=getDashRangePrev();
     inRangePrev=rangePrev?(fecha=>fecha&&fecha>=rangePrev.start&&fecha<=rangePrev.end):()=>false;
+    const _optExcl=typeof buildOptionExclusions==="function"?buildOptionExclusions(quotesCache):new Set();
     quotesCache.forEach(q=>{
       try{
         // v6.4.0 P1: defensa centralizada — excluye fantasmas/superseded/anuladas/convertidas
@@ -427,7 +428,8 @@ async function renderDashboard(){
         const fCre=dateOfCreation(q);
         const fVen=dateOfSale(q);
         const fEnt=q.fechaEntrega||q.eventDate;
-        if(inRange(fCre)&&status!=="convertida"){cotCount++;cotMonto+=total;if(q.client)cotClientes.add(q.client)}
+        const _isOptExcl=_optExcl.has(q.id);
+        if(inRange(fCre)&&status!=="convertida"&&!_isOptExcl){cotCount++;cotMonto+=total;if(q.client)cotClientes.add(q.client)}
         if(inRange(fVen)&&["pedido","aprobada","en_produccion","entregado"].includes(status)){venCount++;venMonto+=total;if(q.client)venClientes.add(q.client)}
         if(inRange(fEnt)&&status==="entregado"){
           entCount++;entMonto+=total;
@@ -439,7 +441,7 @@ async function renderDashboard(){
         getPagos(q).forEach(p=>{if(inRange(p.fecha)){const m=METODOS_PAGO.includes(p.metodo)?p.metodo:"Otro";recaudoMet[m]+=parseInt(p.monto)||0}});
         // v7.0-α D1.4: misma lógica para período anterior (acumula solo montos para Δ%)
         if(rangePrev){
-          if(inRangePrev(fCre)&&status!=="convertida")cotMontoPrev+=total;
+          if(inRangePrev(fCre)&&status!=="convertida"&&!_isOptExcl)cotMontoPrev+=total;
           if(inRangePrev(fVen)&&["pedido","aprobada","en_produccion","entregado"].includes(status))venMontoPrev+=total;
           if(inRangePrev(fEnt)&&status==="entregado")entMontoPrev+=total;
           getPagos(q).forEach(p=>{if(inRangePrev(p.fecha))recaudoPrev+=parseInt(p.monto)||0});
@@ -607,7 +609,8 @@ async function renderMiniDash(){
   });
   const hoyN=upcoming.hoy.length,mañanaN=upcoming.mañana.length,pasadoN=upcoming.pasado.length,semanaN=upcoming.semana.length;
   const total=hoyN+mañanaN+pasadoN+semanaN;
-  if(total===0&&saldoP===0){dashEl.classList.add("hidden");dashEl.innerHTML="";return}
+  const convertibles_count=quotesCache.filter(q=>q.kind==="quote"&&q.status==="enviada"&&!q._wrongCollection&&!(typeof getFollowUp==="function"&&getFollowUp(q)==="perdida")).length;
+  if(total===0&&saldoP===0&&convertibles_count===0){dashEl.classList.add("hidden");dashEl.innerHTML="";return}
   const listify=arr=>arr.map(q=>(q.client||"—")+(q.horaEntrega?' '+q.horaEntrega:'')).join(" · ");
   const items=[];
   if(hoyN>0)items.push('<div class="mini-dash-item today" title="'+listify(upcoming.hoy)+'" onclick="setMode(\'cal\')"><div class="mini-dash-val">'+hoyN+'</div><div class="mini-dash-lab">🔥 Hoy</div></div>');
@@ -615,7 +618,23 @@ async function renderMiniDash(){
   if(pasadoN>0)items.push('<div class="mini-dash-item" title="'+listify(upcoming.pasado)+'" onclick="setMode(\'cal\')"><div class="mini-dash-val">'+pasadoN+'</div><div class="mini-dash-lab">📆 Pasado<br>mañana</div></div>');
   if(semanaN>0)items.push('<div class="mini-dash-item" title="'+listify(upcoming.semana)+'" onclick="setMode(\'cal\')"><div class="mini-dash-val">'+semanaN+'</div><div class="mini-dash-lab">🗓️ Resto<br>semana</div></div>');
   if(saldoP>0)items.push('<div class="mini-dash-item alert" onclick="setMode(\'hist\')"><div class="mini-dash-val">'+saldoP+'</div><div class="mini-dash-lab">💰 Saldo<br>por cobrar</div></div>');
-  dashEl.innerHTML=items.join("");
+  // B3: cotizaciones convertibles a pedido
+  const convertibles=quotesCache.filter(q=>q.kind==="quote"&&q.status==="enviada"&&!q._wrongCollection&&!(typeof getFollowUp==="function"&&getFollowUp(q)==="perdida"));
+  let convHtml="";
+  if(convertibles.length){
+    const rows=convertibles.map(q=>{
+      const cli=q.client||"—";
+      const tot=typeof fm==="function"?fm(q.total||0):"$"+(q.total||0);
+      const fecha=q.dateISO?q.dateISO.slice(0,10):"";
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid #f0f0f0">'+
+        '<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+h(cli)+'</div><div style="font-size:11px;color:#888">'+(q.quoteNumber||q.id)+' · '+tot+(fecha?' · '+fecha:'')+'</div></div>'+
+        '<button class="btn hc-btn-order" style="margin-left:8px;font-size:12px;padding:4px 10px;white-space:nowrap" onclick="event.stopPropagation();openOrderModal(\''+q.id+'\',event)">✅ Pedido</button>'+
+        '</div>';
+    }).join("");
+    convHtml='<div style="margin-top:10px;background:white;border-radius:10px;border:1px solid #e0e0e0;overflow:hidden">'+
+      '<div style="padding:8px 12px;background:#F5F5F5;font-weight:700;font-size:12px;color:#555;text-transform:uppercase;letter-spacing:.3px">📋 Cotizaciones pendientes ('+convertibles.length+')</div>'+rows+'</div>';
+  }
+  dashEl.innerHTML=items.join("")+convHtml;
   dashEl.classList.remove("hidden");
 }
 
@@ -3131,4 +3150,79 @@ async function generarHojaEntregas(fromDate,toDate,soloPendientes){
     if(typeof toast==="function")toast("Error al generar la hoja: "+(e.message||e),"error",5000);
     else toast("Error al generar la hoja: "+(e.message||e),"error");
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// OPERACIONES — Vista lifecycle (v7.1 B1)
+// ═══════════════════════════════════════════════════════════
+let opsTab="por_producir";
+function setOpsTab(t){opsTab=t;renderOps()}
+
+async function renderOps(){
+  if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+  const el=$("ops-list");if(!el)return;
+  const statusOps={quote:["pedido","en_produccion"],proposal:["aprobada","en_produccion"]};
+  const live=quotesCache.filter(q=>{
+    if(q._wrongCollection||q.status==="superseded"||q.status==="anulada")return false;
+    if(typeof getFollowUp==="function"&&getFollowUp(q)==="perdida")return false;
+    const ok=(statusOps[q.kind]||[]).includes(q.status);
+    return ok;
+  });
+  const porProducir=live.filter(q=>!q.produced&&q.status!=="en_produccion");
+  const enProduccion=live.filter(q=>q.status==="en_produccion"&&!q.produced);
+  const listos=live.filter(q=>q.produced&&q.status!=="entregado");
+
+  ["por_producir","en_produccion","listos","todos"].forEach(t=>{
+    const tab=$("ops-tab-"+t);if(tab)tab.classList.toggle("act",t===opsTab);
+  });
+
+  let docs;
+  if(opsTab==="por_producir")docs=porProducir;
+  else if(opsTab==="en_produccion")docs=enProduccion;
+  else if(opsTab==="listos")docs=listos;
+  else docs=live;
+
+  $("ops-count").textContent=docs.length+" documento"+(docs.length!==1?"s":"");
+
+  if(!docs.length){
+    el.innerHTML='<div style="text-align:center;padding:40px 20px;color:#aaa"><div style="font-size:32px;margin-bottom:8px">'+(opsTab==="listos"?"📦":"🍳")+'</div>No hay documentos en este estado</div>';
+    return;
+  }
+
+  docs.sort((a,b)=>(a.eventDate||"9").localeCompare(b.eventDate||"9"));
+  const todayIso=new Date().toISOString().slice(0,10);
+
+  el.innerHTML=docs.map(q=>{
+    const cli=q.client||"—";
+    const num=q.quoteNumber||q.id;
+    const tot=typeof fm==="function"?fm(q.total||0):"$"+(q.total||0);
+    const fecha=q.eventDate||"Sin fecha";
+    const hora=q.horaEntrega?" "+q.horaEntrega:"";
+    const prod=q.productionDate||"";
+    const isUrgent=q.eventDate&&q.eventDate<=todayIso;
+    const urgBorder=isUrgent?"border-left:4px solid #C62828;":"";
+    const statusLabel=STATUS_META[q.status]?.label||q.status;
+    const kindLabel=q.kind==="quote"?"Cotización":"Propuesta";
+    const prodBadge=q.produced?'<span style="background:#E8F5E9;color:#1B5E20;border:1px solid #A5D6A7;border-radius:6px;padding:1px 6px;font-size:10px">✅ Producido</span>':'<span style="background:#FFF3E0;color:#E65100;border:1px solid #FFB74D;border-radius:6px;padding:1px 6px;font-size:10px">⚠️ Sin producir</span>';
+
+    let actions='';
+    if(!q.produced&&q.status!=="en_produccion")actions+='<button class="btn" style="font-size:11px;padding:3px 8px;background:#FFF3E0;color:#E65100;border:1px solid #FFB74D;border-radius:6px" onclick="event.stopPropagation();markAsInProduction(\''+q.id+'\',\''+q.kind+'\',event)">🔥 Iniciar</button>';
+    if(!q.produced)actions+='<button class="btn" style="font-size:11px;padding:3px 8px;background:white;border:1px solid #ccc;border-radius:6px" onclick="event.stopPropagation();toggleProduced(\''+q.id+'\',\''+q.kind+'\',event)">🔪 Producido</button>';
+    if(q.produced)actions+='<button class="btn" style="font-size:11px;padding:3px 8px;background:#E3F2FD;color:#1565C0;border:1px solid #90CAF9;border-radius:6px" onclick="event.stopPropagation();openDeliveryModal(\''+q.id+'\',\''+q.kind+'\',event)">🎉 Entregar</button>';
+
+    return '<div style="background:white;border:1px solid #e0e0e0;border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer;'+urgBorder+'" onclick="openPreview(\''+q.id+'\',\''+q.kind+'\')">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px">'+
+        '<div style="font-weight:700;font-size:14px">'+h(cli)+'</div>'+
+        '<div style="font-size:11px;color:#888">'+kindLabel+' · '+num+'</div>'+
+      '</div>'+
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">'+
+        '<span style="font-size:12px">📅 '+fecha+hora+'</span>'+
+        (prod?'<span style="font-size:11px;color:#888">🏭 Prod: '+prod+'</span>':'')+
+        '<span style="font-size:12px;font-weight:600">'+tot+'</span>'+
+        prodBadge+
+        '<span style="font-size:10px;background:#f5f5f5;padding:1px 6px;border-radius:4px">'+statusLabel+'</span>'+
+      '</div>'+
+      (actions?'<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">'+actions+'</div>':'')+
+    '</div>';
+  }).join("");
 }

@@ -322,7 +322,11 @@ async function renderHist(){
       '</div>';
   }
 
-  const header=archBar+searchBar+subBar+toggleBar+ventasAntBanner;
+  const _wrongN=quotesCache.filter(q=>q._wrongCollection).length;
+  const wrongBanner=_wrongN>0?'<div class="hist-wrong-banner" onclick="setHistArchive(\'anuladas\')" style="background:#FFF3E0;border:1px solid #FFB74D;border-radius:8px;padding:8px 14px;margin:6px 0;font-size:12px;font-weight:700;color:#E65100;cursor:pointer;display:flex;align-items:center;gap:6px">'
+    +'<span>🚨 '+_wrongN+' doc'+(_wrongN!==1?'s':'')+' en colección equivocada</span>'
+    +'<span style="font-weight:400;color:#BF360C;font-size:11px">— Tap para ver en Anuladas</span></div>':'';
+  const header=archBar+searchBar+subBar+toggleBar+ventasAntBanner+wrongBanner;
 
   if(!filtered.length){
     const emptyMsg=histSearch
@@ -348,6 +352,10 @@ async function renderHist(){
     // v5.0.3: badge Anulada (motivo visible como tooltip)
     const motivoAnulacion=q.anuladaData?.motivoLabel||q.anuladaData?.motivo||"";
     const anuladaBadge=(status==="anulada")?'<span class="hc-anulada-badge" title="'+motivoAnulacion+'">❌ Anulada</span>':'';
+    const replacedByBadge=(q.replacedBy)?'<span style="background:#E3F2FD;color:#1565C0;border:1px solid #90CAF9;border-radius:6px;padding:2px 8px;font-size:0.75em;cursor:pointer" onclick="event.stopPropagation();openPreview(\''+q.replacedBy+'\',\''+q.kind+'\')">♻️ Reemplazado por '+q.replacedBy+'</span>':'';
+    const replacesBadge=(q.replaces)?'<span style="background:#FFF3E0;color:#E65100;border:1px solid #FFB74D;border-radius:6px;padding:2px 8px;font-size:0.75em">♻️ Reemplaza a '+q.replaces+'</span>':'';
+    const _optInfo=typeof getOptionGroupInfo==="function"?getOptionGroupInfo(q,quotesCache):null;
+    const optionBadge=_optInfo?'<span class="hc-option-badge" title="Grupo de opciones: solo la de mayor total suma en KPIs">🔗 Opción '+_optInfo.order+'/'+_optInfo.total+'</span>':'';
     // v5.0.5: badge binario VIVA/PERDIDA (principal) + tag interno contactado/activa
     let followUpBadge="";
     if(typeof isFollowable==="function"&&isFollowable(q)){
@@ -368,6 +376,7 @@ async function renderHist(){
     const pagadoBadge=(_total>0&&_cobrado>=_total)?'<span class="hc-pagado-ok">💰 Pagado ✓</span>':(q.saldoData?'<span class="hc-saldo-ok">💰 Saldo ✓</span>':'');
     const prodBadge=q.produced?'<span class="hc-prod-ok">🔪 Producido</span>':(status==="en_produccion"?'<span class="hc-prod-warn" style="background:#FFF3E0;color:#E65100;border:1px solid #FFB74D;border-radius:6px;padding:2px 8px;font-size:0.8em">⚠️ Sin producir</span>':'');
     const comentBadge=q.comentarioCliente?.texto?'<span class="hc-coment-ok">💬 Comentario</span>':'';
+    const feBadge=q.requiereFE?(q.feData?'<span class="hc-fe-ok">🧾 FE ✓</span>':'<span class="hc-fe-pending">🧾 FE pendiente</span>'):'';
     // v5.0.2: badge sync pendiente / sync OK (solo en docs agendables con fecha futura)
     let syncBadge="";
     if(typeof isAgendable==="function"&&isAgendable(q)){
@@ -470,6 +479,10 @@ async function renderHist(){
     const _puedePago=(!isProp&&["pedido","en_produccion","entregado"].includes(status))||(isProp&&["aprobada","en_produccion","entregado"].includes(status));
     if(_puedePago&&_saldo>0)actionBtns.push('<button class="btn hc-btn-pago" onclick="openPagoModal(\''+q.id+'\',event)">💵 Registrar pago</button>');
     if(_pagos.length>0)actionBtns.push('<button class="btn hc-btn-pagos-ver" onclick="openVerPagosModal(\''+q.id+'\',event)">📒 Ver pagos ('+_pagos.length+')</button>');
+    if(!["superseded","convertida","anulada"].includes(status)){
+      const _feLabel=q.feData?'🧾 FE ✓':(q.requiereFE?'🧾 FE pendiente':'🧾 FE');
+      actionBtns.push('<button class="btn hc-btn-fe" onclick="event.stopPropagation();openFeModal(\''+q.id+'\',\''+q.kind+'\')">'+_feLabel+'</button>');
+    }
     // v4.12: comentario cliente disponible si entregado o ya hay uno
     if(status==="entregado"||q.comentarioCliente){
       actionBtns.push('<button class="btn hc-btn-coment" onclick="openComentModal(\''+q.id+'\',\''+q.kind+'\',event)">💬 '+(q.comentarioCliente?'Editar':'Registrar')+' comentario</button>');
@@ -477,6 +490,10 @@ async function renderHist(){
     // v6.4.0 P6: si ya está entregado y tiene foto guardada, permitir reenviar a Kathy por WhatsApp
     if(status==="entregado"&&q.entregaData&&(q.entregaData.fotoUrl||q.entregaData.foto2Url||q.entregaData.fotoBase64||q.entregaData.foto2Base64)){
       actionBtns.push('<button class="btn hc-btn-coment" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" onclick="event.stopPropagation();reopenEntregaWhatsApp(\''+q.id+'\',\''+q.kind+'\')">📸 Enviar fotos a Kathy</button>');
+    }
+    if(!["superseded","convertida","anulada"].includes(status)){
+      const _optLabel=q.optionGroupId?'🔗 Opciones ('+(_optInfo?_optInfo.total:'?')+')':'🔗 Opciones';
+      actionBtns.push('<button class="btn hc-btn-option" onclick="event.stopPropagation();openOptionGroupModal(\''+q.id+'\',\''+q.kind+'\')">'+_optLabel+'</button>');
     }
     // v5.4.1 (Bloque B): botón para ver PDFs anteriores si hay historial de regeneraciones
     if(Array.isArray(q.pdfHistorial)&&q.pdfHistorial.length>0){
@@ -493,7 +510,7 @@ async function renderHist(){
     if(status==="anulada")cardCls+=" hc-anulada";
     const cardExtra=(status==="superseded"||q._wrongCollection)?' style="opacity:.65"':"";
     return '<div class="'+cardCls+'"'+cardExtra+' onclick="openDocument(\''+q.kind+'\',\''+q.id+'\')">'+
-      '<div class="hc-top"><div><span class="qnum">'+h(qNum)+'</span> <span class="hc-cli">'+h(q.client)+'</span><span class="hc-type '+(isProp?"prop":"cot")+'">'+(isProp?"Propuesta":"Cotización")+'</span>'+statusBadge+supersededBadge+wrongCollBadge+origenPfBadge+anuladaBadge+followUpBadge+pagadoBadge+prodBadge+comentBadge+syncBadge+'</div>'+
+      '<div class="hc-top"><div><span class="qnum">'+h(qNum)+'</span> <span class="hc-cli">'+h(q.client)+'</span><span class="hc-type '+(isProp?"prop":"cot")+'">'+(isProp?"Propuesta":"Cotización")+'</span>'+statusBadge+supersededBadge+wrongCollBadge+origenPfBadge+anuladaBadge+replacedByBadge+replacesBadge+optionBadge+followUpBadge+pagadoBadge+prodBadge+feBadge+comentBadge+syncBadge+'</div>'+
       '<div><button class="dup-btn" onclick="openDuplicateModal(\''+q.kind+'\',\''+q.id+'\',event)" title="Duplicar">📋</button><button class="del-btn" onclick="delHistItem(\''+q.kind+'\',\''+q.id+'\',event)">×</button></div></div>'+
       '<div class="hc-date">'+ds+'</div>'+summary+actions+
       '</div>';
@@ -781,6 +798,8 @@ function openApproveModal(propId,kind,ev){
   $("am-num").value=p.quoteNumber||p.id;
   $("am-cli").value=p.client||"";
   $("am-fecha").value=new Date().toISOString().slice(0,10);
+  $("am-entrega-fecha").value=p.eventDate||"";
+  $("am-entrega-hora").value=p.horaEntrega||"";
   $("am-anticipo").value="";
   $("am-metodo").value="";
   $("am-notas").value="";
@@ -817,10 +836,14 @@ async function submitApproveProposal(){
   const metodo=$("am-metodo").value;
   const notas=$("am-notas").value.trim();
   const notasProd=$("am-notas-prod").value.trim();
+  const fechaEntrega=$("am-entrega-fecha").value;
+  const horaEntrega=$("am-entrega-hora").value;
   const approvalData={
     fechaAprobacion:fecha,anticipo:anticipo,metodoPago:metodo,
     notas:notas,notasProduccion:notasProd,marcadoEn:new Date().toISOString()
   };
+  if(fechaEntrega)approvalData.fechaEntrega=fechaEntrega;
+  if(horaEntrega)approvalData.horaEntrega=horaEntrega;
   const pagos=[];
   if(anticipo>0)pagos.push({fecha:fecha,monto:anticipo,metodo:metodo||"Sin especificar",tipo:"anticipo",notas:notas,registradoEn:new Date().toISOString()});
   // v7.0-α FIX-05: audit FSM (no bloquea en audit, sí en enforce)
@@ -834,15 +857,15 @@ async function submitApproveProposal(){
     else if(propId&&propId.startsWith("GB-PF-"))coll="propfinals";
     else coll="proposals";
     const patch={status:"aprobada",approvalData:approvalData,updatedAt:serverTimestamp()};
+    if(fechaEntrega)patch.eventDate=fechaEntrega;
+    if(horaEntrega)patch.horaEntrega=horaEntrega;
     if(pagos.length)patch.pagos=pagos;
-    // v5.0.2: si la propuesta aprobada tiene fecha de evento futura, marcar needsSync
-    const localPre=quotesCache.find(x=>x.id===propId&&x.kind===kind);
-    const eventDate=localPre?.eventDate;
     const hoyIso=new Date().toISOString().slice(0,10);
-    if(eventDate&&eventDate>=hoyIso)patch.needsSync=true;
+    const effectiveEventDate=fechaEntrega||(quotesCache.find(x=>x.id===propId&&x.kind===kind)||{}).eventDate;
+    if(effectiveEventDate&&effectiveEventDate>=hoyIso)patch.needsSync=true;
     await updateDoc(doc(db,coll,propId),patch);
     const local=quotesCache.find(x=>x.id===propId&&x.kind===kind);
-    if(local){local.status="aprobada";local.approvalData=approvalData;if(pagos.length)local.pagos=pagos;if(patch.needsSync)local.needsSync=true}
+    if(local){local.status="aprobada";local.approvalData=approvalData;if(fechaEntrega)local.eventDate=fechaEntrega;if(horaEntrega)local.horaEntrega=horaEntrega;if(pagos.length)local.pagos=pagos;if(patch.needsSync)local.needsSync=true}
     hideLoader();closeApproveModal();
     toast("✓ Propuesta aprobada: "+($("am-num").value),"success");
     renderHist();
@@ -1113,8 +1136,9 @@ function openVerPagosModal(docId,kind,ev){
           '<div id="vp-adj-prev-'+idx+'"></div>'+
         '</div>'
       );
-      return '<div class="pago-item">'+
-        '<div class="pago-item-top"><span class="pago-item-monto">'+fm(p.monto)+'</span><span class="pago-item-tipo">'+p.tipo+'</span></div>'+
+      const editBtn='<button style="margin-left:auto;background:none;border:1px solid #ccc;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;color:#555" onclick="event.stopPropagation();editPago('+idx+')">✏️ Editar</button>';
+      return '<div class="pago-item" id="pago-item-'+idx+'">'+
+        '<div class="pago-item-top"><span class="pago-item-monto">'+fm(p.monto)+'</span><span class="pago-item-tipo">'+p.tipo+'</span>'+editBtn+'</div>'+
         '<div class="pago-item-meta">'+p.fecha+' · '+p.metodo+legBadge+'</div>'+
         (p.notas?'<div class="pago-item-meta" style="margin-top:3px">📝 '+p.notas+'</div>':'')+fotoHtml+adjuntarHtml+
       '</div>';
@@ -1123,6 +1147,77 @@ function openVerPagosModal(docId,kind,ev){
   $("verpagos-modal").classList.remove("hidden");
 }
 function closeVerPagosModal(){$("verpagos-modal").classList.add("hidden")}
+
+function editPago(idx){
+  const docId=window.__verPagosId;
+  const kind=window.__verPagosKind;
+  const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
+  if(!q)return;
+  const pagos=getPagos(q);
+  if(idx<0||idx>=pagos.length)return;
+  const p=pagos[idx];
+  const el=$("pago-item-"+idx);
+  if(!el)return;
+  el.innerHTML=
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:4px 0">'+
+      '<div><label style="font-size:10px;color:#888;display:block">Monto</label><input type="number" id="pe-monto-'+idx+'" value="'+Math.abs(p.monto)+'" style="width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px" inputmode="numeric"></div>'+
+      '<div><label style="font-size:10px;color:#888;display:block">Fecha</label><input type="date" id="pe-fecha-'+idx+'" value="'+(p.fecha||"")+'" style="width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px"></div>'+
+      '<div><label style="font-size:10px;color:#888;display:block">Método / Banco</label><select id="pe-metodo-'+idx+'" style="width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px"><option value="Nequi">Nequi</option><option value="Daviplata">Daviplata</option><option value="Banco Falabella">Banco Falabella</option><option value="Efectivo">Efectivo</option><option value="Transferencia">Transferencia</option><option value="Otro">Otro</option><option value="Sin especificar">Sin especificar</option></select></div>'+
+      '<div><label style="font-size:10px;color:#888;display:block">Tipo</label><select id="pe-tipo-'+idx+'" style="width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px"><option value="anticipo">Anticipo</option><option value="abono">Abono</option><option value="saldo">Saldo</option><option value="devolucion">Devolución</option></select></div>'+
+    '</div>'+
+    '<div style="margin-top:6px"><label style="font-size:10px;color:#888;display:block">Notas</label><input type="text" id="pe-notas-'+idx+'" value="'+h(p.notas||"")+'" style="width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px" placeholder="Notas opcionales"></div>'+
+    '<div style="margin-top:8px;display:flex;gap:8px;justify-content:flex-end">'+
+      '<button style="padding:4px 12px;border:1px solid #ccc;border-radius:6px;background:white;cursor:pointer;font-size:12px" onclick="openVerPagosModal(\''+docId+'\',\''+kind+'\')">Cancelar</button>'+
+      '<button style="padding:4px 12px;border:none;border-radius:6px;background:#1976D2;color:white;cursor:pointer;font-size:12px;font-weight:600" onclick="savePagoEdit('+idx+')">Guardar</button>'+
+    '</div>';
+  $("pe-metodo-"+idx).value=p.metodo||"Sin especificar";
+  $("pe-tipo-"+idx).value=p.tipo||"abono";
+}
+
+async function savePagoEdit(idx){
+  const docId=window.__verPagosId;
+  const kind=window.__verPagosKind;
+  if(!docId)return;
+  const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
+  if(!q)return;
+  const pagos=getPagos(q).map(p=>({...p}));
+  if(idx<0||idx>=pagos.length)return;
+  const old={...pagos[idx]};
+  const nuevoMonto=parseInt($("pe-monto-"+idx).value)||0;
+  const nuevoFecha=$("pe-fecha-"+idx).value;
+  const nuevoMetodo=$("pe-metodo-"+idx).value;
+  const nuevoTipo=$("pe-tipo-"+idx).value;
+  const nuevoNotas=$("pe-notas-"+idx).value.trim();
+  if(!nuevoMonto){alert("El monto no puede ser 0");return}
+  if(!nuevoFecha){alert("Ingresa la fecha");return}
+  const esDevolucion=nuevoTipo==="devolucion";
+  pagos[idx].monto=esDevolucion?-Math.abs(nuevoMonto):Math.abs(nuevoMonto);
+  pagos[idx].fecha=nuevoFecha;
+  pagos[idx].metodo=nuevoMetodo;
+  pagos[idx].tipo=nuevoTipo;
+  pagos[idx].notas=nuevoNotas;
+  pagos[idx].editadoEn=new Date().toISOString();
+  const changes=[];
+  if(old.monto!==pagos[idx].monto)changes.push({campo:"monto",antes:old.monto,despues:pagos[idx].monto});
+  if(old.fecha!==nuevoFecha)changes.push({campo:"fecha",antes:old.fecha,despues:nuevoFecha});
+  if(old.metodo!==nuevoMetodo)changes.push({campo:"metodo",antes:old.metodo,despues:nuevoMetodo});
+  if(old.tipo!==nuevoTipo)changes.push({campo:"tipo",antes:old.tipo,despues:nuevoTipo});
+  if((old.notas||"")!==nuevoNotas)changes.push({campo:"notas",antes:old.notas||"",despues:nuevoNotas});
+  if(!changes.length){openVerPagosModal(docId,kind);return}
+  try{
+    showLoader("Guardando cambio...");
+    const {db,doc,updateDoc,serverTimestamp}=window.fb;
+    const coll=kind==="quote"?"quotes":(docId.startsWith("GB-PF-")?"propfinals":"proposals");
+    const changelog=Array.isArray(q.pago_changelog)?[...q.pago_changelog]:[];
+    changelog.push({pagoIdx:idx,timestamp:new Date().toISOString(),changes});
+    await updateDoc(doc(db,coll,docId),{pagos,pago_changelog:changelog,updatedAt:serverTimestamp()});
+    q.pagos=pagos;
+    q.pago_changelog=changelog;
+    hideLoader();
+    toast("✏️ Pago actualizado","success");
+    openVerPagosModal(docId,kind);
+  }catch(e){hideLoader();toast("Error: "+e.message,"error")}
+}
 
 // v5.1.0: Adjuntar comprobante DESPUÉS de registrar un pago.
 // Útil cuando en el momento del pago no se tenía la foto del comprobante.
@@ -1842,6 +1937,8 @@ async function submitAnular(){
   if(!["anular","regresar"].includes(accion)){alert("Escoge qué hacer con el registro.");return}
 
   const {docId,kind,q}=_anularCtx;
+  const targetStatus=accion==="anular"?"anulada":"enviada";
+  if(typeof auditTransition==="function"&&!auditTransition(q.status||"enviada",targetStatus,"submitAnular "+docId))return;
   const cobrado=totalCobrado(q);
   // Devolución opcional
   let devPago=null;
@@ -1882,10 +1979,12 @@ async function submitAnular(){
     const patch={updatedAt:serverTimestamp()};
     if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
 
+    const expectsRepl=$("an-reemplazo")&&$("an-reemplazo").checked;
     if(accion==="anular"){
       patch.status="anulada";
       patch.anuladaData=anuladaData;
-      patch.needsSync=false; // ya no va a agenda
+      patch.needsSync=false;
+      if(expectsRepl){patch.expectsReplacement=true;patch.replacementClient=q.client||""}
     }else{
       // Regresar a cotización viva
       patch.status="enviada";
@@ -1914,6 +2013,7 @@ async function submitAnular(){
     if(local){
       local.status=patch.status;
       local.anuladaData=anuladaData;
+      if(expectsRepl){local.expectsReplacement=true;local.replacementClient=q.client||""}
       if(accion==="regresar"){
         local.orderData=null;
         local.approvalData=null;
@@ -1940,6 +2040,30 @@ async function submitAnular(){
     toast("Error al anular: "+(e.message||e),"error");
     console.error(e);
   }
+}
+
+async function linkPendingReplacement(newDocId,newKind,client){
+  if(!client||!newDocId)return;
+  const pending=quotesCache.find(q=>q.status==="anulada"&&q.expectsReplacement&&!q.replacedBy&&q.client===client);
+  if(!pending)return;
+  const {db,doc,updateDoc,serverTimestamp}=window.fb;
+  const oldId=pending.id;
+  const oldKind=pending.kind;
+  let oldColl;
+  if(oldKind==="quote")oldColl="quotes";
+  else if(oldId.startsWith("GB-PF-"))oldColl="propfinals";
+  else oldColl="proposals";
+  let newColl;
+  if(newKind==="quote")newColl="quotes";
+  else if(newDocId.startsWith("GB-PF-"))newColl="propfinals";
+  else newColl="proposals";
+  await updateDoc(doc(db,oldColl,oldId),{replacedBy:newDocId,expectsReplacement:false,updatedAt:serverTimestamp()});
+  await updateDoc(doc(db,newColl,newDocId),{replaces:oldId,updatedAt:serverTimestamp()});
+  pending.replacedBy=newDocId;
+  pending.expectsReplacement=false;
+  const newLocal=quotesCache.find(x=>x.id===newDocId&&x.kind===newKind);
+  if(newLocal)newLocal.replaces=oldId;
+  if(typeof toast==="function")toast("🔗 Vinculado: "+newDocId+" reemplaza a "+(pending.quoteNumber||oldId),"info",4000);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2205,5 +2329,223 @@ function requestEdit(kind,docId){
     openEditWarningModal(q,function(){loadQuote(kind,docId)});
   }else{
     loadQuote(kind,docId);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// BUG-E: Option group management (cotizaciones opcionales)
+// ═══════════════════════════════════════════════════════════
+
+function openOptionGroupModal(docId,kind){
+  const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
+  if(!q){toast("Documento no encontrado","error");return}
+  const sameClient=quotesCache.filter(x=>
+    x.client&&q.client&&x.client.toLowerCase()===q.client.toLowerCase()
+    &&x.id!==docId
+    &&!["superseded","convertida","anulada"].includes(x.status||"enviada")
+  );
+  const currentGroup=q.optionGroupId
+    ?quotesCache.filter(x=>x.optionGroupId===q.optionGroupId&&x.id!==docId)
+    :[];
+
+  let body='<div style="margin-bottom:12px"><strong>'+h(q.quoteNumber||q.id)+'</strong> — '+h(q.client||"")+'<br>Total: '+fm(q.total||0)+'</div>';
+
+  if(currentGroup.length>0){
+    body+='<div style="margin-bottom:14px"><strong>Grupo actual:</strong>';
+    currentGroup.forEach(s=>{
+      body+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #eee">'
+        +'<span style="flex:1"><strong>'+h(s.quoteNumber||s.id)+'</strong> — '+fm(s.total||0)+'</span>'
+        +'<button onclick="unlinkOptionGroup(\''+docId+'\',\''+kind+'\',\''+s.id+'\',\''+s.kind+'\')" '
+        +'style="background:#FFEBEE;color:#C62828;border:1px solid #EF9A9A;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer">Desvincular</button>'
+        +'</div>';
+    });
+    body+='</div>';
+  }
+
+  if(sameClient.length===0&&currentGroup.length===0){
+    body+='<div style="color:#757575;font-style:italic;padding:12px 0">No hay otros documentos activos para <strong>'+h(q.client)+'</strong>.</div>';
+  }else if(sameClient.filter(x=>!currentGroup.find(g=>g.id===x.id)).length>0){
+    body+='<div style="margin-bottom:6px"><strong>Vincular con:</strong></div>';
+    sameClient.filter(x=>!currentGroup.find(g=>g.id===x.id)).forEach(s=>{
+      body+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #eee">'
+        +'<span style="flex:1"><strong>'+h(s.quoteNumber||s.id)+'</strong> — '+(s.kind==="quote"?"Cot":"Prop")+' · '+fm(s.total||0)
+        +(s.eventDate?' · '+s.eventDate:'')+'</span>'
+        +'<button onclick="linkOptionGroup(\''+docId+'\',\''+kind+'\',\''+s.id+'\',\''+s.kind+'\')" '
+        +'style="background:#E3F2FD;color:#1565C0;border:1px solid #90CAF9;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer">Vincular</button>'
+        +'</div>';
+    });
+  }
+
+  confirmModal({
+    title:"🔗 Opciones de cotización",
+    body:body,
+    okLabel:"Cerrar",
+    cancelLabel:"",
+    tone:"primary"
+  });
+}
+
+async function linkOptionGroup(docIdA,kindA,docIdB,kindB){
+  const a=quotesCache.find(x=>x.id===docIdA&&x.kind===kindA);
+  const b=quotesCache.find(x=>x.id===docIdB&&x.kind===kindB);
+  if(!a||!b)return;
+  const groupId=a.optionGroupId||b.optionGroupId||("og-"+Date.now().toString(36));
+  const collA=kindA==="quote"?"quotes":(docIdA.startsWith("GB-PF-")?"propfinals":"proposals");
+  const collB=kindB==="quote"?"quotes":(docIdB.startsWith("GB-PF-")?"propfinals":"proposals");
+  try{
+    if(typeof showLoader==="function")showLoader("Vinculando opciones...");
+    await updateDoc(doc(db,collA,docIdA),{optionGroupId:groupId,updatedAt:serverTimestamp()});
+    await updateDoc(doc(db,collB,docIdB),{optionGroupId:groupId,updatedAt:serverTimestamp()});
+    a.optionGroupId=groupId;
+    b.optionGroupId=groupId;
+    if(typeof hideLoader==="function")hideLoader();
+    toast("🔗 Vinculados como opciones del mismo evento","success");
+    if(typeof closeConfirmModal==="function")closeConfirmModal();
+    renderHist();
+    if(typeof renderDashboard==="function")renderDashboard();
+  }catch(e){
+    if(typeof hideLoader==="function")hideLoader();
+    console.error("linkOptionGroup error:",e);
+    toast("Error al vincular: "+e.message,"error");
+  }
+}
+
+async function unlinkOptionGroup(docIdA,kindA,docIdB,kindB){
+  const a=quotesCache.find(x=>x.id===docIdA&&x.kind===kindA);
+  const b=quotesCache.find(x=>x.id===docIdB&&x.kind===kindB);
+  if(!a||!b)return;
+  const group=quotesCache.filter(x=>x.optionGroupId&&x.optionGroupId===a.optionGroupId);
+  const collA=kindA==="quote"?"quotes":(docIdA.startsWith("GB-PF-")?"propfinals":"proposals");
+  const collB=kindB==="quote"?"quotes":(docIdB.startsWith("GB-PF-")?"propfinals":"proposals");
+  try{
+    if(typeof showLoader==="function")showLoader("Desvinculando...");
+    if(group.length<=2){
+      await updateDoc(doc(db,collA,docIdA),{optionGroupId:"",updatedAt:serverTimestamp()});
+      await updateDoc(doc(db,collB,docIdB),{optionGroupId:"",updatedAt:serverTimestamp()});
+      a.optionGroupId="";
+      b.optionGroupId="";
+    }else{
+      await updateDoc(doc(db,collB,docIdB),{optionGroupId:"",updatedAt:serverTimestamp()});
+      b.optionGroupId="";
+    }
+    if(typeof hideLoader==="function")hideLoader();
+    toast("Desvinculado","success");
+    if(typeof closeConfirmModal==="function")closeConfirmModal();
+    renderHist();
+    if(typeof renderDashboard==="function")renderDashboard();
+  }catch(e){
+    if(typeof hideLoader==="function")hideLoader();
+    console.error("unlinkOptionGroup error:",e);
+    toast("Error al desvincular: "+e.message,"error");
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// B4: Factura Electrónica — registro y adjunto de imagen
+// ═══════════════════════════════════════════════════════════
+
+let _feBase64=null;
+
+function openFeModal(docId,kind){
+  const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
+  if(!q){toast("Documento no encontrado","error");return}
+  _feBase64=null;
+
+  let body='<div style="margin-bottom:12px"><strong>'+h(q.quoteNumber||q.id)+'</strong> — '+h(q.client||"")+'</div>';
+
+  body+='<label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:13px;cursor:pointer">'
+    +'<input type="checkbox" id="fe-requiere" '+(q.requiereFE?'checked':'')+' style="accent-color:#1565C0;width:18px;height:18px">'
+    +' Requiere factura electrónica (DIAN)</label>';
+
+  if(q.feData){
+    body+='<div style="margin-bottom:12px;padding:10px;background:#E8F5E9;border-radius:8px;border:1px solid #A5D6A7">'
+      +'<strong style="color:#2E7D32">✓ FE adjunta</strong>'
+      +(q.feData.fecha?' · <span style="font-size:11px;color:#555">'+q.feData.fecha+'</span>':'')
+      +(q.feData.numero?' · <span style="font-size:11px;color:#555">N° '+h(q.feData.numero)+'</span>':'')
+      +'<br>'
+      +(q.feData.fotoUrl?'<img src="'+q.feData.fotoUrl+'" style="max-width:100%;max-height:200px;border-radius:6px;margin-top:8px;border:1px solid #ddd">'
+        :(q.feData.foto?'<img src="'+q.feData.foto+'" style="max-width:100%;max-height:200px;border-radius:6px;margin-top:8px;border:1px solid #ddd">':''))
+      +'</div>';
+  }
+
+  body+='<div style="margin-bottom:10px"><label style="font-size:12px;font-weight:600;color:#555">Número de factura (opcional)</label>'
+    +'<input type="text" id="fe-numero" class="fin" placeholder="Ej: FE-12345" value="'+(q.feData?.numero||"")+'" style="margin-top:4px"></div>';
+
+  body+='<div style="margin-bottom:10px"><label style="font-size:12px;font-weight:600;color:#555">Adjuntar imagen de FE (PDF/PNG/JPG)</label>'
+    +'<input type="file" id="fe-foto" accept="image/*,.pdf" onchange="previewFeFoto(event)" style="margin-top:4px;font-size:12px">'
+    +'<div id="fe-foto-preview" style="margin-top:6px"></div></div>';
+
+  body+='<button onclick="submitFe(\''+docId+'\',\''+kind+'\')" style="width:100%;padding:12px;background:linear-gradient(135deg,#1565C0,#0D47A1);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Guardar</button>';
+
+  confirmModal({
+    title:"🧾 Factura Electrónica",
+    body:body,
+    okLabel:"Cerrar",
+    cancelLabel:"",
+    tone:"primary"
+  });
+}
+
+function previewFeFoto(ev){
+  const file=ev.target.files[0];
+  if(!file){_feBase64=null;$("fe-foto-preview").innerHTML="";return}
+  if(file.type==="application/pdf"){
+    _feBase64="pdf-placeholder";
+    $("fe-foto-preview").innerHTML='<div style="padding:8px;background:#E3F2FD;border-radius:6px;font-size:11px">📄 '+file.name+' ('+Math.round(file.size/1024)+' KB)</div>';
+    const reader=new FileReader();
+    reader.onload=e=>{_feBase64=e.target.result};
+    reader.readAsDataURL(file);
+    return;
+  }
+  _compressImageFile(file,b64=>{
+    _feBase64=b64;
+    const sizeKB=Math.round(b64.length*0.75/1024);
+    $("fe-foto-preview").innerHTML='<img src="'+b64+'" style="max-width:100%;max-height:160px;border-radius:6px;border:1px solid #ddd"><div style="font-size:10px;color:#666;margin-top:3px">Comprimida: '+sizeKB+' KB</div>';
+  });
+}
+
+async function submitFe(docId,kind){
+  const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
+  if(!q)return;
+  const requiereFE=!!($("fe-requiere")&&$("fe-requiere").checked);
+  const numero=($("fe-numero")&&$("fe-numero").value.trim())||"";
+  const coll=kind==="quote"?"quotes":(docId.startsWith("GB-PF-")?"propfinals":"proposals");
+  const patch={requiereFE:requiereFE,updatedAt:serverTimestamp(),...auditStamp()};
+
+  if(requiereFE||_feBase64||numero){
+    const feData=q.feData?{...q.feData}:{};
+    if(numero)feData.numero=numero;
+    feData.fecha=feData.fecha||new Date().toISOString().slice(0,10);
+    if(_feBase64){
+      try{
+        if(typeof showLoader==="function")showLoader("Subiendo imagen...");
+        const {url}=await uploadFotoFromBase64(_feBase64,"fe",docId,"facturas");
+        feData.fotoUrl=url;
+        delete feData.foto;
+      }catch(e){
+        console.warn("Upload FE falló, guardo base64:",e);
+        feData.foto=_feBase64;
+      }
+    }
+    patch.feData=feData;
+  }else if(!requiereFE&&q.feData&&!q.feData.fotoUrl&&!q.feData.foto){
+    patch.feData=null;
+  }
+
+  try{
+    if(typeof showLoader==="function")showLoader("Guardando...");
+    const {db,doc,updateDoc,serverTimestamp}=window.fb;
+    await updateDoc(doc(db,coll,docId),patch);
+    q.requiereFE=requiereFE;
+    if(patch.feData!==undefined)q.feData=patch.feData;
+    if(typeof hideLoader==="function")hideLoader();
+    toast("🧾 Factura electrónica actualizada","success");
+    if(typeof closeConfirmModal==="function")closeConfirmModal();
+    renderHist();
+    if(curMode==="dash"&&typeof renderDashboard==="function")renderDashboard();
+  }catch(e){
+    if(typeof hideLoader==="function")hideLoader();
+    console.error("submitFe error:",e);
+    toast("Error: "+e.message,"error");
   }
 }

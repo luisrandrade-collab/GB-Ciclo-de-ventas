@@ -413,7 +413,7 @@ async function savePropQuote(silent){
     propSections.forEach(sec=>sec.options.forEach(opt=>opt.items.forEach(it=>{if(!it.catId&&it.name){try{registerCustomProduct(it.name,it.desc||"",it.price||0,"")}catch(e){}}})));
     aperturaFrase=$("fp-apertura").value.trim()||aperturaFrase;
     fechaVencimiento=$("fp-fecha-venc").value||fechaVencimiento;
-    let prevStatus="enviada",prevApprovalData=null,prevPropFinalRef=null,prevPagos=null,prevEntregaData=null,prevComentarioCliente=null,prevProductionDate=null,prevProduced=null,prevHoraEntrega=null,prevPdfHistorial=null,prevPdfRegenCount=null,prevEditHistory=null;
+    let prevStatus="enviada",prevApprovalData=null,prevPropFinalRef=null,prevPagos=null,prevEntregaData=null,prevComentarioCliente=null,prevProductionDate=null,prevProduced=null,prevHoraEntrega=null,prevPdfHistorial=null,prevPdfRegenCount=null,prevEditHistory=null,prevOptionGroupId=null,prevFeData=null;
     if(currentPropNumber&&!creatingChild&&oldDoc){
       if(oldDoc.status)prevStatus=oldDoc.status;
       if(oldDoc.approvalData)prevApprovalData=oldDoc.approvalData;
@@ -427,6 +427,9 @@ async function savePropQuote(silent){
       if(Array.isArray(oldDoc.pdfHistorial))prevPdfHistorial=oldDoc.pdfHistorial;
       if(typeof oldDoc.pdfRegenCount==="number")prevPdfRegenCount=oldDoc.pdfRegenCount;
       if(Array.isArray(oldDoc.editHistory))prevEditHistory=oldDoc.editHistory;
+      if(oldDoc.optionGroupId)prevOptionGroupId=oldDoc.optionGroupId;
+      if(oldDoc.feData)prevFeData=oldDoc.feData;
+      if($("fp-requiere-fe"))$("fp-requiere-fe").checked=!!oldDoc.requiereFE;
     }else if(creatingChild){
       prevStatus="enviada"; // hija siempre arranca limpia pre-confirmación
     }
@@ -444,11 +447,14 @@ async function savePropQuote(silent){
       aperturaFrase:aperturaFrase,fechaVencimiento:fechaVencimiento,
       condicionesData:JSON.parse(JSON.stringify(condicionesData)),
       reposicionData:JSON.parse(JSON.stringify(reposicionData)),
-      firma:firmaProp,status:prevStatus
+      firma:firmaProp,status:prevStatus,
+      requiereFE:!!($("fp-requiere-fe")&&$("fp-requiere-fe").checked)
     };
     if(prevApprovalData)pObj.approvalData=prevApprovalData;
     if(prevPropFinalRef)pObj.propFinalRef=prevPropFinalRef;
     if(prevPagos)pObj.pagos=prevPagos;
+    if(prevOptionGroupId)pObj.optionGroupId=prevOptionGroupId;
+    if(prevFeData)pObj.feData=prevFeData;
     if(prevEntregaData)pObj.entregaData=prevEntregaData;
     if(prevComentarioCliente)pObj.comentarioCliente=prevComentarioCliente;
     if(prevProductionDate)pObj.productionDate=prevProductionDate;
@@ -536,6 +542,7 @@ async function savePropQuote(silent){
         else quotesCache.unshift(cacheEntry);
       }
     }catch(e){console.warn("No se pudo sincronizar quotesCache:",e)}
+    if(!creatingChild&&typeof linkPendingReplacement==="function"){try{await linkPendingReplacement(pNum,"proposal",pObj.client)}catch(e){console.warn("linkPendingReplacement:",e)}}
     // Guardar referencias para UI post-guardado
     window._lastSavedProp={
       id:pNum,

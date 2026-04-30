@@ -6,6 +6,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1a1a1a">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="icon" type="image/png" href="brand/cuchillo-negro.png">
+<link rel="apple-touch-icon" href="brand/cuchillo-negro.png">
 <title>Gourmet Bites - Cotizador</title>
 <link rel="stylesheet" href="gb-tokens.css">
 <!-- VERSION: 2026-04-26-v7.0.0-α-cascaron-v7-dashboard-rediseñado-fsm-pedido-vs-produccion -->
@@ -143,7 +146,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
 .pipe-card.pc-ped{border-left-color:#2E7D32}
 .pipe-card.pc-ent{border-left-color:#E65100}
 .pipe-card-lab{font-size:10px;color:#616161;text-transform:uppercase;font-weight:700;letter-spacing:.3px;margin-bottom:3px}
-.pipe-card-val{font-size:15px;font-weight:800;color:#212121;line-height:1.1}
+.pipe-card-val{font-family:var(--gb-font-body);font-size:15px;font-weight:800;color:#212121;line-height:1.1;font-variant-numeric:tabular-nums}
 .pipe-card-sub{font-size:9.5px;color:#757575;margin-top:2px}
 @media (max-width:420px){.pipeline-grid{grid-template-columns:1fr 1fr}.pipe-card.pc-ent{grid-column:span 2}.pipe-card-val{font-size:14px}}
 /* v5.0.4: Banner de seguimiento pendiente (rojo claro, con alerta) */
@@ -838,6 +841,11 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
 .hc-anulada-badge{display:inline-block;font-size:9px;font-weight:800;padding:2px 7px;border-radius:10px;margin-left:4px;background:#FFCDD2;color:#B71C1C;border:1px solid #EF5350;vertical-align:middle}
 .hcard.hc-anulada{opacity:.6;border-left:3px solid #EF5350}
 .hc-btn-anular{background:linear-gradient(135deg,#E57373,#C62828);color:#fff;border:none}
+.hc-option-badge{display:inline-block;font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:4px;background:#E8F5E9;color:#2E7D32;border:1px solid #A5D6A7;vertical-align:middle}
+.hc-btn-option{background:#E8F5E9;color:#2E7D32;border:1px solid #A5D6A7}.hc-btn-option:hover{background:#C8E6C9}
+.hc-fe-ok{display:inline-block;font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:4px;background:#E3F2FD;color:#1565C0;border:1px solid #90CAF9;vertical-align:middle}
+.hc-fe-pending{display:inline-block;font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:4px;background:#FFF3E0;color:#E65100;border:1px solid #FFB74D;vertical-align:middle}
+.hc-btn-fe{background:#E3F2FD;color:#1565C0;border:1px solid #90CAF9}.hc-btn-fe:hover{background:#BBDEFB}
 .hc-btn-anular:hover{filter:brightness(1.05)}
 .hc-btn-revivir{background:linear-gradient(135deg,#66BB6A,#2E7D32);color:#fff;border:none}
 .hist-filter.anuladas-filter{background:#FFCDD2;color:#B71C1C;border-color:#EF5350}
@@ -949,7 +957,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
 .dash-card.recaudo{border-left-color:#1976D2}
 .dash-card-icon{font-size:18px;opacity:.5;position:absolute;top:10px;right:12px}
 .dash-card-lab{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--gb-neutral-500);font-weight:700;margin-bottom:8px}
-.dash-card-val{font-family:var(--gb-font-display);font-size:22px;font-weight:700;color:var(--gb-neutral-900);line-height:1.05;word-break:break-word}
+.dash-card-val{font-family:var(--gb-font-body);font-size:22px;font-weight:700;color:var(--gb-neutral-900);line-height:1.05;word-break:break-word;font-variant-numeric:tabular-nums}
 .dash-card-sub{font-size:10.5px;color:var(--gb-neutral-400);margin-top:5px;line-height:1.4}
 .dash-section{background:var(--gb-neutral-0);border-radius:12px;padding:14px;box-shadow:var(--gb-shadow-md);margin-bottom:14px}
 .dash-stit{font-family:var(--gb-font-display);font-size:18px;font-weight:700;color:var(--gb-neutral-900);margin-bottom:10px;display:flex;align-items:center;gap:6px}
@@ -994,7 +1002,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
 }
 .mini-dash{background:linear-gradient(135deg,#1a1a1a 0%,#2d2d2d 100%);color:var(--gb-neutral-0);border-radius:12px;padding:14px 16px;margin:12px 14px 0;display:flex;gap:10px;flex-wrap:wrap;box-shadow:0 4px 14px rgba(0,0,0,.12)}
 .mini-dash-item{flex:1;min-width:95px;text-align:center}
-.mini-dash-val{font-family:var(--gb-font-display);font-size:24px;font-weight:700;color:var(--gb-gold-500);line-height:1}
+.mini-dash-val{font-family:var(--gb-font-body);font-size:24px;font-weight:700;color:var(--gb-gold-500);line-height:1;font-variant-numeric:tabular-nums}
 .mini-dash-lab{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#bbb;margin-top:4px;line-height:1.3}
 .mini-dash-item.alert .mini-dash-val{color:#FB8C00}
 .mini-dash-item.today .mini-dash-val{color:#4CAF50}
@@ -1749,7 +1757,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     <div class="sb-module" data-mod="operaciones">
       <button class="sb-module__btn"><span class="gb-shell-icon">📦</span><span class="sb-module__label">Operaciones</span></button>
       <div class="sb-submenu">
-        <a href="javascript:void(0)" class="is-soon" data-sub="ops/produccion">Pedidos en producción<span class="sub-soon">Pronto</span></a>
+        <a href="javascript:void(0)" data-sub="ops/produccion">Pedidos en producción</a>
         <a href="javascript:void(0)" class="is-soon" data-sub="ops/despacho">Hoja de despacho<span class="sub-soon">Pronto</span></a>
         <a href="javascript:void(0)" class="is-soon" data-sub="ops/historico-hojas">Histórico de hojas<span class="sub-soon">Pronto</span></a>
         <a href="javascript:void(0)" class="is-soon" data-sub="ops/cobro">Pendientes de cobro<span class="sub-soon">Pronto</span></a>
@@ -1811,9 +1819,11 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'inicio/dashboard':  'dash',
     'inicio/tareas':     'seg',
     'inicio/agenda':     'cal',
+    'ventas/crear':      'ventas',
     'ventas/cotizar':    'cot',
     'ventas/propuesta':  'prop',
-    'ventas/historico':  'hist'
+    'ventas/historico':  'hist',
+    'ops/produccion':    'ops'
     // Pipeline, ops/*, compras/*, clientes/*, herr/* → undefined → SOON
   };
 
@@ -1823,9 +1833,11 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'dash':   'inicio/dashboard',
     'seg':    'inicio/tareas',
     'cal':    'inicio/agenda',
+    'ventas': 'ventas/crear',
     'cot':    'ventas/cotizar',
     'prop':   'ventas/propuesta',
     'hist':   'ventas/historico',
+    'ops':    'ops/produccion',
     'search': 'ventas/cotizar'
   };
 
@@ -1834,8 +1846,10 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'inicio/dashboard':  ['Inicio', 'Dashboard'],
     'inicio/tareas':     ['Inicio', 'Tareas y follow-ups'],
     'inicio/agenda':     ['Inicio', 'Agenda'],
+    'ventas/crear':      ['Ventas', 'Crear nueva'],
     'ventas/cotizar':    ['Ventas', 'Nueva cotización'],
     'ventas/propuesta':  ['Ventas', 'Nueva propuesta'],
+    'ops/produccion':    ['Operaciones', 'Producción'],
     'ventas/historico':  ['Ventas', 'Histórico comercial']
   };
 
@@ -1923,6 +1937,10 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       var modBtn = e.target.closest('.sb-module__btn');
       if (modBtn) {
         var mod = modBtn.parentElement;
+        if (mod.getAttribute('data-mod') === 'ventas' && typeof window.setMode === 'function') {
+          window.setMode('ventas');
+          return;
+        }
         var first = mod.querySelector('.sb-submenu a:not(.is-soon)');
         if (first) {
           first.click();
@@ -2319,6 +2337,26 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   </div>
 </div>
 
+<!-- ======== VENTAS PICKER MODE ======== -->
+<div id="mode-ventas" class="hidden">
+  <div style="max-width:600px;margin:40px auto;padding:0 16px">
+    <h2 style="text-align:center;font-family:var(--gb-font-head);color:var(--gb-neutral-800);margin-bottom:8px">Nueva venta</h2>
+    <p style="text-align:center;color:var(--gb-neutral-500);margin-bottom:32px;font-size:14px">Elige el tipo de documento que necesitas crear</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <button onclick="setMode('cot')" style="background:white;border:2px solid var(--gb-success-200);border-radius:16px;padding:32px 20px;cursor:pointer;text-align:center;transition:border-color .2s,box-shadow .2s" onmouseover="this.style.borderColor='var(--gb-success-500)';this.style.boxShadow='0 4px 12px rgba(76,175,80,.15)'" onmouseout="this.style.borderColor='var(--gb-success-200)';this.style.boxShadow='none'">
+        <div style="font-size:40px;margin-bottom:12px">📋</div>
+        <div style="font-family:var(--gb-font-head);font-size:17px;font-weight:700;color:var(--gb-neutral-800);margin-bottom:6px">Cotizacion</div>
+        <div style="font-size:12px;color:var(--gb-neutral-500);line-height:1.4">Productos del catalogo con precios unitarios. Para pedidos puntuales.</div>
+      </button>
+      <button onclick="setMode('prop')" style="background:white;border:2px solid var(--gb-info-200);border-radius:16px;padding:32px 20px;cursor:pointer;text-align:center;transition:border-color .2s,box-shadow .2s" onmouseover="this.style.borderColor='var(--gb-info-500)';this.style.boxShadow='0 4px 12px rgba(33,150,243,.15)'" onmouseout="this.style.borderColor='var(--gb-info-200)';this.style.boxShadow='none'">
+        <div style="font-size:40px;margin-bottom:12px">🎪</div>
+        <div style="font-family:var(--gb-font-head);font-size:17px;font-weight:700;color:var(--gb-neutral-800);margin-bottom:6px">Evento</div>
+        <div style="font-size:12px;color:var(--gb-neutral-500);line-height:1.4">Propuesta por secciones con menaje y personal. Para eventos y catering.</div>
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- ======== COTIZACION MODE ======== -->
 <div id="mode-cot" class="hidden">
 <div id="mini-dash" class="mini-dash hidden"></div>
@@ -2394,6 +2432,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     </div>
   </div>
   <div class="tbdg hidden" id="tr-info"><span style="font-size:18px">🚚</span><span id="tr-text"></span></div>
+  <label style="display:flex;align-items:center;gap:6px;margin:12px 0;font-size:12.5px;color:#555;cursor:pointer"><input type="checkbox" id="f-requiere-fe" style="accent-color:#1565C0"> Requiere factura electrónica (DIAN)</label>
   <button class="btn bp bf" onclick="go('products')">Continuar a Productos →</button>
 </div>
 <div class="sec hidden" id="step-products">
@@ -2411,6 +2450,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <div><label class="flbl">Unidad</label><input class="fin" id="cf-u" placeholder="Porción"></div>
       <div class="sm"><label class="flbl">Cant.</label><input class="fin" id="cf-q" type="number" min="1" value="1"></div>
     </div>
+    <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:#555;cursor:pointer"><input type="checkbox" id="cf-catalog"> Guardar en catalogo para reutilizar</label>
     <div style="display:flex;gap:8px;margin-top:10px">
       <button class="btn bp" style="flex:1" onclick="addCust()">Agregar</button>
       <button class="btn bo" onclick="togCF()">Cancelar</button>
@@ -2496,6 +2536,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   </div>
   <div class="tbdg hidden" id="tr-info-p"><span style="font-size:18px">🚚</span><span id="tr-text-p"></span></div>
   <div style="font-size:11px;color:var(--gb-neutral-500);margin-bottom:16px;text-align:center;padding:8px;background:var(--gb-cream);border-radius:8px">💡 El cliente se guarda automáticamente al generar el PDF de la propuesta</div>
+  <label style="display:flex;align-items:center;gap:6px;margin:12px 0;font-size:12.5px;color:#555;cursor:pointer"><input type="checkbox" id="fp-requiere-fe" style="accent-color:#1565C0"> Requiere factura electrónica (DIAN)</label>
   <div class="fecha-venc-row">
     <label>Propuesta válida hasta</label>
     <input type="date" id="fp-fecha-venc" onchange="onFechaVencChange()">
@@ -2569,6 +2610,23 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   </div>
   <div id="hist-list"></div>
 </div>
+</div>
+
+<!-- ======== OPERACIONES MODE (v7.1 B1) ======== -->
+<div id="mode-ops" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#E65100;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <span>📦 Operaciones</span>
+      <span id="ops-count" style="font-size:12px;font-weight:400;color:#888"></span>
+    </div>
+    <div style="display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap" id="ops-tabs">
+      <button class="cpill act" onclick="setOpsTab('por_producir')" id="ops-tab-por_producir">🔥 Por producir</button>
+      <button class="cpill" onclick="setOpsTab('en_produccion')" id="ops-tab-en_produccion">👨‍🍳 En producción</button>
+      <button class="cpill" onclick="setOpsTab('listos')" id="ops-tab-listos">✅ Listos para entregar</button>
+      <button class="cpill" onclick="setOpsTab('todos')" id="ops-tab-todos">Todos</button>
+    </div>
+    <div id="ops-list"></div>
+  </div>
 </div>
 
 <!-- ======== SEGUIMIENTO COMERCIAL MODE (v5.0.4) ======== -->
@@ -2702,6 +2760,10 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <div class="mf-field"><label>Consecutivo</label><input type="text" id="am-num" readonly style="background:var(--gb-cream);font-weight:700"></div>
       <div class="mf-field"><label>Cliente</label><input type="text" id="am-cli" readonly style="background:var(--gb-cream)"></div>
       <div class="mf-field"><label>Fecha de aprobación del cliente</label><input type="date" id="am-fecha"></div>
+      <div class="mf-row">
+        <div class="mf-field"><label>Fecha de entrega</label><input type="date" id="am-entrega-fecha"></div>
+        <div class="mf-field"><label>Hora de entrega</label><input type="time" id="am-entrega-hora"></div>
+      </div>
       <div class="mf-row">
         <div class="mf-field"><label>Monto anticipo 50%</label><input type="number" id="am-anticipo" placeholder="0" inputmode="numeric"></div>
         <div class="mf-field"><label>Método de pago</label><select id="am-metodo"><option value="">— Sin anticipo aún —</option><option value="Nequi">Nequi</option><option value="Daviplata">Daviplata</option><option value="Banco Falabella">Banco Falabella</option><option value="Efectivo">Efectivo</option><option value="Transferencia">Transferencia</option><option value="Otro">Otro</option></select></div>
@@ -2973,6 +3035,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
           </select>
           <div style="font-size:10px;color:var(--gb-neutral-500);margin-top:4px" id="an-accion-hint">El doc conserva todos sus datos pero NO suma en Cotizado / Vendido. Aparece en el filtro "Anuladas" del historial.</div>
         </div>
+        <label id="an-reemplazo-wrap" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#555;cursor:pointer;margin-bottom:8px"><input type="checkbox" id="an-reemplazo"> Se va a crear un reemplazo para este cliente</label>
         <div class="fld hidden" id="an-devolucion-wrap">
           <div style="background:#FFEBEE;border:1px solid #EF9A9A;border-radius:8px;padding:10px 12px;margin-bottom:10px;color:#B71C1C;font-size:12px;line-height:1.4">
             ⚠️ Este pedido tiene pagos previos por <strong id="an-pagos-total">—</strong>. Puedes registrar la devolución ahora (recomendado) o después desde el módulo de pagos.
