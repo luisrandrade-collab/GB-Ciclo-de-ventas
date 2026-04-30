@@ -2393,6 +2393,7 @@ async function linkOptionGroup(docIdA,kindA,docIdB,kindB){
   const collA=kindA==="quote"?"quotes":(docIdA.startsWith("GB-PF-")?"propfinals":"proposals");
   const collB=kindB==="quote"?"quotes":(docIdB.startsWith("GB-PF-")?"propfinals":"proposals");
   try{
+    const {db,doc,updateDoc,serverTimestamp}=window.fb;
     if(typeof showLoader==="function")showLoader("Vinculando opciones...");
     await updateDoc(doc(db,collA,docIdA),{optionGroupId:groupId,updatedAt:serverTimestamp()});
     await updateDoc(doc(db,collB,docIdB),{optionGroupId:groupId,updatedAt:serverTimestamp()});
@@ -2418,6 +2419,7 @@ async function unlinkOptionGroup(docIdA,kindA,docIdB,kindB){
   const collA=kindA==="quote"?"quotes":(docIdA.startsWith("GB-PF-")?"propfinals":"proposals");
   const collB=kindB==="quote"?"quotes":(docIdB.startsWith("GB-PF-")?"propfinals":"proposals");
   try{
+    const {db,doc,updateDoc,serverTimestamp}=window.fb;
     if(typeof showLoader==="function")showLoader("Desvinculando...");
     if(group.length<=2){
       await updateDoc(doc(db,collA,docIdA),{optionGroupId:"",updatedAt:serverTimestamp()});
