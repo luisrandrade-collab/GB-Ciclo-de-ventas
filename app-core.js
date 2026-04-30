@@ -357,7 +357,8 @@ const C=[
   {id:165,c:"Congelados",n:"Sopa de Lentejas con Chorizo",d:"Congelada",p:25000,u:"500 gr"}
 ];
 const TR={"La Calera":{n:"Transporte La Calera",p:10000},"Bogotá":{n:"Transporte Bogotá",p:20000},"Chía":{n:"Transporte Chía / Cajicá",p:40000},"Cajicá":{n:"Transporte Chía / Cajicá",p:40000}};
-const CATS=["Todas",...new Set(C.map(x=>x.c))];
+let CATS=["Todas",...new Set(C.map(x=>x.c))];
+function refreshCats(){const hasCatCustom=customProductsCache.some(cp=>cp.inCatalog);const baseCats=["Todas",...new Set(C.map(x=>x.c))];CATS=hasCatCustom?[...baseCats,"Personalizados"]:baseCats}
 
 // ─── HELPERS ───────────────────────────────────────────────
 const fm=n=>"$"+n.toLocaleString("es-CO");
@@ -401,11 +402,11 @@ const STATUS_META={
 // 'perdida' es reactivable a 'enviada' (legacy, raro pero existe en STATUS_META extendido).
 // 'entregado → en_produccion' es la reversión introducida en FIX-03.
 const STATE_TRANSITIONS={
-  enviada:      ["pedido","aprobada","propfinal","perdida","anulada","convertida","superseded"],
+  enviada:      ["pedido","aprobada","perdida","anulada","convertida","superseded"],
   propfinal:    ["aprobada","superseded","anulada"],
-  aprobada:     ["en_produccion","entregado","anulada"],
-  pedido:       ["en_produccion","entregado","anulada"],
-  en_produccion:["entregado","anulada"],
+  aprobada:     ["en_produccion","entregado","anulada","enviada"],
+  pedido:       ["en_produccion","entregado","anulada","enviada"],
+  en_produccion:["entregado","anulada","enviada"],
   entregado:    ["en_produccion"],
   perdida:      ["enviada"],
   anulada:      [],
@@ -494,6 +495,38 @@ function noSumaEnKpis(q,contextLabel){
     return true;
   }
   return false;
+}
+
+// BUG-E: builds a Set of doc IDs that should be excluded from KPI sums
+// because they belong to an option group and are NOT the highest-total sibling.
+function buildOptionExclusions(docs){
+  const excluded=new Set();
+  const groups={};
+  docs.forEach(q=>{
+    if(!q.optionGroupId)return;
+    if(!groups[q.optionGroupId])groups[q.optionGroupId]=[];
+    groups[q.optionGroupId].push(q);
+  });
+  Object.values(groups).forEach(siblings=>{
+    if(siblings.length<2)return;
+    siblings.sort((a,b)=>(b.total||0)-(a.total||0));
+    for(let i=1;i<siblings.length;i++)excluded.add(siblings[i].id);
+  });
+  return excluded;
+}
+
+// Returns option group info for a doc: {order, total} or null
+function getOptionGroupInfo(q,allDocs){
+  if(!q||!q.optionGroupId)return null;
+  const siblings=allDocs.filter(d=>d.optionGroupId===q.optionGroupId);
+  if(siblings.length<2)return null;
+  siblings.sort((a,b)=>{
+    const na=a.quoteNumber||a.id||"";
+    const nb=b.quoteNumber||b.id||"";
+    return na.localeCompare(nb);
+  });
+  const idx=siblings.findIndex(s=>s.id===q.id);
+  return {order:idx+1,total:siblings.length,isPrimary:idx===0||(q.total||0)===Math.max(...siblings.map(s=>s.total||0))};
 }
 
 function requiresWarning(q){
@@ -604,7 +637,7 @@ function diffDocs(oldQ,newQ){
     "client","idStr","att","mail","tel","dir","city","cityType","trCustom",
     "eventDate","horaEntrega","productionDate",
     "total","status","pers","momento","tipoServicio",
-    "aperturaFrase","fechaVencimiento"
+    "aperturaFrase","fechaVencimiento","optionGroupId","requiereFE"
   ];
   campos.forEach(k=>{
     const a=oldQ[k],b=newQ[k];
@@ -1092,17 +1125,20 @@ async function loadCustomProducts(){
   }
 }
 
-async function registerCustomProduct(n,d,p,u){
+async function registerCustomProduct(n,d,p,u,inCatalog){
   const {db,collection,doc,addDoc,updateDoc,serverTimestamp}=window.fb;
   const existing=customProductsCache.find(x=>x.n.toLowerCase()===n.toLowerCase());
   if(existing){
     const newCount=(existing.useCount||1)+1;
     const promoted=newCount>=3;
-    await updateDoc(doc(db,"custom_products",existing.id),{useCount:newCount,promoted,lastUsed:serverTimestamp()});
+    const upd={useCount:newCount,promoted,lastUsed:serverTimestamp()};
+    if(inCatalog)upd.inCatalog=true;
+    await updateDoc(doc(db,"custom_products",existing.id),upd);
     existing.useCount=newCount;
     existing.promoted=promoted;
+    if(inCatalog)existing.inCatalog=true;
   }else{
-    const obj={n,d:d||"",p:parseInt(p)||0,u:u||"",useCount:1,promoted:false,createdAt:serverTimestamp(),lastUsed:serverTimestamp()};
+    const obj={n,d:d||"",p:parseInt(p)||0,u:u||"",useCount:1,promoted:false,inCatalog:!!inCatalog,createdAt:serverTimestamp(),lastUsed:serverTimestamp()};
     const ref=await addDoc(collection(db,"custom_products"),obj);
     customProductsCache.push({id:ref.id,...obj});
   }
@@ -1305,11 +1341,12 @@ function getPipelineActivo(){
     entregados_con_saldo:{count:0,total:0,docs:[]}
   };
   if(!Array.isArray(quotesCache))return buckets;
+  const _optExcl=buildOptionExclusions(quotesCache);
   quotesCache.forEach(q=>{
     if(q._wrongCollection)return;
     if(["superseded","convertida","anulada"].includes(q.status))return;
-    // Excluir cotizaciones marcadas como perdidas
     if(getFollowUp(q)==="perdida")return;
+    if(_optExcl.has(q.id))return;
     const total=q.total||0;
     // v5.2.3: normalizar status — docs sin campo `status` (legacy pre-v5.0.3) se
     // tratan como "enviada". Antes quedaban fuera del pipeline aunque sí sumaban
@@ -1670,7 +1707,7 @@ function hideLoader(){const el=$("loader");if(el)el.style.display="none"}
 function setMode(m){
   curMode=m;
   // v5.0.4: agregar 'seg' (seguimiento comercial) al switch de modos
-  ["dash","cot","prop","search","hist","seg","cal"].forEach(x=>{
+  ["dash","cot","prop","search","hist","seg","cal","ventas","ops"].forEach(x=>{
     const el=$("mode-"+x);
     if(el)el.classList.toggle("hidden",x!==m);
     document.querySelectorAll(".mode-btn.m-"+x).forEach(b=>b.classList.toggle("act",x===m));
@@ -1681,6 +1718,7 @@ function setMode(m){
   if(m==="cot")renderMiniDash();
   if(m==="dash")renderDashboard();
   if(m==="seg"&&typeof renderSeguimiento==="function")renderSeguimiento();
+  if(m==="ops"&&typeof renderOps==="function")renderOps();
   if(m==="search"){$("gsearch").focus();$("search-results").innerHTML=""}
   window.scrollTo(0,0);
 }
@@ -1807,7 +1845,7 @@ function updUI(){const c=totCnt(),n=distIt();const b=$("cbadge"),bar=$("cbar");i
 // ─── CATEGORY/PRODUCT RENDER ───────────────────────────────
 function renderCats(){$("cats").innerHTML=CATS.map(c=>`<button class="cpill ${c===selCat?'act':''}" onclick="selC('${c.replace(/'/g,"\\'")}')">${c==="Todas"?"Todas":c}</button>`).join("")}
 function selC(c){selCat=c;renderCats();renderP()}
-function renderP(){renderCats();const s=($("sbox").value||"").toLowerCase();const f=C.filter(p=>(selCat==="Todas"||p.c===selCat)&&(!s||p.n.toLowerCase().includes(s)||p.d.toLowerCase().includes(s)));const el=$("plist");const atMax=distIt()>=MX;
+function renderP(){refreshCats();renderCats();const s=($("sbox").value||"").toLowerCase();const catProds=customProductsCache.filter(cp=>cp.inCatalog).map(cp=>({id:"cp_"+cp.id,c:"Personalizados",n:cp.n,d:cp.d||"",p:cp.p||0,u:cp.u||"",_cpId:cp.id}));const allProds=C.concat(catProds);const f=allProds.filter(p=>(selCat==="Todas"||p.c===selCat)&&(!s||p.n.toLowerCase().includes(s)||(p.d||"").toLowerCase().includes(s)));const el=$("plist");const atMax=distIt()>=MX;
 if(!f.length){el.innerHTML='<div class="empty"><div class="ic">🔍</div><p>No se encontraron productos</p><button class="btn bg" onclick="togCF()">+ Personalizado</button></div>';return}
 el.innerHTML=f.map(p=>{const ic=cart.find(x=>x.id===p.id);const canAdd=!atMax||ic;return'<div class="pcard '+(ic?'inc':'')+'"><div class="pinfo"><div class="pname">'+p.n+'</div>'+(p.d?'<div class="pdesc">'+p.d+'</div>':'')+'<div class="punit">'+p.u+'</div><div class="pprice">'+fm(p.p)+'</div></div><div>'+(ic?'<div class="qc"><button class="qb" onclick="chgQ('+p.id+','+(ic.qty-1)+')">−</button><input type="number" class="qn" value="'+ic.qty+'" min="1" onchange="chgQ('+p.id+',+this.value)" onfocus="this.select()"><button class="qb" onclick="chgQ('+p.id+','+(ic.qty+1)+')">+</button></div>':canAdd?'<button class="abtn" onclick="addC('+p.id+')">Agregar</button>':'<span style="font-size:11px;color:var(--gb-neutral-400)">Máx</span>')+'</div></div>'}).join("");updUI()}
 function addC(id){if(distIt()>=MX){toast("Máximo "+MX+" productos","warn");return}const p=C.find(x=>x.id===id);if(!p)return;const e=cart.find(x=>x.id===id);if(e)e.qty++;else cart.push({...p,qty:1,origP:p.p,edited:false});renderP()}
@@ -1815,7 +1853,7 @@ function chgQ(id,q){q=parseInt(q)||0;if(q<=0)cart=cart.filter(x=>x.id!==id);else
 
 // ─── CUSTOM PRODUCTS ───────────────────────────────────────
 function togCF(){$("cform").classList.toggle("hidden")}
-function addCust(){if(distIt()>=MX){toast("Máximo "+MX+" productos","warn");return}const n=$("cf-n").value.trim(),p=parseInt($("cf-p").value);if(!n||!p){toast("Nombre y precio obligatorios","warn");return}cust.push({id:"x"+Date.now(),n,p,d:$("cf-d").value.trim(),u:$("cf-u").value.trim(),qty:parseInt($("cf-q").value)||1,custom:true});$("cf-n").value="";$("cf-p").value="";$("cf-d").value="";$("cf-u").value="";$("cf-q").value="1";togCF();updUI();renderP()}
+function addCust(){if(distIt()>=MX){toast("Máximo "+MX+" productos","warn");return}const n=$("cf-n").value.trim(),p=parseInt($("cf-p").value);if(!n||!p){toast("Nombre y precio obligatorios","warn");return}const saveCat=$("cf-catalog")&&$("cf-catalog").checked;cust.push({id:"x"+Date.now(),n,p,d:$("cf-d").value.trim(),u:$("cf-u").value.trim(),qty:parseInt($("cf-q").value)||1,custom:true,inCatalog:saveCat});$("cf-n").value="";$("cf-p").value="";$("cf-d").value="";$("cf-u").value="";$("cf-q").value="1";if($("cf-catalog"))$("cf-catalog").checked=false;togCF();updUI();renderP()}
 function remCust(id){cust=cust.filter(x=>x.id!==id);renderR();updUI()}
 function chgCustQ(id,q){q=parseInt(q)||0;if(q<=0){remCust(id);return}const i=cust.find(x=>x.id===id);if(i)i.qty=q;renderR();updUI()}
 function remCart(id){cart=cart.filter(x=>x.id!==id);renderR();updUI()}
