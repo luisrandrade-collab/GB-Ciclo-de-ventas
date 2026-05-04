@@ -11,6 +11,9 @@ Pendientes_*.md
 context_v*.json
 
 # ─── ARCHIVOS DE TRABAJO LOCAL ───────────────────────────────
+# Carpeta interna unificada (planes, pendientes, wireframes, scripts, _legacy, .claude)
+_internos/
+
 # Snapshots pre/post fases
 _legacy/
 *.bak.js
