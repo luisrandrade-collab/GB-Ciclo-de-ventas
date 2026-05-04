@@ -1100,6 +1100,8 @@ async function submitPago(){
     toast("💵 Pago registrado: "+fm(monto)+" via "+metodo,"success");
     renderHist();
     if(curMode==="dash")renderDashboard();
+    // v7.2 F5: auto-refresh Cartera tras registrar pago.
+    if(typeof renderCartera==="function")renderCartera();
   }catch(e){hideLoader();toast("Error: "+e.message,"error");console.error(e)}
 }
 
@@ -1221,6 +1223,9 @@ async function savePagoEdit(idx){
     hideLoader();
     toast("✏️ Pago actualizado","success");
     openVerPagosModal(docId,kind);
+    // v7.2 F5: auto-refresh Cartera y Historico tras editar pago.
+    if(typeof renderHist==="function")renderHist();
+    if(typeof renderCartera==="function")renderCartera();
   }catch(e){hideLoader();toast("Error: "+e.message,"error")}
 }
 
