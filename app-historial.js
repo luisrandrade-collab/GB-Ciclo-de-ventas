@@ -1103,12 +1103,17 @@ async function submitPago(){
   }catch(e){hideLoader();toast("Error: "+e.message,"error");console.error(e)}
 }
 
-function openVerPagosModal(docId,kind,ev){
+function openVerPagosModal(docId,kindOrEv,evMaybe){
+  // v7.2: firma flexible — segundo arg puede ser kind (string) o event (objeto).
+  // Coherente con openPagoModal. Antes recibir event como kind hacia que find() fallara.
+  let kind,ev;
+  if(typeof kindOrEv==="string"){kind=kindOrEv;ev=evMaybe}
+  else{ev=kindOrEv;kind=null}
   if(ev){ev.stopPropagation();ev.preventDefault()}
   let q;
   if(kind)q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
   else q=quotesCache.find(x=>x.id===docId);
-  if(!q){alert("No encontrado");return}
+  if(!q){if(typeof toast==="function")toast("No se encontró","error");else alert("No se encontró");return}
   window.__verPagosId=docId;
   window.__verPagosKind=q.kind;
   $("vp-num").value=q.quoteNumber||q.id;
