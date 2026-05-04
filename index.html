@@ -1760,7 +1760,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
         <a href="javascript:void(0)" data-sub="ops/produccion">Pedidos en producción</a>
         <a href="javascript:void(0)" class="is-soon" data-sub="ops/despacho">Hoja de despacho<span class="sub-soon">Pronto</span></a>
         <a href="javascript:void(0)" class="is-soon" data-sub="ops/historico-hojas">Histórico de hojas<span class="sub-soon">Pronto</span></a>
-        <a href="javascript:void(0)" class="is-soon" data-sub="ops/cobro">Pendientes de cobro<span class="sub-soon">Pronto</span></a>
+        <a href="javascript:void(0)" data-sub="ops/cobro">Cartera</a>
       </div>
     </div>
 
@@ -1823,8 +1823,9 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'ventas/cotizar':    'cot',
     'ventas/propuesta':  'prop',
     'ventas/historico':  'hist',
-    'ops/produccion':    'ops'
-    // Pipeline, ops/*, compras/*, clientes/*, herr/* → undefined → SOON
+    'ops/produccion':    'ops',
+    'ops/cobro':         'cartera'
+    // Pipeline, ops/despacho, ops/historico-hojas, compras/*, clientes/*, herr/* → undefined → SOON
   };
 
   // Modo legacy → submódulo nuevo (para sincronizar item activo cuando setMode se llama directo)
@@ -1836,9 +1837,10 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'ventas': 'ventas/crear',
     'cot':    'ventas/cotizar',
     'prop':   'ventas/propuesta',
-    'hist':   'ventas/historico',
-    'ops':    'ops/produccion',
-    'search': 'ventas/cotizar'
+    'hist':    'ventas/historico',
+    'ops':     'ops/produccion',
+    'cartera': 'ops/cobro',
+    'search':  'ventas/cotizar'
   };
 
   // Labels para el crumb (D7 amplía esto a módulo+submódulo)
@@ -1850,6 +1852,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'ventas/cotizar':    ['Ventas', 'Nueva cotización'],
     'ventas/propuesta':  ['Ventas', 'Nueva propuesta'],
     'ops/produccion':    ['Operaciones', 'Producción'],
+    'ops/cobro':         ['Operaciones', 'Cartera'],
     'ventas/historico':  ['Ventas', 'Histórico comercial']
   };
 
@@ -2626,6 +2629,17 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <button class="cpill" onclick="setOpsTab('todos')" id="ops-tab-todos">Todos</button>
     </div>
     <div id="ops-list"></div>
+  </div>
+</div>
+
+<!-- ======== CARTERA MODE (v7.2) — Cobros / pagos pendientes ======== -->
+<div id="mode-cartera" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#1B5E20;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <span>💵 Cartera</span>
+      <span id="cartera-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+    </div>
+    <div id="cartera-list" style="padding:0 4px"></div>
   </div>
 </div>
 

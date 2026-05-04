@@ -3226,3 +3226,23 @@ async function renderOps(){
     '</div>';
   }).join("");
 }
+
+// ═══════════════════════════════════════════════════════════
+// CARTERA — Cobros / pagos pendientes (v7.2)
+// F1 stub: scaffold del modulo. Logica real en F2-F5.
+// ═══════════════════════════════════════════════════════════
+
+async function renderCartera(){
+  if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+  const summaryEl=$("cartera-summary");
+  const listEl=$("cartera-list");
+  if(!listEl)return;
+
+  // F1: stub. Solo placeholder. F2 implementa filtro por saldo, F3 agrupacion.
+  if(summaryEl)summaryEl.textContent="(en construccion — F1 scaffold)";
+  listEl.innerHTML='<div style="padding:40px 20px;text-align:center;color:#888;font-size:13px;line-height:1.6">'+
+    '<div style="font-size:48px;margin-bottom:16px">🚧</div>'+
+    '<div style="font-weight:700;font-size:15px;color:#555;margin-bottom:8px">Modulo Cartera — F1 OK</div>'+
+    '<div>Esqueleto creado. Filtrado de docs con saldo en F2,<br>agrupacion por urgencia en F3, integracion modal pago en F4.</div>'+
+    '</div>';
+}

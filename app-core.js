@@ -1707,7 +1707,8 @@ function hideLoader(){const el=$("loader");if(el)el.style.display="none"}
 function setMode(m){
   curMode=m;
   // v5.0.4: agregar 'seg' (seguimiento comercial) al switch de modos
-  ["dash","cot","prop","search","hist","seg","cal","ventas","ops"].forEach(x=>{
+  // v7.2: agregado 'cartera' (modulo de cobros / pagos pendientes)
+  ["dash","cot","prop","search","hist","seg","cal","ventas","ops","cartera"].forEach(x=>{
     const el=$("mode-"+x);
     if(el)el.classList.toggle("hidden",x!==m);
     document.querySelectorAll(".mode-btn.m-"+x).forEach(b=>b.classList.toggle("act",x===m));
@@ -1719,6 +1720,7 @@ function setMode(m){
   if(m==="dash")renderDashboard();
   if(m==="seg"&&typeof renderSeguimiento==="function")renderSeguimiento();
   if(m==="ops"&&typeof renderOps==="function")renderOps();
+  if(m==="cartera"&&typeof renderCartera==="function")renderCartera();
   if(m==="search"){$("gsearch").focus();$("search-results").innerHTML=""}
   window.scrollTo(0,0);
 }
