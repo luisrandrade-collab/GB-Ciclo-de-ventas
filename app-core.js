@@ -1708,7 +1708,8 @@ function setMode(m){
   curMode=m;
   // v5.0.4: agregar 'seg' (seguimiento comercial) al switch de modos
   // v7.2: agregado 'cartera' (modulo de cobros / pagos pendientes)
-  ["dash","cot","prop","search","hist","seg","cal","ventas","ops","cartera"].forEach(x=>{
+  // v7.3: agregado 'reportes' (modulo de Excel + PDFs imprimibles)
+  ["dash","cot","prop","search","hist","seg","cal","ventas","ops","cartera","reportes"].forEach(x=>{
     const el=$("mode-"+x);
     if(el)el.classList.toggle("hidden",x!==m);
     document.querySelectorAll(".mode-btn.m-"+x).forEach(b=>b.classList.toggle("act",x===m));
@@ -1722,6 +1723,7 @@ function setMode(m){
   if(m==="seg"&&typeof renderSeguimiento==="function")renderSeguimiento();
   if(m==="ops"&&typeof renderOps==="function")renderOps();
   if(m==="cartera"&&typeof renderCartera==="function")renderCartera();
+  if(m==="reportes"&&typeof renderReportes==="function")renderReportes();
   if(m==="search"){$("gsearch").focus();$("search-results").innerHTML=""}
   window.scrollTo(0,0);
 }

@@ -3321,6 +3321,45 @@ async function renderCartera(){
   listEl.innerHTML=html;
 }
 
+// ═══════════════════════════════════════════════════════════
+// REPORTES — Excel + PDFs imprimibles (v7.3)
+// F1 stub: scaffold del modulo con tabs. Logica Excel en F2-F4.
+// ═══════════════════════════════════════════════════════════
+
+let reportesTab="excel";
+function setReportesTab(t){
+  if(t==="imprimibles"){
+    if(typeof toast==="function")toast("🖨️ Hojas para imprimir — Próximamente (v7.3-F2)","info");
+    return;
+  }
+  reportesTab=t;
+  renderReportes();
+}
+
+async function renderReportes(){
+  if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+  const summaryEl=$("reportes-summary");
+  const contentEl=$("reportes-content");
+  if(!contentEl)return;
+
+  // Sincronizar pills activas
+  ["excel","imprimibles"].forEach(t=>{
+    const tab=$("reportes-tab-"+t);
+    if(tab&&t!=="imprimibles")tab.classList.toggle("act",t===reportesTab);
+  });
+
+  if(summaryEl)summaryEl.textContent="";
+
+  if(reportesTab==="excel"){
+    // F1: stub. F2 implementa selector fecha + filtros, F3 generación Excel.
+    contentEl.innerHTML='<div style="padding:40px 20px;text-align:center;color:#888;font-size:13px;line-height:1.6">'+
+      '<div style="font-size:48px;margin-bottom:16px">🚧</div>'+
+      '<div style="font-weight:700;font-size:15px;color:#555;margin-bottom:8px">Módulo Reportes — F1 OK</div>'+
+      '<div>Esqueleto creado con tabs. Selector de fecha y filtros vienen en F2,<br>generación de Excel en F3 con SheetJS.</div>'+
+      '</div>';
+  }
+}
+
 function renderCarteraCard(q,urgencia){
   const cli=q.client||"(sin cliente)";
   const id=q.id||"";

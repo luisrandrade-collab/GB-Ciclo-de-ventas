@@ -1764,6 +1764,14 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       </div>
     </div>
 
+    <div class="sb-module" data-mod="reportes">
+      <button class="sb-module__btn"><span class="gb-shell-icon">📊</span><span class="sb-module__label">Reportes</span></button>
+      <div class="sb-submenu">
+        <a href="javascript:void(0)" data-sub="reportes/excel">Exportar Excel</a>
+        <a href="javascript:void(0)" class="is-soon" data-sub="reportes/imprimibles">Hojas para imprimir<span class="sub-soon">Pronto</span></a>
+      </div>
+    </div>
+
     <div class="sb-module" data-mod="compras">
       <button class="sb-module__btn"><span class="gb-shell-icon">🛒</span><span class="sb-module__label">Compras</span></button>
       <div class="sb-submenu">
@@ -1824,8 +1832,9 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'ventas/propuesta':  'prop',
     'ventas/historico':  'hist',
     'ops/produccion':    'ops',
-    'ops/cobro':         'cartera'
-    // Pipeline, ops/despacho, ops/historico-hojas, compras/*, clientes/*, herr/* → undefined → SOON
+    'ops/cobro':         'cartera',
+    'reportes/excel':    'reportes'
+    // Pipeline, ops/despacho, ops/historico-hojas, reportes/imprimibles, compras/*, clientes/*, herr/* → undefined → SOON
   };
 
   // Modo legacy → submódulo nuevo (para sincronizar item activo cuando setMode se llama directo)
@@ -1838,9 +1847,10 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'cot':    'ventas/cotizar',
     'prop':   'ventas/propuesta',
     'hist':    'ventas/historico',
-    'ops':     'ops/produccion',
-    'cartera': 'ops/cobro',
-    'search':  'ventas/cotizar'
+    'ops':      'ops/produccion',
+    'cartera':  'ops/cobro',
+    'reportes': 'reportes/excel',
+    'search':   'ventas/cotizar'
   };
 
   // Labels para el crumb (D7 amplía esto a módulo+submódulo)
@@ -1853,6 +1863,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'ventas/propuesta':  ['Ventas', 'Nueva propuesta'],
     'ops/produccion':    ['Operaciones', 'Producción'],
     'ops/cobro':         ['Operaciones', 'Cartera'],
+    'reportes/excel':    ['Reportes', 'Exportar Excel'],
     'ventas/historico':  ['Ventas', 'Histórico comercial']
   };
 
@@ -2631,6 +2642,21 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <button class="cpill" onclick="setOpsTab('todos')" id="ops-tab-todos">Todos</button>
     </div>
     <div id="ops-list"></div>
+  </div>
+</div>
+
+<!-- ======== REPORTES MODE (v7.3) — Excel + PDFs imprimibles ======== -->
+<div id="mode-reportes" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#0D47A1;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <span>📊 Reportes</span>
+      <span id="reportes-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+    </div>
+    <div style="display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap" id="reportes-tabs">
+      <button class="cpill act" onclick="setReportesTab('excel')" id="reportes-tab-excel">📥 Exportar Excel</button>
+      <button class="cpill is-soon" onclick="setReportesTab('imprimibles')" id="reportes-tab-imprimibles" disabled style="opacity:.5;cursor:not-allowed">🖨️ Hojas para imprimir <span style="font-size:9px;background:#FFE0B2;color:#E65100;padding:1px 5px;border-radius:6px;margin-left:4px">Pronto</span></button>
+    </div>
+    <div id="reportes-content"></div>
   </div>
 </div>
 
