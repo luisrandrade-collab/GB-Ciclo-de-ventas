@@ -3229,8 +3229,32 @@ async function renderOps(){
 
 // ═══════════════════════════════════════════════════════════
 // CARTERA — Cobros / pagos pendientes (v7.2)
-// F1 stub: scaffold del modulo. Logica real en F2-F5.
+// F2-F4: filtrado por saldo + agrupación por urgencia + modal pago
 // ═══════════════════════════════════════════════════════════
+
+// Mapeo de status validos por kind (mismos que habilitan boton "Registrar pago"
+// en Historico — coherencia con app-historial.js:479).
+const CARTERA_VALID_STATUS = {
+  quote:    ["pedido","en_produccion","entregado"],
+  proposal: ["aprobada","en_produccion","entregado"]
+};
+
+function carteraGetFecha(q){
+  return q.eventDate || (q.orderData||{}).fechaEntrega || (q.approvalData||{}).fechaEntrega || "";
+}
+
+function carteraUrgencia(q,today,weekEnd){
+  const fecha=carteraGetFecha(q);
+  if(!fecha)return "sin_fecha";
+  // Vencido si: status entregado con saldo, O fecha pasada
+  const saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
+  if(q.status==="entregado"&&saldo>0)return "vencido";
+  const f=new Date(fecha+"T00:00:00");
+  if(isNaN(f))return "sin_fecha";
+  if(f<today)return "vencido";
+  if(f<=weekEnd)return "esta_semana";
+  return "proximas";
+}
 
 async function renderCartera(){
   if(!quotesCache.length){try{await loadAllHistory()}catch{}}
@@ -3238,11 +3262,94 @@ async function renderCartera(){
   const listEl=$("cartera-list");
   if(!listEl)return;
 
-  // F1: stub. Solo placeholder. F2 implementa filtro por saldo, F3 agrupacion.
-  if(summaryEl)summaryEl.textContent="(en construccion — F1 scaffold)";
-  listEl.innerHTML='<div style="padding:40px 20px;text-align:center;color:#888;font-size:13px;line-height:1.6">'+
-    '<div style="font-size:48px;margin-bottom:16px">🚧</div>'+
-    '<div style="font-weight:700;font-size:15px;color:#555;margin-bottom:8px">Modulo Cartera — F1 OK</div>'+
-    '<div>Esqueleto creado. Filtrado de docs con saldo en F2,<br>agrupacion por urgencia en F3, integracion modal pago en F4.</div>'+
+  // F2: filtrar docs con saldo > 0 en estados validos
+  const docs=quotesCache.filter(q=>{
+    if(q._wrongCollection)return false;
+    if(typeof getFollowUp==="function"&&getFollowUp(q)==="perdida")return false;
+    if(!(CARTERA_VALID_STATUS[q.kind]||[]).includes(q.status))return false;
+    const saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
+    return saldo>0;
+  });
+
+  // F3: agrupar por urgencia
+  const today=new Date();today.setHours(0,0,0,0);
+  const weekEnd=new Date(today);weekEnd.setDate(weekEnd.getDate()+7);
+  const grupos={vencido:[],esta_semana:[],proximas:[],sin_fecha:[]};
+  docs.forEach(q=>grupos[carteraUrgencia(q,today,weekEnd)].push(q));
+  // Ordenar dentro de cada grupo: fecha vieja primero, vacios al final
+  Object.values(grupos).forEach(arr=>arr.sort((a,b)=>{
+    const fa=carteraGetFecha(a),fb=carteraGetFecha(b);
+    if(!fa&&!fb)return 0;
+    if(!fa)return 1;
+    if(!fb)return -1;
+    return fa.localeCompare(fb);
+  }));
+
+  // Resumen header
+  const totalSaldo=docs.reduce((s,q)=>s+saldoPendiente(q),0);
+  const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
+  if(summaryEl){
+    summaryEl.textContent=docs.length?(docs.length+" docs · saldo "+fmt(totalSaldo)):"";
+  }
+
+  // Estado vacio
+  if(!docs.length){
+    listEl.innerHTML='<div style="padding:48px 20px;text-align:center;color:#888;font-size:14px">'+
+      '<div style="font-size:48px;margin-bottom:12px">✨</div>'+
+      '<div style="font-weight:700;color:#555;margin-bottom:6px">Sin saldos pendientes</div>'+
+      '<div style="font-size:12px">Todos los docs vivos estan cobrados al dia.</div>'+
+      '</div>';
+    return;
+  }
+
+  // Render por grupo
+  const labels={vencido:"🔴 Vencidos",esta_semana:"🟡 Esta semana",proximas:"🟢 Proximas",sin_fecha:"⚪ Sin fecha asignada"};
+  const colors={vencido:"#C62828",esta_semana:"#E65100",proximas:"#1B5E20",sin_fecha:"#757575"};
+  let html="";
+  ["vencido","esta_semana","proximas","sin_fecha"].forEach(g=>{
+    const arr=grupos[g];
+    if(!arr.length)return;
+    const subtotal=arr.reduce((s,q)=>s+saldoPendiente(q),0);
+    html+='<div style="margin-bottom:18px">'+
+      '<div style="font-weight:700;font-size:13px;color:'+colors[g]+';margin:8px 4px 6px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">'+
+        '<span>'+labels[g]+' ('+arr.length+')</span>'+
+        '<span style="font-size:11px;font-weight:600">'+fmt(subtotal)+'</span>'+
+      '</div>'+
+      arr.map(q=>renderCarteraCard(q,g)).join("")+
+      '</div>';
+  });
+  listEl.innerHTML=html;
+}
+
+function renderCarteraCard(q,urgencia){
+  const cli=q.client||"(sin cliente)";
+  const id=q.id||"";
+  const total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||0);
+  const saldo=saldoPendiente(q);
+  const cobrado=total-saldo;
+  const fecha=carteraGetFecha(q);
+  const hora=q.horaEntrega||(q.orderData||{}).horaEntrega||"";
+  const statusLbl=(typeof STATUS_META!=="undefined"&&STATUS_META[q.status]?.label)||q.status||"";
+  const _pagos=(typeof getPagos==="function")?getPagos(q):[];
+  const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
+  const escape=typeof h==="function"?h:(s=>String(s||""));
+  const borderColor={vencido:"#C62828",esta_semana:"#E65100",proximas:"#1B5E20",sin_fecha:"#999"}[urgencia];
+
+  return '<div style="background:#fff;border-left:3px solid '+borderColor+';border-radius:6px;padding:10px 12px;margin:0 4px 6px;box-shadow:0 1px 3px rgba(0,0,0,.06)">'+
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap">'+
+      '<div style="flex:1;min-width:160px">'+
+        '<div style="font-weight:700;font-size:14px;color:#212121">'+escape(cli)+'</div>'+
+        '<div style="font-size:11px;color:#666;margin-top:2px">'+escape(id)+' · '+escape(statusLbl)+(fecha?(' · 📅 '+escape(fecha)+(hora?' '+escape(hora):'')):'')+'</div>'+
+      '</div>'+
+      '<div style="text-align:right;font-size:11px;color:#888;line-height:1.5">'+
+        '<div>Total '+fmt(total)+'</div>'+
+        '<div>Cobrado '+fmt(cobrado)+'</div>'+
+        '<div style="font-weight:700;font-size:14px;color:'+borderColor+';margin-top:2px">Saldo '+fmt(saldo)+'</div>'+
+      '</div>'+
+    '</div>'+
+    '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">'+
+      '<button class="btn hc-btn-pago" onclick="openPagoModal(\''+id+'\',event)">💵 Cobrar</button>'+
+      (_pagos.length?'<button class="btn hc-btn-pagos-ver" onclick="openVerPagosModal(\''+id+'\',event)">📒 Ver pagos ('+_pagos.length+')</button>':'')+
+    '</div>'+
     '</div>';
 }
