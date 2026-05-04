@@ -1716,7 +1716,8 @@ function setMode(m){
   if(m==="hist")renderHist();
   if(m==="prop")initProp();
   if(m==="cal")renderCalendar();
-  if(m==="cot")renderMiniDash();
+  // v7.2: mini-dash removido de mode-cot. Las llamadas a renderMiniDash desde
+  // otros archivos quedan como no-op porque su guarda inicial no encuentra el div.
   if(m==="dash")renderDashboard();
   if(m==="seg"&&typeof renderSeguimiento==="function")renderSeguimiento();
   if(m==="ops"&&typeof renderOps==="function")renderOps();
