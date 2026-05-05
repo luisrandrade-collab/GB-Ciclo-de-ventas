@@ -2935,12 +2935,40 @@ async function renderCotizaciones(){
   listEl.innerHTML=docs.map(q=>renderDocCard(q,"ventas-cotizaciones",{showStatus:true})).join("");
 }
 
+// v7.5: helper compartido — desglose de perdidas por motivo
+function _calcularPerdidasPorMotivo(docs){
+  const motivosOrden=["precio","competencia","no_respondio","cambio_planes","tiempo","otro","sin_motivo"];
+  const motivosLabel={
+    precio:"Precio",
+    competencia:"Competencia",
+    no_respondio:"No respondió",
+    cambio_planes:"Cambio de planes",
+    tiempo:"Tiempo",
+    otro:"Otro",
+    sin_motivo:"Sin motivo registrado"
+  };
+  const cnt={};const monto={};
+  motivosOrden.forEach(k=>{cnt[k]=0;monto[k]=0});
+  let total=0,totalMonto=0;
+  docs.forEach(q=>{
+    const motivo=q.perdidaData?.motivo||"sin_motivo";
+    const key=motivosOrden.includes(motivo)?motivo:"sin_motivo";
+    cnt[key]++;
+    const m=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||0);
+    monto[key]+=m;
+    total++;
+    totalMonto+=m;
+  });
+  return {motivosOrden,motivosLabel,cnt,monto,total,totalMonto};
+}
+
 async function renderPerdidas(){
   if(!quotesCache.length){try{await loadAllHistory()}catch{}}
   const summaryEl=$("perdidas-summary");
   const listEl=$("perdidas-list");
   if(!listEl)return;
   const docs=getDocsPorEtapa("ventas-perdidas");
+  const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
   if(summaryEl)summaryEl.textContent=docs.length?docs.length+" doc(s) perdido(s)":"";
   if(!docs.length){
     listEl.innerHTML='<div style="padding:48px 20px;text-align:center;color:#888;font-size:14px">'+
@@ -2950,7 +2978,26 @@ async function renderPerdidas(){
       '</div>';
     return;
   }
-  listEl.innerHTML=docs.map(q=>renderDocCard(q,"ventas-perdidas",{showStatus:true})).join("");
+
+  // v7.5: header con resumen agrupado por motivo (migrado del Dashboard)
+  const {motivosOrden,motivosLabel,cnt,total,totalMonto}=_calcularPerdidasPorMotivo(docs);
+  const maxCnt=Math.max(...Object.values(cnt),1);
+  const filas=motivosOrden.filter(k=>cnt[k]>0).map(k=>{
+    const pctBar=Math.round(cnt[k]*100/maxCnt);
+    const pctTot=Math.round(cnt[k]*100/total);
+    return '<div style="display:grid;grid-template-columns:140px 1fr 110px;gap:10px;align-items:center;padding:4px 0;font-size:12px">'+
+      '<div style="font-weight:600;color:#555">'+motivosLabel[k]+'</div>'+
+      '<div style="background:#FFEBEE;border-radius:4px;height:14px;overflow:hidden"><div style="background:#C62828;height:100%;width:'+pctBar+'%"></div></div>'+
+      '<div style="text-align:right;color:#666"><strong>'+cnt[k]+'</strong> · '+pctTot+'%</div>'+
+    '</div>';
+  }).join("");
+  const headerResumen=
+    '<div style="background:#FFF8F8;border-left:3px solid #C62828;padding:12px 14px;border-radius:6px;margin-bottom:14px">'+
+      '<div style="font-weight:700;font-size:13px;color:#C62828;margin-bottom:8px">📊 Pérdidas por motivo · '+total+' cot · '+fmt(totalMonto)+' total</div>'+
+      filas+
+    '</div>';
+
+  listEl.innerHTML=headerResumen+docs.map(q=>renderDocCard(q,"ventas-perdidas",{showStatus:true})).join("");
 }
 
 window.renderCotizaciones=renderCotizaciones;

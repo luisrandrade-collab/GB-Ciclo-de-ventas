@@ -472,13 +472,12 @@ async function renderDashboard(){
   },"kpis-cards");
 
   // v5.2.0: Reportes comerciales (solo si range/inRange se calcularon OK)
+  // v7.5: renderReportePerdidas movido a Ventas > Perdidas. renderClienteView
+  // eliminado (cubierto por sidebar > Archivo > Buscar todo).
   if(range&&inRange){
     _safe(renderTrend6m,"trend-6m"); // v7.0-α D1.5
     _safe(()=>renderReporteConversion(range,inRange),"reporte-conversion");
-    _safe(()=>renderReportePerdidas(range,inRange),"reporte-perdidas");
   }
-  // v5.2.0: Vista por cliente (re-renderiza si hay uno seleccionado)
-  _safe(renderClienteView,"cliente-view");
 
   // v5.3.0: Operación urgente (por producir + por entregar en próximos 3 días)
   // SIEMPRE VISIBLE — lo más importante del día a día operativo
@@ -488,18 +487,7 @@ async function renderDashboard(){
   // v5.3.0: aplicar estado guardado de collapsibles (localStorage)
   _safe(applyDashCollapsedState,"collapsed-state");
 
-  // Recaudo por método
-  _safe(()=>{
-    const el=$("dash-recaudo");
-    if(!el)return;
-    const maxMet=Math.max(...Object.values(recaudoMet),1);
-    const recRows=METODOS_PAGO.map(m=>{
-      const v=recaudoMet[m];
-      const pct=Math.round(v*100/maxMet);
-      return '<div class="dash-met-row"><div class="dash-met-name">'+m+'</div><div class="dash-met-bar"><div class="dash-met-bar-fill" style="width:'+(v>0?pct:0)+'%"></div></div><div class="dash-met-val">'+fm(v)+'</div></div>';
-    }).join("");
-    el.innerHTML=totalRecaudo>0?recRows:'<div class="dash-met-empty">Sin pagos registrados en el período.</div>';
-  },"recaudo");
+  // v7.5: Recaudo por método movido a Cartera (boton modal openRecaudoMetodoModal).
   // Próximas entregas (próximos 14 días, ignora período)
   _safe(()=>{
     const todayIso2=new Date().toISOString().slice(0,10);
@@ -540,25 +528,7 @@ async function renderDashboard(){
       }).join("")+sinFechaHtml;
     }
   },"upcoming");
-  // Pendientes por cobrar (top 8)
-  _safe(()=>{
-    const pendList=[];
-    quotesCache.forEach(q=>{
-      if(q._wrongCollection)return;
-      const s=q.status||"enviada";
-      if(s==="superseded")return;
-      if(!["pedido","aprobada","en_produccion","entregado"].includes(s))return;
-      const pend=saldoPendiente(q);if(pend>0)pendList.push({q,pend});
-    });
-    pendList.sort((a,b)=>b.pend-a.pend);
-    if(!pendList.length){$("dash-pendientes").innerHTML='<div class="dash-met-empty">🎉 No hay saldos pendientes.</div>'}
-    else{
-      $("dash-pendientes").innerHTML=pendList.slice(0,8).map(({q,pend})=>{
-        const tag=q.kind==="quote"?'<span class="ui-tag prod">Pedido</span>':'<span class="ui-tag ent">Evento</span>';
-        return '<div class="dash-up-item" onclick="openVerPagosModal(\''+q.id+'\',\''+q.kind+'\')"><div class="ui-cli">'+tag+(q.client||"—")+'</div><div class="ui-meta" style="color:#E65100;font-weight:700">'+fm(pend)+'</div></div>';
-      }).join("")+(pendList.length>8?'<div class="dash-met-empty" style="padding:8px">+'+(pendList.length-8)+' más en Historial</div>':"");
-    }
-  },"pendientes");
+  // v7.5: Pendientes por cobrar eliminado del Dashboard (cubierto por sidebar > Cartera).
   // Comentarios recientes
   _safe(()=>{
     const coments=quotesCache.filter(q=>!q._wrongCollection&&q.status!=="superseded"&&q.status!=="anulada"&&(q.comentarioCliente?.texto||q.comentarioCliente?.fotoUrl||q.comentarioCliente?.fotoBase64)).map(q=>({q,c:q.comentarioCliente}));
@@ -3255,6 +3225,84 @@ function carteraUrgencia(q,today,weekEnd){
   if(f<=weekEnd)return "esta_semana";
   return "proximas";
 }
+
+// ─── v7.5: Modal "Recaudo por metodo" en Cartera ────────────
+// Migrado del Dashboard. Ahora vive como boton en el header de Cartera.
+
+function _carteraCalcularRecaudo(desde,hasta){
+  // Devuelve {recaudoMet, total} para pagos en el rango.
+  const recaudoMet={};
+  if(typeof METODOS_PAGO!=="undefined")METODOS_PAGO.forEach(m=>recaudoMet[m]=0);
+  let total=0;
+  if(!Array.isArray(quotesCache))return {recaudoMet,total};
+  const inRange=f=>f&&f>=desde&&f<=hasta;
+  quotesCache.forEach(q=>{
+    if(q._wrongCollection)return;
+    const pagos=(typeof getPagos==="function")?getPagos(q):(q.pagos||[]);
+    pagos.forEach(p=>{
+      if(!inRange(p.fecha))return;
+      const m=(typeof METODOS_PAGO!=="undefined"&&METODOS_PAGO.includes(p.metodo))?p.metodo:"Otro";
+      const monto=parseInt(p.monto)||0;
+      if(recaudoMet[m]===undefined)recaudoMet[m]=0;
+      recaudoMet[m]+=monto;
+      total+=monto;
+    });
+  });
+  return {recaudoMet,total};
+}
+
+function _primeroDelMes(){
+  const t=new Date();return new Date(t.getFullYear(),t.getMonth(),1).toISOString().slice(0,10);
+}
+function _hoy(){return new Date().toISOString().slice(0,10)}
+
+function openRecaudoMetodoModal(){
+  const m=$("recaudo-metodo-modal");
+  if(!m)return;
+  // Defaults: primero del mes actual hasta hoy
+  const desdeEl=$("rec-met-desde"),hastaEl=$("rec-met-hasta");
+  if(desdeEl&&!desdeEl.value)desdeEl.value=_primeroDelMes();
+  if(hastaEl&&!hastaEl.value)hastaEl.value=_hoy();
+  m.classList.remove("hidden");
+  renderRecaudoMetodoModalContent();
+}
+function closeRecaudoMetodoModal(){
+  const m=$("recaudo-metodo-modal");
+  if(m)m.classList.add("hidden");
+}
+
+function renderRecaudoMetodoModalContent(){
+  const desde=$("rec-met-desde")?.value;
+  const hasta=$("rec-met-hasta")?.value;
+  const el=$("rec-met-content");
+  if(!el)return;
+  if(!desde||!hasta){el.innerHTML='<div class="dash-met-empty">Elegí rango de fechas</div>';return}
+  if(desde>hasta){el.innerHTML='<div class="dash-met-empty" style="color:#C62828">Fecha desde es posterior a hasta</div>';return}
+
+  const {recaudoMet,total}=_carteraCalcularRecaudo(desde,hasta);
+  const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
+  if(total===0){
+    el.innerHTML='<div class="dash-met-empty">Sin pagos registrados en el rango '+desde+' → '+hasta+'.</div>';
+    return;
+  }
+  const maxMet=Math.max(...Object.values(recaudoMet),1);
+  const metodos=(typeof METODOS_PAGO!=="undefined")?METODOS_PAGO:Object.keys(recaudoMet);
+  const rows=metodos.map(m=>{
+    const v=recaudoMet[m]||0;
+    const pct=Math.round(v*100/maxMet);
+    const pctTotal=total>0?Math.round(v*100/total):0;
+    return '<div class="dash-met-row"><div class="dash-met-name">'+m+'</div><div class="dash-met-bar"><div class="dash-met-bar-fill" style="width:'+(v>0?pct:0)+'%"></div></div><div class="dash-met-val">'+fmt(v)+(v>0?' <span style="color:#888;font-weight:400">('+pctTotal+'%)</span>':'')+'</div></div>';
+  }).join("");
+  el.innerHTML=
+    '<div style="background:#E8F5E9;border-left:3px solid #1B5E20;padding:10px 14px;margin-bottom:12px;border-radius:6px;font-size:13px">'+
+      '<strong>Total recaudado:</strong> '+fmt(total)+'  ·  '+desde+' → '+hasta+
+    '</div>'+
+    rows;
+}
+
+window.openRecaudoMetodoModal=openRecaudoMetodoModal;
+window.closeRecaudoMetodoModal=closeRecaudoMetodoModal;
+window.renderRecaudoMetodoModalContent=renderRecaudoMetodoModalContent;
 
 async function renderCartera(){
   if(!quotesCache.length){try{await loadAllHistory()}catch{}}

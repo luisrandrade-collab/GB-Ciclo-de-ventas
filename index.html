@@ -1999,6 +1999,14 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
         var legacy = SUB_TO_LEGACY[key];
         if (legacy && typeof window.setMode === 'function') {
           window.setMode(legacy);
+          // v7.5 BUG-V7.4-01 fix: el modulo Reportes tiene tabs internos (Excel/Imprimibles).
+          // Como ambos sub-items mapean al mismo modo 'reportes', setMode no cambia
+          // automaticamente el tab interno. Caso especial:
+          if (key === 'reportes/imprimibles' && typeof window.setReportesTab === 'function') {
+            setTimeout(function(){window.setReportesTab('imprimibles');},50);
+          } else if (key === 'reportes/excel' && typeof window.setReportesTab === 'function') {
+            setTimeout(function(){window.setReportesTab('excel');},50);
+          }
         }
         return;
       }
@@ -2257,10 +2265,9 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   </section>
 
   <!-- v5.3.0: Zona 3 · OPERACIÓN URGENTE (próximos 3 días) — SIEMPRE VISIBLE, LADO A LADO -->
-  <!-- v6.2.0: Botón "🖨️ Imprimir hoja del día" al lado del título para generar PDF firmable -->
-  <div class="dash-urgent-title" style="justify-content:space-between">
+  <!-- v7.5: Boton 'Hojas para imprimir' eliminado del Dashboard. Acceso unico via sidebar > Reportes > Hojas para imprimir -->
+  <div class="dash-urgent-title">
     <span style="display:flex;align-items:center;gap:6px">⏰ Operación urgente · próximos 3 días</span>
-    <button type="button" class="btn-hoja-entregas" onclick="setMode('reportes');setTimeout(()=>setReportesTab('imprimibles'),50)" title="Ir al módulo Reportes — Hojas para imprimir">🖨️ Hojas para imprimir</button>
   </div>
   <div class="dash-urgent-split">
     <div class="urgent-card urgent-prod" id="dash-urgent-producir">
@@ -2281,50 +2288,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     </div>
   </div>
 
-  <!-- D1.6: Accesos rápidos (4 acciones frecuentes; SOON con toast 'Próximamente · v7.1') -->
-  <section class="quick-actions" id="dash-quick-actions">
-    <h2>Accesos rápidos</h2>
-    <a class="quick-action" href="#" onclick="event.preventDefault();setMode('cot')">
-      <span class="quick-action__icon">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 1.5h7l3 3V14a.5.5 0 01-.5.5h-9A.5.5 0 013 14V2a.5.5 0 01.5-.5z"/><path d="M10 1.5V4h3"/><path d="M5.5 8h5M5.5 11h3"/></svg>
-      </span>
-      <div class="quick-action__body">
-        <div class="quick-action__title">Nueva cotización</div>
-        <div class="quick-action__desc">Cliente persona o empresa, productos catálogo</div>
-      </div>
-      <svg class="quick-action__chev" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 3l4 4-4 4"/></svg>
-    </a>
-    <a class="quick-action" href="#" onclick="event.preventDefault();setMode('reportes');setTimeout(()=>setReportesTab('imprimibles'),50)">
-      <span class="quick-action__icon" style="background:var(--gb-warning-50);color:var(--gb-warning-600)">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1"/><path d="M1.5 6h13M5 9.5h6"/></svg>
-      </span>
-      <div class="quick-action__body">
-        <div class="quick-action__title">Hojas para imprimir</div>
-        <div class="quick-action__desc">Producción · Empaque · Entregas con firma</div>
-      </div>
-      <svg class="quick-action__chev" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 3l4 4-4 4"/></svg>
-    </a>
-    <a class="quick-action is-soon" href="#" onclick="event.preventDefault();soonToast('Próximamente · v7.1')">
-      <span class="quick-action__icon" style="background:var(--gb-success-50);color:var(--gb-success-700)">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h2.5l1.5 8h7L14 5H4.5"/><circle cx="6" cy="14" r="1"/><circle cx="12" cy="14" r="1"/></svg>
-      </span>
-      <div class="quick-action__body">
-        <div class="quick-action__title">Registrar compra</div>
-        <div class="quick-action__desc">Insumos, empaques, combustible</div>
-      </div>
-      <svg class="quick-action__chev" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 3l4 4-4 4"/></svg>
-    </a>
-    <a class="quick-action is-soon" href="#" onclick="event.preventDefault();soonToast('Próximamente · v7.1')">
-      <span class="quick-action__icon" style="background:var(--gb-neutral-100,#f0f1f5);color:var(--gb-neutral-700,#3a3f4c)">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="5.5" r="2.5"/><path d="M2.5 13.5c0-2.5 2.5-4 5.5-4s5.5 1.5 5.5 4"/></svg>
-      </span>
-      <div class="quick-action__body">
-        <div class="quick-action__title">Ver clientes</div>
-        <div class="quick-action__desc">Directorio de clientes</div>
-      </div>
-      <svg class="quick-action__chev" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 3l4 4-4 4"/></svg>
-    </a>
-  </section>
+  <!-- v7.5: Bloque 'Accesos rápidos' eliminado. Acceso unico via sidebar modular -->
 
   <!-- v5.3.0: Zona 4 · ANÁLISIS COMERCIAL (colapsable) -->
   <div class="dash-collapsible" data-key="analisis">
@@ -2345,15 +2309,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
         <div class="dash-stit">❌ Pérdidas por motivo</div>
         <div id="dash-reporte-perdidas"></div>
       </div>
-      <div class="dash-section">
-        <div class="dash-stit">🔍 Vista por cliente</div>
-        <div class="cliente-filtro-bar">
-          <input type="text" id="dash-cliente-input" class="cliente-filtro-input" placeholder="Escribe un cliente para ver todo su historial..." oninput="onClienteFilterInput(event)" autocomplete="off">
-          <button class="cliente-filtro-clear" onclick="clearClienteFilter()" id="dash-cliente-clear" style="display:none">×</button>
-        </div>
-        <div id="dash-cliente-suggestions" class="cliente-suggestions hidden"></div>
-        <div id="dash-cliente-resultado"></div>
-      </div>
+      <!-- v7.5: 'Vista por cliente' eliminada. Cubierto por sidebar > Archivo > Buscar todo -->
     </div>
   </div>
 
@@ -2364,20 +2320,13 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <span class="dash-coll-chevron" id="chev-operativos">▸</span>
     </button>
     <div class="dash-coll-body hidden" id="body-operativos">
-      <div class="dash-section">
-        <div class="dash-stit">💰 Recaudo por método</div>
-        <div id="dash-recaudo"></div>
-      </div>
+      <!-- v7.5: 'Recaudo por metodo' movido a Cartera (boton modal). 'Pendientes por cobrar' eliminado (cubierto por Cartera). -->
       <div class="dash-section">
         <div class="dash-stit-row">
           <div class="dash-stit">📅 Próximas entregas (14 días)</div>
           <button class="dash-stit-btn" onclick="syncAgendaAllFuture()" title="Sincronizar .ics completo con Kathy y JP">📤 Sync agenda</button>
         </div>
         <div id="dash-upcoming"></div>
-      </div>
-      <div class="dash-section">
-        <div class="dash-stit">⚠️ Pendientes por cobrar</div>
-        <div id="dash-pendientes"></div>
       </div>
       <div class="dash-section">
         <div class="dash-stit">💬 Últimos comentarios de clientes</div>
@@ -2701,6 +2650,29 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   </div>
 </div>
 
+<!-- ======== RECAUDO POR METODO MODAL (v7.5) — abierto desde Cartera ======== -->
+<div id="recaudo-metodo-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeRecaudoMetodoModal()">
+  <div class="modal-content" style="max-width:560px">
+    <div class="modal-header" style="background:#1B5E20;color:white">
+      <h3 style="margin:0;font-size:16px">💰 Recaudo por método</h3>
+      <button onclick="closeRecaudoMetodoModal()" style="background:none;border:none;color:white;font-size:22px;cursor:pointer;line-height:1">×</button>
+    </div>
+    <div class="modal-body" style="padding:14px 18px">
+      <div style="background:#F5F5F5;border-radius:8px;padding:10px 12px;margin-bottom:14px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div>
+          <label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Desde</label>
+          <input type="date" id="rec-met-desde" onchange="renderRecaudoMetodoModalContent()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">
+        </div>
+        <div>
+          <label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Hasta</label>
+          <input type="date" id="rec-met-hasta" onchange="renderRecaudoMetodoModalContent()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">
+        </div>
+      </div>
+      <div id="rec-met-content"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ======== ARCHIVO MODE (v7.4 F5) — 3 sub-modos read-only: Buscar todo / Anuladas / Convertidas ======== -->
 <div id="mode-archivo-busqueda" class="hidden">
   <div class="sec">
@@ -2829,7 +2801,10 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   <div class="sec">
     <div class="stit" style="color:#1B5E20;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
       <span>💵 Cartera</span>
-      <span id="cartera-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+      <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span id="cartera-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+        <button onclick="openRecaudoMetodoModal()" style="background:#1B5E20;color:white;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600">💰 Recaudo por método</button>
+      </span>
     </div>
     <div id="cartera-list" style="padding:0 4px"></div>
   </div>
@@ -3795,12 +3770,12 @@ body{padding-bottom:84px}
 </script>
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.4.4"></script>
-<script src="app-core.js?v=7.4.4"></script>
-<script src="app-cotizar.js?v=7.4.4"></script>
-<script src="app-propuesta.js?v=7.4.4"></script>
-<script src="app-historial.js?v=7.4.4"></script>
-<script src="app-seguimiento.js?v=7.4.4"></script>
-<script src="app-dashboard.js?v=7.4.4"></script>
+<script src="app-assets.js?v=7.5.0"></script>
+<script src="app-core.js?v=7.5.0"></script>
+<script src="app-cotizar.js?v=7.5.0"></script>
+<script src="app-propuesta.js?v=7.5.0"></script>
+<script src="app-historial.js?v=7.5.0"></script>
+<script src="app-seguimiento.js?v=7.5.0"></script>
+<script src="app-dashboard.js?v=7.5.0"></script>
 </body>
 </html>
