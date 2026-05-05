@@ -3019,3 +3019,58 @@ async function renderPedidosProducidos(){
 window.renderPedidosAprobados=renderPedidosAprobados;
 window.renderPedidosProduccion=renderPedidosProduccion;
 window.renderPedidosProducidos=renderPedidosProducidos;
+
+// ─── v7.4 F3: Módulo Entregas (2 sub-modos) ─────────────────
+
+async function renderEntregar(){
+  if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+  const summaryEl=$("entregar-summary");
+  const listEl=$("entregar-list");
+  if(!listEl)return;
+  const docs=getDocsPorEtapa("entregar");
+  const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
+  const totalMonto=docs.reduce((s,q)=>s+((typeof getDocTotal==="function")?getDocTotal(q):(q.total||0)),0);
+  const totalSaldo=docs.reduce((s,q)=>s+((typeof saldoPendiente==="function")?saldoPendiente(q):0),0);
+  if(summaryEl){
+    let txt=docs.length+" doc(s) · "+fmt(totalMonto);
+    if(totalSaldo>0)txt+=" · saldo a cobrar "+fmt(totalSaldo);
+    summaryEl.textContent=docs.length?txt:"";
+  }
+  if(!docs.length){
+    listEl.innerHTML='<div style="padding:48px 20px;text-align:center;color:#888;font-size:14px">'+
+      '<div style="font-size:48px;margin-bottom:12px">🚚</div>'+
+      '<div style="font-weight:700;color:#555;margin-bottom:6px">Sin entregas urgentes</div>'+
+      '<div style="font-size:12px">Acá ves los pedidos producidos con fecha entrega hoy o mañana.</div>'+
+      '</div>';
+    return;
+  }
+  listEl.innerHTML=docs.map(q=>renderDocCard(q,"entregar",{showStatus:true})).join("");
+}
+
+async function renderEntregadas(){
+  if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+  const summaryEl=$("entregadas-summary");
+  const listEl=$("entregadas-list");
+  if(!listEl)return;
+  const docs=getDocsPorEtapa("entregadas");
+  const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
+  const totalMonto=docs.reduce((s,q)=>s+((typeof getDocTotal==="function")?getDocTotal(q):(q.total||0)),0);
+  const totalSaldo=docs.reduce((s,q)=>s+((typeof saldoPendiente==="function")?saldoPendiente(q):0),0);
+  if(summaryEl){
+    let txt=docs.length+" entrega(s) · "+fmt(totalMonto);
+    if(totalSaldo>0)txt+=" · "+fmt(totalSaldo)+" sin cobrar";
+    summaryEl.textContent=docs.length?txt:"";
+  }
+  if(!docs.length){
+    listEl.innerHTML='<div style="padding:48px 20px;text-align:center;color:#888;font-size:14px">'+
+      '<div style="font-size:48px;margin-bottom:12px">🎉</div>'+
+      '<div style="font-weight:700;color:#555;margin-bottom:6px">Sin entregas registradas</div>'+
+      '<div style="font-size:12px">Las entregas confirmadas aparecen acá como archivo.</div>'+
+      '</div>';
+    return;
+  }
+  listEl.innerHTML=docs.map(q=>renderDocCard(q,"entregadas",{showStatus:true})).join("");
+}
+
+window.renderEntregar=renderEntregar;
+window.renderEntregadas=renderEntregadas;

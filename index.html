@@ -1765,13 +1765,19 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       </div>
     </div>
 
-    <div class="sb-module" data-mod="ops">
-      <button class="sb-module__btn"><span class="gb-shell-icon">🛠️</span><span class="sb-module__label">Operaciones</span></button>
+    <div class="sb-module" data-mod="entregas">
+      <button class="sb-module__btn"><span class="gb-shell-icon">🚚</span><span class="sb-module__label">Entregas</span></button>
       <div class="sb-submenu">
-        <a href="javascript:void(0)" data-sub="ops/produccion">Pedidos en producción (legacy)</a>
-        <a href="javascript:void(0)" class="is-soon" data-sub="ops/despacho">Hoja de despacho<span class="sub-soon">Pronto</span></a>
-        <a href="javascript:void(0)" class="is-soon" data-sub="ops/historico-hojas">Histórico de hojas<span class="sub-soon">Pronto</span></a>
-        <a href="javascript:void(0)" data-sub="ops/cobro">Cartera</a>
+        <a href="javascript:void(0)" data-sub="entregas/por-entregar">Por entregar</a>
+        <a href="javascript:void(0)" data-sub="entregas/entregadas">Entregadas</a>
+      </div>
+    </div>
+
+    <div class="sb-module" data-mod="cartera">
+      <button class="sb-module__btn"><span class="gb-shell-icon">💵</span><span class="sb-module__label">Cartera</span></button>
+      <div class="sb-submenu">
+        <a href="javascript:void(0)" data-sub="cartera/pendientes">Pendientes de cobro</a>
+        <a href="javascript:void(0)" class="is-soon" data-sub="cartera/historico">Histórico de cobros<span class="sub-soon">Pronto</span></a>
       </div>
     </div>
 
@@ -1842,15 +1848,17 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'ventas/cotizar':    'cot',
     'ventas/propuesta':  'prop',
     'ventas/historico':  'hist',
-    'ops/produccion':    'ops',
-    'ops/cobro':         'cartera',
+    'cartera/pendientes': 'cartera',
+    // Legacy: 'ops/produccion' y 'ops/cobro' descontinuados en F4 (modulo Operaciones disuelto)
     'reportes/excel':       'reportes',
     'reportes/imprimibles': 'reportes',
     'ventas/cotizaciones':  'cotizaciones',
     'ventas/perdidas':      'perdidas',
     'pedidos/aprobados':    'pedidos-aprobados',
     'pedidos/produccion':   'pedidos-produccion',
-    'pedidos/producidos':   'pedidos-producidos'
+    'pedidos/producidos':   'pedidos-producidos',
+    'entregas/por-entregar':'entregar',
+    'entregas/entregadas':  'entregadas'
     // Pipeline, ops/despacho, ops/historico-hojas, compras/*, clientes/*, herr/* → undefined → SOON
   };
 
@@ -1864,14 +1872,15 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'cot':    'ventas/cotizar',
     'prop':   'ventas/propuesta',
     'hist':    'ventas/historico',
-    'ops':      'ops/produccion',
-    'cartera':              'ops/cobro',
+    'cartera':              'cartera/pendientes',
     'reportes':             'reportes/excel',
     'cotizaciones':         'ventas/cotizaciones',
     'perdidas':             'ventas/perdidas',
     'pedidos-aprobados':    'pedidos/aprobados',
     'pedidos-produccion':   'pedidos/produccion',
     'pedidos-producidos':   'pedidos/producidos',
+    'entregar':             'entregas/por-entregar',
+    'entregadas':           'entregas/entregadas',
     'search':               'ventas/cotizar'
   };
 
@@ -1883,8 +1892,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'ventas/crear':      ['Ventas', 'Crear nueva'],
     'ventas/cotizar':    ['Ventas', 'Nueva cotización'],
     'ventas/propuesta':  ['Ventas', 'Nueva propuesta'],
-    'ops/produccion':    ['Operaciones', 'Producción'],
-    'ops/cobro':         ['Operaciones', 'Cartera'],
+    'cartera/pendientes': ['Cartera', 'Pendientes de cobro'],
     'reportes/excel':       ['Reportes', 'Exportar Excel'],
     'reportes/imprimibles': ['Reportes', 'Hojas para imprimir'],
     'ventas/cotizaciones':  ['Ventas', 'Cotizaciones activas'],
@@ -1892,7 +1900,9 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'ventas/historico':     ['Ventas', 'Histórico comercial'],
     'pedidos/aprobados':    ['Pedidos', 'Aprobados'],
     'pedidos/produccion':   ['Pedidos', 'En producción'],
-    'pedidos/producidos':   ['Pedidos', 'Producidos']
+    'pedidos/producidos':   ['Pedidos', 'Producidos'],
+    'entregas/por-entregar':['Entregas', 'Por entregar'],
+    'entregas/entregadas':  ['Entregas', 'Entregadas']
   };
 
   function gbShellEnsureCrumb(){
@@ -2670,6 +2680,27 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <button class="cpill" onclick="setOpsTab('todos')" id="ops-tab-todos">Todos</button>
     </div>
     <div id="ops-list"></div>
+  </div>
+</div>
+
+<!-- ======== ENTREGAS MODE (v7.4 F3) — 2 sub-modos: Por entregar / Entregadas ======== -->
+<div id="mode-entregar" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#E65100;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <span>🚚 Por entregar (hoy y mañana)</span>
+      <span id="entregar-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+    </div>
+    <div id="entregar-list" style="padding:0 4px"></div>
+  </div>
+</div>
+
+<div id="mode-entregadas" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#1B5E20;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <span>🎉 Entregadas (archivo)</span>
+      <span id="entregadas-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+    </div>
+    <div id="entregadas-list" style="padding:0 4px"></div>
   </div>
 </div>
 
@@ -3712,12 +3743,12 @@ body{padding-bottom:84px}
 </script>
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.4.2"></script>
-<script src="app-core.js?v=7.4.2"></script>
-<script src="app-cotizar.js?v=7.4.2"></script>
-<script src="app-propuesta.js?v=7.4.2"></script>
-<script src="app-historial.js?v=7.4.2"></script>
-<script src="app-seguimiento.js?v=7.4.2"></script>
-<script src="app-dashboard.js?v=7.4.2"></script>
+<script src="app-assets.js?v=7.4.3"></script>
+<script src="app-core.js?v=7.4.3"></script>
+<script src="app-cotizar.js?v=7.4.3"></script>
+<script src="app-propuesta.js?v=7.4.3"></script>
+<script src="app-historial.js?v=7.4.3"></script>
+<script src="app-seguimiento.js?v=7.4.3"></script>
+<script src="app-dashboard.js?v=7.4.3"></script>
 </body>
 </html>

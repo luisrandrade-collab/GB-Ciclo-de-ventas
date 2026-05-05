@@ -1711,7 +1711,8 @@ function setMode(m){
   // v7.3: agregado 'reportes' (modulo de Excel + PDFs imprimibles)
   // v7.4 F1: agregados 'cotizaciones' y 'perdidas' (sub-modulos Ventas)
   // v7.4 F2: agregados 'pedidos-aprobados', 'pedidos-produccion', 'pedidos-producidos' (modulo Pedidos)
-  ["dash","cot","prop","search","hist","seg","cal","ventas","ops","cartera","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos"].forEach(x=>{
+  // v7.4 F3: agregados 'entregar', 'entregadas' (modulo Entregas)
+  ["dash","cot","prop","search","hist","seg","cal","ventas","ops","cartera","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","entregar","entregadas"].forEach(x=>{
     const el=$("mode-"+x);
     if(el)el.classList.toggle("hidden",x!==m);
     document.querySelectorAll(".mode-btn.m-"+x).forEach(b=>b.classList.toggle("act",x===m));
@@ -1731,6 +1732,8 @@ function setMode(m){
   if(m==="pedidos-aprobados"&&typeof renderPedidosAprobados==="function")renderPedidosAprobados();
   if(m==="pedidos-produccion"&&typeof renderPedidosProduccion==="function")renderPedidosProduccion();
   if(m==="pedidos-producidos"&&typeof renderPedidosProducidos==="function")renderPedidosProducidos();
+  if(m==="entregar"&&typeof renderEntregar==="function")renderEntregar();
+  if(m==="entregadas"&&typeof renderEntregadas==="function")renderEntregadas();
   if(m==="search"){$("gsearch").focus();$("search-results").innerHTML=""}
   window.scrollTo(0,0);
 }
