@@ -3507,9 +3507,9 @@ function generarPdfProduccionPorCliente(){
     pdf.rect(0,0,W,16,"F");
     pdf.setTextColor(255);
     pdf.setFontSize(13);pdf.setFont(undefined,"bold");
-    pdf.text("🍳 ORDEN DE PRODUCCIÓN",M,10);
+    pdf.text("ORDEN DE PRODUCCION",M,10);
     pdf.setFontSize(9);pdf.setFont(undefined,"normal");
-    pdf.text("Gourmet Bites · "+(idx+1)+"/"+docs.length,W-M,10,{align:"right"});
+    pdf.text("Gourmet Bites  -  Hoja "+(idx+1)+"/"+docs.length,W-M,10,{align:"right"});
     pdf.setTextColor(0);
     y=24;
 
@@ -3568,7 +3568,10 @@ function generarPdfProduccionPorCliente(){
 
     // Footer: producido + firma
     pdf.setFontSize(10);pdf.setFont(undefined,"bold");
-    pdf.text("☐  Producido",M,y+4);
+    // Casilla manual con setDrawColor + rect (mas robusto que caracter unicode)
+    pdf.setDrawColor(80);
+    pdf.rect(M,y,5,5);
+    pdf.text("Producido",M+8,y+4);
     pdf.line(W-M-60,y+5,W-M,y+5);
     pdf.setFont(undefined,"normal");pdf.setFontSize(8);
     pdf.text("Firma de quien produjo",W-M-30,y+9,{align:"center"});
@@ -3576,7 +3579,7 @@ function generarPdfProduccionPorCliente(){
     // * Productos custom marker (al pie)
     if(items.some(r=>r[1].endsWith(" *"))){
       pdf.setFontSize(7);pdf.setTextColor(120);
-      pdf.text("* Producto custom (no del catálogo).",M,290);
+      pdf.text("* Producto custom (no del catalogo).",M,290);
       pdf.setTextColor(0);
     }
   });
@@ -3633,9 +3636,9 @@ function generarPdfProduccionConsolidada(){
     pdf.rect(0,0,W,16,"F");
     pdf.setTextColor(255);
     pdf.setFontSize(13);pdf.setFont(undefined,"bold");
-    pdf.text("👨‍🍳 PRODUCCIÓN DEL DÍA",M,10);
+    pdf.text("PRODUCCION DEL DIA",M,10);
     pdf.setFontSize(9);pdf.setFont(undefined,"normal");
-    pdf.text("Gourmet Bites · "+(idx+1)+"/"+dias.length,W-M,10,{align:"right"});
+    pdf.text("Gourmet Bites  -  Dia "+(idx+1)+"/"+dias.length,W-M,10,{align:"right"});
     pdf.setTextColor(0);
     y=24;
 
