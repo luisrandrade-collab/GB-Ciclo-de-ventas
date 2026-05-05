@@ -3849,6 +3849,65 @@ function _repCalcularKPIs(filtros){
   };
 }
 
+// ─── Estilos (replican el formato maquetado por Luis) ────────
+const _REP_FONT_BASE={name:"Calibri",sz:11,color:{rgb:"333333"}};
+const _REP_FONT_HEADER={name:"Calibri",sz:11,color:{rgb:"FFFFFF"},bold:true};
+const _REP_FONT_TITLE={name:"Calibri",sz:16,color:{rgb:"1F3864"},bold:true};
+const _REP_FONT_SECTION={name:"Calibri",sz:12,color:{rgb:"1F3864"},bold:true};
+const _REP_FILL_HEADER={patternType:"solid",fgColor:{rgb:"2F5496"}};
+const _REP_FILL_ZEBRA={patternType:"solid",fgColor:{rgb:"F2F6FC"}};
+const _REP_FILL_WHITE={patternType:"solid",fgColor:{rgb:"FFFFFF"}};
+const _REP_FILL_TITLE={patternType:"solid",fgColor:{rgb:"D6E4F0"}};
+const _REP_BORDER_THIN={style:"thin",color:{rgb:"DDDDDD"}};
+const _REP_BORDER_FULL={top:_REP_BORDER_THIN,bottom:_REP_BORDER_THIN,left:_REP_BORDER_THIN,right:_REP_BORDER_THIN};
+const _REP_FMT_PESOS='"$"#,##0';
+
+// Aplica estilo a una celda (creandola si falta)
+function _repSetCell(ws,addr,value,style){
+  ws[addr]=ws[addr]||{v:value,t:typeof value==="number"?"n":"s"};
+  if(value!==undefined)ws[addr].v=value;
+  if(typeof value==="number")ws[addr].t="n";
+  else if(typeof value==="string")ws[addr].t="s";
+  if(style)ws[addr].s=style;
+}
+
+// Aplica formato de tabla estandar (header azul + zebra striping)
+// cols: array con info de cada col: {align: 'center'|'right'|'left', pesos: bool}
+function _repFormatearTabla(ws,nRows,cols){
+  const A=c=>String.fromCharCode(65+c); // 0->A, 1->B...
+  // Header (fila 1)
+  cols.forEach((col,idx)=>{
+    const addr=A(idx)+"1";
+    if(!ws[addr])ws[addr]={v:"",t:"s"};
+    ws[addr].s={
+      font:_REP_FONT_HEADER,
+      fill:_REP_FILL_HEADER,
+      alignment:{horizontal:"center",vertical:"center"},
+      border:_REP_BORDER_FULL
+    };
+  });
+  if(!ws["!rows"])ws["!rows"]=[];
+  ws["!rows"][0]={hpt:26.1};
+
+  // Cuerpo (filas 2..nRows+1)
+  for(let r=2;r<=nRows+1;r++){
+    const fill=(r%2===0)?_REP_FILL_ZEBRA:_REP_FILL_WHITE;
+    cols.forEach((col,idx)=>{
+      const addr=A(idx)+r;
+      if(!ws[addr])ws[addr]={v:"",t:"s"};
+      const align={horizontal:col.align||undefined};
+      const styleObj={
+        font:_REP_FONT_BASE,
+        fill:fill,
+        alignment:align,
+        border:_REP_BORDER_FULL
+      };
+      if(col.pesos)styleObj.numFmt=_REP_FMT_PESOS;
+      ws[addr].s=styleObj;
+    });
+  }
+}
+
 function descargarExcel(){
   if(!reportesResultado||!reportesResultado.docs.length){
     if(typeof toast==="function")toast("No hay datos para exportar","warn");
@@ -3864,16 +3923,16 @@ function descargarExcel(){
   const ahora=new Date().toISOString().slice(0,16).replace("T"," ");
   const wb=XLSX.utils.book_new();
 
-  // ─── HOJA 1: Resumen Dashboard ────────────────────────────
+  // ═══ HOJA 1: Resumen Dashboard ═══════════════════════════
   const k=_repCalcularKPIs(filtros);
   const aoa1=[
-    ["GOURMET BITES — REPORTE EJECUTIVO"],
-    [],
-    ["Período:", filtros.desde+" a "+filtros.hasta],
-    ["Estado filtro:", filtros.estado],
-    ["Generado:", ahora],
-    [],
-    ["MÉTRICAS DEL PERÍODO"],
+    ["GOURMET BITES — REPORTE EJECUTIVO","","",""],
+    ["","","",""],
+    ["Período:", filtros.desde+" a "+filtros.hasta,"",""],
+    ["Estado filtro:", filtros.estado,"",""],
+    ["Generado:", ahora,"",""],
+    ["","","",""],
+    ["MÉTRICAS DEL PERÍODO","","",""],
     ["KPI","Monto","# Docs","# Clientes"],
     ["Cotizado",k.cotMonto,k.cotCount,k.cotClis],
     ["Vendido",k.venMonto,k.venCount,k.venClis],
@@ -3882,20 +3941,61 @@ function descargarExcel(){
     ["  · con saldo pendiente","",k.entConSaldo,""],
     ["Recaudado",k.recaudo,"-","-"],
     ["Por cobrar (todos los activos)",k.porCobrarMonto,k.porCobrarN,"-"],
-    [],
-    ["PIPELINE ACTIVO (estado actual, independiente del rango)"],
+    ["","","",""],
+    ["PIPELINE ACTIVO (estado actual, independiente del rango)","","",""],
     ["KPI","Monto","# Docs",""],
     ["En cotización",k.pipCotMonto,k.pipCotN,""],
     ["Pedidos confirmados (por entregar)",k.pipPedMonto,k.pipPedN,""],
     ["Entregados con saldo",k.pipEntSaldoMonto,k.pipEntSaldoN,""]
   ];
   const ws1=XLSX.utils.aoa_to_sheet(aoa1);
-  ws1["!cols"]=[{wch:36},{wch:16},{wch:10},{wch:12}];
-  // Formato pesos en columna B
-  ["B9","B10","B11","B14","B15","B19","B20","B21"].forEach(ref=>{if(ws1[ref])ws1[ref].z='"$"#,##0'});
+  ws1["!cols"]=[{wch:46},{wch:23},{wch:13},{wch:15}];
+  ws1["!merges"]=[
+    {s:{r:0,c:0},e:{r:0,c:3}},   // A1:D1 título
+    {s:{r:6,c:0},e:{r:6,c:3}},   // A7:D7 sección métricas
+    {s:{r:16,c:0},e:{r:16,c:3}}  // A17:D17 sección pipeline
+  ];
+  // Estilo título A1:D1
+  const styleTitle={font:_REP_FONT_TITLE,fill:_REP_FILL_TITLE,alignment:{horizontal:"center",vertical:"center"}};
+  ["A1","B1","C1","D1"].forEach(a=>{if(ws1[a])ws1[a].s=styleTitle});
+  // Estilos secciones
+  const styleSection={font:_REP_FONT_SECTION,fill:_REP_FILL_TITLE,alignment:{horizontal:"center",vertical:"center"}};
+  ["A7","B7","C7","D7","A17","B17","C17","D17"].forEach(a=>{if(ws1[a])ws1[a].s=styleSection});
+  // Labels filas 3-5 (col A bold)
+  const styleLabel={font:{name:"Calibri",sz:11,color:{rgb:"333333"},bold:true}};
+  const styleValue={font:_REP_FONT_BASE};
+  for(let r=3;r<=5;r++){if(ws1["A"+r])ws1["A"+r].s=styleLabel;if(ws1["B"+r])ws1["B"+r].s=styleValue}
+  // Headers de tabla en filas 8 y 18
+  const styleTblHeader={font:_REP_FONT_HEADER,fill:_REP_FILL_HEADER,alignment:{horizontal:"center",vertical:"center"},border:_REP_BORDER_FULL};
+  ["A8","B8","C8","D8","A18","B18","C18","D18"].forEach(a=>{if(ws1[a])ws1[a].s=styleTblHeader});
+  // Filas de datos KPI: zebra
+  const _zebraRows=[9,10,11,12,13,14,15,19,20,21];
+  _zebraRows.forEach(r=>{
+    const fill=(r%2===0)?_REP_FILL_ZEBRA:_REP_FILL_WHITE;
+    ["A","B","C","D"].forEach((c,i)=>{
+      const addr=c+r;
+      if(!ws1[addr])return;
+      const isPesos=(c==="B"&&typeof ws1[addr].v==="number");
+      ws1[addr].s={
+        font:_REP_FONT_BASE,
+        fill:fill,
+        alignment:{horizontal:i===0?undefined:(i===1?"right":"center")},
+        border:_REP_BORDER_FULL,
+        ...(isPesos?{numFmt:_REP_FMT_PESOS}:{})
+      };
+    });
+  });
+  // Alturas
+  ws1["!rows"]=[
+    {hpt:36},{hpt:8.1},{hpt:15.75},{hpt:15.75},{hpt:15.75},
+    {hpt:8.1},{hpt:27.95},{hpt:24},
+    {hpt:15.75},{hpt:15.75},{hpt:15.75},{hpt:15.75},{hpt:15.75},{hpt:15.75},{hpt:15.75},
+    {hpt:8.1},{hpt:27.95},{hpt:24},
+    {hpt:15.75},{hpt:15.75},{hpt:15.75}
+  ];
   XLSX.utils.book_append_sheet(wb,ws1,"Resumen");
 
-  // ─── HOJA 2: Pedidos detallados ───────────────────────────
+  // ═══ HOJA 2: Pedidos detallados ═══════════════════════════
   const aoa2=[["Fecha entrega","Hora","Cliente","Doc","Tipo","Estado","Producido","# Productos","Total","Cobrado","Saldo","Teléfono","Dirección","Ciudad"]];
   docs.forEach(q=>{
     const total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||0);
@@ -3905,72 +4005,54 @@ function descargarExcel(){
     aoa2.push([
       _reportesGetFecha(q),
       q.horaEntrega||(q.orderData||{}).horaEntrega||"",
-      q.client||"",
-      q.id||"",
+      q.client||"",q.id||"",
       q.kind==="quote"?"Cotización":"Propuesta",
       (typeof STATUS_META!=="undefined"&&STATUS_META[q.status]?.label)||q.status||"",
-      q.produced?"Sí":"",
-      nProd,
-      total,
-      cobrado,
-      saldo,
-      q.tel||"",
-      q.dir||"",
-      q.city||""
+      q.produced?"Sí":"",nProd,total,cobrado,saldo,
+      q.tel||"",q.dir||"",q.city||""
     ]);
   });
   const ws2=XLSX.utils.aoa_to_sheet(aoa2);
-  ws2["!cols"]=[{wch:13},{wch:8},{wch:28},{wch:15},{wch:11},{wch:13},{wch:9},{wch:8},{wch:12},{wch:12},{wch:12},{wch:13},{wch:32},{wch:12}];
-  // Formato pesos columnas I, J, K
-  for(let r=2;r<=aoa2.length;r++){
-    ["I","J","K"].forEach(c=>{if(ws2[c+r])ws2[c+r].z='"$"#,##0'});
-  }
+  ws2["!cols"]=[{wch:15.875},{wch:9.125},{wch:26.625},{wch:20},{wch:14.125},{wch:13.375},{wch:11.625},{wch:13.375},{wch:15.875},{wch:13},{wch:12.5},{wch:13},{wch:41.625},{wch:15}];
   ws2["!freeze"]={xSplit:0,ySplit:1};
+  _repFormatearTabla(ws2,docs.length,[
+    {align:"center"},{align:"center"},{},{align:"center"},{align:"center"},{align:"center"},
+    {align:"center"},{align:"center"},
+    {align:"right",pesos:true},{align:"right",pesos:true},{align:"right",pesos:true},
+    {},{},{}
+  ]);
   XLSX.utils.book_append_sheet(wb,ws2,"Pedidos");
 
-  // ─── HOJA 3: Productos por pedido (linea por producto) ────
+  // ═══ HOJA 3: Productos por pedido ═════════════════════════
   const aoa3=[["Fecha","Hora","Cliente","Doc","Sección","Opción","Producto","Descripción","Unidad","Cantidad","P.Unit","Subtotal","Custom"]];
   docs.forEach(q=>{
     const base=[_reportesGetFecha(q),q.horaEntrega||"",q.client||"",q.id||""];
     if(q.kind==="quote"){
-      (q.cart||[]).forEach(it=>{
-        const qty=parseInt(it.qty)||0,p=parseInt(it.p)||0;
-        aoa3.push([...base,"","",it.n||"",it.d||"",it.u||"",qty,p,qty*p,""]);
-      });
-      (q.cust||[]).forEach(it=>{
-        const qty=parseInt(it.qty)||0,p=parseInt(it.p)||0;
-        aoa3.push([...base,"","",it.n||"",it.d||"",it.u||"",qty,p,qty*p,"Sí"]);
-      });
+      (q.cart||[]).forEach(it=>{const qty=parseInt(it.qty)||0,p=parseInt(it.p)||0;aoa3.push([...base,"","",it.n||"",it.d||"",it.u||"",qty,p,qty*p,""])});
+      (q.cust||[]).forEach(it=>{const qty=parseInt(it.qty)||0,p=parseInt(it.p)||0;aoa3.push([...base,"","",it.n||"",it.d||"",it.u||"",qty,p,qty*p,"Sí"])});
     }else{
-      (q.sections||[]).forEach(sec=>{
-        (sec.options||[]).forEach(opt=>{
-          (opt.items||[]).forEach(it=>{
-            const qty=parseInt(it.qty)||0,p=parseInt(it.price)||0;
-            aoa3.push([...base,sec.name||"",opt.label||"",it.name||"",it.desc||"",it.unit||"",qty,p,qty*p,it.customId?"Sí":""]);
-          });
-        });
-      });
+      (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>{const qty=parseInt(it.qty)||0,p=parseInt(it.price)||0;aoa3.push([...base,sec.name||"",opt.label||"",it.name||"",it.desc||"",it.unit||"",qty,p,qty*p,it.customId?"Sí":""])})));
     }
   });
   const ws3=XLSX.utils.aoa_to_sheet(aoa3);
-  ws3["!cols"]=[{wch:11},{wch:7},{wch:25},{wch:14},{wch:14},{wch:9},{wch:32},{wch:30},{wch:12},{wch:8},{wch:11},{wch:12},{wch:7}];
-  for(let r=2;r<=aoa3.length;r++){
-    ["K","L"].forEach(c=>{if(ws3[c+r])ws3[c+r].z='"$"#,##0'});
-  }
+  ws3["!cols"]=[{wch:15.875},{wch:9.125},{wch:26.625},{wch:20},{wch:12.5},{wch:9},{wch:38.375},{wch:30},{wch:16.625},{wch:10.875},{wch:14.125},{wch:13},{wch:10}];
   ws3["!freeze"]={xSplit:0,ySplit:1};
+  _repFormatearTabla(ws3,aoa3.length-1,[
+    {align:"center"},{align:"center"},{},{align:"center"},{align:"center"},{align:"center"},
+    {},{},{align:"center"},{align:"center"},
+    {align:"right",pesos:true},{align:"right",pesos:true},
+    {align:"center"}
+  ]);
   XLSX.utils.book_append_sheet(wb,ws3,"Productos");
 
-  // ─── HOJA 4: Resumen por día ──────────────────────────────
+  // ═══ HOJA 4: Resumen por día ══════════════════════════════
   const porDia={};
   docs.forEach(q=>{
     const f=_reportesGetFecha(q)||"(sin fecha)";
     if(!porDia[f])porDia[f]={count:0,total:0,cobrado:0,saldo:0,clientes:new Set()};
     const total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||0);
     const saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
-    porDia[f].count++;
-    porDia[f].total+=total;
-    porDia[f].cobrado+=(total-saldo);
-    porDia[f].saldo+=saldo;
+    porDia[f].count++;porDia[f].total+=total;porDia[f].cobrado+=(total-saldo);porDia[f].saldo+=saldo;
     if(q.client)porDia[f].clientes.add(q.client);
   });
   const aoa4=[["Fecha entrega","# Docs","Total","Cobrado","Saldo","Clientes"]];
@@ -3979,20 +4061,22 @@ function descargarExcel(){
     aoa4.push([f,g.count,g.total,g.cobrado,g.saldo,Array.from(g.clientes).sort().join(", ")]);
   });
   const ws4=XLSX.utils.aoa_to_sheet(aoa4);
-  ws4["!cols"]=[{wch:13},{wch:8},{wch:13},{wch:13},{wch:13},{wch:60}];
-  for(let r=2;r<=aoa4.length;r++){["C","D","E"].forEach(c=>{if(ws4[c+r])ws4[c+r].z='"$"#,##0'})}
+  ws4["!cols"]=[{wch:16.625},{wch:10},{wch:17.5},{wch:13.375},{wch:13.375},{wch:50}];
   ws4["!freeze"]={xSplit:0,ySplit:1};
+  _repFormatearTabla(ws4,Object.keys(porDia).length,[
+    {align:"center"},{align:"center"},
+    {align:"right",pesos:true},{align:"right",pesos:true},{align:"right",pesos:true},
+    {}
+  ]);
   XLSX.utils.book_append_sheet(wb,ws4,"Por dia");
 
-  // ─── HOJA 5: Producción agregada (suma qty por producto) ──
+  // ═══ HOJA 5: Producción agregada ══════════════════════════
   const porProd={};
   docs.forEach(q=>{
     const procItem=(name,qty,subtotal)=>{
       if(!name)return;
       if(!porProd[name])porProd[name]={qty:0,pedidos:new Set(),subtotal:0};
-      porProd[name].qty+=qty;
-      porProd[name].pedidos.add(q.id);
-      porProd[name].subtotal+=subtotal;
+      porProd[name].qty+=qty;porProd[name].pedidos.add(q.id);porProd[name].subtotal+=subtotal;
     };
     if(q.kind==="quote"){
       (q.cart||[]).forEach(it=>procItem(it.n,parseInt(it.qty)||0,(parseInt(it.qty)||0)*(parseInt(it.p)||0)));
@@ -4007,9 +4091,13 @@ function descargarExcel(){
     aoa5.push([n,g.qty,g.pedidos.size,g.subtotal]);
   });
   const ws5=XLSX.utils.aoa_to_sheet(aoa5);
-  ws5["!cols"]=[{wch:38},{wch:14},{wch:11},{wch:14}];
-  for(let r=2;r<=aoa5.length;r++){if(ws5["D"+r])ws5["D"+r].z='"$"#,##0'}
+  ws5["!cols"]=[{wch:43.375},{wch:16.625},{wch:13.375},{wch:16.625}];
   ws5["!freeze"]={xSplit:0,ySplit:1};
+  _repFormatearTabla(ws5,Object.keys(porProd).length,[
+    {},
+    {align:"center"},{align:"center"},
+    {align:"right",pesos:true}
+  ]);
   XLSX.utils.book_append_sheet(wb,ws5,"Produccion");
 
   // Descargar
