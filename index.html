@@ -2206,7 +2206,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   <!-- v6.2.0: Botón "🖨️ Imprimir hoja del día" al lado del título para generar PDF firmable -->
   <div class="dash-urgent-title" style="justify-content:space-between">
     <span style="display:flex;align-items:center;gap:6px">⏰ Operación urgente · próximos 3 días</span>
-    <button type="button" class="btn-hoja-entregas" onclick="openHojaEntregasModal()" title="Generar hoja física firmable para entregar">🖨️ Imprimir hoja del día</button>
+    <button type="button" class="btn-hoja-entregas" onclick="setMode('reportes');setTimeout(()=>setReportesTab('imprimibles'),50)" title="Ir al módulo Reportes — Hojas para imprimir">🖨️ Hojas para imprimir</button>
   </div>
   <div class="dash-urgent-split">
     <div class="urgent-card urgent-prod" id="dash-urgent-producir">
@@ -2240,13 +2240,13 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       </div>
       <svg class="quick-action__chev" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 3l4 4-4 4"/></svg>
     </a>
-    <a class="quick-action" href="#" onclick="event.preventDefault();openHojaEntregasModal()">
+    <a class="quick-action" href="#" onclick="event.preventDefault();setMode('reportes');setTimeout(()=>setReportesTab('imprimibles'),50)">
       <span class="quick-action__icon" style="background:var(--gb-warning-50);color:var(--gb-warning-600)">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1"/><path d="M1.5 6h13M5 9.5h6"/></svg>
       </span>
       <div class="quick-action__body">
-        <div class="quick-action__title">Imprimir hoja del día</div>
-        <div class="quick-action__desc">Despacho del día actual · firma del cliente</div>
+        <div class="quick-action__title">Hojas para imprimir</div>
+        <div class="quick-action__desc">Producción · Empaque · Entregas con firma</div>
       </div>
       <svg class="quick-action__chev" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 3l4 4-4 4"/></svg>
     </a>
@@ -3633,12 +3633,12 @@ body{padding-bottom:84px}
 </script>
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.3.4"></script>
-<script src="app-core.js?v=7.3.4"></script>
-<script src="app-cotizar.js?v=7.3.4"></script>
-<script src="app-propuesta.js?v=7.3.4"></script>
-<script src="app-historial.js?v=7.3.4"></script>
-<script src="app-seguimiento.js?v=7.3.4"></script>
-<script src="app-dashboard.js?v=7.3.4"></script>
+<script src="app-assets.js?v=7.3.5"></script>
+<script src="app-core.js?v=7.3.5"></script>
+<script src="app-cotizar.js?v=7.3.5"></script>
+<script src="app-propuesta.js?v=7.3.5"></script>
+<script src="app-historial.js?v=7.3.5"></script>
+<script src="app-seguimiento.js?v=7.3.5"></script>
+<script src="app-dashboard.js?v=7.3.5"></script>
 </body>
 </html>

@@ -3409,6 +3409,9 @@ async function renderReportes(){
 
 // ─── F4: Tab Imprimibles ─────────────────────────────────────
 
+// Flag para PDF D: si true, incluye entregados ademas de pendientes
+let reportesIncluirEntregados=false;
+
 function renderReportesImprimibles(contentEl){
   if(!reportesFiltros.desde)reportesFiltros.desde=_reportesHoy();
   if(!reportesFiltros.hasta)reportesFiltros.hasta=_reportesHoyMas(7);
@@ -3426,6 +3429,10 @@ function renderReportesImprimibles(contentEl){
           '<input type="date" id="rep-imp-hasta" value="'+reportesFiltros.hasta+'" onchange="reportesFiltros.hasta=this.value;renderReportesImprimiblesPreview()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
         '</div>'+
       '</div>'+
+      '<label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:11.5px;color:#555;cursor:pointer">'+
+        '<input type="checkbox" id="rep-imp-include-entregados"'+(reportesIncluirEntregados?' checked':'')+' onchange="reportesIncluirEntregados=this.checked;renderReportesImprimiblesPreview()">'+
+        '<span><strong>Hoja de entregas (PDF D):</strong> incluir también pedidos ya entregados (útil para reimprimir)</span>'+
+      '</label>'+
       '<div id="rep-imp-preview" style="margin-top:10px;font-size:12px;color:#555"></div>'+
     '</div>'+
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">'+
@@ -3455,15 +3462,18 @@ function _impCard(letra,emoji,titulo,descripcion,destinatario,onclick,soon){
     '</div>';
 }
 
-function _impGetDocsRango(){
-  // Solo PENDIENTES de entregar (status pedido/aprobada/en_produccion) en el rango.
+function _impGetDocsRango(includeEntregados){
+  // Por defecto: solo pendientes (status pedido/aprobada/en_produccion).
+  // Si includeEntregados=true: también entregado (para reimprimir hoja de entregas).
   const desde=reportesFiltros.desde, hasta=reportesFiltros.hasta;
   if(!desde||!hasta)return [];
+  const validStatus=includeEntregados
+    ?{quote:["pedido","en_produccion","entregado"],proposal:["aprobada","en_produccion","entregado"]}
+    :{quote:["pedido","en_produccion"],proposal:["aprobada","en_produccion"]};
   return quotesCache.filter(q=>{
     if(q._wrongCollection)return false;
     if(typeof getFollowUp==="function"&&getFollowUp(q)==="perdida")return false;
-    const okStatus=(q.kind==="quote"?["pedido","en_produccion"]:["aprobada","en_produccion"]).includes(q.status);
-    if(!okStatus)return false;
+    if(!(validStatus[q.kind]||[]).includes(q.status))return false;
     const f=_reportesGetFecha(q);
     return f&&f>=desde&&f<=hasta;
   }).sort((a,b)=>{
@@ -3477,8 +3487,15 @@ function renderReportesImprimiblesPreview(){
   const el=$("rep-imp-preview");
   if(!el)return;
   if(!reportesFiltros.desde||!reportesFiltros.hasta){el.textContent="Elige rango de fechas para ver qué pedidos hay";return}
-  const docs=_impGetDocsRango();
-  el.innerHTML="<strong>"+docs.length+"</strong> pedido"+(docs.length!==1?"s":"")+" pendiente"+(docs.length!==1?"s":"")+" en el rango "+reportesFiltros.desde+" → "+reportesFiltros.hasta+(docs.length===0?" — los PDFs vendrán vacíos":"");
+  const docs=_impGetDocsRango(false);
+  const docsConEntregados=_impGetDocsRango(true);
+  let txt="<strong>"+docs.length+"</strong> pedido"+(docs.length!==1?"s":"")+" pendiente"+(docs.length!==1?"s":"")+" en el rango "+reportesFiltros.desde+" → "+reportesFiltros.hasta;
+  if(reportesIncluirEntregados){
+    const entregados=docsConEntregados.length-docs.length;
+    txt+=". PDF D incluirá también <strong>"+entregados+"</strong> entregado"+(entregados!==1?"s":"")+" del rango (total "+docsConEntregados.length+")";
+  }
+  if(docs.length===0&&!reportesIncluirEntregados)txt+=" — los PDFs vendrán vacíos";
+  el.innerHTML=txt;
 }
 
 // ─── Helpers comunes para los 4 PDFs (look & feel HojaEntregas) ──
@@ -3845,9 +3862,9 @@ function generarPdfEntregas(){
     if(typeof toast==="function")toast("Error: jsPDF no cargado","error");
     return;
   }
-  const docs=_impGetDocsRango();
+  const docs=_impGetDocsRango(reportesIncluirEntregados);
   if(!docs.length){
-    if(typeof toast==="function")toast("No hay pedidos pendientes en el rango","warn");
+    if(typeof toast==="function")toast("No hay pedidos en el rango con los filtros aplicados","warn");
     return;
   }
   const {jsPDF}=window.jspdf;
