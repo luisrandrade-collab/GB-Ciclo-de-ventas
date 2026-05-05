@@ -3074,3 +3074,101 @@ async function renderEntregadas(){
 
 window.renderEntregar=renderEntregar;
 window.renderEntregadas=renderEntregadas;
+
+// ─── v7.4 F5: Módulo Archivo (3 sub-modos read-only) ────────
+
+async function renderArchivoAnuladas(){
+  if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+  const summaryEl=$("archivo-anuladas-summary");
+  const listEl=$("archivo-anuladas-list");
+  if(!listEl)return;
+  const docs=getDocsPorEtapa("archivo-anuladas");
+  if(summaryEl)summaryEl.textContent=docs.length?docs.length+" doc(s) anulado(s)":"";
+  if(!docs.length){
+    listEl.innerHTML='<div style="padding:48px 20px;text-align:center;color:#888;font-size:14px">'+
+      '<div style="font-size:48px;margin-bottom:12px">↩️</div>'+
+      '<div style="font-weight:700;color:#555;margin-bottom:6px">Sin docs anulados</div>'+
+      '<div style="font-size:12px">Acá aparecen las cotizaciones/pedidos anulados como archivo histórico.</div>'+
+      '</div>';
+    return;
+  }
+  listEl.innerHTML=docs.map(q=>renderDocCard(q,"archivo-anuladas",{showStatus:true})).join("");
+}
+
+async function renderArchivoConvertidas(){
+  if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+  const summaryEl=$("archivo-convertidas-summary");
+  const listEl=$("archivo-convertidas-list");
+  if(!listEl)return;
+  const docs=getDocsPorEtapa("archivo-convertidas");
+  if(summaryEl)summaryEl.textContent=docs.length?docs.length+" doc(s) en archivo":"";
+  if(!docs.length){
+    listEl.innerHTML='<div style="padding:48px 20px;text-align:center;color:#888;font-size:14px">'+
+      '<div style="font-size:48px;margin-bottom:12px">🔄</div>'+
+      '<div style="font-weight:700;color:#555;margin-bottom:6px">Sin docs convertidos o superseded</div>'+
+      '<div style="font-size:12px">Acá aparecen propuestas convertidas a PF, versiones viejas reemplazadas y docs fantasmas.</div>'+
+      '</div>';
+    return;
+  }
+  listEl.innerHTML=docs.map(q=>renderDocCard(q,"archivo-convertidas",{showStatus:true})).join("");
+}
+
+// Búsqueda global: filtra TODO quotesCache por texto en cliente/id/productos
+async function renderArchivoBusqueda(){
+  if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+  const summaryEl=$("archivo-busqueda-summary");
+  const listEl=$("archivo-busqueda-list");
+  const inputEl=$("archivo-busqueda-input");
+  if(!listEl)return;
+
+  const q=(inputEl?.value||"").trim().toLowerCase();
+  let docs=quotesCache.filter(d=>!d._wrongCollection); // Por defecto excluir fantasmas
+
+  if(q){
+    docs=docs.filter(d=>{
+      // Match en cliente
+      if((d.client||"").toLowerCase().includes(q))return true;
+      // Match en id
+      if((d.id||"").toLowerCase().includes(q))return true;
+      // Match en productos del cart
+      if(Array.isArray(d.cart)&&d.cart.some(it=>(it.n||"").toLowerCase().includes(q)||(it.d||"").toLowerCase().includes(q)))return true;
+      // Match en cust
+      if(Array.isArray(d.cust)&&d.cust.some(it=>(it.n||"").toLowerCase().includes(q)||(it.d||"").toLowerCase().includes(q)))return true;
+      // Match en sections/options/items (propuestas)
+      if(Array.isArray(d.sections)&&d.sections.some(sec=>(sec.options||[]).some(opt=>(opt.items||[]).some(it=>(it.name||"").toLowerCase().includes(q)||(it.desc||"").toLowerCase().includes(q)))))return true;
+      // Match en telefono
+      if((d.tel||"").toLowerCase().includes(q))return true;
+      return false;
+    });
+  }
+
+  // Ordenar por fecha desc (mas recientes primero)
+  docs.sort((a,b)=>{
+    const fa=a.dateISO||a.eventDate||"";
+    const fb=b.dateISO||b.eventDate||"";
+    return fb.localeCompare(fa);
+  });
+
+  // Limitar a 100 para no saturar
+  const total=docs.length;
+  const limited=docs.slice(0,100);
+
+  if(summaryEl){
+    if(!q)summaryEl.textContent=total+" doc(s) totales (escribe para buscar)";
+    else summaryEl.textContent=total+" coincidencia"+(total!==1?"s":"")+(total>100?" (mostrando primeras 100)":"");
+  }
+
+  if(!limited.length){
+    listEl.innerHTML='<div style="padding:48px 20px;text-align:center;color:#888;font-size:14px">'+
+      '<div style="font-size:48px;margin-bottom:12px">🔍</div>'+
+      '<div style="font-weight:700;color:#555;margin-bottom:6px">'+(q?"Sin coincidencias":"Empieza a escribir")+'</div>'+
+      '<div style="font-size:12px">'+(q?"Probá con otro termino (cliente, ID, producto, telefono).":"Buscá en TODO el historial: cotizaciones, pedidos, entregadas, anuladas, etc.")+'</div>'+
+      '</div>';
+    return;
+  }
+  listEl.innerHTML=limited.map(d=>renderDocCard(d,"archivo-busqueda",{showStatus:true})).join("");
+}
+
+window.renderArchivoAnuladas=renderArchivoAnuladas;
+window.renderArchivoConvertidas=renderArchivoConvertidas;
+window.renderArchivoBusqueda=renderArchivoBusqueda;

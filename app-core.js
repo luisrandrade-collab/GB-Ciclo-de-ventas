@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.3";
+const BUILD_VERSION="v7.4";
 const BUILD_DATE="2026-04-24";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -1712,7 +1712,8 @@ function setMode(m){
   // v7.4 F1: agregados 'cotizaciones' y 'perdidas' (sub-modulos Ventas)
   // v7.4 F2: agregados 'pedidos-aprobados', 'pedidos-produccion', 'pedidos-producidos' (modulo Pedidos)
   // v7.4 F3: agregados 'entregar', 'entregadas' (modulo Entregas)
-  ["dash","cot","prop","search","hist","seg","cal","ventas","ops","cartera","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","entregar","entregadas"].forEach(x=>{
+  // v7.4 F5: agregados 'archivo-busqueda', 'archivo-anuladas', 'archivo-convertidas' (modulo Archivo read-only)
+  ["dash","cot","prop","search","hist","seg","cal","ventas","ops","cartera","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas"].forEach(x=>{
     const el=$("mode-"+x);
     if(el)el.classList.toggle("hidden",x!==m);
     document.querySelectorAll(".mode-btn.m-"+x).forEach(b=>b.classList.toggle("act",x===m));
@@ -1734,6 +1735,9 @@ function setMode(m){
   if(m==="pedidos-producidos"&&typeof renderPedidosProducidos==="function")renderPedidosProducidos();
   if(m==="entregar"&&typeof renderEntregar==="function")renderEntregar();
   if(m==="entregadas"&&typeof renderEntregadas==="function")renderEntregadas();
+  if(m==="archivo-busqueda"&&typeof renderArchivoBusqueda==="function")renderArchivoBusqueda();
+  if(m==="archivo-anuladas"&&typeof renderArchivoAnuladas==="function")renderArchivoAnuladas();
+  if(m==="archivo-convertidas"&&typeof renderArchivoConvertidas==="function")renderArchivoConvertidas();
   if(m==="search"){$("gsearch").focus();$("search-results").innerHTML=""}
   window.scrollTo(0,0);
 }

@@ -1798,6 +1798,15 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       </div>
     </div>
 
+    <div class="sb-module" data-mod="archivo">
+      <button class="sb-module__btn"><span class="gb-shell-icon">🗄️</span><span class="sb-module__label">Archivo</span></button>
+      <div class="sb-submenu">
+        <a href="javascript:void(0)" data-sub="archivo/buscar">Buscar todo</a>
+        <a href="javascript:void(0)" data-sub="archivo/anuladas">Anuladas</a>
+        <a href="javascript:void(0)" data-sub="archivo/convertidas">Convertidas / Versiones viejas</a>
+      </div>
+    </div>
+
     <div class="sb-section-label">Maestros</div>
     <div class="sb-module" data-mod="clientes">
       <button class="sb-module__btn"><span class="gb-shell-icon">👥</span><span class="sb-module__label">Clientes</span></button>
@@ -1858,7 +1867,10 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'pedidos/produccion':   'pedidos-produccion',
     'pedidos/producidos':   'pedidos-producidos',
     'entregas/por-entregar':'entregar',
-    'entregas/entregadas':  'entregadas'
+    'entregas/entregadas':  'entregadas',
+    'archivo/buscar':       'archivo-busqueda',
+    'archivo/anuladas':     'archivo-anuladas',
+    'archivo/convertidas':  'archivo-convertidas'
     // Pipeline, ops/despacho, ops/historico-hojas, compras/*, clientes/*, herr/* → undefined → SOON
   };
 
@@ -1881,6 +1893,9 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'pedidos-producidos':   'pedidos/producidos',
     'entregar':             'entregas/por-entregar',
     'entregadas':           'entregas/entregadas',
+    'archivo-busqueda':     'archivo/buscar',
+    'archivo-anuladas':     'archivo/anuladas',
+    'archivo-convertidas':  'archivo/convertidas',
     'search':               'ventas/cotizar'
   };
 
@@ -1902,7 +1917,10 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'pedidos/produccion':   ['Pedidos', 'En producción'],
     'pedidos/producidos':   ['Pedidos', 'Producidos'],
     'entregas/por-entregar':['Entregas', 'Por entregar'],
-    'entregas/entregadas':  ['Entregas', 'Entregadas']
+    'entregas/entregadas':  ['Entregas', 'Entregadas'],
+    'archivo/buscar':       ['Archivo', 'Buscar todo'],
+    'archivo/anuladas':     ['Archivo', 'Anuladas'],
+    'archivo/convertidas':  ['Archivo', 'Convertidas / Versiones viejas']
   };
 
   function gbShellEnsureCrumb(){
@@ -2680,6 +2698,40 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <button class="cpill" onclick="setOpsTab('todos')" id="ops-tab-todos">Todos</button>
     </div>
     <div id="ops-list"></div>
+  </div>
+</div>
+
+<!-- ======== ARCHIVO MODE (v7.4 F5) — 3 sub-modos read-only: Buscar todo / Anuladas / Convertidas ======== -->
+<div id="mode-archivo-busqueda" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#5D4037;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <span>🔍 Buscar todo (archivo)</span>
+      <span id="archivo-busqueda-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+    </div>
+    <div style="background:#F5F5F5;border-radius:10px;padding:12px 14px;margin-bottom:12px">
+      <input type="text" id="archivo-busqueda-input" placeholder="Buscar por cliente, ID, producto..." onkeyup="renderArchivoBusqueda()" style="width:100%;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px">
+    </div>
+    <div id="archivo-busqueda-list" style="padding:0 4px"></div>
+  </div>
+</div>
+
+<div id="mode-archivo-anuladas" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#C62828;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <span>↩️ Anuladas</span>
+      <span id="archivo-anuladas-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+    </div>
+    <div id="archivo-anuladas-list" style="padding:0 4px"></div>
+  </div>
+</div>
+
+<div id="mode-archivo-convertidas" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#5D4037;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <span>🔄 Convertidas / Versiones viejas</span>
+      <span id="archivo-convertidas-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+    </div>
+    <div id="archivo-convertidas-list" style="padding:0 4px"></div>
   </div>
 </div>
 
@@ -3743,12 +3795,12 @@ body{padding-bottom:84px}
 </script>
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.4.3"></script>
-<script src="app-core.js?v=7.4.3"></script>
-<script src="app-cotizar.js?v=7.4.3"></script>
-<script src="app-propuesta.js?v=7.4.3"></script>
-<script src="app-historial.js?v=7.4.3"></script>
-<script src="app-seguimiento.js?v=7.4.3"></script>
-<script src="app-dashboard.js?v=7.4.3"></script>
+<script src="app-assets.js?v=7.4.4"></script>
+<script src="app-core.js?v=7.4.4"></script>
+<script src="app-cotizar.js?v=7.4.4"></script>
+<script src="app-propuesta.js?v=7.4.4"></script>
+<script src="app-historial.js?v=7.4.4"></script>
+<script src="app-seguimiento.js?v=7.4.4"></script>
+<script src="app-dashboard.js?v=7.4.4"></script>
 </body>
 </html>
