@@ -4407,7 +4407,7 @@ async function renderClientesDirectorio(){
     const meta=[c.city,c.tel,c.mail].filter(Boolean).join(" · ");
     const lastStr=stats.lastIso?_cliDirFmtDate(stats.lastIso):"sin actividad";
     const idStr=c.idtype&&c.idnum?c.idtype+" "+c.idnum:"";
-    return '<div class="cli-card" onclick="openClienteEditor(\''+c.id+'\')" style="background:#fff;border:1px solid #E0E0E0;border-left:4px solid '+catCls+';border-radius:10px;padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:transform .1s">'+
+    return '<div class="cli-card" onclick="abrirFichaCliente(\''+c.id+'\')" style="background:#fff;border:1px solid #E0E0E0;border-left:4px solid '+catCls+';border-radius:10px;padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:transform .1s">'+
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:4px">'+
         '<div style="flex:1;min-width:0">'+
           '<div style="font-weight:700;font-size:14px;color:#1A1A1A">'+tipoIco+' '+h(c.name||"—")+
@@ -4570,6 +4570,313 @@ async function delClienteEditor(){
     hideLoader();
     toast("Error: "+e.message,"error");
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// v7.7.2: FICHA DEL CLIENTE — vista detalle full
+// ═══════════════════════════════════════════════════════════
+// Pantalla nueva (mode 'clientes-ficha') que muestra todo el detalle
+// del cliente: header con identidad, estadísticas, notas privadas,
+// historial cronológico filtrable, seguimientos consolidados.
+
+let _currentClienteFichaId=null;
+let _fichaHistFiltro="todos"; // todos | cotizacion | pedido | entrega | pago | comentario
+
+function abrirFichaCliente(clienteId){
+  _currentClienteFichaId=clienteId;
+  _fichaHistFiltro="todos";
+  setMode("clientes-ficha");
+}
+
+// Devuelve todos los docs del cliente (case-insensitive por nombre)
+function getDocsByCliente(clienteName){
+  const k=(clienteName||"").toLowerCase().trim();
+  if(!k)return [];
+  return quotesCache.filter(q=>{
+    if(q._wrongCollection)return false;
+    if(q.status==="superseded")return false;
+    return (q.client||"").toLowerCase().trim()===k;
+  });
+}
+
+// Calcula estadísticas agregadas del cliente
+function getStatsCliente(docs){
+  const stats={
+    cotizado:0,
+    vendido:0,
+    entregado:0,
+    cobrado:0,
+    nDocs:docs.length,
+    ticketProm:0,
+    primerContacto:"",
+    ultimoContacto:""
+  };
+  const statusVendido=["pedido","aprobada","en_produccion","entregado"];
+  const statusEntregado=["entregado"];
+  let sumVendido=0,countVendido=0;
+  docs.forEach(q=>{
+    const total=getDocTotal(q);
+    stats.cotizado+=total;
+    const s=q.status||"";
+    if(statusVendido.includes(s)){stats.vendido+=total;sumVendido+=total;countVendido++}
+    if(statusEntregado.includes(s))stats.entregado+=total;
+    stats.cobrado+=(typeof totalCobrado==="function"?totalCobrado(q):0);
+    const iso=q.dateISO||q.eventDate||"";
+    if(iso){
+      if(!stats.primerContacto||iso<stats.primerContacto)stats.primerContacto=iso;
+      if(!stats.ultimoContacto||iso>stats.ultimoContacto)stats.ultimoContacto=iso;
+    }
+  });
+  stats.ticketProm=countVendido?Math.round(sumVendido/countVendido):0;
+  return stats;
+}
+
+// Construye lista cronológica de entries (cotización + pedido + entrega + pagos + comentario por doc)
+function buildHistorialEntries(docs){
+  const out=[];
+  docs.forEach(q=>{
+    const cli=q.client||"";
+    const total=getDocTotal(q);
+    // Cotización (siempre que haya dateISO)
+    if(q.dateISO){
+      out.push({
+        tipo:"cotizacion",
+        fecha:q.dateISO,
+        descripcion:(q.kind==="proposal"?"Propuesta":"Cotización")+" "+(q.quoteNumber||q.id),
+        monto:total,
+        status:q.status,
+        q:q
+      });
+    }
+    // Pedido (si aprobada en algún momento)
+    const fAprob=q.approvalData?.fechaAprobacion||q.orderData?.fechaAprobacion;
+    const sAprob=q.status;
+    if(fAprob&&["pedido","aprobada","en_produccion","entregado"].includes(sAprob)){
+      out.push({
+        tipo:"pedido",
+        fecha:fAprob,
+        descripcion:"Aprobado como pedido",
+        monto:total,
+        status:sAprob,
+        q:q
+      });
+    }
+    // Entrega
+    if(q.status==="entregado"){
+      const fEnt=q.entregaData?.fecha||q.fechaEntrega||q.eventDate;
+      if(fEnt){
+        out.push({
+          tipo:"entrega",
+          fecha:fEnt,
+          descripcion:"Entrega cumplida",
+          monto:total,
+          status:"entregado",
+          q:q
+        });
+      }
+    }
+    // Pagos
+    const pagos=typeof getPagos==="function"?getPagos(q):(q.pagos||[]);
+    pagos.forEach(p=>{
+      if(!p.fecha)return;
+      const esDevol=p.tipo==="devolucion"||(p.monto||0)<0;
+      out.push({
+        tipo:"pago",
+        fecha:p.fecha,
+        descripcion:(esDevol?"Devolución · ":"Pago "+(p.tipo||"")+" · ")+(p.metodo||"Sin método"),
+        monto:p.monto,
+        esDevolucion:esDevol,
+        q:q
+      });
+    });
+    // Comentario post-entrega (1 por doc)
+    if(q.comentarioCliente&&(q.comentarioCliente.texto||q.comentarioCliente.fotoUrl||q.comentarioCliente.fotoBase64)){
+      out.push({
+        tipo:"comentario",
+        fecha:q.comentarioCliente.fecha||q.entregaData?.fecha||q.eventDate||q.dateISO,
+        descripcion:q.comentarioCliente.texto||"📷 Foto comentario",
+        monto:0,
+        q:q
+      });
+    }
+  });
+  // Sort cronológico desc
+  out.sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||""));
+  return out;
+}
+
+async function renderClienteFicha(){
+  if(!_currentClienteFichaId){
+    $("cli-ficha-content").innerHTML='<div style="padding:40px;text-align:center;color:#9E9E9E">Cliente no seleccionado.</div>';
+    return;
+  }
+  if(!clientsCache.length){try{await loadClientsFromCloud()}catch{}}
+  if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+  const c=clientsCache.find(x=>x.id===_currentClienteFichaId);
+  if(!c){
+    $("cli-ficha-content").innerHTML='<div style="padding:40px;text-align:center;color:#C62828">Cliente no encontrado en el directorio.</div>';
+    return;
+  }
+  const docs=getDocsByCliente(c.name);
+  const stats=getStatsCliente(docs);
+  const entries=buildHistorialEntries(docs);
+
+  // Header
+  const tipoIco=c.tipo==="empresa"?"🏢":"👤";
+  const cat=c.categoria||"particular";
+  const catCls={corporativo:"#01579B",particular:"#5D4037",recurrente:"#1B5E20"}[cat]||"#5D4037";
+  const catBg={corporativo:"#E1F5FE",particular:"#EFEBE9",recurrente:"#E8F5E9"}[cat]||"#EFEBE9";
+  const idStr=c.idtype&&c.idnum?c.idtype+" "+c.idnum+(c.nitDV?"-"+c.nitDV:""):"";
+  const contacto=[c.tel,c.mail,c.city].filter(Boolean).join(" · ");
+
+  let html='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid #E0E0E0">'+
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">'+
+      '<button onclick="setMode(\'clientes-directorio\')" style="background:#fff;color:#5D4037;border:1px solid #BDBDBD;padding:7px 12px;border-radius:8px;font-size:12px;cursor:pointer;font-family:var(--gb-font-body)">← Volver al directorio</button>'+
+    '</div>'+
+    '<button onclick="openClienteEditor(\''+c.id+'\')" style="background:#1B5E20;color:#fff;border:none;padding:8px 14px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">✏️ Editar</button>'+
+  '</div>';
+
+  html+='<div style="margin-bottom:18px">'+
+    '<div style="font-size:22px;font-weight:800;color:#1A1A1A;margin-bottom:3px">'+tipoIco+' '+h(c.name||"—")+
+    (c.razonSocial?'<span style="font-weight:400;color:#757575;font-size:14px;margin-left:8px">('+h(c.razonSocial)+')</span>':'')+
+    '</div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px">'+
+      (idStr?'<span style="font-size:12px;color:#5D4037">'+h(idStr)+'</span>':'')+
+      '<span style="background:'+catBg+';color:'+catCls+';font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:10px;text-transform:uppercase;letter-spacing:.3px">'+cat+'</span>'+
+    '</div>'+
+    (contacto?'<div style="font-size:12.5px;color:#607D8B">'+h(contacto)+'</div>':'')+
+    (c.att?'<div style="font-size:11.5px;color:#9E9E9E;margin-top:2px">Atención: '+h(c.att)+'</div>':'')+
+  '</div>';
+
+  // Stats cards
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:18px">'+
+    _statCard("Cotizado",fm(stats.cotizado),"#5D4037","#EFEBE9")+
+    _statCard("Vendido",fm(stats.vendido),"#1B5E20","#E8F5E9")+
+    _statCard("Entregado",fm(stats.entregado),"#01579B","#E1F5FE")+
+    _statCard("Cobrado",fm(stats.cobrado),"#33691E","#DCEDC8")+
+    _statCard("# docs",stats.nDocs,"#5D4037","#FFF8E1")+
+    _statCard("Ticket prom",fm(stats.ticketProm),"#5D4037","#F3E5F5")+
+  '</div>';
+  if(stats.primerContacto||stats.ultimoContacto){
+    html+='<div style="font-size:11.5px;color:#9E9E9E;margin-bottom:18px">'+
+      (stats.primerContacto?"Primer contacto: "+_cliDirFmtDate(stats.primerContacto):"")+
+      (stats.primerContacto&&stats.ultimoContacto?" · ":"")+
+      (stats.ultimoContacto?"Último contacto: "+_cliDirFmtDate(stats.ultimoContacto):"")+
+    '</div>';
+  }
+
+  // Notas privadas (si hay)
+  if((c.notas||"").trim()){
+    html+='<div style="background:#FFF8E1;border:1px solid #FFCA28;border-left:4px solid #FB8C00;border-radius:10px;padding:11px 14px;margin-bottom:18px;font-size:13px;color:#5D4037;white-space:pre-wrap;line-height:1.5">'+
+      '<div style="font-weight:700;color:#E65100;margin-bottom:4px;font-size:12px">🔒 Notas privadas</div>'+
+      h(c.notas)+
+    '</div>';
+  }
+
+  // Historial — chips de filtro + lista
+  html+='<div style="margin-bottom:18px">'+
+    '<div style="font-weight:700;font-size:14px;color:#1A1A1A;margin-bottom:8px">📜 Historial</div>'+
+    '<div id="cli-ficha-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">'+_chipsHistorial()+'</div>'+
+    '<div id="cli-ficha-historial">'+_renderHistorialList(entries)+'</div>'+
+  '</div>';
+
+  // Seguimientos consolidados
+  html+='<div style="margin-bottom:14px">'+
+    '<div style="font-weight:700;font-size:14px;color:#1A1A1A;margin-bottom:8px">🟢 Seguimientos abiertos</div>'+
+    '<div id="cli-ficha-seguimientos">'+_renderSeguimientosCliente(docs)+'</div>'+
+  '</div>';
+
+  $("cli-ficha-content").innerHTML=html;
+}
+
+function _statCard(label,value,color,bg){
+  return '<div style="background:'+bg+';border-radius:10px;padding:10px 12px;text-align:center">'+
+    '<div style="font-size:10px;text-transform:uppercase;color:#9E9E9E;font-weight:700;letter-spacing:.3px;margin-bottom:3px">'+label+'</div>'+
+    '<div style="font-size:18px;font-weight:800;color:'+color+';font-variant-numeric:tabular-nums">'+value+'</div>'+
+  '</div>';
+}
+
+function _chipsHistorial(){
+  const tipos=[
+    {k:"todos",lbl:"Todos",ic:"📋"},
+    {k:"cotizacion",lbl:"Cotizaciones",ic:"📄"},
+    {k:"pedido",lbl:"Pedidos",ic:"🤝"},
+    {k:"entrega",lbl:"Entregas",ic:"🚚"},
+    {k:"pago",lbl:"Pagos",ic:"💰"},
+    {k:"comentario",lbl:"Comentarios",ic:"💬"}
+  ];
+  return tipos.map(t=>{
+    const act=_fichaHistFiltro===t.k;
+    const bg=act?"#1B5E20":"#fff";
+    const col=act?"#fff":"#5D4037";
+    const bd=act?"#1B5E20":"#BDBDBD";
+    return '<button onclick="cliFichaSetFiltro(\''+t.k+'\')" style="background:'+bg+';color:'+col+';border:1px solid '+bd+';padding:5px 11px;border-radius:14px;font-size:11.5px;font-weight:'+(act?"700":"500")+';cursor:pointer;font-family:var(--gb-font-body)">'+t.ic+' '+t.lbl+'</button>';
+  }).join("");
+}
+
+function cliFichaSetFiltro(k){
+  _fichaHistFiltro=k;
+  // Re-render solo chips y lista
+  const c=clientsCache.find(x=>x.id===_currentClienteFichaId);
+  if(!c)return;
+  const docs=getDocsByCliente(c.name);
+  const entries=buildHistorialEntries(docs);
+  $("cli-ficha-chips").innerHTML=_chipsHistorial();
+  $("cli-ficha-historial").innerHTML=_renderHistorialList(entries);
+}
+
+function _renderHistorialList(entries){
+  const filtered=_fichaHistFiltro==="todos"?entries:entries.filter(e=>e.tipo===_fichaHistFiltro);
+  if(!filtered.length){
+    return '<div style="padding:24px;text-align:center;color:#9E9E9E;font-style:italic;background:#FAFAFA;border-radius:8px">📭 Sin '+(_fichaHistFiltro==="todos"?"actividad":_fichaHistFiltro+"s")+' para este cliente.</div>';
+  }
+  const limit=100;
+  const visible=filtered.slice(0,limit);
+  const ico={cotizacion:"📄",pedido:"🤝",entrega:"🚚",pago:"💰",comentario:"💬"};
+  const colorTipo={cotizacion:"#5D4037",pedido:"#01579B",entrega:"#1B5E20",pago:"#33691E",comentario:"#6A1B9A"};
+  let html=visible.map(e=>{
+    const c=colorTipo[e.tipo]||"#5D4037";
+    const fStr=_cliDirFmtDate(e.fecha);
+    const montoStr=e.monto?(e.esDevolucion?'<span style="color:#C62828;font-weight:700">'+fm(Math.abs(e.monto))+'</span>':'<span style="color:'+c+';font-weight:700">'+fm(e.monto)+'</span>'):'';
+    const desc=h(e.descripcion||"").slice(0,120);
+    return '<div onclick="openDocument(\''+e.q.kind+'\',\''+e.q.id+'\')" style="background:#fff;border:1px solid #E0E0E0;border-left:3px solid '+c+';border-radius:8px;padding:9px 12px;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">'+
+      '<div style="flex:1;min-width:0">'+
+        '<div style="font-size:12.5px;color:#1A1A1A">'+ico[e.tipo]+' '+desc+'</div>'+
+        '<div style="font-size:10.5px;color:#9E9E9E;margin-top:1px">'+fStr+' · '+(e.q.quoteNumber||e.q.id)+'</div>'+
+      '</div>'+
+      (montoStr?'<div style="font-size:13px;font-variant-numeric:tabular-nums">'+montoStr+'</div>':'')+
+    '</div>';
+  }).join("");
+  if(filtered.length>limit){
+    html+='<div style="text-align:center;padding:8px;font-size:11px;color:#9E9E9E">Mostrando '+limit+' de '+filtered.length+' entries.</div>';
+  }
+  return html;
+}
+
+function _renderSeguimientosCliente(docs){
+  // Filtra docs con followUp activo (no perdida, no convertida)
+  const abiertos=docs.filter(q=>{
+    const s=q.status||"";
+    if(["entregado","anulada","superseded"].includes(s))return false;
+    const fu=typeof getFollowUp==="function"?getFollowUp(q):"";
+    return fu&&fu!=="perdida";
+  });
+  if(!abiertos.length){
+    return '<div style="padding:14px;text-align:center;color:#9E9E9E;font-size:12.5px;background:#F1F8E9;border-radius:8px">✓ No hay cotizaciones abiertas con seguimiento activo.</div>';
+  }
+  return abiertos.map(q=>{
+    const fu=getFollowUp(q);
+    const fuMeta={pendiente:{lbl:"Sin contactar",col:"#FB8C00",bg:"#FFF3E0"},contactado:{lbl:"Contactado",col:"#01579B",bg:"#E1F5FE"},activa:{lbl:"En negociación",col:"#1B5E20",bg:"#E8F5E9"}}[fu]||{lbl:fu,col:"#5D4037",bg:"#EFEBE9"};
+    const total=getDocTotal(q);
+    return '<div onclick="openDocument(\''+q.kind+'\',\''+q.id+'\')" style="background:#fff;border:1px solid #E0E0E0;border-left:3px solid '+fuMeta.col+';border-radius:8px;padding:10px 12px;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">'+
+      '<div style="flex:1;min-width:0">'+
+        '<div style="font-size:12.5px;color:#1A1A1A;font-weight:700">'+(q.kind==="proposal"?"Propuesta":"Cotización")+' '+(q.quoteNumber||q.id)+'</div>'+
+        '<div style="font-size:10.5px;color:#9E9E9E;margin-top:2px">'+_cliDirFmtDate(q.dateISO||"")+'</div>'+
+      '</div>'+
+      '<span style="background:'+fuMeta.bg+';color:'+fuMeta.col+';font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:10px">'+fuMeta.lbl+'</span>'+
+      '<div style="font-size:13px;font-weight:700;color:#5D4037;font-variant-numeric:tabular-nums">'+fm(total)+'</div>'+
+    '</div>';
+  }).join("");
 }
 
 async function renderCarteraHistorico(){
