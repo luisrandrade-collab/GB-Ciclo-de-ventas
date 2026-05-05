@@ -4333,6 +4333,245 @@ function _carteraHistDefaults(){
   }
 }
 
+// ═══════════════════════════════════════════════════════════
+// v7.7.1: MÓDULO CLIENTES — DIRECTORIO
+// ═══════════════════════════════════════════════════════════
+// Lista navegable de clientes con buscador local, banner de migración
+// (primer ingreso si hay clientes en pedidos viejos no importados),
+// click → abre modal editor para CRUD completo.
+
+// Cuenta cuántos clientes únicos aparecen en quotesCache pero NO existen
+// en clientsCache (case-insensitive por nombre normalizado).
+function _cliDirCountPendingMigration(){
+  if(!quotesCache.length)return 0;
+  const seen=new Set(clientsCache.map(c=>(c.name||"").toLowerCase().trim()));
+  const pending=new Set();
+  quotesCache.forEach(q=>{
+    const raw=(q.client||"").trim();
+    if(!raw)return;
+    const key=raw.toLowerCase();
+    if(!seen.has(key))pending.add(key);
+  });
+  return pending.size;
+}
+
+async function renderClientesDirectorio(){
+  if(!clientsCache.length){try{await loadClientsFromCloud()}catch{}}
+  if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+  // Banner migración (si hay pendientes Y no se rechazó antes)
+  const skipped=localStorage.getItem("gb_clients_migration_skipped")==="1";
+  const pending=_cliDirCountPendingMigration();
+  const banner=$("cli-dir-migrate-banner");
+  if(banner){
+    if(pending>0&&!skipped){
+      $("cli-dir-migrate-count").textContent=pending;
+      banner.classList.remove("hidden");
+    }else{
+      banner.classList.add("hidden");
+    }
+  }
+  // Buscador
+  const term=($("cli-dir-search").value||"").toLowerCase().trim();
+  // Conteo de docs por cliente (case-insensitive por nombre)
+  const docsByCli={};
+  quotesCache.forEach(q=>{
+    const k=(q.client||"").toLowerCase().trim();
+    if(!k)return;
+    if(!docsByCli[k])docsByCli[k]={n:0,lastIso:""};
+    docsByCli[k].n++;
+    const iso=q.dateISO||q.eventDate||"";
+    if(iso&&iso>docsByCli[k].lastIso)docsByCli[k].lastIso=iso;
+  });
+  // Filtro
+  const list=clientsCache.filter(c=>{
+    if(!term)return true;
+    const hay=[c.name,c.razonSocial,c.idnum,c.tel,c.mail,c.att].filter(Boolean).join(" ").toLowerCase();
+    return hay.includes(term);
+  });
+  $("cli-dir-summary").textContent=list.length+" cliente"+(list.length!==1?"s":"")+(term?" (filtrado de "+clientsCache.length+")":"");
+  const el=$("cli-dir-list");
+  if(!list.length){
+    el.innerHTML='<div style="text-align:center;padding:40px 20px;color:#9E9E9E;font-style:italic">'+
+      (term?'🔍 Sin resultados para "'+h(term)+'"':'👥 No hay clientes todavía. Tocá <strong>+ Nuevo cliente</strong> para empezar.')+
+      '</div>';
+    return;
+  }
+  list.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  el.innerHTML=list.map(c=>{
+    const k=(c.name||"").toLowerCase().trim();
+    const stats=docsByCli[k]||{n:0,lastIso:""};
+    const tipoIco=c.tipo==="empresa"?"🏢":"👤";
+    const cat=c.categoria||"particular";
+    const catCls={corporativo:"#01579B",particular:"#5D4037",recurrente:"#1B5E20"}[cat]||"#5D4037";
+    const catBg={corporativo:"#E1F5FE",particular:"#EFEBE9",recurrente:"#E8F5E9"}[cat]||"#EFEBE9";
+    const meta=[c.city,c.tel,c.mail].filter(Boolean).join(" · ");
+    const lastStr=stats.lastIso?_cliDirFmtDate(stats.lastIso):"sin actividad";
+    const idStr=c.idtype&&c.idnum?c.idtype+" "+c.idnum:"";
+    return '<div class="cli-card" onclick="openClienteEditor(\''+c.id+'\')" style="background:#fff;border:1px solid #E0E0E0;border-left:4px solid '+catCls+';border-radius:10px;padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:transform .1s">'+
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:4px">'+
+        '<div style="flex:1;min-width:0">'+
+          '<div style="font-weight:700;font-size:14px;color:#1A1A1A">'+tipoIco+' '+h(c.name||"—")+
+          (c.razonSocial?'<span style="font-weight:400;color:#757575;font-size:12px;margin-left:6px">('+h(c.razonSocial)+')</span>':'')+
+          '</div>'+
+          (idStr?'<div style="font-size:11px;color:#9E9E9E;margin-top:1px">'+h(idStr)+(c.nitDV?'-'+h(c.nitDV):'')+'</div>':'')+
+        '</div>'+
+        '<span style="background:'+catBg+';color:'+catCls+';font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:.3px">'+cat+'</span>'+
+      '</div>'+
+      (meta?'<div style="font-size:11.5px;color:#607D8B;margin-bottom:3px">'+h(meta)+'</div>':'')+
+      '<div style="display:flex;gap:12px;font-size:11px;color:#9E9E9E;margin-top:4px">'+
+        '<span>📄 '+stats.n+' doc'+(stats.n!==1?'s':'')+'</span>'+
+        '<span>· Última actividad: '+lastStr+'</span>'+
+      '</div>'+
+    '</div>';
+  }).join("");
+}
+
+function _cliDirFmtDate(iso){
+  const p=parseIsoDate(iso);if(!p)return iso;
+  const m=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+  return p.d+" "+m[p.m]+" "+p.y;
+}
+
+async function cliDirRunMigration(){
+  showLoader("Importando clientes...");
+  try{
+    const r=await migrateClientsFromQuotes();
+    hideLoader();
+    toast("✅ "+r.creados+" cliente"+(r.creados!==1?"s":"")+" importado"+(r.creados!==1?"s":"")+(r.errores?" · "+r.errores+" error(es)":""),"success",5000);
+    localStorage.setItem("gb_clients_migration_skipped","1"); // ya corrió, no preguntes más
+    renderClientesDirectorio();
+  }catch(e){
+    hideLoader();
+    toast("Error en migración: "+e.message,"error");
+    console.error(e);
+  }
+}
+
+function cliDirSkipMigration(){
+  localStorage.setItem("gb_clients_migration_skipped","1");
+  $("cli-dir-migrate-banner").classList.add("hidden");
+}
+
+// ─── Editor de cliente (modal) ─────────────────────────────
+let _cliEditorId=null; // null = nuevo, id = editando
+function openClienteEditor(id){
+  _cliEditorId=id;
+  const c=id?clientsCache.find(x=>x.id===id):null;
+  const isNew=!c;
+  // Default values
+  const v={
+    name:c?.name||"",
+    tipo:c?.tipo||"persona",
+    razonSocial:c?.razonSocial||"",
+    categoria:c?.categoria||"particular",
+    idtype:c?.idtype||"",
+    idnum:c?.idnum||"",
+    nitDV:c?.nitDV||"",
+    att:c?.att||"",
+    tel:c?.tel||"",
+    mail:c?.mail||"",
+    dir:c?.dir||"",
+    city:c?.city||"",
+    cityCustom:c?.cityCustom||"",
+    notas:c?.notas||"",
+    feRegimen:c?.fe?.regimen||"",
+    feDirFiscal:c?.fe?.dirFiscal||""
+  };
+  $("cli-ed-title").textContent=isNew?"Nuevo cliente":"Editar cliente";
+  $("cli-ed-name").value=v.name;
+  $("cli-ed-tipo").value=v.tipo;
+  $("cli-ed-razonSocial").value=v.razonSocial;
+  $("cli-ed-categoria").value=v.categoria;
+  $("cli-ed-idtype").value=v.idtype;
+  $("cli-ed-idnum").value=v.idnum;
+  $("cli-ed-nitDV").value=v.nitDV;
+  $("cli-ed-att").value=v.att;
+  $("cli-ed-tel").value=v.tel;
+  $("cli-ed-mail").value=v.mail;
+  $("cli-ed-dir").value=v.dir;
+  $("cli-ed-city").value=v.city;
+  $("cli-ed-cityCustom").value=v.cityCustom;
+  $("cli-ed-notas").value=v.notas;
+  $("cli-ed-feRegimen").value=v.feRegimen;
+  $("cli-ed-feDirFiscal").value=v.feDirFiscal;
+  $("cli-ed-del-btn").style.display=isNew?"none":"inline-block";
+  cliEdToggleEmpresaFields();
+  cliEdToggleCustomCity();
+  $("cli-ed-modal").classList.remove("hidden");
+}
+function closeClienteEditor(){
+  $("cli-ed-modal").classList.add("hidden");
+  _cliEditorId=null;
+}
+function cliEdToggleEmpresaFields(){
+  const isEmp=$("cli-ed-tipo").value==="empresa";
+  $("cli-ed-razonSocial-wrap").classList.toggle("hidden",!isEmp);
+}
+function cliEdToggleCustomCity(){
+  $("cli-ed-cityCustom-wrap").classList.toggle("hidden",$("cli-ed-city").value!=="Otra");
+}
+async function saveClienteEditor(){
+  const name=$("cli-ed-name").value.trim();
+  if(!name){toast("El nombre es obligatorio","warn");return}
+  const obj={
+    name:name,
+    tipo:$("cli-ed-tipo").value||"persona",
+    razonSocial:$("cli-ed-razonSocial").value.trim(),
+    categoria:$("cli-ed-categoria").value||"particular",
+    idtype:$("cli-ed-idtype").value,
+    idnum:$("cli-ed-idnum").value.trim(),
+    nitDV:$("cli-ed-nitDV").value.trim(),
+    att:$("cli-ed-att").value.trim(),
+    tel:$("cli-ed-tel").value.trim(),
+    mail:$("cli-ed-mail").value.trim(),
+    dir:$("cli-ed-dir").value.trim(),
+    city:$("cli-ed-city").value,
+    cityCustom:$("cli-ed-cityCustom").value.trim(),
+    notas:$("cli-ed-notas").value.trim(),
+    fe:{
+      regimen:$("cli-ed-feRegimen").value||"",
+      dirFiscal:$("cli-ed-feDirFiscal").value.trim()
+    }
+  };
+  showLoader("Guardando...");
+  try{
+    await saveClientToCloud(obj,{fullUpdate:true});
+    hideLoader();
+    toast("✅ Cliente guardado","success");
+    closeClienteEditor();
+    renderClientesDirectorio();
+    refreshCliSel();
+  }catch(e){
+    hideLoader();
+    toast("Error: "+e.message,"error");
+    console.error(e);
+  }
+}
+async function delClienteEditor(){
+  if(!_cliEditorId)return;
+  const c=clientsCache.find(x=>x.id===_cliEditorId);
+  if(!c)return;
+  // Contar docs huérfanos que quedan tras borrar
+  const k=(c.name||"").toLowerCase().trim();
+  const huerfanos=quotesCache.filter(q=>(q.client||"").toLowerCase().trim()===k).length;
+  const msg=huerfanos>0
+    ? "¿Eliminar a "+c.name+"?\n\nQuedan "+huerfanos+" doc(s) con su nombre que ya no estarán vinculados al directorio (siguen visibles en pedidos/historial)."
+    : "¿Eliminar a "+c.name+"?";
+  if(!confirm(msg))return;
+  showLoader("Eliminando...");
+  try{
+    await deleteClientFromCloud(_cliEditorId);
+    hideLoader();
+    toast("Cliente eliminado","success");
+    closeClienteEditor();
+    renderClientesDirectorio();
+    refreshCliSel();
+  }catch(e){
+    hideLoader();
+    toast("Error: "+e.message,"error");
+  }
+}
+
 async function renderCarteraHistorico(){
   if(!quotesCache.length){try{await loadAllHistory()}catch{}}
   _carteraHistDefaults();

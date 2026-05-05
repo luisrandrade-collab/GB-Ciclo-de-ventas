@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.6.6";
+const BUILD_VERSION="v7.7.1";
 const BUILD_DATE="2026-04-24";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -1092,12 +1092,28 @@ async function loadClientsFromCloud(){
   }
 }
 
-async function saveClientToCloud(obj){
+// v7.7.1: filtra strings vacíos del obj para no pisar campos existentes
+// al hacer update desde autosave de cotización (que solo trae datos básicos).
+// Mantiene los campos no-string (booleans, sub-objetos como fe, etc).
+function _cleanClientObjForUpdate(obj){
+  const out={};
+  Object.keys(obj).forEach(k=>{
+    const v=obj[k];
+    if(typeof v==="string"){if(v.trim()!=="")out[k]=v}
+    else if(v!==undefined&&v!==null)out[k]=v;
+  });
+  return out;
+}
+async function saveClientToCloud(obj,opts){
   const {db,collection,doc,addDoc,updateDoc,serverTimestamp}=window.fb;
   const existing=clientsCache.find(c=>c.name.toLowerCase()===obj.name.toLowerCase());
+  // v7.7.1: opts.fullUpdate=true → guarda obj tal cual (uso desde modal edición).
+  //         opts.fullUpdate=false (default) → filtra vacíos (uso desde autosave).
+  const fullUpdate=opts&&opts.fullUpdate===true;
   if(existing&&existing.id){
-    await updateDoc(doc(db,"clients",existing.id),{...obj,updatedAt:serverTimestamp()});
-    Object.assign(existing,obj);
+    const updateObj=fullUpdate?obj:_cleanClientObjForUpdate(obj);
+    await updateDoc(doc(db,"clients",existing.id),{...updateObj,updatedAt:serverTimestamp()});
+    Object.assign(existing,updateObj);
   }else{
     const ref=await addDoc(collection(db,"clients"),{...obj,createdAt:serverTimestamp(),updatedAt:serverTimestamp()});
     clientsCache.push({id:ref.id,...obj});
@@ -1111,6 +1127,54 @@ async function deleteClientFromCloud(id){
   await deleteDoc(doc(db,"clients",id));
   clientsCache=clientsCache.filter(c=>c.id!==id);
   localStorage.setItem("gb_clients_cache",JSON.stringify(clientsCache));
+}
+
+// v7.7.1: extrae clientes únicos de quotesCache que NO existen en clientsCache.
+// Crea cada uno como tipo='persona', categoria='particular' (defaults).
+// Idempotente: skip si ya existe por nombre (case-insensitive + trim).
+// Reusa saveClientToCloud (que es idempotente también).
+// Devuelve {creados, skipeados, errores} para reporte.
+async function migrateClientsFromQuotes(){
+  if(!quotesCache.length)try{await loadAllHistory()}catch{}
+  const seen=new Set(clientsCache.map(c=>(c.name||"").toLowerCase().trim()));
+  const docsByName=new Map(); // nombre normalizado → mejor doc representativo (más reciente con más datos)
+  quotesCache.forEach(q=>{
+    const raw=(q.client||"").trim();
+    if(!raw)return;
+    const key=raw.toLowerCase();
+    if(seen.has(key))return;
+    const tel=q.tel||q.clientPhone||q.custPhone||"";
+    const mail=q.mail||q.clientEmail||q.custEmail||"";
+    const candidate={
+      name:raw,
+      idtype:q.idtype||"",
+      idnum:q.idnum||"",
+      att:q.att||"",
+      mail:mail,
+      tel:tel,
+      dir:q.dir||"",
+      city:q.city||"",
+      cityCustom:q.cityCustom||"",
+      tipo:"persona",
+      categoria:"particular"
+    };
+    const prev=docsByName.get(key);
+    if(!prev){docsByName.set(key,{candidate,score:_clientScore(candidate)});return}
+    const score=_clientScore(candidate);
+    if(score>prev.score)docsByName.set(key,{candidate,score});
+  });
+  let creados=0,errores=0;
+  for(const [,{candidate}] of docsByName){
+    try{await saveClientToCloud(candidate);creados++}
+    catch(e){console.warn("migrate cliente falló:",candidate.name,e);errores++}
+  }
+  return {creados,skipeados:seen.size,errores,total:docsByName.size};
+}
+function _clientScore(c){
+  // Prefiere docs con más campos llenos para crear el cliente más completo
+  let s=0;
+  ["idnum","mail","tel","dir","att","city"].forEach(k=>{if((c[k]||"").trim())s++});
+  return s;
 }
 
 async function loadCustomProducts(){
@@ -1720,7 +1784,8 @@ function setMode(m){
   // v7.5.1 cleanup: eliminado 'ops' del array (modulo Operaciones disuelto en v7.4 F4). 'hist' se mantiene
   // por compatibilidad aunque ya no aparece en sidebar (cubierto por modulo Archivo).
   // v7.6: agregado 'cartera-historico' (sub-item Cartera > Histórico de cobros)
-  ["dash","cot","prop","search","hist","seg","cal","ventas","cartera","cartera-historico","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup"].forEach(x=>{
+  // v7.7.1: agregado 'clientes-directorio' (módulo Clientes CRM)
+  ["dash","cot","prop","search","hist","seg","cal","ventas","cartera","cartera-historico","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup","clientes-directorio"].forEach(x=>{
     const el=$("mode-"+x);
     if(el)el.classList.toggle("hidden",x!==m);
     document.querySelectorAll(".mode-btn.m-"+x).forEach(b=>b.classList.toggle("act",x===m));
@@ -1734,6 +1799,7 @@ function setMode(m){
   if(m==="seg"&&typeof renderSeguimiento==="function")renderSeguimiento();
   if(m==="cartera"&&typeof renderCartera==="function")renderCartera();
   if(m==="cartera-historico"&&typeof renderCarteraHistorico==="function")renderCarteraHistorico();
+  if(m==="clientes-directorio"&&typeof renderClientesDirectorio==="function")renderClientesDirectorio();
   if(m==="reportes"&&typeof renderReportes==="function")renderReportes();
   if(m==="cotizaciones"&&typeof renderCotizaciones==="function")renderCotizaciones();
   if(m==="perdidas"&&typeof renderPerdidas==="function")renderPerdidas();

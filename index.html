@@ -1828,7 +1828,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     <div class="sb-module" data-mod="clientes">
       <button class="sb-module__btn"><span class="gb-shell-icon">👥</span><span class="sb-module__label">Clientes</span></button>
       <div class="sb-submenu">
-        <a href="javascript:void(0)" class="is-soon" data-sub="clientes/directorio">Directorio<span class="sub-soon">Pronto</span></a>
+        <a href="javascript:void(0)" data-sub="clientes/directorio">Directorio</a>
         <a href="javascript:void(0)" class="is-soon" data-sub="clientes/ventas-anteriores">Ventas anteriores<span class="sub-soon">Pronto</span></a>
         <a href="javascript:void(0)" class="is-soon" data-sub="clientes/perdidas">Perdidas<span class="sub-soon">Pronto</span></a>
       </div>
@@ -1875,6 +1875,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'ventas/propuesta':  'prop',
     'cartera/pendientes': 'cartera',
     'cartera/historico':  'cartera-historico',
+    'clientes/directorio':'clientes-directorio',
     // Legacy: 'ops/produccion' y 'ops/cobro' descontinuados en F4 (modulo Operaciones disuelto)
     'reportes/excel':       'reportes',
     'reportes/imprimibles': 'reportes',
@@ -1903,6 +1904,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'prop':   'ventas/propuesta',
     'cartera':              'cartera/pendientes',
     'cartera-historico':    'cartera/historico',
+    'clientes-directorio':  'clientes/directorio',
     'reportes':             'reportes/excel',
     'cotizaciones':         'ventas/cotizaciones',
     'perdidas':             'ventas/perdidas',
@@ -1928,6 +1930,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'ventas/propuesta':  ['Ventas', 'Nueva propuesta'],
     'cartera/pendientes': ['Cartera', 'Pendientes de cobro'],
     'cartera/historico':  ['Cartera', 'Histórico de cobros'],
+    'clientes/directorio':['Clientes', 'Directorio'],
     'reportes/excel':       ['Reportes', 'Exportar Excel'],
     'reportes/imprimibles': ['Reportes', 'Hojas para imprimir'],
     'ventas/cotizaciones':  ['Ventas', 'Cotizaciones activas'],
@@ -2813,6 +2816,29 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     </div>
     <div id="cartera-historico-filters" style="background:#F5F5F5;border-radius:10px;padding:12px 14px;margin-bottom:14px"></div>
     <div id="cartera-historico-list" style="padding:0 4px"></div>
+  </div>
+</div>
+
+<!-- ======== CLIENTES DIRECTORIO MODE (v7.7.1) — CRUD del directorio ======== -->
+<div id="mode-clientes-directorio" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#5D4037;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <span>👥 Directorio de clientes</span>
+      <span id="cli-dir-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+    </div>
+    <div id="cli-dir-migrate-banner" class="hidden" style="background:#FFF3E0;border:1px solid #FFB300;border-left:4px solid #FB8C00;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:13px;color:#5D4037">
+      <div style="font-weight:700;color:#E65100;margin-bottom:6px">📥 <span id="cli-dir-migrate-count">0</span> clientes en pedidos viejos sin importar</div>
+      <div style="margin-bottom:10px">¿Querés importarlos al directorio? Se crean como tipo "persona" / categoría "particular" — luego podés editarlos.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn bg" onclick="cliDirRunMigration()" style="background:#FB8C00;color:#fff">Importar ahora</button>
+        <button class="btn" onclick="cliDirSkipMigration()" style="background:#fff;border:1px solid #BDBDBD">No por ahora</button>
+      </div>
+    </div>
+    <div id="cli-dir-toolbar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+      <input id="cli-dir-search" type="text" placeholder="Buscar por nombre, NIT/CC, tel, email…" oninput="renderClientesDirectorio()" style="flex:1;min-width:200px;padding:9px 12px;border:1.5px solid #BDBDBD;border-radius:8px;font-size:13px;font-family:var(--gb-font-body)">
+      <button class="btn bg" onclick="openClienteEditor(null)" style="background:#1B5E20;color:#fff">+ Nuevo cliente</button>
+    </div>
+    <div id="cli-dir-list" style="padding:0 4px"></div>
   </div>
 </div>
 
@@ -3748,14 +3774,152 @@ body{padding-bottom:84px}
   });
 })();
 </script>
+<!-- ======== v7.7.1: Modal editor de cliente ======== -->
+<div id="cli-ed-modal" class="hidden" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto">
+  <div style="background:#fff;border-radius:14px;max-width:640px;width:100%;padding:18px 20px;box-shadow:0 8px 32px rgba(0,0,0,.3);font-family:var(--gb-font-body)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #E0E0E0">
+      <div id="cli-ed-title" style="font-size:18px;font-weight:700;color:#1A1A1A">Editar cliente</div>
+      <button onclick="closeClienteEditor()" style="background:transparent;border:none;font-size:24px;cursor:pointer;color:#9E9E9E;padding:0 6px">×</button>
+    </div>
+
+    <!-- Tipo + Categoría -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+      <div>
+        <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Tipo</label>
+        <select id="cli-ed-tipo" onchange="cliEdToggleEmpresaFields()" style="width:100%;padding:8px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px;font-family:var(--gb-font-body)">
+          <option value="persona">👤 Persona</option>
+          <option value="empresa">🏢 Empresa</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Categoría</label>
+        <select id="cli-ed-categoria" style="width:100%;padding:8px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px;font-family:var(--gb-font-body)">
+          <option value="particular">Particular</option>
+          <option value="corporativo">Corporativo</option>
+          <option value="recurrente">Recurrente</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Nombre -->
+    <div style="margin-bottom:12px">
+      <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Nombre <span style="color:#C62828">*</span></label>
+      <input id="cli-ed-name" type="text" placeholder="Nombre comercial o de la persona" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body)">
+    </div>
+
+    <!-- Razón social (solo empresa) -->
+    <div id="cli-ed-razonSocial-wrap" class="hidden" style="margin-bottom:12px">
+      <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Razón social (legal)</label>
+      <input id="cli-ed-razonSocial" type="text" placeholder="Tarkus Pharma SAS" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body)">
+    </div>
+
+    <!-- ID -->
+    <div style="display:grid;grid-template-columns:90px 1fr 80px;gap:10px;margin-bottom:12px">
+      <div>
+        <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Tipo doc</label>
+        <select id="cli-ed-idtype" style="width:100%;padding:8px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px;font-family:var(--gb-font-body)">
+          <option value="">—</option>
+          <option value="CC">CC</option>
+          <option value="NIT">NIT</option>
+          <option value="CE">CE</option>
+          <option value="PA">PA</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Número</label>
+        <input id="cli-ed-idnum" type="text" placeholder="900123456" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body)">
+      </div>
+      <div>
+        <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">DV</label>
+        <input id="cli-ed-nitDV" type="text" maxlength="1" placeholder="7" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body);text-align:center">
+      </div>
+    </div>
+
+    <!-- Persona de atención -->
+    <div style="margin-bottom:12px">
+      <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Persona de atención</label>
+      <input id="cli-ed-att" type="text" placeholder="Quien recibe / coordina" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body)">
+    </div>
+
+    <!-- Tel + Mail -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+      <div>
+        <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Teléfono</label>
+        <input id="cli-ed-tel" type="text" placeholder="3001234567" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body)">
+      </div>
+      <div>
+        <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Email</label>
+        <input id="cli-ed-mail" type="email" placeholder="cliente@ejemplo.com" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body)">
+      </div>
+    </div>
+
+    <!-- Dirección + Ciudad -->
+    <div style="margin-bottom:12px">
+      <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Dirección de entrega</label>
+      <input id="cli-ed-dir" type="text" placeholder="Cra 10 #5-50, Of 301" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body)">
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Ciudad</label>
+      <select id="cli-ed-city" onchange="cliEdToggleCustomCity()" style="width:100%;padding:8px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px;font-family:var(--gb-font-body)">
+        <option value="">—</option>
+        <option value="Bogotá">Bogotá</option>
+        <option value="Chía">Chía</option>
+        <option value="Cajicá">Cajicá</option>
+        <option value="Sopó">Sopó</option>
+        <option value="La Calera">La Calera</option>
+        <option value="Otra">Otra</option>
+      </select>
+    </div>
+    <div id="cli-ed-cityCustom-wrap" class="hidden" style="margin-bottom:12px">
+      <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Ciudad (otra)</label>
+      <input id="cli-ed-cityCustom" type="text" placeholder="Especificá la ciudad" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body)">
+    </div>
+
+    <!-- FE DIAN (collapsable) -->
+    <details style="margin-bottom:12px;background:#FFF8E1;border:1px solid #FFCA28;border-radius:8px;padding:10px 12px">
+      <summary style="cursor:pointer;font-weight:700;color:#E65100;font-size:13px">📋 Datos FE DIAN (factura electrónica)</summary>
+      <div style="margin-top:10px">
+        <div style="margin-bottom:10px">
+          <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Régimen IVA</label>
+          <select id="cli-ed-feRegimen" style="width:100%;padding:8px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px;font-family:var(--gb-font-body)">
+            <option value="">—</option>
+            <option value="comun">Común</option>
+            <option value="simplificado">Simplificado</option>
+            <option value="no_responsable">No responsable de IVA</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Dirección fiscal (si distinta de entrega)</label>
+          <input id="cli-ed-feDirFiscal" type="text" placeholder="Para llegada de facturas" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body)">
+        </div>
+      </div>
+    </details>
+
+    <!-- Notas privadas -->
+    <div style="margin-bottom:14px">
+      <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">🔒 Notas privadas (no aparecen en cotizaciones ni facturas)</label>
+      <textarea id="cli-ed-notas" rows="3" placeholder="Anotaciones internas: preferencias, alergias, contactos secundarios, historia, etc." style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px;font-family:var(--gb-font-body);resize:vertical"></textarea>
+    </div>
+
+    <!-- Acciones -->
+    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid #E0E0E0">
+      <button id="cli-ed-del-btn" onclick="delClienteEditor()" style="background:#fff;color:#C62828;border:1px solid #EF9A9A;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">🗑️ Eliminar</button>
+      <div style="display:flex;gap:8px">
+        <button onclick="closeClienteEditor()" style="background:#fff;color:#5D4037;border:1px solid #BDBDBD;padding:9px 14px;border-radius:8px;font-size:13px;cursor:pointer;font-family:var(--gb-font-body)">Cancelar</button>
+        <button onclick="saveClienteEditor()" style="background:#1B5E20;color:#fff;border:none;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.6.6"></script>
-<script src="app-core.js?v=7.6.6"></script>
-<script src="app-cotizar.js?v=7.6.6"></script>
-<script src="app-propuesta.js?v=7.6.6"></script>
-<script src="app-historial.js?v=7.6.6"></script>
-<script src="app-seguimiento.js?v=7.6.6"></script>
-<script src="app-dashboard.js?v=7.6.6"></script>
+<script src="app-assets.js?v=7.7.1"></script>
+<script src="app-core.js?v=7.7.1"></script>
+<script src="app-cotizar.js?v=7.7.1"></script>
+<script src="app-propuesta.js?v=7.7.1"></script>
+<script src="app-historial.js?v=7.7.1"></script>
+<script src="app-seguimiento.js?v=7.7.1"></script>
+<script src="app-dashboard.js?v=7.7.1"></script>
 </body>
 </html>
