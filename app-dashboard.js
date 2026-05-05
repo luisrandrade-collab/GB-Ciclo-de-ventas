@@ -1103,7 +1103,8 @@ async function shareOrDownloadIcs(filename,lines){
     const file=new File([blob],filename,{type:"text/calendar"});
     if(navigator.canShare&&navigator.canShare({files:[file]})){
       try{
-        await navigator.share({files:[file],title:filename});
+        // v7.6.1: text explícito para evitar blob URL parásito en iOS share
+        await navigator.share({files:[file],text:"Agenda Gourmet Bites — "+filename.replace(/\.ics$/,"")});
         return;
       }catch(e){
         if(e&&e.name==="AbortError")return;
@@ -1759,15 +1760,8 @@ async function exportHistoryJson(){
     const stamp=_now.getFullYear()+"-"+_p(_now.getMonth()+1)+"-"+_p(_now.getDate())+"_"+_p(_now.getHours())+"h"+_p(_now.getMinutes());
     const filename="gourmet-bites-backup-"+stamp+".json";
     const blob=new Blob([json],{type:"application/json;charset=utf-8"});
-    // Web Share API en móviles, download clásico en desktop
-    try{
-      const file=new File([blob],filename,{type:"application/json"});
-      if(navigator.canShare&&navigator.canShare({files:[file]})){
-        await navigator.share({files:[file],title:filename});
-        toast("📥 Backup exportado","success");
-        return;
-      }
-    }catch(e){if(e&&e.name==="AbortError")return;console.warn("Share backup falló, download:",e)}
+    // v7.6.1: backup es confidencial — solo descarga, sin Web Share.
+    // No se comparte a apps externas; se guarda local (Downloads en desktop, Files en iPhone).
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");
     a.href=url;a.download=filename;

@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.6";
+const BUILD_VERSION="v7.6.1";
 const BUILD_DATE="2026-04-24";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -129,7 +129,10 @@ async function savePdf(doc,filename){
     // Si el navegador soporta compartir archivos, lo usamos (iOS/Android modernos)
     if(navigator.canShare&&navigator.canShare({files:[file]})){
       try{
-        await navigator.share({files:[file],title:filename});
+        // v7.6.1: pasar 'text' explícito para evitar que iOS autoinyecte el blob URL
+        // del archivo en el mensaje (Telegram/WhatsApp lo pegaban como link parásito).
+        // Quitamos 'title' porque no se renderiza consistente entre apps.
+        await navigator.share({files:[file],text:"Cotización Gourmet Bites — "+filename.replace(/\.pdf$/,"")});
         return;
       }catch(e){
         // Usuario canceló el share — no es un error, pero como no se compartió
