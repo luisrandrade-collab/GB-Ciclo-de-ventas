@@ -3282,22 +3282,28 @@ function renderRecaudoMetodoModalContent(){
   const {recaudoMet,total}=_carteraCalcularRecaudo(desde,hasta);
   const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
   if(total===0){
-    el.innerHTML='<div class="dash-met-empty">Sin pagos registrados en el rango '+desde+' → '+hasta+'.</div>';
+    el.innerHTML='<div style="padding:20px;text-align:center;color:#888;font-size:13px;background:#FAFAFA;border-radius:6px">Sin pagos registrados en el rango '+desde+' → '+hasta+'.</div>';
     return;
   }
   const maxMet=Math.max(...Object.values(recaudoMet),1);
   const metodos=(typeof METODOS_PAGO!=="undefined")?METODOS_PAGO:Object.keys(recaudoMet);
-  const rows=metodos.map(m=>{
+  // Filtrar solo metodos con monto > 0 para no mostrar filas vacias
+  const metodosConMonto=metodos.filter(m=>(recaudoMet[m]||0)>0);
+  const rows=metodosConMonto.map(m=>{
     const v=recaudoMet[m]||0;
     const pct=Math.round(v*100/maxMet);
     const pctTotal=total>0?Math.round(v*100/total):0;
-    return '<div class="dash-met-row"><div class="dash-met-name">'+m+'</div><div class="dash-met-bar"><div class="dash-met-bar-fill" style="width:'+(v>0?pct:0)+'%"></div></div><div class="dash-met-val">'+fmt(v)+(v>0?' <span style="color:#888;font-weight:400">('+pctTotal+'%)</span>':'')+'</div></div>';
+    return '<div style="display:grid;grid-template-columns:140px 1fr 130px;gap:10px;align-items:center;padding:6px 0;font-size:13px;border-bottom:1px solid #f0f0f0">'+
+      '<div style="font-weight:600;color:#333">'+m+'</div>'+
+      '<div style="background:#E8F5E9;border-radius:4px;height:16px;overflow:hidden"><div style="background:#1B5E20;height:100%;width:'+pct+'%;transition:width .3s"></div></div>'+
+      '<div style="text-align:right;font-weight:600;color:#1B5E20">'+fmt(v)+' <span style="color:#888;font-weight:400;font-size:11px">('+pctTotal+'%)</span></div>'+
+    '</div>';
   }).join("");
   el.innerHTML=
-    '<div style="background:#E8F5E9;border-left:3px solid #1B5E20;padding:10px 14px;margin-bottom:12px;border-radius:6px;font-size:13px">'+
+    '<div style="background:#E8F5E9;border-left:3px solid #1B5E20;padding:10px 14px;margin-bottom:14px;border-radius:6px;font-size:13px">'+
       '<strong>Total recaudado:</strong> '+fmt(total)+'  ·  '+desde+' → '+hasta+
     '</div>'+
-    rows;
+    '<div style="background:white;border:1px solid #e0e0e0;border-radius:6px;padding:8px 14px">'+rows+'</div>';
 }
 
 window.openRecaudoMetodoModal=openRecaudoMetodoModal;

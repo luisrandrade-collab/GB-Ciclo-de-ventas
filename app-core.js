@@ -1713,7 +1713,8 @@ function setMode(m){
   // v7.4 F2: agregados 'pedidos-aprobados', 'pedidos-produccion', 'pedidos-producidos' (modulo Pedidos)
   // v7.4 F3: agregados 'entregar', 'entregadas' (modulo Entregas)
   // v7.4 F5: agregados 'archivo-busqueda', 'archivo-anuladas', 'archivo-convertidas' (modulo Archivo read-only)
-  ["dash","cot","prop","search","hist","seg","cal","ventas","ops","cartera","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas"].forEach(x=>{
+  // v7.5 F6: agregado 'backup' (Herramientas > Mantenimiento y backups, migrado del Dashboard)
+  ["dash","cot","prop","search","hist","seg","cal","ventas","ops","cartera","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup"].forEach(x=>{
     const el=$("mode-"+x);
     if(el)el.classList.toggle("hidden",x!==m);
     document.querySelectorAll(".mode-btn.m-"+x).forEach(b=>b.classList.toggle("act",x===m));

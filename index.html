@@ -1821,7 +1821,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <button class="sb-module__btn"><span class="gb-shell-icon">⚙️</span><span class="sb-module__label">Herramientas</span></button>
       <div class="sb-submenu">
         <a href="javascript:void(0)" class="is-soon" data-sub="herr/catalogo-productos">Catálogo de productos<span class="sub-soon">Pronto</span></a>
-        <a href="javascript:void(0)" class="is-soon" data-sub="herr/backup">Backup<span class="sub-soon">Pronto</span></a>
+        <a href="javascript:void(0)" data-sub="herr/backup">Mantenimiento y backups</a>
         <a href="javascript:void(0)" class="is-soon" data-sub="herr/configuracion">Configuración<span class="sub-soon">Pronto</span></a>
       </div>
     </div>
@@ -1870,7 +1870,8 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'entregas/entregadas':  'entregadas',
     'archivo/buscar':       'archivo-busqueda',
     'archivo/anuladas':     'archivo-anuladas',
-    'archivo/convertidas':  'archivo-convertidas'
+    'archivo/convertidas':  'archivo-convertidas',
+    'herr/backup':          'backup'
     // Pipeline, ops/despacho, ops/historico-hojas, compras/*, clientes/*, herr/* → undefined → SOON
   };
 
@@ -1896,6 +1897,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'archivo-busqueda':     'archivo/buscar',
     'archivo-anuladas':     'archivo/anuladas',
     'archivo-convertidas':  'archivo/convertidas',
+    'backup':               'herr/backup',
     'search':               'ventas/cotizar'
   };
 
@@ -1920,7 +1922,8 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'entregas/entregadas':  ['Entregas', 'Entregadas'],
     'archivo/buscar':       ['Archivo', 'Buscar todo'],
     'archivo/anuladas':     ['Archivo', 'Anuladas'],
-    'archivo/convertidas':  ['Archivo', 'Convertidas / Versiones viejas']
+    'archivo/convertidas':  ['Archivo', 'Convertidas / Versiones viejas'],
+    'herr/backup':          ['Herramientas', 'Mantenimiento y backups']
   };
 
   function gbShellEnsureCrumb(){
@@ -2335,23 +2338,26 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     </div>
   </div>
 
-  <!-- v5.2.0: Mantenimiento colapsado por default (progressive disclosure) -->
-  <div class="dash-section dash-mant-collapsible">
-    <button class="dash-mant-toggle" onclick="toggleMantenimiento()" id="mant-toggle-btn">
-      <span>⚙️ Opciones avanzadas · Mantenimiento y backups</span>
-      <span class="mant-chevron" id="mant-chevron">▸</span>
-    </button>
-    <div class="dash-mant-body hidden" id="dash-mant-body">
-      <div class="mant-hint-top">Acciones de mantenimiento. Antes de ejecutar, haz un 📥 Backup JSON.</div>
-      <div class="mant-grid">
-        <button class="mant-btn mant-btn-backup" onclick="exportHistoryJson()" title="Descargar JSON de respaldo con todo el historial">📥<span>Backup JSON</span></button>
-        <button class="mant-btn mant-btn-restore" onclick="triggerRestoreBackup()" title="Restaurar desde un backup JSON (modo merge aditivo)">📤<span>Restaurar JSON</span></button>
-        <button class="mant-btn mant-btn-backup-auto" onclick="openBackupInfoModal()" title="Guía backup automático Firebase">ℹ️<span>Backup auto</span></button>
-        <button class="mant-btn mant-btn-fantasmas" onclick="cleanupWrongDocs()" title="Eliminar docs fantasma">🧹<span>Limpiar fantasmas</span></button>
-        <button class="mant-btn mant-btn-resync" onclick="markAllUnsyncedAsPending()" title="Marcar todo pedidos futuros como re-sync pendiente">🔁<span>Re-sync agenda</span></button>
-        <button class="mant-btn mant-btn-migrar" onclick="migrarFotosStorage()" title="Migrar fotos legacy a Storage (una vez)">🗜️<span>Migrar fotos</span></button>
-        <button class="mant-btn mant-btn-normalizar" onclick="normalizarDocsSinStatus()" title="Asignar status a docs legacy sin este campo (una vez)">🔧<span>Normalizar docs</span></button>
-      </div>
+  <!-- v7.5: Bloque 'Opciones avanzadas' movido a Herramientas > Mantenimiento y backups -->
+</div>
+
+<!-- ======== HERRAMIENTAS > BACKUP MODE (v7.5) — Mantenimiento y backups ======== -->
+<div id="mode-backup" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#5D4037;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span>⚙️ Mantenimiento y backups</span>
+    </div>
+    <div style="background:#FFF8E1;border-left:3px solid #F57F17;padding:10px 14px;margin-bottom:14px;border-radius:6px;font-size:13px;color:#5D4037">
+      <strong>⚠️ Acciones de mantenimiento.</strong> Antes de ejecutar cualquier acción destructiva, hacé un 📥 Backup JSON.
+    </div>
+    <div class="mant-grid">
+      <button class="mant-btn mant-btn-backup" onclick="exportHistoryJson()" title="Descargar JSON de respaldo con todo el historial">📥<span>Backup JSON</span></button>
+      <button class="mant-btn mant-btn-restore" onclick="triggerRestoreBackup()" title="Restaurar desde un backup JSON (modo merge aditivo)">📤<span>Restaurar JSON</span></button>
+      <button class="mant-btn mant-btn-backup-auto" onclick="openBackupInfoModal()" title="Guía backup automático Firebase">ℹ️<span>Backup auto</span></button>
+      <button class="mant-btn mant-btn-fantasmas" onclick="cleanupWrongDocs()" title="Eliminar docs fantasma">🧹<span>Limpiar fantasmas</span></button>
+      <button class="mant-btn mant-btn-resync" onclick="markAllUnsyncedAsPending()" title="Marcar todo pedidos futuros como re-sync pendiente">🔁<span>Re-sync agenda</span></button>
+      <button class="mant-btn mant-btn-migrar" onclick="migrarFotosStorage()" title="Migrar fotos legacy a Storage (una vez)">🗜️<span>Migrar fotos</span></button>
+      <button class="mant-btn mant-btn-normalizar" onclick="normalizarDocsSinStatus()" title="Asignar status a docs legacy sin este campo (una vez)">🔧<span>Normalizar docs</span></button>
     </div>
   </div>
 </div>
@@ -2651,21 +2657,21 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
 </div>
 
 <!-- ======== RECAUDO POR METODO MODAL (v7.5) — abierto desde Cartera ======== -->
-<div id="recaudo-metodo-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeRecaudoMetodoModal()">
-  <div class="modal-content" style="max-width:560px">
-    <div class="modal-header" style="background:#1B5E20;color:white">
-      <h3 style="margin:0;font-size:16px">💰 Recaudo por método</h3>
-      <button onclick="closeRecaudoMetodoModal()" style="background:none;border:none;color:white;font-size:22px;cursor:pointer;line-height:1">×</button>
+<div id="recaudo-metodo-modal" class="hidden" onclick="if(event.target===this)closeRecaudoMetodoModal()" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px">
+  <div style="background:white;border-radius:12px;max-width:600px;width:100%;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,.25)">
+    <div style="background:#1B5E20;color:white;padding:14px 18px;display:flex;justify-content:space-between;align-items:center">
+      <h3 style="margin:0;font-size:16px;font-weight:700">💰 Recaudo por método</h3>
+      <button onclick="closeRecaudoMetodoModal()" style="background:rgba(255,255,255,.2);border:none;color:white;font-size:18px;cursor:pointer;line-height:1;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center">×</button>
     </div>
-    <div class="modal-body" style="padding:14px 18px">
-      <div style="background:#F5F5F5;border-radius:8px;padding:10px 12px;margin-bottom:14px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div style="padding:16px 20px;overflow-y:auto">
+      <div style="background:#F5F5F5;border-radius:8px;padding:12px 14px;margin-bottom:14px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
         <div>
-          <label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Desde</label>
-          <input type="date" id="rec-met-desde" onchange="renderRecaudoMetodoModalContent()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">
+          <label style="font-size:11px;color:#555;display:block;margin-bottom:4px;font-weight:600">Desde</label>
+          <input type="date" id="rec-met-desde" onchange="renderRecaudoMetodoModalContent()" style="width:100%;padding:7px 9px;border:1px solid #ccc;border-radius:6px;font-size:13px;box-sizing:border-box">
         </div>
         <div>
-          <label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Hasta</label>
-          <input type="date" id="rec-met-hasta" onchange="renderRecaudoMetodoModalContent()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">
+          <label style="font-size:11px;color:#555;display:block;margin-bottom:4px;font-weight:600">Hasta</label>
+          <input type="date" id="rec-met-hasta" onchange="renderRecaudoMetodoModalContent()" style="width:100%;padding:7px 9px;border:1px solid #ccc;border-radius:6px;font-size:13px;box-sizing:border-box">
         </div>
       </div>
       <div id="rec-met-content"></div>
@@ -3770,12 +3776,12 @@ body{padding-bottom:84px}
 </script>
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.5.0"></script>
-<script src="app-core.js?v=7.5.0"></script>
-<script src="app-cotizar.js?v=7.5.0"></script>
-<script src="app-propuesta.js?v=7.5.0"></script>
-<script src="app-historial.js?v=7.5.0"></script>
-<script src="app-seguimiento.js?v=7.5.0"></script>
-<script src="app-dashboard.js?v=7.5.0"></script>
+<script src="app-assets.js?v=7.5.1"></script>
+<script src="app-core.js?v=7.5.1"></script>
+<script src="app-cotizar.js?v=7.5.1"></script>
+<script src="app-propuesta.js?v=7.5.1"></script>
+<script src="app-historial.js?v=7.5.1"></script>
+<script src="app-seguimiento.js?v=7.5.1"></script>
+<script src="app-dashboard.js?v=7.5.1"></script>
 </body>
 </html>
