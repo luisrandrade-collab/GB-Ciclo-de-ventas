@@ -258,7 +258,7 @@ async function renderHist(){
   // Barra de archivos (principal)
   // v6.0: nuevo archivo "Ventas anteriores" (pedidos cumplidos)
   const archMeta={
-    vivas:            {label:"🟢 Vivas",            cls:"arch-vivas"},
+    vivas:            {label:"🟢 Vigentes",         cls:"arch-vivas"},
     pedidos:          {label:"🤝 Pedidos",          cls:"arch-pedidos"},
     ventas_anteriores:{label:"📦 Ventas anteriores",cls:"arch-ventas-ant"},
     perdidas:         {label:"❌ Perdidas",         cls:"arch-perdidas"},

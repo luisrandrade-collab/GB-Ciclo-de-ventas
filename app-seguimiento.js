@@ -64,9 +64,9 @@ function renderSeguimiento(){
 function renderSegGroup(kind,docs,customTitle){
   const meta=FOLLOW_UP_META[kind]||{label:kind,cls:kind,emoji:"📋"};
   const titulosV505={
-    pendiente:"🟢 VIVAS · Sin contactar todavía",
-    contactado:"🟢 VIVAS · Ya contactadas, esperando respuesta",
-    activa:"🟢 VIVAS · En negociación activa (calientes)"
+    pendiente:"🟢 VIGENTES · Sin contactar todavía",
+    contactado:"🟢 VIGENTES · Ya contactadas, esperando respuesta",
+    activa:"🟢 VIGENTES · En negociación activa (calientes)"
   };
   const title=customTitle||titulosV505[kind]||(meta.emoji+" "+meta.label+" — "+meta.desc);
   const groupCls=kind==="alertas"?"pendiente":kind;
@@ -153,7 +153,7 @@ function renderSegCard(q){
 // Estados vacíos según filtro
 function emptyState(kind){
   const msgs={
-    vacio:{ic:"🎉",title:"Todo al día",sub:"No hay cotizaciones ni propuestas vivas en seguimiento."},
+    vacio:{ic:"🎉",title:"Todo al día",sub:"No hay cotizaciones ni propuestas vigentes en seguimiento."},
     sin_alertas:{ic:"✅",title:"Sin alertas",sub:"Nada lleva más de 7 días sin seguimiento. Buen trabajo."},
     pendiente:{ic:"⏳",title:"Nada pendiente",sub:"No hay cotizaciones esperando primer contacto."},
     contactado:{ic:"💬",title:"Sin contactados",sub:"Nadie en espera de respuesta."},

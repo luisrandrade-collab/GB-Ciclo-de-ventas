@@ -2173,7 +2173,7 @@ async function normalizarDocsSinStatus(){
   }
   hideLoader();
   try{await loadAllHistory()}catch{}
-  toast("✅ Normalización completa · OK: "+ok+" · Errores: "+err+". Los docs ahora aparecen en Pipeline, Vivas y Seguimiento.","success",7000);
+  toast("✅ Normalización completa · OK: "+ok+" · Errores: "+err+". Los docs ahora aparecen en Pipeline, Vigentes y Seguimiento.","success",7000);
   renderDashboard();
   if(typeof renderSeguimiento==="function"&&curMode==="seg")renderSeguimiento();
   if(typeof renderHist==="function"&&curMode==="hist")renderHist();
@@ -2592,7 +2592,7 @@ function renderReporteConversion(range,inRange){
       '<div class="cr-values"><span class="cr-count">'+perd+'</span><span class="cr-pct">'+pct(perd)+'%</span><span class="cr-amount">('+fm(perdMonto)+')</span></div>'+
     '</div>'+
     (pend>0?'<div class="conv-row" style="border-left-color:#FB8C00">'+
-      '<div class="cr-label">⏳ Aún vivas (sin cerrar)</div>'+
+      '<div class="cr-label">⏳ Aún vigentes (sin cerrar)</div>'+
       '<div class="cr-values"><span class="cr-count">'+pend+'</span><span class="cr-pct">'+pct(pend)+'%</span><span class="cr-amount">('+fm(pendMonto)+')</span></div>'+
     '</div>':'')+
   '</div>'+
