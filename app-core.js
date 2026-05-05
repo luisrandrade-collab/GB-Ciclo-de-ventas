@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.7.4";
+const BUILD_VERSION="v7.7.5";
 const BUILD_DATE="2026-04-24";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -1804,6 +1804,7 @@ function setMode(m){
   if(m==="clientes-directorio"&&typeof renderClientesDirectorio==="function")renderClientesDirectorio();
   if(m==="clientes-ficha"&&typeof renderClienteFicha==="function")renderClienteFicha();
   if(m==="clientes-comentarios"&&typeof renderClientesComentarios==="function")renderClientesComentarios();
+  if(m==="backup"&&typeof renderSyncAgendaPanel==="function")renderSyncAgendaPanel();
   if(m==="reportes"&&typeof renderReportes==="function")renderReportes();
   if(m==="cotizaciones"&&typeof renderCotizaciones==="function")renderCotizaciones();
   if(m==="perdidas"&&typeof renderPerdidas==="function")renderPerdidas();

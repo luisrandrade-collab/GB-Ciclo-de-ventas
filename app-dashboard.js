@@ -1798,6 +1798,104 @@ function renderCustomRangeInfo(){
 // Descarga un JSON con todo lo que hay en quotesCache + clientsCache.
 // Permite al usuario tener respaldo antes de hacer cambios arriesgados
 // o simplemente para archivar.
+// ═══════════════════════════════════════════════════════════
+// v7.7.5: SYNC AGENDA EXTERNA — panel UI para link suscribible
+// ═══════════════════════════════════════════════════════════
+// El backend (Firebase Function agendaIcs) ya está deployado en
+// https://agendaics-zeuz3hinla-uc.a.run.app y requiere ?token=XXX.
+// El TOKEN no se hardcodea acá (repo público) — Luis lo introduce
+// una vez y queda en localStorage de su PC.
+
+const SYNC_AGENDA_URL_BASE = "https://agendaics-zeuz3hinla-uc.a.run.app";
+const SYNC_AGENDA_TOKEN_KEY = "gb_sync_agenda_token";
+
+function renderSyncAgendaPanel(){
+  const el = $("sync-agenda-panel");
+  if(!el) return;
+  const token = (localStorage.getItem(SYNC_AGENDA_TOKEN_KEY)||"").trim();
+  if(!token){
+    el.innerHTML = ''+
+      '<div style="background:#FFF3E0;border:1px solid #FFB300;border-left:4px solid #FB8C00;border-radius:10px;padding:14px 16px;font-size:13px;color:#5D4037">'+
+        '<div style="font-weight:700;color:#E65100;margin-bottom:8px">🔐 Configurar token (1 sola vez)</div>'+
+        '<div style="margin-bottom:10px;line-height:1.5">El token es un código privado que protege la URL. Lo tenés en <code style="background:#fff;padding:1px 5px;border-radius:3px">_internos/Sync_agenda_token_PRIVADO.md</code> de tu OneDrive. Pegalo abajo:</div>'+
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
+          '<input id="sync-agenda-token-in" type="password" placeholder="Pegar token aquí" style="flex:1;min-width:200px;padding:8px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px;font-family:monospace">'+
+          '<button onclick="saveSyncAgendaToken()" style="background:#1B5E20;color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">Guardar</button>'+
+        '</div>'+
+      '</div>';
+    return;
+  }
+  const url = SYNC_AGENDA_URL_BASE + "?token=" + encodeURIComponent(token);
+  el.innerHTML = ''+
+    '<div style="margin-bottom:12px">'+
+      '<label style="font-size:11px;color:#757575;display:block;margin-bottom:4px;font-weight:700;text-transform:uppercase;letter-spacing:.3px">🔗 Link de suscripción para Kathy y JP</label>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
+        '<input id="sync-agenda-url" type="text" readonly value="'+h(url)+'" onclick="this.select()" style="flex:1;min-width:200px;padding:8px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:11.5px;font-family:monospace;background:#FAFAFA">'+
+        '<button onclick="copySyncAgendaUrl()" style="background:#1B5E20;color:#fff;border:none;padding:8px 14px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">📋 Copiar</button>'+
+      '</div>'+
+    '</div>'+
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">'+
+      '<button onclick="shareSyncAgendaWA(\'kathy\')" style="background:#25D366;color:#fff;border:none;padding:7px 12px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">📲 Mandar a Kathy</button>'+
+      '<button onclick="shareSyncAgendaWA(\'jp\')" style="background:#25D366;color:#fff;border:none;padding:7px 12px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">📲 Mandar a JP</button>'+
+      '<button onclick="forgetSyncAgendaToken()" style="background:#fff;color:#C62828;border:1px solid #EF9A9A;padding:7px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:var(--gb-font-body)">🗑️ Borrar token guardado</button>'+
+    '</div>'+
+    '<details style="background:#F5F5F5;border-radius:8px;padding:10px 14px;font-size:12.5px;color:#5D4037">'+
+      '<summary style="cursor:pointer;font-weight:700">📱 Cómo se suscriben Kathy y JP (instrucciones para mandarles)</summary>'+
+      '<div style="margin-top:10px;line-height:1.6">'+
+        '<div style="font-weight:700;margin-bottom:4px;color:#01579B">Si usan iPhone (Apple Calendar):</div>'+
+        '<ol style="margin:0 0 12px 18px;padding:0">'+
+          '<li>Abrir <strong>Configuración</strong> del iPhone.</li>'+
+          '<li>Calendario → Cuentas → Añadir cuenta.</li>'+
+          '<li>Otra → Añadir calendario suscrito.</li>'+
+          '<li>Pegar la URL y tocar "Siguiente" → "Guardar".</li>'+
+        '</ol>'+
+        '<div style="font-weight:700;margin-bottom:4px;color:#01579B">Si usan Google Calendar:</div>'+
+        '<ol style="margin:0 0 8px 18px;padding:0">'+
+          '<li>Entrar a <code style="background:#fff;padding:1px 5px;border-radius:3px">calendar.google.com</code> desde computador.</li>'+
+          '<li>Lateral izq: <strong>+ Otros calendarios</strong> → "Por URL".</li>'+
+          '<li>Pegar la URL y "Añadir calendario".</li>'+
+        '</ol>'+
+        '<div style="margin-top:10px;font-style:italic;color:#757575">El calendario se actualiza solo cada 1-3 horas. Los eventos aparecen como "🔥 Producir [cliente]" y "🚚 Entrega [cliente]".</div>'+
+      '</div>'+
+    '</details>';
+}
+
+function saveSyncAgendaToken(){
+  const v = ($("sync-agenda-token-in")?.value||"").trim();
+  if(!v){toast("Pegá el token primero","warn");return}
+  localStorage.setItem(SYNC_AGENDA_TOKEN_KEY, v);
+  toast("✅ Token guardado","success");
+  renderSyncAgendaPanel();
+}
+
+function forgetSyncAgendaToken(){
+  if(!confirm("¿Borrar el token guardado en este dispositivo? Vas a tener que pegarlo de nuevo si querés ver el link otra vez."))return;
+  localStorage.removeItem(SYNC_AGENDA_TOKEN_KEY);
+  toast("Token borrado","success");
+  renderSyncAgendaPanel();
+}
+
+function copySyncAgendaUrl(){
+  const inp = $("sync-agenda-url");
+  if(!inp)return;
+  inp.select();
+  try{
+    navigator.clipboard.writeText(inp.value).then(()=>toast("📋 Link copiado al portapapeles","success"));
+  }catch(e){
+    document.execCommand("copy");
+    toast("📋 Link copiado","success");
+  }
+}
+
+function shareSyncAgendaWA(quien){
+  const url = $("sync-agenda-url")?.value;
+  if(!url)return;
+  const nombre = quien==="kathy"?"Kathy":"JP";
+  const msg = "Hola "+nombre+"! Te paso el link para suscribir tu calendario y ver los pedidos de Gourmet Bites. Lo abrís y lo agregás a tu Apple Calendar / Google Calendar (instrucciones en el panel de la app, te paso aparte si necesitás). Link:\n\n"+url+"\n\n— Luis";
+  const wa = "https://wa.me/?text="+encodeURIComponent(msg);
+  window.open(wa,"_blank");
+}
+
 async function exportHistoryJson(){
   try{
     if(!quotesCache.length){try{await loadAllHistory()}catch{}}
