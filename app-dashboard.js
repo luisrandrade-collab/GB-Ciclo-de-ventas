@@ -3605,7 +3605,8 @@ function generarPdfProduccionConsolidada(){
   const pdf=new jsPDF("p","mm","a4");
   const W=210, M=14;
 
-  // Agrupar por día
+  // Agrupar por día. Key compuesto = nombre + descripcion para no
+  // mezclar variantes (ej: Lasagna Pollo vs Lasagna Cerdo vs Lasagna Res).
   const porDia={};
   docs.forEach(q=>{
     const f=_reportesGetFecha(q)||"(sin fecha)";
@@ -3613,8 +3614,8 @@ function generarPdfProduccionConsolidada(){
     porDia[f].docs.push(q);
     const procItem=(name,qty,desc,unit)=>{
       if(!name)return;
-      const key=name;
-      if(!porDia[f].productos[key])porDia[f].productos[key]={qty:0,desc:desc||"",unit:unit||"",pedidos:new Set()};
+      const key=name+"|"+(desc||"");
+      if(!porDia[f].productos[key])porDia[f].productos[key]={name:name,qty:0,desc:desc||"",unit:unit||"",pedidos:new Set()};
       porDia[f].productos[key].qty+=qty;
       porDia[f].productos[key].pedidos.add(q.client||q.id);
     };
@@ -3650,7 +3651,7 @@ function generarPdfProduccionConsolidada(){
     // Tabla agregada ordenada por cantidad desc
     const rows=Object.entries(porDia[f].productos)
       .sort((a,b)=>b[1].qty-a[1].qty)
-      .map(([name,g])=>[String(g.qty),name,g.desc,g.unit,String(g.pedidos.size),Array.from(g.pedidos).join(", ")]);
+      .map(([key,g])=>[String(g.qty),g.name,g.desc,g.unit,String(g.pedidos.size),Array.from(g.pedidos).join(", ")]);
 
     if(pdf.autoTable){
       pdf.autoTable({
@@ -4074,30 +4075,34 @@ function descargarExcel(){
   XLSX.utils.book_append_sheet(wb,ws4,"Por dia");
 
   // ═══ HOJA 5: Producción agregada ══════════════════════════
+  // Key compuesto = nombre + descripcion para no mezclar variantes
+  // (ej: Lasagna Cerdo vs Lasagna Pollo vs Lasagna Res). Cocina
+  // necesita las cantidades por variante exacta.
   const porProd={};
   docs.forEach(q=>{
-    const procItem=(name,qty,subtotal)=>{
+    const procItem=(name,desc,qty,subtotal)=>{
       if(!name)return;
-      if(!porProd[name])porProd[name]={qty:0,pedidos:new Set(),subtotal:0};
-      porProd[name].qty+=qty;porProd[name].pedidos.add(q.id);porProd[name].subtotal+=subtotal;
+      const key=name+"|"+(desc||"");
+      if(!porProd[key])porProd[key]={name:name,desc:desc||"",qty:0,pedidos:new Set(),subtotal:0};
+      porProd[key].qty+=qty;porProd[key].pedidos.add(q.id);porProd[key].subtotal+=subtotal;
     };
     if(q.kind==="quote"){
-      (q.cart||[]).forEach(it=>procItem(it.n,parseInt(it.qty)||0,(parseInt(it.qty)||0)*(parseInt(it.p)||0)));
-      (q.cust||[]).forEach(it=>procItem(it.n,parseInt(it.qty)||0,(parseInt(it.qty)||0)*(parseInt(it.p)||0)));
+      (q.cart||[]).forEach(it=>procItem(it.n,it.d,parseInt(it.qty)||0,(parseInt(it.qty)||0)*(parseInt(it.p)||0)));
+      (q.cust||[]).forEach(it=>procItem(it.n,it.d,parseInt(it.qty)||0,(parseInt(it.qty)||0)*(parseInt(it.p)||0)));
     }else{
-      (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>procItem(it.name,parseInt(it.qty)||0,(parseInt(it.qty)||0)*(parseInt(it.price)||0)))));
+      (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>procItem(it.name,it.desc,parseInt(it.qty)||0,(parseInt(it.qty)||0)*(parseInt(it.price)||0)))));
     }
   });
-  const aoa5=[["Producto","Cantidad total","# Pedidos","Subtotal"]];
-  Object.keys(porProd).sort().forEach(n=>{
-    const g=porProd[n];
-    aoa5.push([n,g.qty,g.pedidos.size,g.subtotal]);
+  const aoa5=[["Producto","Descripción / Variante","Cantidad total","# Pedidos","Subtotal"]];
+  Object.keys(porProd).sort().forEach(k=>{
+    const g=porProd[k];
+    aoa5.push([g.name,g.desc,g.qty,g.pedidos.size,g.subtotal]);
   });
   const ws5=XLSX.utils.aoa_to_sheet(aoa5);
-  ws5["!cols"]=[{wch:43.375},{wch:16.625},{wch:13.375},{wch:16.625}];
+  ws5["!cols"]=[{wch:36},{wch:32},{wch:14},{wch:11},{wch:14}];
   ws5["!freeze"]={xSplit:0,ySplit:1};
   _repFormatearTabla(ws5,Object.keys(porProd).length,[
-    {},
+    {},{},
     {align:"center"},{align:"center"},
     {align:"right",pesos:true}
   ]);
