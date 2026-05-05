@@ -3323,18 +3323,40 @@ async function renderCartera(){
 
 // ═══════════════════════════════════════════════════════════
 // REPORTES — Excel + PDFs imprimibles (v7.3)
-// F1 stub: scaffold del modulo con tabs. Logica Excel en F2-F4.
+// F2: selector de fecha + filtros + preview de docs en pantalla.
+// F3 generara Excel con SheetJS desde el mismo dataset.
 // ═══════════════════════════════════════════════════════════
 
 let reportesTab="excel";
+let reportesFiltros={
+  desde: "",
+  hasta: "",
+  estado: "pendientes" // todos | pendientes | entregados
+};
+let reportesResultado=null; // Cache del ultimo resultado generado
+
 function setReportesTab(t){
   if(t==="imprimibles"){
-    if(typeof toast==="function")toast("🖨️ Hojas para imprimir — Próximamente (v7.3-F2)","info");
+    if(typeof toast==="function")toast("🖨️ Hojas para imprimir — Próximamente (v7.3 F5+)","info");
     return;
   }
   reportesTab=t;
   renderReportes();
 }
+
+// Helpers fecha
+function _reportesHoy(){return new Date().toISOString().slice(0,10)}
+function _reportesHoyMas(d){const t=new Date();t.setDate(t.getDate()+d);return t.toISOString().slice(0,10)}
+
+function _reportesGetFecha(q){
+  return q.eventDate||(q.orderData||{}).fechaEntrega||(q.approvalData||{}).fechaEntrega||"";
+}
+
+// Estados validos para "vendido" (compromiso real)
+const REPORTES_VENDIDO_STATUS={
+  quote:    ["pedido","en_produccion","entregado"],
+  proposal: ["aprobada","en_produccion","entregado"]
+};
 
 async function renderReportes(){
   if(!quotesCache.length){try{await loadAllHistory()}catch{}}
@@ -3342,7 +3364,6 @@ async function renderReportes(){
   const contentEl=$("reportes-content");
   if(!contentEl)return;
 
-  // Sincronizar pills activas
   ["excel","imprimibles"].forEach(t=>{
     const tab=$("reportes-tab-"+t);
     if(tab&&t!=="imprimibles")tab.classList.toggle("act",t===reportesTab);
@@ -3351,13 +3372,153 @@ async function renderReportes(){
   if(summaryEl)summaryEl.textContent="";
 
   if(reportesTab==="excel"){
-    // F1: stub. F2 implementa selector fecha + filtros, F3 generación Excel.
-    contentEl.innerHTML='<div style="padding:40px 20px;text-align:center;color:#888;font-size:13px;line-height:1.6">'+
-      '<div style="font-size:48px;margin-bottom:16px">🚧</div>'+
-      '<div style="font-weight:700;font-size:15px;color:#555;margin-bottom:8px">Módulo Reportes — F1 OK</div>'+
-      '<div>Esqueleto creado con tabs. Selector de fecha y filtros vienen en F2,<br>generación de Excel en F3 con SheetJS.</div>'+
-      '</div>';
+    // Defaults: hoy → +30 dias, pendientes
+    if(!reportesFiltros.desde)reportesFiltros.desde=_reportesHoy();
+    if(!reportesFiltros.hasta)reportesFiltros.hasta=_reportesHoyMas(30);
+
+    contentEl.innerHTML=
+      '<div style="background:#F5F5F5;border-radius:10px;padding:14px 16px;margin-bottom:14px">'+
+        '<div style="font-weight:700;font-size:13px;color:#0D47A1;margin-bottom:10px">Filtros</div>'+
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'+
+          '<div>'+
+            '<label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Fecha desde</label>'+
+            '<input type="date" id="rep-desde" value="'+reportesFiltros.desde+'" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
+          '</div>'+
+          '<div>'+
+            '<label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Fecha hasta</label>'+
+            '<input type="date" id="rep-hasta" value="'+reportesFiltros.hasta+'" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
+          '</div>'+
+        '</div>'+
+        '<div style="margin-bottom:12px">'+
+          '<label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Estado</label>'+
+          '<select id="rep-estado" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
+            '<option value="todos"'+(reportesFiltros.estado==="todos"?" selected":"")+'>Todos (vendidos)</option>'+
+            '<option value="pendientes"'+(reportesFiltros.estado==="pendientes"?" selected":"")+'>Solo pendientes de entregar</option>'+
+            '<option value="entregados"'+(reportesFiltros.estado==="entregados"?" selected":"")+'>Solo entregados</option>'+
+          '</select>'+
+        '</div>'+
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
+          '<button class="btn" style="background:#0D47A1;color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px" onclick="generarReporte()">🔄 Generar reporte</button>'+
+          '<button class="btn" style="background:#1B5E20;color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px" onclick="descargarExcel()" id="rep-btn-excel" disabled style="opacity:.5">📥 Descargar Excel</button>'+
+        '</div>'+
+      '</div>'+
+      '<div id="rep-resultado"></div>';
+
+    // Auto-generar al entrar (UX más fluida)
+    setTimeout(()=>generarReporte(),50);
   }
+}
+
+function generarReporte(){
+  // Capturar valores actuales del form
+  const desde=$("rep-desde")?.value||"";
+  const hasta=$("rep-hasta")?.value||"";
+  const estado=$("rep-estado")?.value||"todos";
+  reportesFiltros={desde,hasta,estado};
+
+  if(!desde||!hasta){
+    if(typeof toast==="function")toast("Elige fecha desde y hasta","warn");
+    return;
+  }
+  if(desde>hasta){
+    if(typeof toast==="function")toast("La fecha 'desde' es posterior a 'hasta'","warn");
+    return;
+  }
+
+  // Filtrar docs vendidos en el rango
+  let docs=quotesCache.filter(q=>{
+    if(q._wrongCollection)return false;
+    if(!(REPORTES_VENDIDO_STATUS[q.kind]||[]).includes(q.status))return false;
+    if(estado==="pendientes"&&q.status==="entregado")return false;
+    if(estado==="entregados"&&q.status!=="entregado")return false;
+    const f=_reportesGetFecha(q);
+    if(!f)return false;
+    return f>=desde&&f<=hasta;
+  });
+
+  // Ordenar por fecha asc, luego cliente
+  docs.sort((a,b)=>{
+    const fa=_reportesGetFecha(a),fb=_reportesGetFecha(b);
+    if(fa!==fb)return fa.localeCompare(fb);
+    return (a.client||"").localeCompare(b.client||"");
+  });
+
+  reportesResultado={docs,filtros:{...reportesFiltros}};
+
+  // Habilitar boton Excel si hay resultados
+  const btnExcel=$("rep-btn-excel");
+  if(btnExcel){
+    btnExcel.disabled=docs.length===0;
+    btnExcel.style.opacity=docs.length===0?".5":"1";
+    btnExcel.style.cursor=docs.length===0?"not-allowed":"pointer";
+  }
+
+  // Render preview
+  renderReportePreview(docs);
+}
+
+function renderReportePreview(docs){
+  const el=$("rep-resultado");
+  if(!el)return;
+  const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
+  const escape=typeof h==="function"?h:(s=>String(s||""));
+
+  if(!docs.length){
+    el.innerHTML='<div style="padding:40px 20px;text-align:center;color:#888;font-size:13px">'+
+      '<div style="font-size:48px;margin-bottom:12px">📭</div>'+
+      '<div style="font-weight:700;color:#555;margin-bottom:6px">Sin resultados</div>'+
+      '<div style="font-size:12px">No hay docs vendidos en ese rango con los filtros aplicados.</div>'+
+      '</div>';
+    return;
+  }
+
+  // Resumen
+  const totalDocs=docs.length;
+  const totalMonto=docs.reduce((s,q)=>s+((typeof getDocTotal==="function")?getDocTotal(q):(q.total||0)),0);
+  const clientes=new Set(docs.map(q=>q.client||"")).size;
+
+  let html=
+    '<div style="background:#E3F2FD;border-left:3px solid #0D47A1;padding:10px 14px;margin-bottom:12px;border-radius:6px;font-size:13px">'+
+      '<strong>'+totalDocs+' doc'+(totalDocs!==1?'s':'')+'</strong> · '+clientes+' cliente'+(clientes!==1?'s':'')+' · Total <strong>'+fmt(totalMonto)+'</strong>'+
+    '</div>';
+
+  // Tabla compacta
+  html+='<div style="overflow-x:auto;border:1px solid #ddd;border-radius:6px">'+
+    '<table style="width:100%;border-collapse:collapse;font-size:12px">'+
+      '<thead style="background:#F5F5F5">'+
+        '<tr>'+
+          '<th style="text-align:left;padding:8px 10px;border-bottom:2px solid #ddd">Fecha</th>'+
+          '<th style="text-align:left;padding:8px 10px;border-bottom:2px solid #ddd">Cliente</th>'+
+          '<th style="text-align:left;padding:8px 10px;border-bottom:2px solid #ddd">Doc</th>'+
+          '<th style="text-align:left;padding:8px 10px;border-bottom:2px solid #ddd">Estado</th>'+
+          '<th style="text-align:right;padding:8px 10px;border-bottom:2px solid #ddd">Productos</th>'+
+          '<th style="text-align:right;padding:8px 10px;border-bottom:2px solid #ddd">Total</th>'+
+        '</tr>'+
+      '</thead>'+
+      '<tbody>';
+
+  docs.forEach((q,idx)=>{
+    const f=_reportesGetFecha(q);
+    const total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||0);
+    const nProd=(q.cart||[]).length+(q.cust||[]).length+(q.sections||[]).reduce((s,sec)=>s+(sec.options||[]).reduce((s2,o)=>s2+(o.items||[]).length,0),0);
+    const stLbl=(typeof STATUS_META!=="undefined"&&STATUS_META[q.status]?.label)||q.status||"";
+    const bg=idx%2===0?"#fff":"#FAFAFA";
+    html+='<tr style="background:'+bg+'">'+
+      '<td style="padding:6px 10px;border-bottom:1px solid #eee">'+escape(f)+'</td>'+
+      '<td style="padding:6px 10px;border-bottom:1px solid #eee;font-weight:600">'+escape(q.client||"")+'</td>'+
+      '<td style="padding:6px 10px;border-bottom:1px solid #eee;font-family:monospace;font-size:11px">'+escape(q.id||"")+'</td>'+
+      '<td style="padding:6px 10px;border-bottom:1px solid #eee">'+escape(stLbl)+'</td>'+
+      '<td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">'+nProd+'</td>'+
+      '<td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right;font-weight:600">'+fmt(total)+'</td>'+
+      '</tr>';
+  });
+
+  html+='</tbody></table></div>';
+  el.innerHTML=html;
+}
+
+function descargarExcel(){
+  if(typeof toast==="function")toast("📥 Descarga Excel — Próximamente (F3)","info");
 }
 
 function renderCarteraCard(q,urgencia){
