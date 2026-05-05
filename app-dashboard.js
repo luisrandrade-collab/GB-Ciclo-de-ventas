@@ -3481,6 +3481,56 @@ function renderReportesImprimiblesPreview(){
   el.innerHTML="<strong>"+docs.length+"</strong> pedido"+(docs.length!==1?"s":"")+" pendiente"+(docs.length!==1?"s":"")+" en el rango "+reportesFiltros.desde+" → "+reportesFiltros.hasta+(docs.length===0?" — los PDFs vendrán vacíos":"");
 }
 
+// ─── Helpers comunes para los 4 PDFs (look & feel HojaEntregas) ──
+
+// Pinta header con logo dorado centrado + linea + titulo + subtitulo
+function _repPdfHeader(pdf,W,title,subtitle){
+  let y=4;
+  // Logo (50mm ancho, ratio 272/500)
+  try{
+    if(typeof LOGO_IW!=="undefined"){
+      const li=new Image();li.src=LOGO_IW;
+      pdf.addImage(li,"JPEG",(W-50)/2,y,50,50*(272/500));
+    }
+  }catch(e){console.warn("Logo no agregado:",e)}
+  y+=50*(272/500)+2;
+
+  // Linea dorada decorativa
+  pdf.setDrawColor(201,169,110);pdf.setLineWidth(0.4);
+  pdf.line(20,y,W-20,y);
+
+  // Titulo
+  y+=5;
+  pdf.setFont("helvetica","bold");pdf.setFontSize(12);
+  pdf.setTextColor(26,26,26);
+  pdf.text(title,W/2,y,{align:"center"});
+
+  // Subtitulo
+  if(subtitle){
+    y+=5;
+    pdf.setFontSize(8.5);pdf.setFont("helvetica","normal");
+    pdf.setTextColor(100,100,100);
+    pdf.text(subtitle,W/2,y,{align:"center"});
+    pdf.setTextColor(26,26,26);
+  }
+  return y+4;
+}
+
+function _repPdfFooter(pdf,W,H){
+  const pageCount=pdf.internal.getNumberOfPages();
+  const ts=new Date().toLocaleString("es-CO",{dateStyle:"short",timeStyle:"short"});
+  for(let i=1;i<=pageCount;i++){
+    pdf.setPage(i);
+    pdf.setFontSize(7);pdf.setTextColor(120,120,120);
+    pdf.text("Gourmet Bites by Andrade Matuk · Generado "+ts+" · Página "+i+" de "+pageCount,
+      W/2,H-5,{align:"center"});
+  }
+}
+
+// Estilos comunes para autoTable (tema HojaEntregas: head negro, zebra crema)
+const _REP_PDF_HEAD_STYLE={fillColor:[26,26,26],textColor:255,fontStyle:"bold",fontSize:8,halign:"center",valign:"middle",cellPadding:2.5};
+const _REP_PDF_ZEBRA={fillColor:[250,250,248]};
+
 // ─── F5: PDF A — Orden de producción por cliente ────────────
 
 function generarPdfProduccionPorCliente(){
@@ -3495,56 +3545,65 @@ function generarPdfProduccionPorCliente(){
   }
   const {jsPDF}=window.jspdf;
   const pdf=new jsPDF("p","mm","a4");
-  const W=210, M=14;
-  const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
+  const W=210,H=297,M=14;
 
   docs.forEach((q,idx)=>{
     if(idx>0)pdf.addPage();
-    let y=M;
 
-    // Header
-    pdf.setFillColor(13,71,161);
-    pdf.rect(0,0,W,16,"F");
-    pdf.setTextColor(255);
-    pdf.setFontSize(13);pdf.setFont(undefined,"bold");
-    pdf.text("ORDEN DE PRODUCCION",M,10);
-    pdf.setFontSize(9);pdf.setFont(undefined,"normal");
-    pdf.text("Gourmet Bites  -  Hoja "+(idx+1)+"/"+docs.length,W-M,10,{align:"right"});
-    pdf.setTextColor(0);
-    y=24;
+    // Header con logo + dorado (look HojaEntregas)
+    const subtitle="Hoja "+(idx+1)+"/"+docs.length+"  ·  "+(q.kind==="quote"?"Cotización":"Propuesta")+" "+(q.id||"");
+    let y=_repPdfHeader(pdf,W,"ORDEN DE PRODUCCIÓN",subtitle);
 
     // Cliente / pedido datos
-    pdf.setFontSize(15);pdf.setFont(undefined,"bold");
-    pdf.text(q.client||"(sin cliente)",M,y);y+=7;
-    pdf.setFontSize(10);pdf.setFont(undefined,"normal");
+    pdf.setFontSize(14);pdf.setFont("helvetica","bold");
+    pdf.text((q.client||"(sin cliente)").toUpperCase(),M,y+2);y+=8;
+    pdf.setFontSize(9.5);pdf.setFont("helvetica","normal");
     const fecha=_reportesGetFecha(q);
     const hora=q.horaEntrega||(q.orderData||{}).horaEntrega||"";
-    pdf.text("Doc: "+(q.id||"")+"   ·   Entrega: "+fecha+(hora?" "+hora:""),M,y);y+=5;
-    if(q.dir)pdf.text("Dirección: "+q.dir+(q.city?", "+q.city:""),M,y),y+=5;
-    if(q.tel)pdf.text("Teléfono: "+q.tel,M,y),y+=5;
-    if(q.att)pdf.text("Atención: "+q.att,M,y),y+=5;
+    pdf.text("Entrega: "+fecha+(hora?"  "+hora:""),M,y);y+=4.5;
+    if(q.dir)pdf.text("Dirección: "+q.dir+(q.city?", "+q.city:""),M,y),y+=4.5;
+    if(q.tel)pdf.text("Teléfono: "+q.tel,M,y),y+=4.5;
+    if(q.att)pdf.text("Atención: "+q.att,M,y),y+=4.5;
     y+=3;
 
-    // Tabla productos
+    // Tabla productos con checkbox por item (col 0)
     const items=[];
     if(q.kind==="quote"){
-      (q.cart||[]).forEach(it=>items.push([String(it.qty||0),it.n||"",it.d||"",it.u||""]));
-      (q.cust||[]).forEach(it=>items.push([String(it.qty||0),(it.n||"")+" *",it.d||"",it.u||""]));
+      (q.cart||[]).forEach(it=>items.push(["",String(it.qty||0),it.n||"",it.d||"",it.u||""]));
+      (q.cust||[]).forEach(it=>items.push(["",String(it.qty||0),(it.n||"")+" *",it.d||"",it.u||""]));
     }else{
       (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>{
         const prefix=sec.name?"["+sec.name+(opt.label?" "+opt.label:"")+"] ":"";
-        items.push([String(it.qty||0),prefix+(it.name||""),it.desc||"",it.unit||""]);
+        items.push(["",String(it.qty||0),prefix+(it.name||""),it.desc||"",it.unit||""]);
       })));
     }
+
     if(pdf.autoTable){
+      const tw=W-M*2;
       pdf.autoTable({
-        head:[["Cant","Producto","Descripción","Unidad"]],
-        body:items,
         startY:y,
         margin:{left:M,right:M},
-        styles:{fontSize:9,cellPadding:2.5},
-        headStyles:{fillColor:[27,94,32],textColor:255,fontStyle:"bold"},
-        columnStyles:{0:{halign:"center",cellWidth:14},1:{cellWidth:60},2:{cellWidth:80},3:{cellWidth:25}}
+        head:[["✓","CANT","PRODUCTO","DESCRIPCIÓN","UNIDAD"]],
+        body:items,
+        theme:"grid",
+        headStyles:_REP_PDF_HEAD_STYLE,
+        bodyStyles:{fontSize:9,cellPadding:2.5,valign:"middle",minCellHeight:9},
+        alternateRowStyles:_REP_PDF_ZEBRA,
+        columnStyles:{
+          0:{halign:"center",cellWidth:tw*0.06},
+          1:{halign:"center",cellWidth:tw*0.10,fontStyle:"bold"},
+          2:{halign:"left",cellWidth:tw*0.36},
+          3:{halign:"left",cellWidth:tw*0.34},
+          4:{halign:"center",cellWidth:tw*0.14}
+        },
+        didDrawCell:function(data){
+          if(data.section==="body"&&data.column.index===0){
+            const cx=data.cell.x+data.cell.width/2-2.5;
+            const cy=data.cell.y+data.cell.height/2-2.5;
+            pdf.setDrawColor(80);pdf.setLineWidth(0.3);
+            pdf.rect(cx,cy,5,5);
+          }
+        }
       });
       y=pdf.lastAutoTable.finalY+8;
     }
@@ -3552,41 +3611,42 @@ function generarPdfProduccionPorCliente(){
     // Notas internas del pedido (si existen)
     const notas=(q.notasCotData||{}).publicas||(q.orderData||{}).notas||"";
     if(notas){
-      pdf.setFontSize(9);pdf.setFont(undefined,"bold");
+      pdf.setFontSize(9);pdf.setFont("helvetica","bold");
       pdf.text("Notas del pedido:",M,y);y+=4;
-      pdf.setFont(undefined,"normal");
+      pdf.setFont("helvetica","normal");
       const lines=pdf.splitTextToSize(notas,W-2*M);
       pdf.text(lines,M,y);y+=lines.length*4+4;
     }
 
     // Espacio notas cocina
-    pdf.setFontSize(9);pdf.setFont(undefined,"bold");
+    pdf.setFontSize(9);pdf.setFont("helvetica","bold");
     pdf.text("Notas cocina:",M,y);y+=2;
     pdf.setDrawColor(180);
     for(let i=0;i<3;i++){pdf.line(M,y+5,W-M,y+5);y+=7}
     y+=4;
 
     // Footer: producido + firma
-    pdf.setFontSize(10);pdf.setFont(undefined,"bold");
-    // Casilla manual con setDrawColor + rect (mas robusto que caracter unicode)
+    pdf.setFontSize(10);pdf.setFont("helvetica","bold");
     pdf.setDrawColor(80);
     pdf.rect(M,y,5,5);
     pdf.text("Producido",M+8,y+4);
     pdf.line(W-M-60,y+5,W-M,y+5);
-    pdf.setFont(undefined,"normal");pdf.setFontSize(8);
+    pdf.setFont("helvetica","normal");pdf.setFontSize(8);
     pdf.text("Firma de quien produjo",W-M-30,y+9,{align:"center"});
 
-    // * Productos custom marker (al pie)
-    if(items.some(r=>r[1].endsWith(" *"))){
+    // * Productos custom marker (al pie de pagina)
+    if(items.some(r=>r[2].endsWith(" *"))){
       pdf.setFontSize(7);pdf.setTextColor(120);
-      pdf.text("* Producto custom (no del catalogo).",M,290);
+      pdf.text("* Producto custom (no del catálogo).",M,H-12);
       pdf.setTextColor(0);
     }
   });
 
-  const fname="produccion-por-cliente-"+reportesFiltros.desde+"-a-"+reportesFiltros.hasta+".pdf";
+  _repPdfFooter(pdf,W,H);
+
+  const fname="OrdenProduccion_"+reportesFiltros.desde+(reportesFiltros.desde===reportesFiltros.hasta?"":"_a_"+reportesFiltros.hasta)+".pdf";
   pdf.save(fname);
-  if(typeof toast==="function")toast("📥 PDF generado: "+docs.length+" hoja(s)","success");
+  if(typeof toast==="function")toast("PDF generado: "+docs.length+" hoja(s)","success");
 }
 
 // ─── F6: PDF B — Producción consolidada ─────────────────────
@@ -3628,53 +3688,53 @@ function generarPdfProduccionConsolidada(){
   });
 
   const dias=Object.keys(porDia).sort();
+  const Hp=297;
   dias.forEach((f,idx)=>{
     if(idx>0)pdf.addPage();
-    let y=M;
 
-    // Header
-    pdf.setFillColor(198,40,40);
-    pdf.rect(0,0,W,16,"F");
-    pdf.setTextColor(255);
-    pdf.setFontSize(13);pdf.setFont(undefined,"bold");
-    pdf.text("PRODUCCION DEL DIA",M,10);
-    pdf.setFontSize(9);pdf.setFont(undefined,"normal");
-    pdf.text("Gourmet Bites  -  Dia "+(idx+1)+"/"+dias.length,W-M,10,{align:"right"});
-    pdf.setTextColor(0);
-    y=24;
+    const totalUnidades=Object.values(porDia[f].productos).reduce((s,g)=>s+g.qty,0);
+    const subtitle=hojaFormatFecha(f)+"  ·  "+porDia[f].docs.length+" pedido(s)  ·  "+Object.keys(porDia[f].productos).length+" producto(s) distinto(s)  ·  "+totalUnidades+" unidades";
+    let y=_repPdfHeader(pdf,W,"PRODUCCIÓN DEL DÍA",subtitle);
 
-    pdf.setFontSize(18);pdf.setFont(undefined,"bold");
-    pdf.text(f,M,y);y+=8;
-    pdf.setFontSize(10);pdf.setFont(undefined,"normal");
-    pdf.text(porDia[f].docs.length+" pedido(s) · "+Object.keys(porDia[f].productos).length+" producto(s) distinto(s)",M,y);y+=6;
-
-    // Tabla agregada ordenada alfabeticamente por nombre de producto
+    // Tabla agregada ordenada alfabeticamente por nombre+descripcion
     const rows=Object.entries(porDia[f].productos)
       .sort((a,b)=>(a[1].name||"").localeCompare(b[1].name||"")||(a[1].desc||"").localeCompare(b[1].desc||""))
       .map(([key,g])=>[String(g.qty),g.name,g.desc,g.unit,String(g.pedidos.size),Array.from(g.pedidos).join(", ")]);
 
     if(pdf.autoTable){
+      const tw=W-M*2;
       pdf.autoTable({
-        head:[["Cant","Producto","Descripción","Unidad","# Ped","Clientes"]],
-        body:rows,
         startY:y,
         margin:{left:M,right:M},
-        styles:{fontSize:8.5,cellPadding:2.5,overflow:"linebreak"},
-        headStyles:{fillColor:[198,40,40],textColor:255,fontStyle:"bold"},
-        columnStyles:{0:{halign:"center",cellWidth:14,fontStyle:"bold"},1:{cellWidth:50},2:{cellWidth:55},3:{cellWidth:20},4:{halign:"center",cellWidth:14},5:{cellWidth:30}}
+        head:[["CANT","PRODUCTO","DESCRIPCIÓN","UNIDAD","# PED","CLIENTES"]],
+        body:rows,
+        theme:"grid",
+        headStyles:_REP_PDF_HEAD_STYLE,
+        bodyStyles:{fontSize:8.5,cellPadding:2.5,valign:"top",minCellHeight:8},
+        alternateRowStyles:_REP_PDF_ZEBRA,
+        columnStyles:{
+          0:{halign:"center",cellWidth:tw*0.08,fontStyle:"bold"},
+          1:{halign:"left",cellWidth:tw*0.27,fontStyle:"bold"},
+          2:{halign:"left",cellWidth:tw*0.30},
+          3:{halign:"center",cellWidth:tw*0.12},
+          4:{halign:"center",cellWidth:tw*0.07},
+          5:{halign:"left",cellWidth:tw*0.16,fontSize:7.5}
+        }
       });
-      y=pdf.lastAutoTable.finalY+10;
+      y=pdf.lastAutoTable.finalY+8;
     }
 
     // Total al pie
-    const totalUnidades=Object.values(porDia[f].productos).reduce((s,g)=>s+g.qty,0);
-    pdf.setFontSize(11);pdf.setFont(undefined,"bold");
+    pdf.setFontSize(11);pdf.setFont("helvetica","bold");
+    pdf.setTextColor(26,26,26);
     pdf.text("TOTAL: "+totalUnidades+" unidades a producir",M,y);
   });
 
-  const fname="produccion-consolidada-"+reportesFiltros.desde+"-a-"+reportesFiltros.hasta+".pdf";
+  _repPdfFooter(pdf,W,Hp);
+
+  const fname="ProduccionConsolidada_"+reportesFiltros.desde+(reportesFiltros.desde===reportesFiltros.hasta?"":"_a_"+reportesFiltros.hasta)+".pdf";
   pdf.save(fname);
-  if(typeof toast==="function")toast("📥 PDF generado: "+dias.length+" día(s)","success");
+  if(typeof toast==="function")toast("PDF generado: "+dias.length+" día(s)","success");
 }
 
 // ─── F7: PDF C — Empaque con chequeo por item ───────────────
@@ -3691,35 +3751,26 @@ function generarPdfEmpaque(){
   }
   const {jsPDF}=window.jspdf;
   const pdf=new jsPDF("p","mm","a4");
-  const W=210, M=14;
+  const W=210,H=297,M=14;
 
   docs.forEach((q,idx)=>{
     if(idx>0)pdf.addPage();
-    let y=M;
 
-    // Header verde (distinto de PDF A azul / PDF B rojo)
-    pdf.setFillColor(27,94,32);
-    pdf.rect(0,0,W,16,"F");
-    pdf.setTextColor(255);
-    pdf.setFontSize(13);pdf.setFont(undefined,"bold");
-    pdf.text("EMPAQUE / DESPACHO",M,10);
-    pdf.setFontSize(9);pdf.setFont(undefined,"normal");
-    pdf.text("Gourmet Bites  -  Hoja "+(idx+1)+"/"+docs.length,W-M,10,{align:"right"});
-    pdf.setTextColor(0);
-    y=24;
+    const subtitle="Hoja "+(idx+1)+"/"+docs.length+"  ·  "+(q.kind==="quote"?"Cotización":"Propuesta")+" "+(q.id||"");
+    let y=_repPdfHeader(pdf,W,"EMPAQUE / DESPACHO",subtitle);
 
     // Cliente / pedido datos
-    pdf.setFontSize(15);pdf.setFont(undefined,"bold");
-    pdf.text(q.client||"(sin cliente)",M,y);y+=7;
-    pdf.setFontSize(10);pdf.setFont(undefined,"normal");
+    pdf.setFontSize(14);pdf.setFont("helvetica","bold");
+    pdf.text((q.client||"(sin cliente)").toUpperCase(),M,y+2);y+=8;
+    pdf.setFontSize(9.5);pdf.setFont("helvetica","normal");
     const fecha=_reportesGetFecha(q);
     const hora=q.horaEntrega||(q.orderData||{}).horaEntrega||"";
-    pdf.text("Doc: "+(q.id||"")+"   ·   Entrega: "+fecha+(hora?" "+hora:""),M,y);y+=5;
-    if(q.dir)pdf.text("Direccion: "+q.dir+(q.city?", "+q.city:""),M,y),y+=5;
-    if(q.tel)pdf.text("Telefono: "+q.tel,M,y),y+=5;
+    pdf.text("Entrega: "+fecha+(hora?"  "+hora:""),M,y);y+=4.5;
+    if(q.dir)pdf.text("Dirección: "+q.dir+(q.city?", "+q.city:""),M,y),y+=4.5;
+    if(q.tel)pdf.text("Teléfono: "+q.tel,M,y),y+=4.5;
     y+=3;
 
-    // Items con casilla
+    // Items con casilla en col 0
     const items=[];
     if(q.kind==="quote"){
       (q.cart||[]).forEach(it=>items.push(["",String(it.qty||0),it.n||"",it.d||"",it.u||""]));
@@ -3732,15 +3783,23 @@ function generarPdfEmpaque(){
     }
 
     if(pdf.autoTable){
+      const tw=W-M*2;
       pdf.autoTable({
-        head:[["✓","Cant","Producto","Descripcion","Unidad"]],
-        body:items,
         startY:y,
         margin:{left:M,right:M},
-        styles:{fontSize:9,cellPadding:2.5,minCellHeight:8},
-        headStyles:{fillColor:[27,94,32],textColor:255,fontStyle:"bold",halign:"center"},
-        columnStyles:{0:{cellWidth:10,halign:"center"},1:{halign:"center",cellWidth:14},2:{cellWidth:55},3:{cellWidth:80},4:{cellWidth:25}},
-        // Dibujar casilla en cada celda de la columna 0
+        head:[["✓","CANT","PRODUCTO","DESCRIPCIÓN","UNIDAD"]],
+        body:items,
+        theme:"grid",
+        headStyles:_REP_PDF_HEAD_STYLE,
+        bodyStyles:{fontSize:9,cellPadding:2.5,valign:"middle",minCellHeight:9},
+        alternateRowStyles:_REP_PDF_ZEBRA,
+        columnStyles:{
+          0:{halign:"center",cellWidth:tw*0.06},
+          1:{halign:"center",cellWidth:tw*0.10,fontStyle:"bold"},
+          2:{halign:"left",cellWidth:tw*0.36},
+          3:{halign:"left",cellWidth:tw*0.34},
+          4:{halign:"center",cellWidth:tw*0.14}
+        },
         didDrawCell:function(data){
           if(data.section==="body"&&data.column.index===0){
             const cx=data.cell.x+data.cell.width/2-2.5;
@@ -3756,25 +3815,27 @@ function generarPdfEmpaque(){
     // Footer: casilla "Listo para despachar" + linea "Empacado por"
     pdf.setDrawColor(80);pdf.setLineWidth(0.3);
     pdf.rect(M,y,5,5);
-    pdf.setFontSize(11);pdf.setFont(undefined,"bold");
+    pdf.setFontSize(11);pdf.setFont("helvetica","bold");
     pdf.text("LISTO PARA DESPACHAR",M+8,y+4);
     y+=12;
 
-    pdf.setFontSize(10);pdf.setFont(undefined,"normal");
+    pdf.setFontSize(10);pdf.setFont("helvetica","normal");
     pdf.text("Empacado por:",M,y+5);
     pdf.line(M+30,y+5,W-M,y+5);
 
     // * Productos custom marker
     if(items.some(r=>r[2].endsWith(" *"))){
       pdf.setFontSize(7);pdf.setTextColor(120);
-      pdf.text("* Producto custom (no del catalogo).",M,290);
+      pdf.text("* Producto custom (no del catálogo).",M,H-12);
       pdf.setTextColor(0);
     }
   });
 
-  const fname="empaque-"+reportesFiltros.desde+"-a-"+reportesFiltros.hasta+".pdf";
+  _repPdfFooter(pdf,W,H);
+
+  const fname="Empaque_"+reportesFiltros.desde+(reportesFiltros.desde===reportesFiltros.hasta?"":"_a_"+reportesFiltros.hasta)+".pdf";
   pdf.save(fname);
-  if(typeof toast==="function")toast("📥 PDF generado: "+docs.length+" hoja(s) de empaque","success");
+  if(typeof toast==="function")toast("PDF generado: "+docs.length+" hoja(s) de empaque","success");
 }
 
 // ─── F8: PDF D — Entregas con chequeo + firma ───────────────
@@ -3790,8 +3851,9 @@ function generarPdfEntregas(){
     return;
   }
   const {jsPDF}=window.jspdf;
-  const pdf=new jsPDF("l","mm","a4"); // horizontal para mas espacio
-  const W=297, H=210, M=12;
+  // Landscape letter (mismo formato que la hoja existente del sistema)
+  const pdf=new jsPDF("l","mm","letter");
+  const W=279.4,H=215.9,M=10;
 
   // Agrupar por dia para tener una hoja por dia
   const porDia={};
@@ -3809,61 +3871,60 @@ function generarPdfEntregas(){
   const dias=Object.keys(porDia).sort();
   dias.forEach((f,idx)=>{
     if(idx>0)pdf.addPage();
-    let y=M;
 
-    // Header naranja
-    pdf.setFillColor(230,81,0);
-    pdf.rect(0,0,W,16,"F");
-    pdf.setTextColor(255);
-    pdf.setFontSize(13);pdf.setFont(undefined,"bold");
-    pdf.text("HOJA DE ENTREGAS",M,10);
-    pdf.setFontSize(11);pdf.setFont(undefined,"normal");
-    pdf.text(f,W/2,10,{align:"center"});
-    pdf.setFontSize(9);
-    pdf.text("Gourmet Bites  -  "+porDia[f].length+" entrega(s)",W-M,10,{align:"right"});
-    pdf.setTextColor(0);
-    y=24;
+    const subtitle=hojaFormatFecha(f)+"  ·  "+porDia[f].length+" entrega"+(porDia[f].length!==1?"s":"");
+    let y=_repPdfHeader(pdf,W,"HOJA DE ENTREGAS",subtitle);
 
-    // Tabla con casillas + firma
+    // Tabla con casillas + firma. Look HojaEntregas existente.
+    const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
     const rows=porDia[f].map(q=>{
       const total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||0);
       const saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
-      const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
       const dirCorta=(q.dir||"").substring(0,40)+((q.dir||"").length>40?"...":"");
       return [
-        q.horaEntrega||"-",
-        q.client||"(sin cliente)",
+        (q.horaEntrega||"—"),
+        (q.client||"—").toString().toUpperCase(),
         q.id||"",
-        dirCorta+(q.city?", "+q.city:""),
+        dirCorta+(q.city?"\n"+q.city:""),
         q.tel||"",
         fmt(total),
-        saldo>0?fmt(saldo):"OK",
-        "","",  // Salio cocina, Entregado
-        ""  // Firma cliente
+        saldo>0?"SALDO "+fmt(saldo):"CANCELADO",
+        "","",
+        ""
       ];
     });
 
     if(pdf.autoTable){
+      const tw=W-M*2;
       pdf.autoTable({
-        head:[["Hora","Cliente","Doc","Direccion","Telefono","Total","Saldo","Salio","Entreg","Firma cliente"]],
-        body:rows,
         startY:y,
         margin:{left:M,right:M},
-        styles:{fontSize:8.5,cellPadding:2.5,minCellHeight:14,valign:"middle"},
-        headStyles:{fillColor:[230,81,0],textColor:255,fontStyle:"bold",halign:"center",fontSize:9},
+        head:[["HORA","CLIENTE","DOC","DIRECCIÓN","TELÉFONO","TOTAL","NOTAS PAGO","SALIÓ","ENTREG","FIRMA CLIENTE"]],
+        body:rows,
+        theme:"grid",
+        headStyles:_REP_PDF_HEAD_STYLE,
+        bodyStyles:{fontSize:7.5,cellPadding:2,valign:"middle",minCellHeight:14},
+        alternateRowStyles:_REP_PDF_ZEBRA,
         columnStyles:{
-          0:{halign:"center",cellWidth:14},
-          1:{cellWidth:42,fontStyle:"bold"},
-          2:{halign:"center",cellWidth:24,fontSize:7.5},
-          3:{cellWidth:62,fontSize:8},
-          4:{cellWidth:24,halign:"center"},
-          5:{halign:"right",cellWidth:20},
-          6:{halign:"right",cellWidth:18},
-          7:{cellWidth:14,halign:"center"},
-          8:{cellWidth:14,halign:"center"},
-          9:{cellWidth:38}
+          0:{halign:"center",cellWidth:tw*0.07,fontStyle:"bold"},
+          1:{halign:"left",cellWidth:tw*0.16,fontStyle:"bold"},
+          2:{halign:"center",cellWidth:tw*0.09,fontSize:7},
+          3:{halign:"left",cellWidth:tw*0.22,fontSize:7.5},
+          4:{halign:"center",cellWidth:tw*0.09},
+          5:{halign:"right",cellWidth:tw*0.08},
+          6:{halign:"center",cellWidth:tw*0.09,fontStyle:"bold"},
+          7:{halign:"center",cellWidth:tw*0.05},
+          8:{halign:"center",cellWidth:tw*0.05},
+          9:{halign:"center",cellWidth:tw*0.10}
         },
-        // Casillas en columnas 7 y 8, linea de firma en columna 9
+        didParseCell:function(data){
+          // Color verde/rojo en NOTAS PAGO igual que HojaEntregas
+          if(data.section==="body"&&data.column.index===6){
+            const txt=(data.cell.raw||"").toString();
+            if(txt==="CANCELADO"||txt==="CORTESÍA")data.cell.styles.textColor=[46,125,50];
+            else if(txt.indexOf("SALDO")===0)data.cell.styles.textColor=[198,40,40];
+          }
+        },
         didDrawCell:function(data){
           if(data.section!=="body")return;
           if(data.column.index===7||data.column.index===8){
@@ -3872,7 +3933,6 @@ function generarPdfEntregas(){
             pdf.setDrawColor(80);pdf.setLineWidth(0.3);
             pdf.rect(cx,cy,5,5);
           }else if(data.column.index===9){
-            // Linea para firma
             const lx1=data.cell.x+2;
             const lx2=data.cell.x+data.cell.width-2;
             const ly=data.cell.y+data.cell.height-3;
@@ -3881,28 +3941,29 @@ function generarPdfEntregas(){
           }
         }
       });
-      y=pdf.lastAutoTable.finalY+10;
+      y=pdf.lastAutoTable.finalY+8;
     }
 
-    // Footer con totales
+    // Totales del dia + firma del conductor
     const totalDia=porDia[f].reduce((s,q)=>s+((typeof getDocTotal==="function")?getDocTotal(q):(q.total||0)),0);
     const saldoDia=porDia[f].reduce((s,q)=>s+((typeof saldoPendiente==="function")?saldoPendiente(q):0),0);
-    const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
-    pdf.setFontSize(10);pdf.setFont(undefined,"bold");
-    pdf.text("TOTAL DIA: "+fmt(totalDia)+(saldoDia>0?"   ·   Saldo a cobrar: "+fmt(saldoDia):""),M,y);
+    pdf.setFontSize(10);pdf.setFont("helvetica","bold");
+    pdf.setTextColor(26,26,26);
+    pdf.text("TOTAL DÍA: "+fmt(totalDia)+(saldoDia>0?"   ·   Saldo a cobrar: "+fmt(saldoDia):""),M,y);
 
-    // Firma del conductor al pie
-    y+=14;
-    pdf.setFontSize(10);pdf.setFont(undefined,"normal");
+    y+=10;
+    pdf.setFontSize(10);pdf.setFont("helvetica","normal");
     pdf.text("Conductor:",M,y);
     pdf.line(M+25,y,M+100,y);
     pdf.text("Firma:",M+110,y);
     pdf.line(M+125,y,M+200,y);
   });
 
-  const fname="entregas-"+reportesFiltros.desde+"-a-"+reportesFiltros.hasta+".pdf";
+  _repPdfFooter(pdf,W,H);
+
+  const fname="HojaEntregasPendientes_"+reportesFiltros.desde+(reportesFiltros.desde===reportesFiltros.hasta?"":"_a_"+reportesFiltros.hasta)+".pdf";
   pdf.save(fname);
-  if(typeof toast==="function")toast("📥 PDF generado: "+dias.length+" día(s) de entregas","success");
+  if(typeof toast==="function")toast("PDF generado: "+dias.length+" día(s) de entregas","success");
 }
 
 function generarReporte(){
