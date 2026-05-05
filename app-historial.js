@@ -2561,3 +2561,354 @@ async function submitFe(docId,kind){
     toast("Error: "+e.message,"error");
   }
 }
+
+// ═══════════════════════════════════════════════════════════
+// v7.4 F0 — Helpers para Refactor Lifecycle Modular
+// Centralizan filtrado por etapa y render de cards por contexto.
+// renderHist sigue funcionando intacto (red de seguridad durante migración).
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Filtra quotesCache por etapa del lifecycle.
+ *
+ * Etapas válidas:
+ *   - 'ventas-cotizaciones': status enviada vivas (no perdidas)
+ *   - 'ventas-perdidas': followUp=perdida
+ *   - 'pedidos-aprobados': pedido/aprobada con produced=false
+ *   - 'pedidos-produccion': status en_produccion
+ *   - 'pedidos-producidos': produced=true sin entregar
+ *   - 'entregar': producidos con fecha entrega <= hoy+1
+ *   - 'entregadas': status entregado
+ *   - 'archivo-anuladas': status anulada
+ *   - 'archivo-convertidas': status convertida o superseded
+ *   - 'cartera': cualquier status válido con saldoPendiente>0
+ *
+ * options:
+ *   - desde, hasta: filtro fecha entrega (opcional)
+ *   - sortBy: 'fecha' (default) | 'cliente' | 'total'
+ */
+function getDocsPorEtapa(etapa,options){
+  options=options||{};
+  if(!Array.isArray(quotesCache))return [];
+
+  const isPerdida=q=>typeof getFollowUp==="function"&&getFollowUp(q)==="perdida";
+  const fechaEntrega=q=>q.eventDate||(q.orderData||{}).fechaEntrega||(q.approvalData||{}).fechaEntrega||q.fechaEntrega||"";
+
+  let docs=quotesCache.filter(q=>{
+    if(q._wrongCollection&&etapa!=="archivo-convertidas")return false;
+    const st=q.status||"enviada";
+
+    switch(etapa){
+      case "ventas-cotizaciones":
+        // Cotizaciones vivas: status enviada (cotizaciones) o enviada/propfinal (propuestas), no perdidas
+        return (st==="enviada"||st==="propfinal")&&!isPerdida(q);
+
+      case "ventas-perdidas":
+        return isPerdida(q)&&(st==="enviada"||st==="propfinal");
+
+      case "pedidos-aprobados":
+        // Cotizaciones marcadas pedido + propuestas aprobadas, sin producir aún
+        return (st==="pedido"||st==="aprobada")&&!q.produced;
+
+      case "pedidos-produccion":
+        return st==="en_produccion"&&!q.produced;
+
+      case "pedidos-producidos":
+        // Producidos pero sin entregar
+        return q.produced&&st!=="entregado"&&st!=="anulada"&&st!=="superseded"&&st!=="convertida";
+
+      case "entregar": {
+        // Producidos con fecha entrega cercana (hoy o mañana)
+        if(!q.produced||st==="entregado"||st==="anulada")return false;
+        const f=fechaEntrega(q);
+        if(!f)return false;
+        const hoy=new Date();hoy.setHours(0,0,0,0);
+        const manana=new Date(hoy);manana.setDate(manana.getDate()+1);
+        const fd=new Date(f+"T00:00:00");
+        return fd<=manana;
+      }
+
+      case "entregadas":
+        return st==="entregado";
+
+      case "archivo-anuladas":
+        return st==="anulada";
+
+      case "archivo-convertidas":
+        return st==="convertida"||st==="superseded"||q._wrongCollection;
+
+      case "cartera": {
+        const valid=["pedido","aprobada","en_produccion","entregado"];
+        if(!valid.includes(st))return false;
+        if(typeof saldoPendiente!=="function")return false;
+        return saldoPendiente(q)>0;
+      }
+
+      default:
+        return false;
+    }
+  });
+
+  // Filtro fecha opcional
+  if(options.desde||options.hasta){
+    docs=docs.filter(q=>{
+      const f=fechaEntrega(q);
+      if(!f)return false;
+      if(options.desde&&f<options.desde)return false;
+      if(options.hasta&&f>options.hasta)return false;
+      return true;
+    });
+  }
+
+  // Sort
+  const sortBy=options.sortBy||"fecha";
+  docs.sort((a,b)=>{
+    if(sortBy==="cliente"){
+      return (a.client||"").localeCompare(b.client||"");
+    }
+    if(sortBy==="total"){
+      const ta=(typeof getDocTotal==="function"?getDocTotal(a):(a.total||0));
+      const tb=(typeof getDocTotal==="function"?getDocTotal(b):(b.total||0));
+      return tb-ta;
+    }
+    // fecha asc por defecto
+    const fa=fechaEntrega(a),fb=fechaEntrega(b);
+    if(fa===fb)return (a.client||"").localeCompare(b.client||"");
+    if(!fa)return 1;
+    if(!fb)return -1;
+    return fa.localeCompare(fb);
+  });
+
+  return docs;
+}
+
+/**
+ * Devuelve array de strings (HTML de botones) según contexto del módulo.
+ * Cada contexto define un subset reducido de las 24 acciones del Histórico.
+ *
+ * Contextos:
+ *   - 'ventas-cotizaciones', 'ventas-perdidas'
+ *   - 'pedidos-aprobados', 'pedidos-produccion', 'pedidos-producidos'
+ *   - 'entregar', 'entregadas'
+ *   - 'archivo-anuladas', 'archivo-convertidas', 'archivo-busqueda'
+ *   - 'cartera' (subset chico: solo cobrar/ver pagos)
+ */
+function _actionBtnsPorContexto(q,contexto){
+  const btns=[];
+  const id=q.id||"";
+  const kind=q.kind||"quote";
+  const isProp=kind==="proposal";
+  const isPF=isProp&&id.startsWith("GB-PF-");
+  const status=q.status||"enviada";
+  const _statusLbl=(typeof STATUS_META!=="undefined"&&STATUS_META[status]?.label)||"";
+  const _saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
+  const _pagos=(typeof getPagos==="function")?getPagos(q):[];
+  const _editable=(typeof canEdit==="function")?canEdit(q):false;
+  const _needsWarn=(typeof requiresWarning==="function")?requiresWarning(q):false;
+  const _editOnclick=_needsWarn
+    ?'event.stopPropagation();requestEdit(\''+kind+'\',\''+id+'\')'
+    :'event.stopPropagation();loadQuote(\''+kind+'\',\''+id+'\')';
+
+  // Helpers de botones reusables (cierres sobre id/kind)
+  const btnEditar=()=>'<button class="btn hc-btn-edit" onclick="'+_editOnclick+'" title="Editar '+_statusLbl+'">✏️ Editar</button>';
+  const btnNuevaVersion=()=>'<button class="btn hc-btn-edit" onclick="'+_editOnclick+'" title="Nueva versión de '+_statusLbl+'">🔄 Nueva versión</button>';
+  const btnHistorial=()=>(Array.isArray(q.editHistory)&&q.editHistory.length>0)
+    ?'<button class="btn hc-btn-timeline" onclick="event.stopPropagation();openEditHistoryModal(\''+id+'\',\''+kind+'\')" title="Historial de cambios">🕒 '+q.editHistory.length+'</button>':'';
+  const btnPagar=()=>(_saldo>0)?'<button class="btn hc-btn-pago" onclick="openPagoModal(\''+id+'\',event)">💵 Registrar pago</button>':'';
+  const btnVerPagos=()=>(_pagos.length>0)?'<button class="btn hc-btn-pagos-ver" onclick="openVerPagosModal(\''+id+'\',event)">📒 Ver pagos ('+_pagos.length+')</button>':'';
+  const btnFE=()=>{
+    if(["superseded","convertida","anulada"].includes(status))return "";
+    const lbl=q.feData?'🧾 FE ✓':(q.requiereFE?'🧾 FE pendiente':'🧾 FE');
+    return '<button class="btn hc-btn-fe" onclick="event.stopPropagation();openFeModal(\''+id+'\',\''+kind+'\')">'+lbl+'</button>';
+  };
+  const btnIcs=()=>(q.eventDate||q.productionDate)?'<button class="btn hc-btn-ics" onclick="exportPedidoIcs(\''+id+'\',\''+kind+'\',event)">📅 .ics</button>':'';
+  const btnAnular=()=>{
+    const _anulable=(typeof canAnular==="function")?canAnular(q):["pedido","en_produccion","aprobada"].includes(status);
+    return _anulable?'<button class="btn hc-btn-anular" onclick="openAnularModal(\''+id+'\',\''+kind+'\',event)">↩️ Anular</button>':'';
+  };
+  const btnPdfs=()=>(Array.isArray(q.pdfHistorial)&&q.pdfHistorial.length>0)
+    ?'<button class="btn hc-btn-pdfs" onclick="openPdfHistorialModal(\''+id+'\',\''+kind+'\',event)">📎 PDFs ('+q.pdfHistorial.length+')</button>':'';
+  const btnComentario=()=>'<button class="btn hc-btn-coment" onclick="openComentModal(\''+id+'\',\''+kind+'\',event)">💬 '+(q.comentarioCliente?'Editar':'Registrar')+' comentario</button>';
+  const btnFotosKathy=()=>q.comentarioCliente?'<button class="btn hc-btn-coment" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" onclick="event.stopPropagation();reopenEntregaWhatsApp(\''+id+'\',\''+kind+'\')">📸 Enviar fotos a Kathy</button>':'';
+  const btnVincularOpcion=()=>{
+    if(typeof getOptionGroupInfo!=="function")return "";
+    const _info=getOptionGroupInfo(q,quotesCache);
+    const lbl=_info?"🔗 Opción "+_info.order+"/"+_info.total:"🔗 Vincular opción";
+    return '<button class="btn hc-btn-option" onclick="event.stopPropagation();openOptionGroupModal(\''+id+'\',\''+kind+'\')">'+lbl+'</button>';
+  };
+
+  switch(contexto){
+    case "ventas-cotizaciones": {
+      // Quick: viva/perdida
+      if(typeof isFollowable==="function"&&isFollowable(q)){
+        const fu=typeof getFollowUp==="function"?getFollowUp(q):"pendiente";
+        const vivaLabel=fu==="activa"?"🟢 Activa ✓":(fu==="contactado"?"🟢 Marcar activa":"🟢 Viva");
+        btns.push('<button class="btn hc-btn-viva-quick" onclick="quickMarkViva(\''+id+'\',\''+kind+'\',event)" title="Marcar como viva/activa">'+vivaLabel+'</button>');
+        btns.push('<button class="btn hc-btn-perdida-quick" onclick="openPerdidaModal(\''+id+'\',\''+kind+'\');event.stopPropagation();" title="Marcar como perdida">❌ Perdida</button>');
+      }
+      // Editar (PFs muestran "Nueva versión")
+      if(_editable){
+        if(isPF&&status!=="superseded")btns.push(btnNuevaVersion());
+        else if(!isPF)btns.push(btnEditar());
+      }
+      btns.push(btnHistorial());
+      // Acción primaria según tipo
+      if(!isProp&&status==="enviada"){
+        btns.push('<button class="btn hc-btn-order" onclick="openOrderModal(\''+id+'\',event)">✅ Marcar como pedido</button>');
+      }else if(isProp&&status==="enviada"){
+        const hasMulti=(q.sections||[]).some(s=>(s.options||[]).length>1);
+        if(hasMulti)btns.push('<button class="btn hc-btn-final" onclick="openPropFinalFlow(\''+id+'\',event)">✓ Generar Propuesta Final</button>');
+        else btns.push('<button class="btn hc-btn-approve" onclick="openApproveModal(\''+id+'\',\'proposal\',event)">✓ Marcar como aprobada</button>');
+      }else if(isProp&&status==="propfinal"){
+        btns.push('<button class="btn hc-btn-approve" onclick="openApproveModal(\''+id+'\',\'proposal\',event)">✓ Marcar como aprobada</button>');
+      }
+      btns.push(btnVincularOpcion());
+      btns.push(btnAnular());
+      btns.push(btnPdfs());
+      break;
+    }
+
+    case "ventas-perdidas": {
+      btns.push('<button class="btn hc-btn-reactivar" onclick="openReactivarModal(\''+id+'\',\''+kind+'\',event)">♻️ Reactivar</button>');
+      btns.push(btnPdfs());
+      break;
+    }
+
+    case "pedidos-aprobados": {
+      if(_editable&&!isPF)btns.push(btnEditar());
+      btns.push(btnHistorial());
+      if(!q.eventDate)btns.push('<button class="btn hc-btn-order" onclick="assignDeliveryDate(\''+id+'\',\''+kind+'\',event)">📅 Asignar fecha</button>');
+      // Iniciar producción (acción primaria)
+      btns.push('<button class="btn hc-btn-order" style="background:#FFF3E0;color:#E65100;border-color:#FFB74D" onclick="markAsInProduction(\''+id+'\',\''+kind+'\',event)">🔥 Iniciar producción</button>');
+      // Skip producción → marcar producido directo
+      btns.push('<button class="btn hc-btn-edit" onclick="toggleProduced(\''+id+'\',\''+kind+'\',event)">🔪 Marcar producido</button>');
+      btns.push(btnIcs());
+      btns.push(btnAnular());
+      btns.push(btnPagar());
+      btns.push(btnVerPagos());
+      btns.push(btnFE());
+      btns.push(btnPdfs());
+      break;
+    }
+
+    case "pedidos-produccion": {
+      if(_editable&&!isPF)btns.push(btnEditar());
+      btns.push(btnHistorial());
+      btns.push('<button class="btn hc-btn-edit" onclick="toggleProduced(\''+id+'\',\''+kind+'\',event)">🔪 Marcar producido</button>');
+      btns.push(btnIcs());
+      btns.push(btnAnular());
+      btns.push(btnPagar());
+      btns.push(btnVerPagos());
+      btns.push(btnFE());
+      btns.push(btnPdfs());
+      break;
+    }
+
+    case "pedidos-producidos":
+    case "entregar": {
+      if(_editable&&!isPF)btns.push(btnEditar());
+      btns.push(btnHistorial());
+      btns.push('<button class="btn hc-btn-edit" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" title="Toca para desmarcar producido" onclick="confirmUnproduced(\''+id+'\',\''+kind+'\',event)">🔪 Producido ✓</button>');
+      btns.push('<button class="btn hc-btn-deliver" onclick="openDeliveryModal(\''+id+'\',\''+kind+'\',event)">🎉 Marcar como entregado</button>');
+      btns.push(btnIcs());
+      btns.push(btnPagar());
+      btns.push(btnVerPagos());
+      btns.push(btnFE());
+      btns.push(btnPdfs());
+      break;
+    }
+
+    case "entregadas": {
+      // Editar con warn fuerte (caso real: corregir error post-entrega)
+      if(_editable&&!isPF)btns.push(btnEditar());
+      btns.push(btnHistorial());
+      btns.push(btnComentario());
+      btns.push(btnFotosKathy());
+      btns.push(btnPagar());
+      btns.push(btnVerPagos());
+      btns.push(btnFE());
+      btns.push(btnPdfs());
+      break;
+    }
+
+    case "archivo-anuladas":
+      btns.push(btnPdfs());
+      break;
+
+    case "archivo-convertidas":
+      if(q._wrongCollection)btns.push('<button class="btn hc-btn-wrong" onclick="deleteWrongDoc(\''+id+'\',event)">🗑️ Eliminar fantasma</button>');
+      if(isPF&&status!=="superseded")btns.push(btnNuevaVersion());
+      btns.push(btnPdfs());
+      break;
+
+    case "archivo-busqueda":
+      // Read-only: solo PDFs y un botón "Ver detalle" (TODO: link al módulo)
+      btns.push(btnPdfs());
+      break;
+
+    case "cartera":
+      btns.push(btnPagar());
+      btns.push(btnVerPagos());
+      break;
+  }
+
+  return btns.filter(b=>b); // Quitar strings vacíos
+}
+
+/**
+ * Renderiza el HTML de una card según el contexto del módulo.
+ * Reusa el estilo visual del Histórico actual.
+ *
+ * opciones:
+ *   - showStatus (default true): mostrar badge de status
+ *   - showEntrega (default true): mostrar fecha entrega
+ *   - showSaldo (default false): mostrar info de saldo (útil en Cartera)
+ *   - compact (default false): card más chica para vistas tipo Cartera
+ */
+function renderDocCard(q,contexto,opciones){
+  opciones=opciones||{};
+  const showStatus=opciones.showStatus!==false;
+  const showSaldo=opciones.showSaldo===true;
+  const compact=opciones.compact===true;
+
+  const id=q.id||"";
+  const kind=q.kind||"quote";
+  const cli=q.client||"(sin cliente)";
+  const status=q.status||"enviada";
+  const total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||0);
+  const saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
+  const cobrado=total-saldo;
+  const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
+  const escape=typeof h==="function"?h:(s=>String(s||""));
+  const fecha=q.eventDate||(q.orderData||{}).fechaEntrega||(q.approvalData||{}).fechaEntrega||q.fechaEntrega||"";
+  const hora=q.horaEntrega||(q.orderData||{}).horaEntrega||"";
+
+  // Badges
+  const statusLbl=(typeof STATUS_META!=="undefined"&&STATUS_META[status]?.label)||status;
+  const statusBadge=showStatus?'<span style="font-size:10px;background:#f5f5f5;padding:1px 6px;border-radius:4px">'+escape(statusLbl)+'</span>':'';
+  const fechaTxt=fecha?'📅 '+escape(fecha)+(hora?' '+escape(hora):''):'';
+
+  // Action buttons
+  const actionBtns=_actionBtnsPorContexto(q,contexto);
+  const actionsHtml=actionBtns.length?'<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">'+actionBtns.join("")+'</div>':'';
+
+  // Layout
+  const padding=compact?"10px 12px":"12px 14px";
+  return '<div class="hc-item" data-doc-id="'+escape(id)+'" style="background:#fff;border:1px solid #ddd;border-radius:8px;padding:'+padding+';margin:0 4px 8px;box-shadow:0 1px 3px rgba(0,0,0,.04)">'+
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap">'+
+      '<div style="flex:1;min-width:160px">'+
+        '<div style="font-weight:700;font-size:14px;color:#212121">'+escape(cli)+'</div>'+
+        '<div style="font-size:11px;color:#666;margin-top:2px">'+escape(id)+(statusBadge?' · '+statusBadge:'')+(fechaTxt?' · '+fechaTxt:'')+'</div>'+
+      '</div>'+
+      '<div style="text-align:right;font-size:11px;color:#888;line-height:1.5">'+
+        (showSaldo?'<div>Total '+fmt(total)+'</div><div>Cobrado '+fmt(cobrado)+'</div><div style="font-weight:700;font-size:14px;color:#C62828;margin-top:2px">Saldo '+fmt(saldo)+'</div>':'<div style="font-weight:700;font-size:14px;color:#212121">'+fmt(total)+'</div>')+
+      '</div>'+
+    '</div>'+
+    actionsHtml+
+    '</div>';
+}
+
+// Exponer a window para test desde consola del browser
+window.getDocsPorEtapa=getDocsPorEtapa;
+window.renderDocCard=renderDocCard;
+window._actionBtnsPorContexto=_actionBtnsPorContexto;
