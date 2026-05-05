@@ -3336,10 +3336,7 @@ let reportesFiltros={
 let reportesResultado=null; // Cache del ultimo resultado generado
 
 function setReportesTab(t){
-  if(t==="imprimibles"){
-    if(typeof toast==="function")toast("🖨️ Hojas para imprimir — Próximamente (v7.3 F5+)","info");
-    return;
-  }
+  if(t!=="excel"&&t!=="imprimibles")return;
   reportesTab=t;
   renderReportes();
 }
@@ -3366,7 +3363,7 @@ async function renderReportes(){
 
   ["excel","imprimibles"].forEach(t=>{
     const tab=$("reportes-tab-"+t);
-    if(tab&&t!=="imprimibles")tab.classList.toggle("act",t===reportesTab);
+    if(tab)tab.classList.toggle("act",t===reportesTab);
   });
 
   if(summaryEl)summaryEl.textContent="";
@@ -3405,7 +3402,275 @@ async function renderReportes(){
 
     // Auto-generar al entrar
     setTimeout(()=>generarReporte(),50);
+  }else if(reportesTab==="imprimibles"){
+    renderReportesImprimibles(contentEl);
   }
+}
+
+// ─── F4: Tab Imprimibles ─────────────────────────────────────
+
+function renderReportesImprimibles(contentEl){
+  if(!reportesFiltros.desde)reportesFiltros.desde=_reportesHoy();
+  if(!reportesFiltros.hasta)reportesFiltros.hasta=_reportesHoyMas(7);
+
+  contentEl.innerHTML=
+    '<div style="background:#F5F5F5;border-radius:10px;padding:14px 16px;margin-bottom:14px">'+
+      '<div style="font-weight:700;font-size:13px;color:#0D47A1;margin-bottom:10px">Rango de fechas (entrega)</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'+
+        '<div>'+
+          '<label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Fecha desde</label>'+
+          '<input type="date" id="rep-imp-desde" value="'+reportesFiltros.desde+'" onchange="reportesFiltros.desde=this.value;renderReportesImprimiblesPreview()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
+        '</div>'+
+        '<div>'+
+          '<label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Fecha hasta</label>'+
+          '<input type="date" id="rep-imp-hasta" value="'+reportesFiltros.hasta+'" onchange="reportesFiltros.hasta=this.value;renderReportesImprimiblesPreview()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
+        '</div>'+
+      '</div>'+
+      '<div id="rep-imp-preview" style="margin-top:10px;font-size:12px;color:#555"></div>'+
+    '</div>'+
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">'+
+      _impCard("A","🍳","Orden de producción","1 hoja por cliente. Productos a producir, datos de entrega, espacio para notas y firma de quien lo hizo.","JP / cocina","generarPdfProduccionPorCliente()",false)+
+      _impCard("B","👨‍🍳","Producción consolidada","Suma de cantidades por producto del rango. Permite planificar cocina sin abrir cliente por cliente.","JP / cocina","generarPdfProduccionConsolidada()",false)+
+      _impCard("C","📦","Empaque con chequeo","1 hoja por cliente con casillas ☐ por cada item. Para verificar antes de despachar.","Empacador","",true)+
+      _impCard("D","🚚","Entregas con chequeo + firma","Ruta del día con casillas de salió/entregado/firma del receptor.","Conductor","",true)+
+    '</div>';
+  renderReportesImprimiblesPreview();
+}
+
+function _impCard(letra,emoji,titulo,descripcion,destinatario,onclick,soon){
+  const btn=soon
+    ?'<button disabled style="background:#eee;color:#999;border:none;padding:8px 14px;border-radius:6px;font-weight:600;font-size:12px;cursor:not-allowed">Pronto</button>'
+    :'<button onclick="'+onclick+'" style="background:#0D47A1;color:white;border:none;padding:8px 14px;border-radius:6px;font-weight:600;font-size:12px;cursor:pointer">📥 Generar PDF</button>';
+  return '<div style="background:white;border:1px solid #ddd;border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px">'+
+    '<div style="display:flex;align-items:center;gap:8px">'+
+      '<div style="font-size:32px">'+emoji+'</div>'+
+      '<div>'+
+        '<div style="font-size:10px;color:#888;font-weight:600">PDF '+letra+(soon?' · Próximamente':'')+'</div>'+
+        '<div style="font-weight:700;font-size:14px;color:#212121">'+titulo+'</div>'+
+      '</div>'+
+    '</div>'+
+    '<div style="font-size:12px;color:#555;line-height:1.4">'+descripcion+'</div>'+
+    '<div style="font-size:11px;color:#888"><strong>Destinatario:</strong> '+destinatario+'</div>'+
+    '<div>'+btn+'</div>'+
+    '</div>';
+}
+
+function _impGetDocsRango(){
+  // Solo PENDIENTES de entregar (status pedido/aprobada/en_produccion) en el rango.
+  const desde=reportesFiltros.desde, hasta=reportesFiltros.hasta;
+  if(!desde||!hasta)return [];
+  return quotesCache.filter(q=>{
+    if(q._wrongCollection)return false;
+    if(typeof getFollowUp==="function"&&getFollowUp(q)==="perdida")return false;
+    const okStatus=(q.kind==="quote"?["pedido","en_produccion"]:["aprobada","en_produccion"]).includes(q.status);
+    if(!okStatus)return false;
+    const f=_reportesGetFecha(q);
+    return f&&f>=desde&&f<=hasta;
+  }).sort((a,b)=>{
+    const fa=_reportesGetFecha(a),fb=_reportesGetFecha(b);
+    if(fa!==fb)return fa.localeCompare(fb);
+    return (a.client||"").localeCompare(b.client||"");
+  });
+}
+
+function renderReportesImprimiblesPreview(){
+  const el=$("rep-imp-preview");
+  if(!el)return;
+  if(!reportesFiltros.desde||!reportesFiltros.hasta){el.textContent="Elige rango de fechas para ver qué pedidos hay";return}
+  const docs=_impGetDocsRango();
+  el.innerHTML="<strong>"+docs.length+"</strong> pedido"+(docs.length!==1?"s":"")+" pendiente"+(docs.length!==1?"s":"")+" en el rango "+reportesFiltros.desde+" → "+reportesFiltros.hasta+(docs.length===0?" — los PDFs vendrán vacíos":"");
+}
+
+// ─── F5: PDF A — Orden de producción por cliente ────────────
+
+function generarPdfProduccionPorCliente(){
+  if(!window.jspdf||!window.jspdf.jsPDF){
+    if(typeof toast==="function")toast("Error: jsPDF no cargado","error");
+    return;
+  }
+  const docs=_impGetDocsRango();
+  if(!docs.length){
+    if(typeof toast==="function")toast("No hay pedidos pendientes en el rango","warn");
+    return;
+  }
+  const {jsPDF}=window.jspdf;
+  const pdf=new jsPDF("p","mm","a4");
+  const W=210, M=14;
+  const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
+
+  docs.forEach((q,idx)=>{
+    if(idx>0)pdf.addPage();
+    let y=M;
+
+    // Header
+    pdf.setFillColor(13,71,161);
+    pdf.rect(0,0,W,16,"F");
+    pdf.setTextColor(255);
+    pdf.setFontSize(13);pdf.setFont(undefined,"bold");
+    pdf.text("🍳 ORDEN DE PRODUCCIÓN",M,10);
+    pdf.setFontSize(9);pdf.setFont(undefined,"normal");
+    pdf.text("Gourmet Bites · "+(idx+1)+"/"+docs.length,W-M,10,{align:"right"});
+    pdf.setTextColor(0);
+    y=24;
+
+    // Cliente / pedido datos
+    pdf.setFontSize(15);pdf.setFont(undefined,"bold");
+    pdf.text(q.client||"(sin cliente)",M,y);y+=7;
+    pdf.setFontSize(10);pdf.setFont(undefined,"normal");
+    const fecha=_reportesGetFecha(q);
+    const hora=q.horaEntrega||(q.orderData||{}).horaEntrega||"";
+    pdf.text("Doc: "+(q.id||"")+"   ·   Entrega: "+fecha+(hora?" "+hora:""),M,y);y+=5;
+    if(q.dir)pdf.text("Dirección: "+q.dir+(q.city?", "+q.city:""),M,y),y+=5;
+    if(q.tel)pdf.text("Teléfono: "+q.tel,M,y),y+=5;
+    if(q.att)pdf.text("Atención: "+q.att,M,y),y+=5;
+    y+=3;
+
+    // Tabla productos
+    const items=[];
+    if(q.kind==="quote"){
+      (q.cart||[]).forEach(it=>items.push([String(it.qty||0),it.n||"",it.d||"",it.u||""]));
+      (q.cust||[]).forEach(it=>items.push([String(it.qty||0),(it.n||"")+" *",it.d||"",it.u||""]));
+    }else{
+      (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>{
+        const prefix=sec.name?"["+sec.name+(opt.label?" "+opt.label:"")+"] ":"";
+        items.push([String(it.qty||0),prefix+(it.name||""),it.desc||"",it.unit||""]);
+      })));
+    }
+    if(pdf.autoTable){
+      pdf.autoTable({
+        head:[["Cant","Producto","Descripción","Unidad"]],
+        body:items,
+        startY:y,
+        margin:{left:M,right:M},
+        styles:{fontSize:9,cellPadding:2.5},
+        headStyles:{fillColor:[27,94,32],textColor:255,fontStyle:"bold"},
+        columnStyles:{0:{halign:"center",cellWidth:14},1:{cellWidth:60},2:{cellWidth:80},3:{cellWidth:25}}
+      });
+      y=pdf.lastAutoTable.finalY+8;
+    }
+
+    // Notas internas del pedido (si existen)
+    const notas=(q.notasCotData||{}).publicas||(q.orderData||{}).notas||"";
+    if(notas){
+      pdf.setFontSize(9);pdf.setFont(undefined,"bold");
+      pdf.text("Notas del pedido:",M,y);y+=4;
+      pdf.setFont(undefined,"normal");
+      const lines=pdf.splitTextToSize(notas,W-2*M);
+      pdf.text(lines,M,y);y+=lines.length*4+4;
+    }
+
+    // Espacio notas cocina
+    pdf.setFontSize(9);pdf.setFont(undefined,"bold");
+    pdf.text("Notas cocina:",M,y);y+=2;
+    pdf.setDrawColor(180);
+    for(let i=0;i<3;i++){pdf.line(M,y+5,W-M,y+5);y+=7}
+    y+=4;
+
+    // Footer: producido + firma
+    pdf.setFontSize(10);pdf.setFont(undefined,"bold");
+    pdf.text("☐  Producido",M,y+4);
+    pdf.line(W-M-60,y+5,W-M,y+5);
+    pdf.setFont(undefined,"normal");pdf.setFontSize(8);
+    pdf.text("Firma de quien produjo",W-M-30,y+9,{align:"center"});
+
+    // * Productos custom marker (al pie)
+    if(items.some(r=>r[1].endsWith(" *"))){
+      pdf.setFontSize(7);pdf.setTextColor(120);
+      pdf.text("* Producto custom (no del catálogo).",M,290);
+      pdf.setTextColor(0);
+    }
+  });
+
+  const fname="produccion-por-cliente-"+reportesFiltros.desde+"-a-"+reportesFiltros.hasta+".pdf";
+  pdf.save(fname);
+  if(typeof toast==="function")toast("📥 PDF generado: "+docs.length+" hoja(s)","success");
+}
+
+// ─── F6: PDF B — Producción consolidada ─────────────────────
+
+function generarPdfProduccionConsolidada(){
+  if(!window.jspdf||!window.jspdf.jsPDF){
+    if(typeof toast==="function")toast("Error: jsPDF no cargado","error");
+    return;
+  }
+  const docs=_impGetDocsRango();
+  if(!docs.length){
+    if(typeof toast==="function")toast("No hay pedidos pendientes en el rango","warn");
+    return;
+  }
+  const {jsPDF}=window.jspdf;
+  const pdf=new jsPDF("p","mm","a4");
+  const W=210, M=14;
+
+  // Agrupar por día
+  const porDia={};
+  docs.forEach(q=>{
+    const f=_reportesGetFecha(q)||"(sin fecha)";
+    if(!porDia[f])porDia[f]={docs:[],productos:{}};
+    porDia[f].docs.push(q);
+    const procItem=(name,qty,desc,unit)=>{
+      if(!name)return;
+      const key=name;
+      if(!porDia[f].productos[key])porDia[f].productos[key]={qty:0,desc:desc||"",unit:unit||"",pedidos:new Set()};
+      porDia[f].productos[key].qty+=qty;
+      porDia[f].productos[key].pedidos.add(q.client||q.id);
+    };
+    if(q.kind==="quote"){
+      (q.cart||[]).forEach(it=>procItem(it.n,parseInt(it.qty)||0,it.d,it.u));
+      (q.cust||[]).forEach(it=>procItem(it.n,parseInt(it.qty)||0,it.d,it.u));
+    }else{
+      (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>procItem(it.name,parseInt(it.qty)||0,it.desc,it.unit))));
+    }
+  });
+
+  const dias=Object.keys(porDia).sort();
+  dias.forEach((f,idx)=>{
+    if(idx>0)pdf.addPage();
+    let y=M;
+
+    // Header
+    pdf.setFillColor(198,40,40);
+    pdf.rect(0,0,W,16,"F");
+    pdf.setTextColor(255);
+    pdf.setFontSize(13);pdf.setFont(undefined,"bold");
+    pdf.text("👨‍🍳 PRODUCCIÓN DEL DÍA",M,10);
+    pdf.setFontSize(9);pdf.setFont(undefined,"normal");
+    pdf.text("Gourmet Bites · "+(idx+1)+"/"+dias.length,W-M,10,{align:"right"});
+    pdf.setTextColor(0);
+    y=24;
+
+    pdf.setFontSize(18);pdf.setFont(undefined,"bold");
+    pdf.text(f,M,y);y+=8;
+    pdf.setFontSize(10);pdf.setFont(undefined,"normal");
+    pdf.text(porDia[f].docs.length+" pedido(s) · "+Object.keys(porDia[f].productos).length+" producto(s) distinto(s)",M,y);y+=6;
+
+    // Tabla agregada ordenada por cantidad desc
+    const rows=Object.entries(porDia[f].productos)
+      .sort((a,b)=>b[1].qty-a[1].qty)
+      .map(([name,g])=>[String(g.qty),name,g.desc,g.unit,String(g.pedidos.size),Array.from(g.pedidos).join(", ")]);
+
+    if(pdf.autoTable){
+      pdf.autoTable({
+        head:[["Cant","Producto","Descripción","Unidad","# Ped","Clientes"]],
+        body:rows,
+        startY:y,
+        margin:{left:M,right:M},
+        styles:{fontSize:8.5,cellPadding:2.5,overflow:"linebreak"},
+        headStyles:{fillColor:[198,40,40],textColor:255,fontStyle:"bold"},
+        columnStyles:{0:{halign:"center",cellWidth:14,fontStyle:"bold"},1:{cellWidth:50},2:{cellWidth:55},3:{cellWidth:20},4:{halign:"center",cellWidth:14},5:{cellWidth:30}}
+      });
+      y=pdf.lastAutoTable.finalY+10;
+    }
+
+    // Total al pie
+    const totalUnidades=Object.values(porDia[f].productos).reduce((s,g)=>s+g.qty,0);
+    pdf.setFontSize(11);pdf.setFont(undefined,"bold");
+    pdf.text("TOTAL: "+totalUnidades+" unidades a producir",M,y);
+  });
+
+  const fname="produccion-consolidada-"+reportesFiltros.desde+"-a-"+reportesFiltros.hasta+".pdf";
+  pdf.save(fname);
+  if(typeof toast==="function")toast("📥 PDF generado: "+dias.length+" día(s)","success");
 }
 
 function generarReporte(){
