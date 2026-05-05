@@ -1750,6 +1750,8 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
         <a href="javascript:void(0)" class="is-soon" data-sub="ventas/pipeline">Pipeline<span class="sub-soon">Pronto</span></a>
         <a href="javascript:void(0)" data-sub="ventas/cotizar">Nueva cotización</a>
         <a href="javascript:void(0)" data-sub="ventas/propuesta">Nueva propuesta</a>
+        <a href="javascript:void(0)" data-sub="ventas/cotizaciones">Cotizaciones activas</a>
+        <a href="javascript:void(0)" data-sub="ventas/perdidas">Perdidas</a>
         <a href="javascript:void(0)" data-sub="ventas/historico">Histórico comercial</a>
       </div>
     </div>
@@ -1834,7 +1836,9 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'ops/produccion':    'ops',
     'ops/cobro':         'cartera',
     'reportes/excel':       'reportes',
-    'reportes/imprimibles': 'reportes'
+    'reportes/imprimibles': 'reportes',
+    'ventas/cotizaciones':  'cotizaciones',
+    'ventas/perdidas':      'perdidas'
     // Pipeline, ops/despacho, ops/historico-hojas, compras/*, clientes/*, herr/* → undefined → SOON
   };
 
@@ -1849,9 +1853,11 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'prop':   'ventas/propuesta',
     'hist':    'ventas/historico',
     'ops':      'ops/produccion',
-    'cartera':  'ops/cobro',
-    'reportes': 'reportes/excel',
-    'search':   'ventas/cotizar'
+    'cartera':       'ops/cobro',
+    'reportes':      'reportes/excel',
+    'cotizaciones':  'ventas/cotizaciones',
+    'perdidas':      'ventas/perdidas',
+    'search':        'ventas/cotizar'
   };
 
   // Labels para el crumb (D7 amplía esto a módulo+submódulo)
@@ -1866,7 +1872,9 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'ops/cobro':         ['Operaciones', 'Cartera'],
     'reportes/excel':       ['Reportes', 'Exportar Excel'],
     'reportes/imprimibles': ['Reportes', 'Hojas para imprimir'],
-    'ventas/historico':  ['Ventas', 'Histórico comercial']
+    'ventas/cotizaciones':  ['Ventas', 'Cotizaciones activas'],
+    'ventas/perdidas':      ['Ventas', 'Perdidas'],
+    'ventas/historico':     ['Ventas', 'Histórico comercial']
   };
 
   function gbShellEnsureCrumb(){
@@ -2644,6 +2652,28 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <button class="cpill" onclick="setOpsTab('todos')" id="ops-tab-todos">Todos</button>
     </div>
     <div id="ops-list"></div>
+  </div>
+</div>
+
+<!-- ======== COTIZACIONES MODE (v7.4 F1) — Cotizaciones activas (status enviada vivas) ======== -->
+<div id="mode-cotizaciones" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#0D47A1;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <span>📋 Cotizaciones activas</span>
+      <span id="cotizaciones-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+    </div>
+    <div id="cotizaciones-list" style="padding:0 4px"></div>
+  </div>
+</div>
+
+<!-- ======== PERDIDAS MODE (v7.4 F1) — Cotizaciones perdidas (followUp=perdida) ======== -->
+<div id="mode-perdidas" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#757575;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <span>❌ Cotizaciones perdidas</span>
+      <span id="perdidas-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+    </div>
+    <div id="perdidas-list" style="padding:0 4px"></div>
   </div>
 </div>
 
@@ -3633,12 +3663,12 @@ body{padding-bottom:84px}
 </script>
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.4.0"></script>
-<script src="app-core.js?v=7.4.0"></script>
-<script src="app-cotizar.js?v=7.4.0"></script>
-<script src="app-propuesta.js?v=7.4.0"></script>
-<script src="app-historial.js?v=7.4.0"></script>
-<script src="app-seguimiento.js?v=7.4.0"></script>
-<script src="app-dashboard.js?v=7.4.0"></script>
+<script src="app-assets.js?v=7.4.1"></script>
+<script src="app-core.js?v=7.4.1"></script>
+<script src="app-cotizar.js?v=7.4.1"></script>
+<script src="app-propuesta.js?v=7.4.1"></script>
+<script src="app-historial.js?v=7.4.1"></script>
+<script src="app-seguimiento.js?v=7.4.1"></script>
+<script src="app-dashboard.js?v=7.4.1"></script>
 </body>
 </html>

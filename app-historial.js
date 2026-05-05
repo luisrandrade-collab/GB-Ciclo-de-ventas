@@ -2912,3 +2912,46 @@ function renderDocCard(q,contexto,opciones){
 window.getDocsPorEtapa=getDocsPorEtapa;
 window.renderDocCard=renderDocCard;
 window._actionBtnsPorContexto=_actionBtnsPorContexto;
+
+// ─── v7.4 F1: Sub-módulos Ventas ───────────────────────────
+
+async function renderCotizaciones(){
+  if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+  const summaryEl=$("cotizaciones-summary");
+  const listEl=$("cotizaciones-list");
+  if(!listEl)return;
+  const docs=getDocsPorEtapa("ventas-cotizaciones");
+  const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
+  const totalMonto=docs.reduce((s,q)=>s+((typeof getDocTotal==="function")?getDocTotal(q):(q.total||0)),0);
+  if(summaryEl)summaryEl.textContent=docs.length?docs.length+" doc(s) · total potencial "+fmt(totalMonto):"";
+  if(!docs.length){
+    listEl.innerHTML='<div style="padding:48px 20px;text-align:center;color:#888;font-size:14px">'+
+      '<div style="font-size:48px;margin-bottom:12px">📋</div>'+
+      '<div style="font-weight:700;color:#555;margin-bottom:6px">Sin cotizaciones activas</div>'+
+      '<div style="font-size:12px">Las cotizaciones nuevas aparecerán acá hasta que se conviertan en pedido o se marquen como perdidas.</div>'+
+      '</div>';
+    return;
+  }
+  listEl.innerHTML=docs.map(q=>renderDocCard(q,"ventas-cotizaciones",{showStatus:true})).join("");
+}
+
+async function renderPerdidas(){
+  if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+  const summaryEl=$("perdidas-summary");
+  const listEl=$("perdidas-list");
+  if(!listEl)return;
+  const docs=getDocsPorEtapa("ventas-perdidas");
+  if(summaryEl)summaryEl.textContent=docs.length?docs.length+" doc(s) perdido(s)":"";
+  if(!docs.length){
+    listEl.innerHTML='<div style="padding:48px 20px;text-align:center;color:#888;font-size:14px">'+
+      '<div style="font-size:48px;margin-bottom:12px">✨</div>'+
+      '<div style="font-weight:700;color:#555;margin-bottom:6px">Sin cotizaciones perdidas</div>'+
+      '<div style="font-size:12px">No hay cotizaciones marcadas como perdidas. Las podés reactivar desde acá si recuperás al cliente.</div>'+
+      '</div>';
+    return;
+  }
+  listEl.innerHTML=docs.map(q=>renderDocCard(q,"ventas-perdidas",{showStatus:true})).join("");
+}
+
+window.renderCotizaciones=renderCotizaciones;
+window.renderPerdidas=renderPerdidas;

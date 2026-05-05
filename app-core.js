@@ -1709,7 +1709,8 @@ function setMode(m){
   // v5.0.4: agregar 'seg' (seguimiento comercial) al switch de modos
   // v7.2: agregado 'cartera' (modulo de cobros / pagos pendientes)
   // v7.3: agregado 'reportes' (modulo de Excel + PDFs imprimibles)
-  ["dash","cot","prop","search","hist","seg","cal","ventas","ops","cartera","reportes"].forEach(x=>{
+  // v7.4 F1: agregados 'cotizaciones' y 'perdidas' (sub-modulos Ventas)
+  ["dash","cot","prop","search","hist","seg","cal","ventas","ops","cartera","reportes","cotizaciones","perdidas"].forEach(x=>{
     const el=$("mode-"+x);
     if(el)el.classList.toggle("hidden",x!==m);
     document.querySelectorAll(".mode-btn.m-"+x).forEach(b=>b.classList.toggle("act",x===m));
@@ -1724,6 +1725,8 @@ function setMode(m){
   if(m==="ops"&&typeof renderOps==="function")renderOps();
   if(m==="cartera"&&typeof renderCartera==="function")renderCartera();
   if(m==="reportes"&&typeof renderReportes==="function")renderReportes();
+  if(m==="cotizaciones"&&typeof renderCotizaciones==="function")renderCotizaciones();
+  if(m==="perdidas"&&typeof renderPerdidas==="function")renderPerdidas();
   if(m==="search"){$("gsearch").focus();$("search-results").innerHTML=""}
   window.scrollTo(0,0);
 }
