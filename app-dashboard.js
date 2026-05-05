@@ -3516,8 +3516,241 @@ function renderReportePreview(docs){
   el.innerHTML=html;
 }
 
+// ─── F3: Generación Excel con SheetJS ───────────────────────
+
+function _repCalcularKPIs(filtros){
+  // Calcula los KPIs del Dashboard restringidos al rango filtros.desde/hasta.
+  // Replica logica de renderDashboard pero independiente.
+  const desde=filtros.desde, hasta=filtros.hasta;
+  const inRange=f=>f&&f>=desde&&f<=hasta;
+
+  let cotMonto=0,cotCount=0,cotClis=new Set();
+  let venMonto=0,venCount=0,venClis=new Set();
+  let entMonto=0,entCount=0,entCumplidas=0,entConSaldo=0;
+  let recaudo=0;
+  let porCobrarMonto=0,porCobrarN=0;
+  // Pipeline (independiente del rango — estado actual)
+  let pipCotMonto=0,pipCotN=0;
+  let pipPedMonto=0,pipPedN=0;
+  let pipEntSaldoMonto=0,pipEntSaldoN=0;
+
+  const _optExcl=(typeof buildOptionExclusions==="function")?buildOptionExclusions(quotesCache):new Set();
+
+  quotesCache.forEach(q=>{
+    if(typeof noSumaEnKpis==="function"){if(noSumaEnKpis(q,"reportes-kpis"))return}
+    else{
+      if(q._wrongCollection)return;
+      const _st=q.status||"enviada";
+      if(_st==="superseded"||_st==="anulada"||_st==="convertida")return;
+    }
+    const status=q.status||"enviada";
+    if(typeof getFollowUp==="function"&&getFollowUp(q)==="perdida"&&(status==="enviada"||status==="propfinal"))return;
+    const total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||0);
+    const fCre=(typeof dateOfCreation==="function")?dateOfCreation(q):(q.dateISO||"").slice(0,10);
+    const fVen=(typeof dateOfSale==="function")?dateOfSale(q):"";
+    const fEnt=q.fechaEntrega||q.eventDate||"";
+    const _isOptExcl=_optExcl.has(q.id);
+
+    // KPIs del rango
+    if(inRange(fCre)&&status!=="convertida"&&!_isOptExcl){cotMonto+=total;cotCount++;if(q.client)cotClis.add(q.client)}
+    if(inRange(fVen)&&["pedido","aprobada","en_produccion","entregado"].includes(status)){venMonto+=total;venCount++;if(q.client)venClis.add(q.client)}
+    if(inRange(fEnt)&&status==="entregado"){
+      entMonto+=total;entCount++;
+      if(typeof isCumplido==="function"&&isCumplido(q))entCumplidas++; else entConSaldo++;
+    }
+    if(["pedido","aprobada","en_produccion","entregado"].includes(status)){
+      const pend=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
+      if(pend>0){porCobrarMonto+=pend;porCobrarN++}
+    }
+    (q.pagos||[]).forEach(p=>{if(inRange(p.fecha))recaudo+=parseInt(p.monto)||0});
+
+    // Pipeline activo (estado actual, sin rango)
+    if(status==="enviada"&&!_isOptExcl){pipCotMonto+=total;pipCotN++}
+    if(["pedido","aprobada","en_produccion"].includes(status)){pipPedMonto+=total;pipPedN++}
+    if(status==="entregado"){
+      const pend=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
+      if(pend>0){pipEntSaldoMonto+=pend;pipEntSaldoN++}
+    }
+  });
+
+  return {
+    cotMonto,cotCount,cotClis:cotClis.size,
+    venMonto,venCount,venClis:venClis.size,
+    entMonto,entCount,entCumplidas,entConSaldo,
+    recaudo,porCobrarMonto,porCobrarN,
+    pipCotMonto,pipCotN,
+    pipPedMonto,pipPedN,
+    pipEntSaldoMonto,pipEntSaldoN
+  };
+}
+
 function descargarExcel(){
-  if(typeof toast==="function")toast("📥 Descarga Excel — Próximamente (F3)","info");
+  if(!reportesResultado||!reportesResultado.docs.length){
+    if(typeof toast==="function")toast("No hay datos para exportar","warn");
+    return;
+  }
+  if(typeof XLSX==="undefined"){
+    if(typeof toast==="function")toast("Biblioteca Excel aún cargando. Reintentá en 2s.","warn");
+    return;
+  }
+
+  const docs=reportesResultado.docs;
+  const filtros=reportesResultado.filtros;
+  const ahora=new Date().toISOString().slice(0,16).replace("T"," ");
+  const wb=XLSX.utils.book_new();
+
+  // ─── HOJA 1: Resumen Dashboard ────────────────────────────
+  const k=_repCalcularKPIs(filtros);
+  const aoa1=[
+    ["GOURMET BITES — REPORTE EJECUTIVO"],
+    [],
+    ["Período:", filtros.desde+" a "+filtros.hasta],
+    ["Estado filtro:", filtros.estado],
+    ["Generado:", ahora],
+    [],
+    ["MÉTRICAS DEL PERÍODO"],
+    ["KPI","Monto","# Docs","# Clientes"],
+    ["Cotizado",k.cotMonto,k.cotCount,k.cotClis],
+    ["Vendido",k.venMonto,k.venCount,k.venClis],
+    ["Entregado",k.entMonto,k.entCount,"-"],
+    ["  · cumplidas (pagadas 100%)","",k.entCumplidas,""],
+    ["  · con saldo pendiente","",k.entConSaldo,""],
+    ["Recaudado",k.recaudo,"-","-"],
+    ["Por cobrar (todos los activos)",k.porCobrarMonto,k.porCobrarN,"-"],
+    [],
+    ["PIPELINE ACTIVO (estado actual, independiente del rango)"],
+    ["KPI","Monto","# Docs",""],
+    ["En cotización",k.pipCotMonto,k.pipCotN,""],
+    ["Pedidos confirmados (por entregar)",k.pipPedMonto,k.pipPedN,""],
+    ["Entregados con saldo",k.pipEntSaldoMonto,k.pipEntSaldoN,""]
+  ];
+  const ws1=XLSX.utils.aoa_to_sheet(aoa1);
+  ws1["!cols"]=[{wch:36},{wch:16},{wch:10},{wch:12}];
+  // Formato pesos en columna B
+  ["B9","B10","B11","B14","B15","B19","B20","B21"].forEach(ref=>{if(ws1[ref])ws1[ref].z='"$"#,##0'});
+  XLSX.utils.book_append_sheet(wb,ws1,"Resumen");
+
+  // ─── HOJA 2: Pedidos detallados ───────────────────────────
+  const aoa2=[["Fecha entrega","Hora","Cliente","Doc","Tipo","Estado","Producido","# Productos","Total","Cobrado","Saldo","Teléfono","Dirección","Ciudad"]];
+  docs.forEach(q=>{
+    const total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||0);
+    const saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
+    const cobrado=total-saldo;
+    const nProd=(q.cart||[]).length+(q.cust||[]).length+(q.sections||[]).reduce((s,sec)=>s+(sec.options||[]).reduce((s2,o)=>s2+(o.items||[]).length,0),0);
+    aoa2.push([
+      _reportesGetFecha(q),
+      q.horaEntrega||(q.orderData||{}).horaEntrega||"",
+      q.client||"",
+      q.id||"",
+      q.kind==="quote"?"Cotización":"Propuesta",
+      (typeof STATUS_META!=="undefined"&&STATUS_META[q.status]?.label)||q.status||"",
+      q.produced?"Sí":"",
+      nProd,
+      total,
+      cobrado,
+      saldo,
+      q.tel||"",
+      q.dir||"",
+      q.city||""
+    ]);
+  });
+  const ws2=XLSX.utils.aoa_to_sheet(aoa2);
+  ws2["!cols"]=[{wch:13},{wch:8},{wch:28},{wch:15},{wch:11},{wch:13},{wch:9},{wch:8},{wch:12},{wch:12},{wch:12},{wch:13},{wch:32},{wch:12}];
+  // Formato pesos columnas I, J, K
+  for(let r=2;r<=aoa2.length;r++){
+    ["I","J","K"].forEach(c=>{if(ws2[c+r])ws2[c+r].z='"$"#,##0'});
+  }
+  ws2["!freeze"]={xSplit:0,ySplit:1};
+  XLSX.utils.book_append_sheet(wb,ws2,"Pedidos");
+
+  // ─── HOJA 3: Productos por pedido (linea por producto) ────
+  const aoa3=[["Fecha","Hora","Cliente","Doc","Sección","Opción","Producto","Descripción","Unidad","Cantidad","P.Unit","Subtotal","Custom"]];
+  docs.forEach(q=>{
+    const base=[_reportesGetFecha(q),q.horaEntrega||"",q.client||"",q.id||""];
+    if(q.kind==="quote"){
+      (q.cart||[]).forEach(it=>{
+        const qty=parseInt(it.qty)||0,p=parseInt(it.p)||0;
+        aoa3.push([...base,"","",it.n||"",it.d||"",it.u||"",qty,p,qty*p,""]);
+      });
+      (q.cust||[]).forEach(it=>{
+        const qty=parseInt(it.qty)||0,p=parseInt(it.p)||0;
+        aoa3.push([...base,"","",it.n||"",it.d||"",it.u||"",qty,p,qty*p,"Sí"]);
+      });
+    }else{
+      (q.sections||[]).forEach(sec=>{
+        (sec.options||[]).forEach(opt=>{
+          (opt.items||[]).forEach(it=>{
+            const qty=parseInt(it.qty)||0,p=parseInt(it.price)||0;
+            aoa3.push([...base,sec.name||"",opt.label||"",it.name||"",it.desc||"",it.unit||"",qty,p,qty*p,it.customId?"Sí":""]);
+          });
+        });
+      });
+    }
+  });
+  const ws3=XLSX.utils.aoa_to_sheet(aoa3);
+  ws3["!cols"]=[{wch:11},{wch:7},{wch:25},{wch:14},{wch:14},{wch:9},{wch:32},{wch:30},{wch:12},{wch:8},{wch:11},{wch:12},{wch:7}];
+  for(let r=2;r<=aoa3.length;r++){
+    ["K","L"].forEach(c=>{if(ws3[c+r])ws3[c+r].z='"$"#,##0'});
+  }
+  ws3["!freeze"]={xSplit:0,ySplit:1};
+  XLSX.utils.book_append_sheet(wb,ws3,"Productos");
+
+  // ─── HOJA 4: Resumen por día ──────────────────────────────
+  const porDia={};
+  docs.forEach(q=>{
+    const f=_reportesGetFecha(q)||"(sin fecha)";
+    if(!porDia[f])porDia[f]={count:0,total:0,cobrado:0,saldo:0,clientes:new Set()};
+    const total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||0);
+    const saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
+    porDia[f].count++;
+    porDia[f].total+=total;
+    porDia[f].cobrado+=(total-saldo);
+    porDia[f].saldo+=saldo;
+    if(q.client)porDia[f].clientes.add(q.client);
+  });
+  const aoa4=[["Fecha entrega","# Docs","Total","Cobrado","Saldo","Clientes"]];
+  Object.keys(porDia).sort().forEach(f=>{
+    const g=porDia[f];
+    aoa4.push([f,g.count,g.total,g.cobrado,g.saldo,Array.from(g.clientes).sort().join(", ")]);
+  });
+  const ws4=XLSX.utils.aoa_to_sheet(aoa4);
+  ws4["!cols"]=[{wch:13},{wch:8},{wch:13},{wch:13},{wch:13},{wch:60}];
+  for(let r=2;r<=aoa4.length;r++){["C","D","E"].forEach(c=>{if(ws4[c+r])ws4[c+r].z='"$"#,##0'})}
+  ws4["!freeze"]={xSplit:0,ySplit:1};
+  XLSX.utils.book_append_sheet(wb,ws4,"Por dia");
+
+  // ─── HOJA 5: Producción agregada (suma qty por producto) ──
+  const porProd={};
+  docs.forEach(q=>{
+    const procItem=(name,qty,subtotal)=>{
+      if(!name)return;
+      if(!porProd[name])porProd[name]={qty:0,pedidos:new Set(),subtotal:0};
+      porProd[name].qty+=qty;
+      porProd[name].pedidos.add(q.id);
+      porProd[name].subtotal+=subtotal;
+    };
+    if(q.kind==="quote"){
+      (q.cart||[]).forEach(it=>procItem(it.n,parseInt(it.qty)||0,(parseInt(it.qty)||0)*(parseInt(it.p)||0)));
+      (q.cust||[]).forEach(it=>procItem(it.n,parseInt(it.qty)||0,(parseInt(it.qty)||0)*(parseInt(it.p)||0)));
+    }else{
+      (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>procItem(it.name,parseInt(it.qty)||0,(parseInt(it.qty)||0)*(parseInt(it.price)||0)))));
+    }
+  });
+  const aoa5=[["Producto","Cantidad total","# Pedidos","Subtotal"]];
+  Object.keys(porProd).sort().forEach(n=>{
+    const g=porProd[n];
+    aoa5.push([n,g.qty,g.pedidos.size,g.subtotal]);
+  });
+  const ws5=XLSX.utils.aoa_to_sheet(aoa5);
+  ws5["!cols"]=[{wch:38},{wch:14},{wch:11},{wch:14}];
+  for(let r=2;r<=aoa5.length;r++){if(ws5["D"+r])ws5["D"+r].z='"$"#,##0'}
+  ws5["!freeze"]={xSplit:0,ySplit:1};
+  XLSX.utils.book_append_sheet(wb,ws5,"Produccion");
+
+  // Descargar
+  const fname="gourmet-bites-reporte-"+filtros.desde+"-a-"+filtros.hasta+".xlsx";
+  XLSX.writeFile(wb,fname);
+  if(typeof toast==="function")toast("📥 Excel descargado: "+fname,"success");
 }
 
 function renderCarteraCard(q,urgencia){
