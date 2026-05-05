@@ -529,22 +529,8 @@ async function renderDashboard(){
     }
   },"upcoming");
   // v7.5: Pendientes por cobrar eliminado del Dashboard (cubierto por sidebar > Cartera).
-  // Comentarios recientes
-  _safe(()=>{
-    const coments=quotesCache.filter(q=>!q._wrongCollection&&q.status!=="superseded"&&q.status!=="anulada"&&(q.comentarioCliente?.texto||q.comentarioCliente?.fotoUrl||q.comentarioCliente?.fotoBase64)).map(q=>({q,c:q.comentarioCliente}));
-    coments.sort((a,b)=>(b.c.fecha||"").localeCompare(a.c.fecha||""));
-    if(!coments.length){$("dash-coments").innerHTML='<div class="dash-met-empty">Aún no se han registrado comentarios. Cuando entregues, registra qué dijo el cliente.</div>'}
-    else{
-      $("dash-coments").innerHTML=coments.slice(0,5).map(({q,c})=>{
-        const fotoIcon=(c.fotoUrl||c.fotoBase64)?' 📷':'';
-        const txt=(c.texto||"(solo foto)").slice(0,120)+((c.texto||"").length>120?'...':'');
-        return '<div class="dash-up-item" style="flex-direction:column;align-items:flex-start;gap:2px;padding:8px 0;border-bottom:1px solid var(--gb-cream)" onclick="openComentModal(\''+q.id+'\',\''+q.kind+'\')">'+
-          '<div style="font-size:11px;color:var(--gb-neutral-500)"><strong>'+(q.client||"—")+'</strong> · '+(c.fecha||"—")+fotoIcon+'</div>'+
-          '<div style="font-size:12.5px;color:var(--gb-neutral-900);font-style:italic">"'+txt+'"</div>'+
-        '</div>';
-      }).join("");
-    }
-  },"comentarios");
+  // v7.7.3: Bloque "Últimos comentarios" migrado a Clientes > Comentarios.
+  //         La lógica completa de listado vive ahora en renderClientesComentarios.
   // D1.2: el anchor del banner novedades se congela al primer render (ver renderBannerNovedades)
   // y solo se persiste con saveLastVisit() en dismissNovedades(). NO guardar acá: rompería el delta.
 }
@@ -4703,6 +4689,50 @@ function buildHistorialEntries(docs){
   // Sort cronológico desc
   out.sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||""));
   return out;
+}
+
+// ═══════════════════════════════════════════════════════════
+// v7.7.3: COMENTARIOS DE CLIENTES — vista dedicada
+// ═══════════════════════════════════════════════════════════
+// Migrado del Dashboard. Lista TODOS los comentarios post-entrega
+// con buscador (cliente o texto). Click → abre modal del comentario
+// para editarlo (reusa openComentModal existente).
+
+async function renderClientesComentarios(){
+  if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+  const term=($("cli-com-search").value||"").toLowerCase().trim();
+  const all=quotesCache.filter(q=>{
+    if(q._wrongCollection)return false;
+    if(q.status==="superseded"||q.status==="anulada")return false;
+    const c=q.comentarioCliente;
+    return c&&(c.texto||c.fotoUrl||c.fotoBase64);
+  }).map(q=>({q,c:q.comentarioCliente}));
+  all.sort((a,b)=>(b.c.fecha||"").localeCompare(a.c.fecha||""));
+  const filtered=term
+    ? all.filter(({q,c})=>((q.client||"").toLowerCase().includes(term)||(c.texto||"").toLowerCase().includes(term)))
+    : all;
+  $("cli-com-summary").textContent=filtered.length+" comentario"+(filtered.length!==1?"s":"")+(term?" (filtrado de "+all.length+")":"");
+  const el=$("cli-com-list");
+  if(!filtered.length){
+    el.innerHTML='<div style="text-align:center;padding:40px 20px;color:#9E9E9E;font-style:italic">'+
+      (term?'🔍 Sin resultados para "'+h(term)+'"':'💬 Aún no hay comentarios registrados. Cuando entregues un pedido, podés registrar qué dijo el cliente.')+
+      '</div>';
+    return;
+  }
+  el.innerHTML=filtered.map(({q,c})=>{
+    const fotoIcon=(c.fotoUrl||c.fotoBase64)?' 📷':'';
+    const txt=h(c.texto||"(solo foto)");
+    const docNum=q.quoteNumber||q.id;
+    const tipoLbl=q.kind==="proposal"?"Propuesta":"Cotización";
+    const fStr=c.fecha?_cliDirFmtDate(c.fecha):"sin fecha";
+    return '<div onclick="openComentModal(\''+q.id+'\',\''+q.kind+'\')" style="background:#fff;border:1px solid #E0E0E0;border-left:3px solid #6A1B9A;border-radius:8px;padding:11px 13px;margin-bottom:8px;cursor:pointer">'+
+      '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:5px">'+
+        '<div style="font-weight:700;font-size:13px;color:#1A1A1A">'+h(q.client||"—")+fotoIcon+'</div>'+
+        '<div style="font-size:11px;color:#9E9E9E">'+fStr+' · '+tipoLbl+' '+h(docNum)+'</div>'+
+      '</div>'+
+      '<div style="font-size:12.5px;color:#1A1A1A;font-style:italic;line-height:1.45">"'+txt+'"</div>'+
+    '</div>';
+  }).join("");
 }
 
 async function renderClienteFicha(){

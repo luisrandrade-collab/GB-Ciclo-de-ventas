@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.7.2";
+const BUILD_VERSION="v7.7.3";
 const BUILD_DATE="2026-04-24";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -1786,7 +1786,8 @@ function setMode(m){
   // v7.6: agregado 'cartera-historico' (sub-item Cartera > Histórico de cobros)
   // v7.7.1: agregado 'clientes-directorio' (módulo Clientes CRM)
   // v7.7.2: agregado 'clientes-ficha' (vista detalle del cliente desde directorio)
-  ["dash","cot","prop","search","hist","seg","cal","ventas","cartera","cartera-historico","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup","clientes-directorio","clientes-ficha"].forEach(x=>{
+  // v7.7.3: agregado 'clientes-comentarios' (migrado del Dashboard)
+  ["dash","cot","prop","search","hist","seg","cal","ventas","cartera","cartera-historico","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup","clientes-directorio","clientes-ficha","clientes-comentarios"].forEach(x=>{
     const el=$("mode-"+x);
     if(el)el.classList.toggle("hidden",x!==m);
     document.querySelectorAll(".mode-btn.m-"+x).forEach(b=>b.classList.toggle("act",x===m));
@@ -1802,6 +1803,7 @@ function setMode(m){
   if(m==="cartera-historico"&&typeof renderCarteraHistorico==="function")renderCarteraHistorico();
   if(m==="clientes-directorio"&&typeof renderClientesDirectorio==="function")renderClientesDirectorio();
   if(m==="clientes-ficha"&&typeof renderClienteFicha==="function")renderClienteFicha();
+  if(m==="clientes-comentarios"&&typeof renderClientesComentarios==="function")renderClientesComentarios();
   if(m==="reportes"&&typeof renderReportes==="function")renderReportes();
   if(m==="cotizaciones"&&typeof renderCotizaciones==="function")renderCotizaciones();
   if(m==="perdidas"&&typeof renderPerdidas==="function")renderPerdidas();

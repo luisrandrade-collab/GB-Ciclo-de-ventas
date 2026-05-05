@@ -1829,6 +1829,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <button class="sb-module__btn"><span class="gb-shell-icon">👥</span><span class="sb-module__label">Clientes</span></button>
       <div class="sb-submenu">
         <a href="javascript:void(0)" data-sub="clientes/directorio">Directorio</a>
+        <a href="javascript:void(0)" data-sub="clientes/comentarios">Comentarios</a>
         <a href="javascript:void(0)" class="is-soon" data-sub="clientes/ventas-anteriores">Ventas anteriores<span class="sub-soon">Pronto</span></a>
         <a href="javascript:void(0)" class="is-soon" data-sub="clientes/perdidas">Perdidas<span class="sub-soon">Pronto</span></a>
       </div>
@@ -1876,6 +1877,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'cartera/pendientes': 'cartera',
     'cartera/historico':  'cartera-historico',
     'clientes/directorio':'clientes-directorio',
+    'clientes/comentarios':'clientes-comentarios',
     // Legacy: 'ops/produccion' y 'ops/cobro' descontinuados en F4 (modulo Operaciones disuelto)
     'reportes/excel':       'reportes',
     'reportes/imprimibles': 'reportes',
@@ -1906,6 +1908,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'cartera-historico':    'cartera/historico',
     'clientes-directorio':  'clientes/directorio',
     'clientes-ficha':       'clientes/directorio',
+    'clientes-comentarios': 'clientes/comentarios',
     'reportes':             'reportes/excel',
     'cotizaciones':         'ventas/cotizaciones',
     'perdidas':             'ventas/perdidas',
@@ -1932,6 +1935,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'cartera/pendientes': ['Cartera', 'Pendientes de cobro'],
     'cartera/historico':  ['Cartera', 'Histórico de cobros'],
     'clientes/directorio':['Clientes', 'Directorio'],
+    'clientes/comentarios':['Clientes', 'Comentarios'],
     'reportes/excel':       ['Reportes', 'Exportar Excel'],
     'reportes/imprimibles': ['Reportes', 'Hojas para imprimir'],
     'ventas/cotizaciones':  ['Ventas', 'Cotizaciones activas'],
@@ -2352,10 +2356,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
         </div>
         <div id="dash-upcoming"></div>
       </div>
-      <div class="dash-section">
-        <div class="dash-stit">💬 Últimos comentarios de clientes</div>
-        <div id="dash-coments"></div>
-      </div>
+      <!-- v7.7.3: Bloque '💬 Últimos comentarios de clientes' migrado a Clientes > Comentarios. -->
     </div>
   </div>
 
@@ -2824,6 +2825,20 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
 <div id="mode-clientes-ficha" class="hidden">
   <div class="sec">
     <div id="cli-ficha-content" style="font-family:var(--gb-font-body)"></div>
+  </div>
+</div>
+
+<!-- ======== CLIENTES COMENTARIOS MODE (v7.7.3) — Migrado del Dashboard ======== -->
+<div id="mode-clientes-comentarios" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#5D4037;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <span>💬 Comentarios de clientes</span>
+      <span id="cli-com-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+    </div>
+    <div id="cli-com-toolbar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+      <input id="cli-com-search" type="text" placeholder="Buscar por cliente o texto del comentario…" oninput="renderClientesComentarios()" style="flex:1;min-width:200px;padding:9px 12px;border:1.5px solid #BDBDBD;border-radius:8px;font-size:13px;font-family:var(--gb-font-body)">
+    </div>
+    <div id="cli-com-list" style="padding:0 4px"></div>
   </div>
 </div>
 
@@ -3922,12 +3937,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.7.2"></script>
-<script src="app-core.js?v=7.7.2"></script>
-<script src="app-cotizar.js?v=7.7.2"></script>
-<script src="app-propuesta.js?v=7.7.2"></script>
-<script src="app-historial.js?v=7.7.2"></script>
-<script src="app-seguimiento.js?v=7.7.2"></script>
-<script src="app-dashboard.js?v=7.7.2"></script>
+<script src="app-assets.js?v=7.7.3"></script>
+<script src="app-core.js?v=7.7.3"></script>
+<script src="app-cotizar.js?v=7.7.3"></script>
+<script src="app-propuesta.js?v=7.7.3"></script>
+<script src="app-historial.js?v=7.7.3"></script>
+<script src="app-seguimiento.js?v=7.7.3"></script>
+<script src="app-dashboard.js?v=7.7.3"></script>
 </body>
 </html>
