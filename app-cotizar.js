@@ -149,7 +149,7 @@ async function cancelEdicion(){
     });
     if(!ok)return;
     cart=[];cust=[];currentQuoteNumber=null;
-    ["f-cli","f-idtype","f-idnum","f-att","f-mail","f-tel","f-dir"].forEach(id=>{const e=$(id);if(e)e.value=""});
+    ["f-cli","f-idtype","f-idnum","f-att","f-mail","f-tel","f-dir","f-notas-internas"].forEach(id=>{const e=$(id);if(e)e.value=""});
     go("products");
     return;
   }
@@ -273,7 +273,9 @@ async function saveCurrentQuote(silent){
       cust:cust.map(i=>({n:i.n,p:i.p,d:i.d||"",u:i.u||"",qty:i.qty})),
       total:getTotal(),status:prevStatus,
       notasCotData:{...notasCotData},firma:firmaCot,
-      requiereFE:!!($("f-requiere-fe")&&$("f-requiere-fe").checked)
+      requiereFE:!!($("f-requiere-fe")&&$("f-requiere-fe").checked),
+      // v7.7.4: notas internas para producción (no aparecen en PDF al cliente)
+      notasInternas:($("f-notas-internas")?.value||"").trim()
     };
     // v7.0-α FIX-01-Q9: orderData se reconcilia más abajo, después de que qObj
     // tenga eventDate/horaEntrega/productionDate finales (del form o preservados).

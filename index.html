@@ -2482,6 +2482,11 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   </div>
   <div class="tbdg hidden" id="tr-info"><span style="font-size:18px">🚚</span><span id="tr-text"></span></div>
   <label style="display:flex;align-items:center;gap:6px;margin:12px 0;font-size:12.5px;color:#555;cursor:pointer"><input type="checkbox" id="f-requiere-fe" style="accent-color:#1565C0"> Requiere factura electrónica (DIAN)</label>
+  <!-- v7.7.4: notas internas que viajan a producción cuando el pedido se aprueba -->
+  <div class="fld" style="margin-top:8px">
+    <label class="flbl" style="display:flex;align-items:center;gap:6px">📝 Notas internas para producción <span style="font-size:10px;color:#9E9E9E;font-weight:400">(opcional, no aparecen en el PDF al cliente)</span></label>
+    <textarea class="fin" id="f-notas-internas" rows="2" placeholder="Ej: 'sin nueces para el grupo VIP', 'cliente alergico al gluten', 'entregar primero las dulces'..." style="resize:vertical;font-family:var(--gb-font-body)"></textarea>
+  </div>
   <button class="btn bp bf" onclick="go('products')">Continuar a Productos →</button>
 </div>
 <div class="sec hidden" id="step-products">
@@ -2586,6 +2591,11 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   <div class="tbdg hidden" id="tr-info-p"><span style="font-size:18px">🚚</span><span id="tr-text-p"></span></div>
   <div style="font-size:11px;color:var(--gb-neutral-500);margin-bottom:16px;text-align:center;padding:8px;background:var(--gb-cream);border-radius:8px">💡 El cliente se guarda automáticamente al generar el PDF de la propuesta</div>
   <label style="display:flex;align-items:center;gap:6px;margin:12px 0;font-size:12.5px;color:#555;cursor:pointer"><input type="checkbox" id="fp-requiere-fe" style="accent-color:#1565C0"> Requiere factura electrónica (DIAN)</label>
+  <!-- v7.7.4: notas internas que viajan a producción cuando el pedido se aprueba -->
+  <div class="fld" style="margin-top:8px">
+    <label class="flbl" style="display:flex;align-items:center;gap:6px">📝 Notas internas para producción <span style="font-size:10px;color:#9E9E9E;font-weight:400">(opcional, no aparecen en el PDF al cliente)</span></label>
+    <textarea class="fin" id="fp-notas-internas" rows="2" placeholder="Ej: 'el cliente quiere lo más frio posible', 'evento outdoor, prever empaque', 'incluir muestras de menu nuevo'..." style="resize:vertical;font-family:var(--gb-font-body)"></textarea>
+  </div>
   <div class="fecha-venc-row">
     <label>Propuesta válida hasta</label>
     <input type="date" id="fp-fecha-venc" onchange="onFechaVencChange()">
@@ -3937,12 +3947,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.7.3"></script>
-<script src="app-core.js?v=7.7.3"></script>
-<script src="app-cotizar.js?v=7.7.3"></script>
-<script src="app-propuesta.js?v=7.7.3"></script>
-<script src="app-historial.js?v=7.7.3"></script>
-<script src="app-seguimiento.js?v=7.7.3"></script>
-<script src="app-dashboard.js?v=7.7.3"></script>
+<script src="app-assets.js?v=7.7.4"></script>
+<script src="app-core.js?v=7.7.4"></script>
+<script src="app-cotizar.js?v=7.7.4"></script>
+<script src="app-propuesta.js?v=7.7.4"></script>
+<script src="app-historial.js?v=7.7.4"></script>
+<script src="app-seguimiento.js?v=7.7.4"></script>
+<script src="app-dashboard.js?v=7.7.4"></script>
 </body>
 </html>

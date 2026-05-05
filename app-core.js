@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.7.3";
+const BUILD_VERSION="v7.7.4";
 const BUILD_DATE="2026-04-24";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -2673,6 +2673,8 @@ async function loadQuote(kind,id){
     else{notasCotData={...DEFAULT_NOTAS_COT}}
     if(q.firma)firmaCot=q.firma;
     setFirma("cot",firmaCot);
+    // v7.7.4: cargar notas internas para producción (campo del doc, opcional)
+    if($("f-notas-internas"))$("f-notas-internas").value=q.notasInternas||"";
     showClientHistoryPanel(q.client||"","cot");
     go("review");
   }catch(e){hideLoader();toast("Error: "+e.message,"error")}

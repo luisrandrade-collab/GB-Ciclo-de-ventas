@@ -448,7 +448,9 @@ async function savePropQuote(silent){
       condicionesData:JSON.parse(JSON.stringify(condicionesData)),
       reposicionData:JSON.parse(JSON.stringify(reposicionData)),
       firma:firmaProp,status:prevStatus,
-      requiereFE:!!($("fp-requiere-fe")&&$("fp-requiere-fe").checked)
+      requiereFE:!!($("fp-requiere-fe")&&$("fp-requiere-fe").checked),
+      // v7.7.4: notas internas para producción (no aparecen en PDF al cliente)
+      notasInternas:($("fp-notas-internas")?.value||"").trim()
     };
     if(prevApprovalData)pObj.approvalData=prevApprovalData;
     if(prevPropFinalRef)pObj.propFinalRef=prevPropFinalRef;
@@ -610,6 +612,8 @@ function loadPropQuote(q){
   if($("fp-fecha-venc")){if(fechaVencimiento){$("fp-fecha-venc").value=fechaVencimiento}else{setDefaultFechaVenc()}}
   firmaProp=q.firma||"jp";
   setFirma("prop",firmaProp);
+  // v7.7.4: cargar notas internas para producción (campo del doc, opcional)
+  if($("fp-notas-internas"))$("fp-notas-internas").value=q.notasInternas||"";
   currentPropNumber=q.quoteNumber||null;
   window._lastSavedProp=null; // limpiar estado de última edición
   showClientHistoryPanel(q.client||"","prop");

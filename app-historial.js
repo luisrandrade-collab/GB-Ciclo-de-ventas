@@ -637,8 +637,10 @@ function openOrderModal(quoteId,ev){
   if(q.orderData?.notasProduccion){
     notaProdDefault=q.orderData.notasProduccion;
   }else{
-    // Reconstruir a partir de momentos/instrucciones de la cotización
+    // Reconstruir a partir de notas internas (v7.7.4) + momentos/instrucciones de la cotización (v5.4.0+)
     const parts=[];
+    // v7.7.4: notas internas escritas desde la cotización van primero (más prioritarias)
+    if(q.notasInternas&&q.notasInternas.trim())parts.push(q.notasInternas.trim());
     const estandares=["Desayuno","Almuerzo","Cena","Coffee Break","Cóctel","Picada","Mañana","Tarde","Noche"];
     // Momentos guardados como array (v5.4.0+): filtra valores tipo checkbox estándar y deja solo el texto libre
     if(Array.isArray(q.momentosArr)&&q.momentosArr.length){
@@ -648,7 +650,7 @@ function openOrderModal(quoteId,ev){
     // Fallback defensivo para cotizaciones legacy (pre-v5.4.0): extraer del string `deliv`
     // Formato típico: "22 de mayo de 2026 — Regalo para X, incluir nota..."
     // Filtra si el texto extraído es solo un momento estándar (ej "Almuerzo") para no meter ruido.
-    if(!parts.length&&q.deliv&&typeof q.deliv==="string"&&q.deliv.includes(" — ")){
+    if(parts.length<2&&q.deliv&&typeof q.deliv==="string"&&q.deliv.includes(" — ")){
       const parteDespues=q.deliv.split(" — ").slice(1).join(" — ").trim();
       // Solo agregar si no es una lista de solo momentos estándar (ej "Almuerzo, Cena")
       const tokens=parteDespues.split(",").map(s=>s.trim()).filter(Boolean);
@@ -809,8 +811,12 @@ function openApproveModal(propId,kind,ev){
   let notaProdDefault="";
   if(p.approvalData?.notasProduccion){
     notaProdDefault=p.approvalData.notasProduccion;
-  }else if(p.momento&&typeof p.momento==="string"&&p.momento.trim()){
-    notaProdDefault=p.momento.trim();
+  }else{
+    // v7.7.4: notas internas de la propuesta + momento (si existe)
+    const partsP=[];
+    if(p.notasInternas&&p.notasInternas.trim())partsP.push(p.notasInternas.trim());
+    if(p.momento&&typeof p.momento==="string"&&p.momento.trim())partsP.push(p.momento.trim());
+    notaProdDefault=partsP.join(" · ");
   }
   $("am-notas-prod").value=notaProdDefault;
   if(notaProdDefault&&!p.approvalData?.notasProduccion){
