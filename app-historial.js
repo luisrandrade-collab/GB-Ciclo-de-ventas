@@ -2955,3 +2955,67 @@ async function renderPerdidas(){
 
 window.renderCotizaciones=renderCotizaciones;
 window.renderPerdidas=renderPerdidas;
+
+// ─── v7.4 F2: Módulo Pedidos (3 sub-modos) ─────────────────
+
+async function _renderPedidosGeneric(etapa,summaryId,listId,emptyEmoji,emptyTitle,emptySub){
+  if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+  const summaryEl=$(summaryId);
+  const listEl=$(listId);
+  if(!listEl)return;
+  const docs=getDocsPorEtapa(etapa);
+  const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
+  const totalMonto=docs.reduce((s,q)=>s+((typeof getDocTotal==="function")?getDocTotal(q):(q.total||0)),0);
+  const totalSaldo=docs.reduce((s,q)=>s+((typeof saldoPendiente==="function")?saldoPendiente(q):0),0);
+  if(summaryEl){
+    let txt=docs.length+" doc(s) · "+fmt(totalMonto);
+    if(totalSaldo>0)txt+=" · saldo pendiente "+fmt(totalSaldo);
+    summaryEl.textContent=docs.length?txt:"";
+  }
+  if(!docs.length){
+    listEl.innerHTML='<div style="padding:48px 20px;text-align:center;color:#888;font-size:14px">'+
+      '<div style="font-size:48px;margin-bottom:12px">'+emptyEmoji+'</div>'+
+      '<div style="font-weight:700;color:#555;margin-bottom:6px">'+emptyTitle+'</div>'+
+      '<div style="font-size:12px">'+emptySub+'</div>'+
+      '</div>';
+    return;
+  }
+  listEl.innerHTML=docs.map(q=>renderDocCard(q,etapa,{showStatus:true})).join("");
+}
+
+async function renderPedidosAprobados(){
+  return _renderPedidosGeneric(
+    "pedidos-aprobados",
+    "pedidos-aprobados-summary",
+    "pedidos-aprobados-list",
+    "📦",
+    "Sin pedidos pendientes de producir",
+    "Los pedidos confirmados aparecen acá hasta que se inicia la producción."
+  );
+}
+
+async function renderPedidosProduccion(){
+  return _renderPedidosGeneric(
+    "pedidos-produccion",
+    "pedidos-produccion-summary",
+    "pedidos-produccion-list",
+    "🔥",
+    "Sin pedidos en producción",
+    "Cuando inicies producción de un pedido aprobado aparecerá acá."
+  );
+}
+
+async function renderPedidosProducidos(){
+  return _renderPedidosGeneric(
+    "pedidos-producidos",
+    "pedidos-producidos-summary",
+    "pedidos-producidos-list",
+    "✅",
+    "Sin pedidos listos para entregar",
+    "Los pedidos producidos aparecen acá hasta que los marques como entregados."
+  );
+}
+
+window.renderPedidosAprobados=renderPedidosAprobados;
+window.renderPedidosProduccion=renderPedidosProduccion;
+window.renderPedidosProducidos=renderPedidosProducidos;

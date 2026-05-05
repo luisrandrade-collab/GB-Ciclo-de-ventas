@@ -1710,7 +1710,8 @@ function setMode(m){
   // v7.2: agregado 'cartera' (modulo de cobros / pagos pendientes)
   // v7.3: agregado 'reportes' (modulo de Excel + PDFs imprimibles)
   // v7.4 F1: agregados 'cotizaciones' y 'perdidas' (sub-modulos Ventas)
-  ["dash","cot","prop","search","hist","seg","cal","ventas","ops","cartera","reportes","cotizaciones","perdidas"].forEach(x=>{
+  // v7.4 F2: agregados 'pedidos-aprobados', 'pedidos-produccion', 'pedidos-producidos' (modulo Pedidos)
+  ["dash","cot","prop","search","hist","seg","cal","ventas","ops","cartera","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos"].forEach(x=>{
     const el=$("mode-"+x);
     if(el)el.classList.toggle("hidden",x!==m);
     document.querySelectorAll(".mode-btn.m-"+x).forEach(b=>b.classList.toggle("act",x===m));
@@ -1727,6 +1728,9 @@ function setMode(m){
   if(m==="reportes"&&typeof renderReportes==="function")renderReportes();
   if(m==="cotizaciones"&&typeof renderCotizaciones==="function")renderCotizaciones();
   if(m==="perdidas"&&typeof renderPerdidas==="function")renderPerdidas();
+  if(m==="pedidos-aprobados"&&typeof renderPedidosAprobados==="function")renderPedidosAprobados();
+  if(m==="pedidos-produccion"&&typeof renderPedidosProduccion==="function")renderPedidosProduccion();
+  if(m==="pedidos-producidos"&&typeof renderPedidosProducidos==="function")renderPedidosProducidos();
   if(m==="search"){$("gsearch").focus();$("search-results").innerHTML=""}
   window.scrollTo(0,0);
 }
