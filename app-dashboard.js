@@ -3431,8 +3431,8 @@ function renderReportesImprimibles(contentEl){
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">'+
       _impCard("A","🍳","Orden de producción","1 hoja por cliente. Productos a producir, datos de entrega, espacio para notas y firma de quien lo hizo.","JP / cocina","generarPdfProduccionPorCliente()",false)+
       _impCard("B","👨‍🍳","Producción consolidada","Suma de cantidades por producto del rango. Permite planificar cocina sin abrir cliente por cliente.","JP / cocina","generarPdfProduccionConsolidada()",false)+
-      _impCard("C","📦","Empaque con chequeo","1 hoja por cliente con casillas ☐ por cada item. Para verificar antes de despachar.","Empacador","",true)+
-      _impCard("D","🚚","Entregas con chequeo + firma","Ruta del día con casillas de salió/entregado/firma del receptor.","Conductor","",true)+
+      _impCard("C","📦","Empaque con chequeo","1 hoja por cliente con casillas por cada item. Para verificar antes de despachar.","Empacador","generarPdfEmpaque()",false)+
+      _impCard("D","🚚","Entregas con chequeo + firma","Ruta del día con casillas de salió/entregado/firma del receptor.","Conductor","generarPdfEntregas()",false)+
     '</div>';
   renderReportesImprimiblesPreview();
 }
@@ -3675,6 +3675,234 @@ function generarPdfProduccionConsolidada(){
   const fname="produccion-consolidada-"+reportesFiltros.desde+"-a-"+reportesFiltros.hasta+".pdf";
   pdf.save(fname);
   if(typeof toast==="function")toast("📥 PDF generado: "+dias.length+" día(s)","success");
+}
+
+// ─── F7: PDF C — Empaque con chequeo por item ───────────────
+
+function generarPdfEmpaque(){
+  if(!window.jspdf||!window.jspdf.jsPDF){
+    if(typeof toast==="function")toast("Error: jsPDF no cargado","error");
+    return;
+  }
+  const docs=_impGetDocsRango();
+  if(!docs.length){
+    if(typeof toast==="function")toast("No hay pedidos pendientes en el rango","warn");
+    return;
+  }
+  const {jsPDF}=window.jspdf;
+  const pdf=new jsPDF("p","mm","a4");
+  const W=210, M=14;
+
+  docs.forEach((q,idx)=>{
+    if(idx>0)pdf.addPage();
+    let y=M;
+
+    // Header verde (distinto de PDF A azul / PDF B rojo)
+    pdf.setFillColor(27,94,32);
+    pdf.rect(0,0,W,16,"F");
+    pdf.setTextColor(255);
+    pdf.setFontSize(13);pdf.setFont(undefined,"bold");
+    pdf.text("EMPAQUE / DESPACHO",M,10);
+    pdf.setFontSize(9);pdf.setFont(undefined,"normal");
+    pdf.text("Gourmet Bites  -  Hoja "+(idx+1)+"/"+docs.length,W-M,10,{align:"right"});
+    pdf.setTextColor(0);
+    y=24;
+
+    // Cliente / pedido datos
+    pdf.setFontSize(15);pdf.setFont(undefined,"bold");
+    pdf.text(q.client||"(sin cliente)",M,y);y+=7;
+    pdf.setFontSize(10);pdf.setFont(undefined,"normal");
+    const fecha=_reportesGetFecha(q);
+    const hora=q.horaEntrega||(q.orderData||{}).horaEntrega||"";
+    pdf.text("Doc: "+(q.id||"")+"   ·   Entrega: "+fecha+(hora?" "+hora:""),M,y);y+=5;
+    if(q.dir)pdf.text("Direccion: "+q.dir+(q.city?", "+q.city:""),M,y),y+=5;
+    if(q.tel)pdf.text("Telefono: "+q.tel,M,y),y+=5;
+    y+=3;
+
+    // Items con casilla
+    const items=[];
+    if(q.kind==="quote"){
+      (q.cart||[]).forEach(it=>items.push(["",String(it.qty||0),it.n||"",it.d||"",it.u||""]));
+      (q.cust||[]).forEach(it=>items.push(["",String(it.qty||0),(it.n||"")+" *",it.d||"",it.u||""]));
+    }else{
+      (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>{
+        const prefix=sec.name?"["+sec.name+(opt.label?" "+opt.label:"")+"] ":"";
+        items.push(["",String(it.qty||0),prefix+(it.name||""),it.desc||"",it.unit||""]);
+      })));
+    }
+
+    if(pdf.autoTable){
+      pdf.autoTable({
+        head:[["✓","Cant","Producto","Descripcion","Unidad"]],
+        body:items,
+        startY:y,
+        margin:{left:M,right:M},
+        styles:{fontSize:9,cellPadding:2.5,minCellHeight:8},
+        headStyles:{fillColor:[27,94,32],textColor:255,fontStyle:"bold",halign:"center"},
+        columnStyles:{0:{cellWidth:10,halign:"center"},1:{halign:"center",cellWidth:14},2:{cellWidth:55},3:{cellWidth:80},4:{cellWidth:25}},
+        // Dibujar casilla en cada celda de la columna 0
+        didDrawCell:function(data){
+          if(data.section==="body"&&data.column.index===0){
+            const cx=data.cell.x+data.cell.width/2-2.5;
+            const cy=data.cell.y+data.cell.height/2-2.5;
+            pdf.setDrawColor(80);pdf.setLineWidth(0.3);
+            pdf.rect(cx,cy,5,5);
+          }
+        }
+      });
+      y=pdf.lastAutoTable.finalY+8;
+    }
+
+    // Footer: casilla "Listo para despachar" + linea "Empacado por"
+    pdf.setDrawColor(80);pdf.setLineWidth(0.3);
+    pdf.rect(M,y,5,5);
+    pdf.setFontSize(11);pdf.setFont(undefined,"bold");
+    pdf.text("LISTO PARA DESPACHAR",M+8,y+4);
+    y+=12;
+
+    pdf.setFontSize(10);pdf.setFont(undefined,"normal");
+    pdf.text("Empacado por:",M,y+5);
+    pdf.line(M+30,y+5,W-M,y+5);
+
+    // * Productos custom marker
+    if(items.some(r=>r[2].endsWith(" *"))){
+      pdf.setFontSize(7);pdf.setTextColor(120);
+      pdf.text("* Producto custom (no del catalogo).",M,290);
+      pdf.setTextColor(0);
+    }
+  });
+
+  const fname="empaque-"+reportesFiltros.desde+"-a-"+reportesFiltros.hasta+".pdf";
+  pdf.save(fname);
+  if(typeof toast==="function")toast("📥 PDF generado: "+docs.length+" hoja(s) de empaque","success");
+}
+
+// ─── F8: PDF D — Entregas con chequeo + firma ───────────────
+
+function generarPdfEntregas(){
+  if(!window.jspdf||!window.jspdf.jsPDF){
+    if(typeof toast==="function")toast("Error: jsPDF no cargado","error");
+    return;
+  }
+  const docs=_impGetDocsRango();
+  if(!docs.length){
+    if(typeof toast==="function")toast("No hay pedidos pendientes en el rango","warn");
+    return;
+  }
+  const {jsPDF}=window.jspdf;
+  const pdf=new jsPDF("l","mm","a4"); // horizontal para mas espacio
+  const W=297, H=210, M=12;
+
+  // Agrupar por dia para tener una hoja por dia
+  const porDia={};
+  docs.forEach(q=>{
+    const f=_reportesGetFecha(q)||"(sin fecha)";
+    if(!porDia[f])porDia[f]=[];
+    porDia[f].push(q);
+  });
+  // Ordenar pedidos dentro de cada dia por hora
+  Object.values(porDia).forEach(arr=>arr.sort((a,b)=>{
+    const ha=a.horaEntrega||"99:99",hb=b.horaEntrega||"99:99";
+    return ha.localeCompare(hb);
+  }));
+
+  const dias=Object.keys(porDia).sort();
+  dias.forEach((f,idx)=>{
+    if(idx>0)pdf.addPage();
+    let y=M;
+
+    // Header naranja
+    pdf.setFillColor(230,81,0);
+    pdf.rect(0,0,W,16,"F");
+    pdf.setTextColor(255);
+    pdf.setFontSize(13);pdf.setFont(undefined,"bold");
+    pdf.text("HOJA DE ENTREGAS",M,10);
+    pdf.setFontSize(11);pdf.setFont(undefined,"normal");
+    pdf.text(f,W/2,10,{align:"center"});
+    pdf.setFontSize(9);
+    pdf.text("Gourmet Bites  -  "+porDia[f].length+" entrega(s)",W-M,10,{align:"right"});
+    pdf.setTextColor(0);
+    y=24;
+
+    // Tabla con casillas + firma
+    const rows=porDia[f].map(q=>{
+      const total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||0);
+      const saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
+      const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
+      const dirCorta=(q.dir||"").substring(0,40)+((q.dir||"").length>40?"...":"");
+      return [
+        q.horaEntrega||"-",
+        q.client||"(sin cliente)",
+        q.id||"",
+        dirCorta+(q.city?", "+q.city:""),
+        q.tel||"",
+        fmt(total),
+        saldo>0?fmt(saldo):"OK",
+        "","",  // Salio cocina, Entregado
+        ""  // Firma cliente
+      ];
+    });
+
+    if(pdf.autoTable){
+      pdf.autoTable({
+        head:[["Hora","Cliente","Doc","Direccion","Telefono","Total","Saldo","Salio","Entreg","Firma cliente"]],
+        body:rows,
+        startY:y,
+        margin:{left:M,right:M},
+        styles:{fontSize:8.5,cellPadding:2.5,minCellHeight:14,valign:"middle"},
+        headStyles:{fillColor:[230,81,0],textColor:255,fontStyle:"bold",halign:"center",fontSize:9},
+        columnStyles:{
+          0:{halign:"center",cellWidth:14},
+          1:{cellWidth:42,fontStyle:"bold"},
+          2:{halign:"center",cellWidth:24,fontSize:7.5},
+          3:{cellWidth:62,fontSize:8},
+          4:{cellWidth:24,halign:"center"},
+          5:{halign:"right",cellWidth:20},
+          6:{halign:"right",cellWidth:18},
+          7:{cellWidth:14,halign:"center"},
+          8:{cellWidth:14,halign:"center"},
+          9:{cellWidth:38}
+        },
+        // Casillas en columnas 7 y 8, linea de firma en columna 9
+        didDrawCell:function(data){
+          if(data.section!=="body")return;
+          if(data.column.index===7||data.column.index===8){
+            const cx=data.cell.x+data.cell.width/2-2.5;
+            const cy=data.cell.y+data.cell.height/2-2.5;
+            pdf.setDrawColor(80);pdf.setLineWidth(0.3);
+            pdf.rect(cx,cy,5,5);
+          }else if(data.column.index===9){
+            // Linea para firma
+            const lx1=data.cell.x+2;
+            const lx2=data.cell.x+data.cell.width-2;
+            const ly=data.cell.y+data.cell.height-3;
+            pdf.setDrawColor(150);pdf.setLineWidth(0.2);
+            pdf.line(lx1,ly,lx2,ly);
+          }
+        }
+      });
+      y=pdf.lastAutoTable.finalY+10;
+    }
+
+    // Footer con totales
+    const totalDia=porDia[f].reduce((s,q)=>s+((typeof getDocTotal==="function")?getDocTotal(q):(q.total||0)),0);
+    const saldoDia=porDia[f].reduce((s,q)=>s+((typeof saldoPendiente==="function")?saldoPendiente(q):0),0);
+    const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
+    pdf.setFontSize(10);pdf.setFont(undefined,"bold");
+    pdf.text("TOTAL DIA: "+fmt(totalDia)+(saldoDia>0?"   ·   Saldo a cobrar: "+fmt(saldoDia):""),M,y);
+
+    // Firma del conductor al pie
+    y+=14;
+    pdf.setFontSize(10);pdf.setFont(undefined,"normal");
+    pdf.text("Conductor:",M,y);
+    pdf.line(M+25,y,M+100,y);
+    pdf.text("Firma:",M+110,y);
+    pdf.line(M+125,y,M+200,y);
+  });
+
+  const fname="entregas-"+reportesFiltros.desde+"-a-"+reportesFiltros.hasta+".pdf";
+  pdf.save(fname);
+  if(typeof toast==="function")toast("📥 PDF generado: "+dias.length+" día(s) de entregas","success");
 }
 
 function generarReporte(){
