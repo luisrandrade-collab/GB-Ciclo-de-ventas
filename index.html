@@ -1776,7 +1776,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <button class="sb-module__btn"><span class="gb-shell-icon">💵</span><span class="sb-module__label">Cartera</span></button>
       <div class="sb-submenu">
         <a href="javascript:void(0)" data-sub="cartera/pendientes">Pendientes de cobro</a>
-        <a href="javascript:void(0)" class="is-soon" data-sub="cartera/historico">Histórico de cobros<span class="sub-soon">Pronto</span></a>
+        <a href="javascript:void(0)" data-sub="cartera/historico">Histórico de cobros</a>
       </div>
     </div>
 
@@ -1856,6 +1856,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'ventas/cotizar':    'cot',
     'ventas/propuesta':  'prop',
     'cartera/pendientes': 'cartera',
+    'cartera/historico':  'cartera-historico',
     // Legacy: 'ops/produccion' y 'ops/cobro' descontinuados en F4 (modulo Operaciones disuelto)
     'reportes/excel':       'reportes',
     'reportes/imprimibles': 'reportes',
@@ -1883,6 +1884,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'cot':    'ventas/cotizar',
     'prop':   'ventas/propuesta',
     'cartera':              'cartera/pendientes',
+    'cartera-historico':    'cartera/historico',
     'reportes':             'reportes/excel',
     'cotizaciones':         'ventas/cotizaciones',
     'perdidas':             'ventas/perdidas',
@@ -1907,6 +1909,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'ventas/cotizar':    ['Ventas', 'Nueva cotización'],
     'ventas/propuesta':  ['Ventas', 'Nueva propuesta'],
     'cartera/pendientes': ['Cartera', 'Pendientes de cobro'],
+    'cartera/historico':  ['Cartera', 'Histórico de cobros'],
     'reportes/excel':       ['Reportes', 'Exportar Excel'],
     'reportes/imprimibles': ['Reportes', 'Hojas para imprimir'],
     'ventas/cotizaciones':  ['Ventas', 'Cotizaciones activas'],
@@ -2780,6 +2783,18 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <button class="cpill" onclick="setReportesTab('imprimibles')" id="reportes-tab-imprimibles">🖨️ Hojas para imprimir</button>
     </div>
     <div id="reportes-content"></div>
+  </div>
+</div>
+
+<!-- ======== CARTERA HISTÓRICO MODE (v7.6) — Histórico de pagos recibidos ======== -->
+<div id="mode-cartera-historico" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#1B5E20;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <span>📒 Histórico de cobros</span>
+      <span id="cartera-historico-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+    </div>
+    <div id="cartera-historico-filters" style="background:#F5F5F5;border-radius:10px;padding:12px 14px;margin-bottom:14px"></div>
+    <div id="cartera-historico-list" style="padding:0 4px"></div>
   </div>
 </div>
 
@@ -3717,12 +3732,12 @@ body{padding-bottom:84px}
 </script>
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.5.3"></script>
-<script src="app-core.js?v=7.5.3"></script>
-<script src="app-cotizar.js?v=7.5.3"></script>
-<script src="app-propuesta.js?v=7.5.3"></script>
-<script src="app-historial.js?v=7.5.3"></script>
-<script src="app-seguimiento.js?v=7.5.3"></script>
-<script src="app-dashboard.js?v=7.5.3"></script>
+<script src="app-assets.js?v=7.6.0"></script>
+<script src="app-core.js?v=7.6.0"></script>
+<script src="app-cotizar.js?v=7.6.0"></script>
+<script src="app-propuesta.js?v=7.6.0"></script>
+<script src="app-historial.js?v=7.6.0"></script>
+<script src="app-seguimiento.js?v=7.6.0"></script>
+<script src="app-dashboard.js?v=7.6.0"></script>
 </body>
 </html>

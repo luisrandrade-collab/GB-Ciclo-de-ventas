@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.5";
+const BUILD_VERSION="v7.6";
 const BUILD_DATE="2026-04-24";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -1716,7 +1716,8 @@ function setMode(m){
   // v7.5 F6: agregado 'backup' (Herramientas > Mantenimiento y backups, migrado del Dashboard)
   // v7.5.1 cleanup: eliminado 'ops' del array (modulo Operaciones disuelto en v7.4 F4). 'hist' se mantiene
   // por compatibilidad aunque ya no aparece en sidebar (cubierto por modulo Archivo).
-  ["dash","cot","prop","search","hist","seg","cal","ventas","cartera","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup"].forEach(x=>{
+  // v7.6: agregado 'cartera-historico' (sub-item Cartera > Histórico de cobros)
+  ["dash","cot","prop","search","hist","seg","cal","ventas","cartera","cartera-historico","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup"].forEach(x=>{
     const el=$("mode-"+x);
     if(el)el.classList.toggle("hidden",x!==m);
     document.querySelectorAll(".mode-btn.m-"+x).forEach(b=>b.classList.toggle("act",x===m));
@@ -1729,6 +1730,7 @@ function setMode(m){
   if(m==="dash")renderDashboard();
   if(m==="seg"&&typeof renderSeguimiento==="function")renderSeguimiento();
   if(m==="cartera"&&typeof renderCartera==="function")renderCartera();
+  if(m==="cartera-historico"&&typeof renderCarteraHistorico==="function")renderCarteraHistorico();
   if(m==="reportes"&&typeof renderReportes==="function")renderReportes();
   if(m==="cotizaciones"&&typeof renderCotizaciones==="function")renderCotizaciones();
   if(m==="perdidas"&&typeof renderPerdidas==="function")renderPerdidas();

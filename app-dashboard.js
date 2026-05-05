@@ -4199,6 +4199,162 @@ function descargarExcel(){
   if(typeof toast==="function")toast("📥 Excel descargado: "+fname,"success");
 }
 
+// ═══════════════════════════════════════════════════════════
+// v7.6 — CARTERA > HISTÓRICO DE COBROS
+// Vista de TODOS los pagos recibidos, con filtros por fecha/método/cliente.
+// ═══════════════════════════════════════════════════════════
+
+let _carteraHistFiltros={
+  desde: "",
+  hasta: "",
+  metodo: "",   // "" = todos
+  cliente: ""
+};
+
+function _getPagosEnRango(filtros){
+  // Devuelve array de {pago, doc} con todos los pagos en el rango filtrado.
+  const out=[];
+  if(!Array.isArray(quotesCache))return out;
+  const desde=filtros.desde, hasta=filtros.hasta;
+  if(!desde||!hasta)return out;
+  quotesCache.forEach(q=>{
+    if(q._wrongCollection)return;
+    const pagos=(typeof getPagos==="function")?getPagos(q):(q.pagos||[]);
+    pagos.forEach(p=>{
+      const fp=(p.fecha||"").slice(0,10);
+      if(!fp||fp<desde||fp>hasta)return;
+      // Filtro método
+      if(filtros.metodo&&filtros.metodo!=="todos"){
+        const pm=p.metodo||"Otro";
+        if(pm!==filtros.metodo)return;
+      }
+      // Filtro cliente (substring case-insensitive)
+      if(filtros.cliente){
+        const cli=(q.client||"").toLowerCase();
+        if(!cli.includes(filtros.cliente.toLowerCase()))return;
+      }
+      out.push({pago:p,doc:q});
+    });
+  });
+  // Orden: fecha desc (más recientes arriba), tiebreak por monto desc
+  out.sort((a,b)=>{
+    const fa=(a.pago.fecha||"").localeCompare(b.pago.fecha||"");
+    if(fa!==0)return -fa;
+    return (parseInt(b.pago.monto)||0)-(parseInt(a.pago.monto)||0);
+  });
+  return out;
+}
+
+function _carteraHistDefaults(){
+  if(!_carteraHistFiltros.desde){
+    const t=new Date();
+    _carteraHistFiltros.desde=new Date(t.getFullYear(),t.getMonth(),1).toISOString().slice(0,10);
+  }
+  if(!_carteraHistFiltros.hasta){
+    _carteraHistFiltros.hasta=new Date().toISOString().slice(0,10);
+  }
+}
+
+async function renderCarteraHistorico(){
+  if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+  _carteraHistDefaults();
+  const filtersEl=$("cartera-historico-filters");
+  const listEl=$("cartera-historico-list");
+  const summaryEl=$("cartera-historico-summary");
+  if(!listEl||!filtersEl)return;
+
+  // Render filtros
+  const metodos=(typeof METODOS_PAGO!=="undefined")?METODOS_PAGO:["Nequi","Daviplata","Banco Falabella","Efectivo","Transferencia","Otro"];
+  filtersEl.innerHTML=
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'+
+      '<div>'+
+        '<label style="font-size:11px;color:#555;display:block;margin-bottom:3px;font-weight:600">Desde</label>'+
+        '<input type="date" id="ch-desde" value="'+_carteraHistFiltros.desde+'" onchange="_carteraHistFiltros.desde=this.value;renderCarteraHistorico()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px;box-sizing:border-box">'+
+      '</div>'+
+      '<div>'+
+        '<label style="font-size:11px;color:#555;display:block;margin-bottom:3px;font-weight:600">Hasta</label>'+
+        '<input type="date" id="ch-hasta" value="'+_carteraHistFiltros.hasta+'" onchange="_carteraHistFiltros.hasta=this.value;renderCarteraHistorico()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px;box-sizing:border-box">'+
+      '</div>'+
+    '</div>'+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'+
+      '<div>'+
+        '<label style="font-size:11px;color:#555;display:block;margin-bottom:3px;font-weight:600">Método</label>'+
+        '<select id="ch-metodo" onchange="_carteraHistFiltros.metodo=this.value;renderCarteraHistorico()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px;box-sizing:border-box">'+
+          '<option value="">Todos los métodos</option>'+
+          metodos.map(m=>'<option value="'+m+'"'+(_carteraHistFiltros.metodo===m?' selected':'')+'>'+m+'</option>').join("")+
+        '</select>'+
+      '</div>'+
+      '<div>'+
+        '<label style="font-size:11px;color:#555;display:block;margin-bottom:3px;font-weight:600">Cliente</label>'+
+        '<input type="text" id="ch-cliente" value="'+(_carteraHistFiltros.cliente||"")+'" placeholder="Filtrar por nombre..." oninput="_carteraHistFiltros.cliente=this.value;clearTimeout(window.__chTimer);window.__chTimer=setTimeout(renderCarteraHistorico,250)" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px;box-sizing:border-box">'+
+      '</div>'+
+    '</div>';
+
+  // Calcular pagos
+  const pagos=_getPagosEnRango(_carteraHistFiltros);
+  const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
+  const total=pagos.reduce((s,x)=>s+(parseInt(x.pago.monto)||0),0);
+
+  // Desglose por método
+  const porMetodo={};
+  pagos.forEach(({pago})=>{
+    const m=pago.metodo||"Otro";
+    porMetodo[m]=(porMetodo[m]||0)+(parseInt(pago.monto)||0);
+  });
+
+  if(summaryEl)summaryEl.textContent=pagos.length?(pagos.length+" pagos · "+fmt(total)):"";
+
+  if(!pagos.length){
+    listEl.innerHTML='<div style="padding:48px 20px;text-align:center;color:#888;font-size:14px">'+
+      '<div style="font-size:48px;margin-bottom:12px">📒</div>'+
+      '<div style="font-weight:700;color:#555;margin-bottom:6px">Sin pagos en este rango</div>'+
+      '<div style="font-size:12px">Probá ampliando las fechas o quitando filtros.</div>'+
+      '</div>';
+    return;
+  }
+
+  // Header con resumen + desglose mini por método
+  let resumenHtml=
+    '<div style="background:#E8F5E9;border-left:3px solid #1B5E20;padding:12px 14px;margin-bottom:14px;border-radius:6px">'+
+      '<div style="font-size:14px;color:#1B5E20;font-weight:700;margin-bottom:6px">Total: '+fmt(total)+'  ·  '+pagos.length+' pago'+(pagos.length!==1?'s':'')+'</div>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:#555">';
+  Object.entries(porMetodo).sort((a,b)=>b[1]-a[1]).forEach(([m,v])=>{
+    const pct=Math.round(v*100/total);
+    resumenHtml+='<span style="background:white;border:1px solid #C8E6C9;border-radius:14px;padding:3px 10px"><strong>'+m+'</strong> '+fmt(v)+' <span style="color:#888">('+pct+'%)</span></span>';
+  });
+  resumenHtml+='</div></div>';
+
+  // Cards de pagos (limitar a 200 inicial)
+  const MAX=200;
+  const limited=pagos.slice(0,MAX);
+  const cardsHtml=limited.map(({pago,doc})=>{
+    const fotoSrc=pago.fotoUrl||pago.foto;
+    const fotoIcon=fotoSrc?'<span title="Tiene comprobante" style="margin-left:6px">📎</span>':'';
+    const tipoLbl=(pago.tipo||"abono").charAt(0).toUpperCase()+(pago.tipo||"abono").slice(1);
+    const notas=pago.notas?'<div style="font-size:11px;color:#666;margin-top:4px">📝 '+(typeof h==="function"?h(pago.notas):pago.notas)+'</div>':'';
+    return '<div style="background:white;border:1px solid #e0e0e0;border-left:3px solid #1B5E20;border-radius:8px;padding:10px 14px;margin:0 4px 8px;cursor:pointer" onclick="openVerPagosModal(\''+doc.id+'\',\''+doc.kind+'\')">'+
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">'+
+        '<div style="flex:1;min-width:160px">'+
+          '<div style="font-weight:700;font-size:14px;color:#212121">'+(typeof h==="function"?h(doc.client||"(sin cliente)"):(doc.client||"(sin cliente)"))+fotoIcon+'</div>'+
+          '<div style="font-size:11px;color:#666;margin-top:2px">'+(doc.id||"")+' · '+(pago.fecha||"")+' · '+(pago.metodo||"Sin método")+'</div>'+
+          notas+
+        '</div>'+
+        '<div style="text-align:right">'+
+          '<div style="font-weight:700;font-size:15px;color:#1B5E20">'+fmt(pago.monto||0)+'</div>'+
+          '<div style="font-size:10px;color:#888;background:#f5f5f5;padding:1px 6px;border-radius:4px;display:inline-block;margin-top:2px">'+tipoLbl+'</div>'+
+        '</div>'+
+      '</div>'+
+      '</div>';
+  }).join("");
+
+  const moreHtml=pagos.length>MAX?'<div style="padding:14px;text-align:center;color:#888;font-size:12px;background:#FFF8E1;border-radius:6px;margin:0 4px">Mostrando primeros '+MAX+' pagos de '+pagos.length+'. Refiná los filtros para ver menos.</div>':'';
+
+  listEl.innerHTML=resumenHtml+cardsHtml+moreHtml;
+}
+
+window.renderCarteraHistorico=renderCarteraHistorico;
+window._carteraHistFiltros=_carteraHistFiltros;
+
 function renderCarteraCard(q,urgencia){
   const cli=q.client||"(sin cliente)";
   const id=q.id||"";
