@@ -3583,7 +3583,7 @@ function generarPdfProduccionPorCliente(){
       pdf.autoTable({
         startY:y,
         margin:{left:M,right:M},
-        head:[["✓","CANT","PRODUCTO","DESCRIPCIÓN","UNIDAD"]],
+        head:[["","CANT","PRODUCTO","DESCRIPCIÓN","UNIDAD"]],
         body:items,
         theme:"grid",
         headStyles:_REP_PDF_HEAD_STYLE,
@@ -3787,7 +3787,7 @@ function generarPdfEmpaque(){
       pdf.autoTable({
         startY:y,
         margin:{left:M,right:M},
-        head:[["✓","CANT","PRODUCTO","DESCRIPCIÓN","UNIDAD"]],
+        head:[["","CANT","PRODUCTO","DESCRIPCIÓN","UNIDAD"]],
         body:items,
         theme:"grid",
         headStyles:_REP_PDF_HEAD_STYLE,
@@ -3899,7 +3899,7 @@ function generarPdfEntregas(){
       pdf.autoTable({
         startY:y,
         margin:{left:M,right:M},
-        head:[["HORA","CLIENTE","DOC","DIRECCIÓN","TELÉFONO","TOTAL","NOTAS PAGO","SALIÓ","ENTREG","FIRMA CLIENTE"]],
+        head:[["HORA","CLIENTE","DOC","DIRECCIÓN","TELÉFONO","TOTAL","NOTAS PAGO","SAL","ENT","FIRMA CLIENTE"]],
         body:rows,
         theme:"grid",
         headStyles:_REP_PDF_HEAD_STYLE,
