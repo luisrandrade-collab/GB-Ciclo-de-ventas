@@ -3378,33 +3378,32 @@ async function renderReportes(){
 
     contentEl.innerHTML=
       '<div style="background:#F5F5F5;border-radius:10px;padding:14px 16px;margin-bottom:14px">'+
-        '<div style="font-weight:700;font-size:13px;color:#0D47A1;margin-bottom:10px">Filtros</div>'+
+        '<div style="font-weight:700;font-size:13px;color:#0D47A1;margin-bottom:10px">Filtros (cambian aplican automáticamente)</div>'+
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'+
           '<div>'+
             '<label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Fecha desde</label>'+
-            '<input type="date" id="rep-desde" value="'+reportesFiltros.desde+'" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
+            '<input type="date" id="rep-desde" value="'+reportesFiltros.desde+'" onchange="generarReporte()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
           '</div>'+
           '<div>'+
             '<label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Fecha hasta</label>'+
-            '<input type="date" id="rep-hasta" value="'+reportesFiltros.hasta+'" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
+            '<input type="date" id="rep-hasta" value="'+reportesFiltros.hasta+'" onchange="generarReporte()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
           '</div>'+
         '</div>'+
         '<div style="margin-bottom:12px">'+
           '<label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Estado</label>'+
-          '<select id="rep-estado" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
+          '<select id="rep-estado" onchange="generarReporte()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
             '<option value="todos"'+(reportesFiltros.estado==="todos"?" selected":"")+'>Todos (vendidos)</option>'+
             '<option value="pendientes"'+(reportesFiltros.estado==="pendientes"?" selected":"")+'>Solo pendientes de entregar</option>'+
             '<option value="entregados"'+(reportesFiltros.estado==="entregados"?" selected":"")+'>Solo entregados</option>'+
           '</select>'+
         '</div>'+
         '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
-          '<button class="btn" style="background:#0D47A1;color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px" onclick="generarReporte()">🔄 Generar reporte</button>'+
           '<button class="btn" style="background:#1B5E20;color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px" onclick="descargarExcel()" id="rep-btn-excel" disabled style="opacity:.5">📥 Descargar Excel</button>'+
         '</div>'+
       '</div>'+
       '<div id="rep-resultado"></div>';
 
-    // Auto-generar al entrar (UX más fluida)
+    // Auto-generar al entrar
     setTimeout(()=>generarReporte(),50);
   }
 }
