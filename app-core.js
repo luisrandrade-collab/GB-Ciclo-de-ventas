@@ -1714,7 +1714,9 @@ function setMode(m){
   // v7.4 F3: agregados 'entregar', 'entregadas' (modulo Entregas)
   // v7.4 F5: agregados 'archivo-busqueda', 'archivo-anuladas', 'archivo-convertidas' (modulo Archivo read-only)
   // v7.5 F6: agregado 'backup' (Herramientas > Mantenimiento y backups, migrado del Dashboard)
-  ["dash","cot","prop","search","hist","seg","cal","ventas","ops","cartera","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup"].forEach(x=>{
+  // v7.5.1 cleanup: eliminado 'ops' del array (modulo Operaciones disuelto en v7.4 F4). 'hist' se mantiene
+  // por compatibilidad aunque ya no aparece en sidebar (cubierto por modulo Archivo).
+  ["dash","cot","prop","search","hist","seg","cal","ventas","cartera","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup"].forEach(x=>{
     const el=$("mode-"+x);
     if(el)el.classList.toggle("hidden",x!==m);
     document.querySelectorAll(".mode-btn.m-"+x).forEach(b=>b.classList.toggle("act",x===m));
@@ -1726,7 +1728,6 @@ function setMode(m){
   // otros archivos quedan como no-op porque su guarda inicial no encuentra el div.
   if(m==="dash")renderDashboard();
   if(m==="seg"&&typeof renderSeguimiento==="function")renderSeguimiento();
-  if(m==="ops"&&typeof renderOps==="function")renderOps();
   if(m==="cartera"&&typeof renderCartera==="function")renderCartera();
   if(m==="reportes"&&typeof renderReportes==="function")renderReportes();
   if(m==="cotizaciones"&&typeof renderCotizaciones==="function")renderCotizaciones();

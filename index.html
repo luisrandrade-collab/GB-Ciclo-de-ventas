@@ -1752,7 +1752,6 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
         <a href="javascript:void(0)" data-sub="ventas/propuesta">Nueva propuesta</a>
         <a href="javascript:void(0)" data-sub="ventas/cotizaciones">Cotizaciones activas</a>
         <a href="javascript:void(0)" data-sub="ventas/perdidas">Perdidas</a>
-        <a href="javascript:void(0)" data-sub="ventas/historico">Histórico comercial</a>
       </div>
     </div>
 
@@ -1856,7 +1855,6 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'ventas/crear':      'ventas',
     'ventas/cotizar':    'cot',
     'ventas/propuesta':  'prop',
-    'ventas/historico':  'hist',
     'cartera/pendientes': 'cartera',
     // Legacy: 'ops/produccion' y 'ops/cobro' descontinuados en F4 (modulo Operaciones disuelto)
     'reportes/excel':       'reportes',
@@ -1884,7 +1882,6 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'ventas': 'ventas/crear',
     'cot':    'ventas/cotizar',
     'prop':   'ventas/propuesta',
-    'hist':    'ventas/historico',
     'cartera':              'cartera/pendientes',
     'reportes':             'reportes/excel',
     'cotizaciones':         'ventas/cotizaciones',
@@ -1914,7 +1911,6 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'reportes/imprimibles': ['Reportes', 'Hojas para imprimir'],
     'ventas/cotizaciones':  ['Ventas', 'Cotizaciones activas'],
     'ventas/perdidas':      ['Ventas', 'Perdidas'],
-    'ventas/historico':     ['Ventas', 'Histórico comercial'],
     'pedidos/aprobados':    ['Pedidos', 'Aprobados'],
     'pedidos/produccion':   ['Pedidos', 'En producción'],
     'pedidos/producidos':   ['Pedidos', 'Producidos'],
@@ -2639,22 +2635,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
 </div>
 </div>
 
-<!-- ======== OPERACIONES MODE (v7.1 B1) ======== -->
-<div id="mode-ops" class="hidden">
-  <div class="sec">
-    <div class="stit" style="color:#E65100;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-      <span>📦 Operaciones</span>
-      <span id="ops-count" style="font-size:12px;font-weight:400;color:#888"></span>
-    </div>
-    <div style="display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap" id="ops-tabs">
-      <button class="cpill act" onclick="setOpsTab('por_producir')" id="ops-tab-por_producir">🔥 Por producir</button>
-      <button class="cpill" onclick="setOpsTab('en_produccion')" id="ops-tab-en_produccion">👨‍🍳 En producción</button>
-      <button class="cpill" onclick="setOpsTab('listos')" id="ops-tab-listos">✅ Listos para entregar</button>
-      <button class="cpill" onclick="setOpsTab('todos')" id="ops-tab-todos">Todos</button>
-    </div>
-    <div id="ops-list"></div>
-  </div>
-</div>
+<!-- v7.5.1: mode-ops eliminado (modulo Operaciones disuelto en v7.4 F4, contenido migrado a Pedidos/Cartera) -->
 
 <!-- ======== RECAUDO POR METODO MODAL (v7.5) — abierto desde Cartera ======== -->
 <div id="recaudo-metodo-modal" class="hidden" onclick="if(event.target===this)closeRecaudoMetodoModal()" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px">
@@ -3281,47 +3262,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   </div>
 </div>
 
-<!-- v6.2.0: Modal selector para generar Hoja de Entregas del Día -->
-<!-- Abierto desde botón 🖨️ "Imprimir hoja del día" en bloque Operación urgente del dashboard -->
-<div id="hoja-entregas-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeHojaEntregasModal()">
-  <div class="modal-box">
-    <div class="modal-head" style="background:linear-gradient(135deg,#455A64,#263238)">
-      <span class="mtitle">🖨️ Hoja de entregas</span>
-      <button class="mclose" onclick="closeHojaEntregasModal()">×</button>
-    </div>
-    <div class="mform">
-      <div class="mf-intro" style="background:#ECEFF1;border-left-color:#455A64">
-        Genera un PDF con las entregas del rango para imprimir y que el cliente firme al recibir. Reemplaza la hoja manual.
-      </div>
-      <!-- v6.4.0 P5: botones rápidos de selección de rango -->
-      <div style="display:flex;gap:6px;margin:0 0 12px 0;flex-wrap:wrap">
-        <button type="button" class="btn bo he-quick-btn" data-he-range="hoy" onclick="heQuickRange('hoy')" style="flex:1;min-width:64px;padding:8px 6px;font-size:12px;background:#fff;border:1.5px solid #455A64;color:#455A64;font-weight:700">📅 Hoy</button>
-        <button type="button" class="btn bo he-quick-btn" data-he-range="manana" onclick="heQuickRange('manana')" style="flex:1;min-width:64px;padding:8px 6px;font-size:12px;background:#fff;border:1.5px solid #455A64;color:#455A64;font-weight:700">🌅 Mañana</button>
-        <button type="button" class="btn bo he-quick-btn" data-he-range="3dias" onclick="heQuickRange('3dias')" style="flex:1;min-width:64px;padding:8px 6px;font-size:12px;background:#fff;border:1.5px solid #455A64;color:#455A64;font-weight:700">📆 +3 días</button>
-        <button type="button" class="btn bo he-quick-btn" data-he-range="rango" onclick="heQuickRange('rango')" style="flex:1;min-width:64px;padding:8px 6px;font-size:12px;background:#fff;border:1.5px solid #455A64;color:#455A64;font-weight:700">⚙️ Rango</button>
-      </div>
-      <div class="mf-field">
-        <label>Desde</label>
-        <input type="date" id="he-from" />
-      </div>
-      <div class="mf-field">
-        <label>Hasta</label>
-        <input type="date" id="he-to" />
-      </div>
-      <div class="mf-field" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid #F0F0F0;margin-top:6px">
-        <input type="checkbox" id="he-solo-pendientes" checked style="width:18px;height:18px;accent-color:#455A64;cursor:pointer;flex-shrink:0">
-        <label for="he-solo-pendientes" style="margin:0;cursor:pointer;font-size:13px;line-height:1.35">
-          <span style="font-weight:700;display:block">Solo pendientes</span>
-          <span style="color:#666;font-size:11.5px;display:block;margin-top:1px">Si lo desactivas, también se incluyen entregados del rango (útil para reimprimir).</span>
-        </label>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:14px">
-        <button class="btn bo" style="background:#ECEFF1;color:#455A64;flex:1" onclick="closeHojaEntregasModal()">Cancelar</button>
-        <button class="btn" style="background:linear-gradient(135deg,#455A64,#263238);color:#fff;flex:2;font-weight:700" onclick="confirmarGenerarHojaEntregas()">📄 Generar hoja</button>
-      </div>
-    </div>
-  </div>
-</div>
+<!-- v7.5.1: hoja-entregas-modal eliminado (reemplazado por modulo Reportes > Hojas para imprimir, v7.3 commit f1b817a) -->
 
 <!-- v6.0.2 Item 9: Modal WhatsApp editable para recordatorio de saldo -->
 <div id="wa-saldo-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeSaldoWhatsAppModal()">
@@ -3776,12 +3717,12 @@ body{padding-bottom:84px}
 </script>
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.5.2"></script>
-<script src="app-core.js?v=7.5.2"></script>
-<script src="app-cotizar.js?v=7.5.2"></script>
-<script src="app-propuesta.js?v=7.5.2"></script>
-<script src="app-historial.js?v=7.5.2"></script>
-<script src="app-seguimiento.js?v=7.5.2"></script>
-<script src="app-dashboard.js?v=7.5.2"></script>
+<script src="app-assets.js?v=7.5.3"></script>
+<script src="app-core.js?v=7.5.3"></script>
+<script src="app-cotizar.js?v=7.5.3"></script>
+<script src="app-propuesta.js?v=7.5.3"></script>
+<script src="app-historial.js?v=7.5.3"></script>
+<script src="app-seguimiento.js?v=7.5.3"></script>
+<script src="app-dashboard.js?v=7.5.3"></script>
 </body>
 </html>
