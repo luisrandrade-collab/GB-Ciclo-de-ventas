@@ -1036,6 +1036,11 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
 .cd-ev.aprobada{background:#00897B}
 .cd-ev.en_produccion{background:#8E24AA}
 .cd-ev.entregado{background:#689F38}
+/* v7.6.5: pastillas del calendario diferenciadas producir vs entregar.
+   'producir' siempre naranja urgente (accionable HOY/MAÑANA).
+   'entregar' mantiene color por status del pedido. */
+.cal-cell .cd-ev.cd-ev-producir{background:#FB8C00;color:#fff}
+.cal-cell .cd-ev.cd-ev-more{background:#9E9E9E}
 .cal-summary{margin-top:14px}
 .cal-sum-title{font-family:var(--gb-font-display);font-size:18px;font-weight:700;color:var(--gb-neutral-900);margin-bottom:8px}
 .cal-sum-empty{text-align:center;padding:24px 12px;color:var(--gb-neutral-500);font-size:13px}
@@ -1100,6 +1105,19 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
 .wd-ev .we-accion-chip:hover{background:#FFE0B2}
 .wd-ev .we-accion-chip:active{background:#FFB300;color:#fff;transform:scale(.95)}
 .wd-empty-msg{font-size:11px;color:var(--gb-neutral-400);font-style:italic;padding:6px;align-self:center}
+/* v7.6.5: tarjeta CHICA de "producir" en vista semana (Opción B).
+   Una sola línea, sin chips, sin productos, sin total destacado — solo accionable. */
+.wd-ev-prod{display:flex;align-items:center;gap:8px;background:#FFF3E0;border-left:3px solid #FB8C00;border-radius:6px;padding:6px 9px;font-size:11.5px;cursor:pointer;color:#5D4037;transition:transform .1s}
+.wd-ev-prod:active{transform:scale(.99);background:#FFE0B2}
+.wd-ev-prod .wep-icon{font-size:14px;line-height:1}
+.wd-ev-prod .wep-label{font-weight:700;color:#E65100;flex-shrink:0}
+.wd-ev-prod .wep-label strong{color:#1A1A1A;margin-left:3px}
+.wd-ev-prod .wep-meta{font-size:10.5px;color:#8D6E63;margin-left:auto;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+/* v7.6.5: prefijo de acción en la lista debajo del calendario MES */
+.cal-ev-card .cal-ev-accion{display:inline-block;font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:3px;margin-right:4px;vertical-align:middle;letter-spacing:.2px}
+.cal-ev-card .cal-ev-accion.cal-ev-prod{background:#FFF3E0;color:#E65100;border:1px solid #FFB300}
+.cal-ev-card .cal-ev-accion.cal-ev-ent{background:#E1F5FE;color:#01579B;border:1px solid #4FC3F7}
+.cal-ev-card.cal-ev-producir{border-left-color:#FB8C00}
 /* v4.12: Historial por cliente al cotizar */
 .cli-hist-panel{background:#FFF8E1;border:1.5px solid #FFCA28;border-left:4px solid #FB8C00;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:12.5px}
 .cli-hist-panel .chp-tit{font-weight:700;color:#E65100;margin-bottom:8px;font-size:13px;display:flex;align-items:center;gap:6px}
@@ -3732,12 +3750,12 @@ body{padding-bottom:84px}
 </script>
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.6.1"></script>
-<script src="app-core.js?v=7.6.1"></script>
-<script src="app-cotizar.js?v=7.6.1"></script>
-<script src="app-propuesta.js?v=7.6.1"></script>
-<script src="app-historial.js?v=7.6.1"></script>
-<script src="app-seguimiento.js?v=7.6.1"></script>
-<script src="app-dashboard.js?v=7.6.1"></script>
+<script src="app-assets.js?v=7.6.5"></script>
+<script src="app-core.js?v=7.6.5"></script>
+<script src="app-cotizar.js?v=7.6.5"></script>
+<script src="app-propuesta.js?v=7.6.5"></script>
+<script src="app-historial.js?v=7.6.5"></script>
+<script src="app-seguimiento.js?v=7.6.5"></script>
+<script src="app-dashboard.js?v=7.6.5"></script>
 </body>
 </html>

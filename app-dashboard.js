@@ -670,6 +670,60 @@ function eventsAllStatuses(){
   });
 }
 
+// v7.6.5: deriva fecha de producción (productionDate o eventDate-1)
+function _calProdDate(q){
+  if(q.productionDate)return q.productionDate;
+  if(!q.eventDate)return null;
+  const d=isoToDate(q.eventDate);d.setDate(d.getDate()-1);
+  return dateToIso(d);
+}
+// v7.6.5: ¿este doc requiere mostrar entrada 'producir' en agenda?
+function _shouldShowProduccion(q){
+  if(q.produced)return false;
+  const s=q.status||"enviada";
+  if(s==="entregado"||s==="anulada"||s==="superseded")return false;
+  if(q.kind==="quote")return ["pedido","en_produccion"].includes(s);
+  if(q.kind==="proposal")return ["aprobada","en_produccion"].includes(s);
+  return false;
+}
+// v7.6.5: devuelve entries [{iso,tipo:'producir'|'entregar',q}] para agenda.
+// Cada doc puede aportar 2: una en eventDate (entregar) y otra en prodDate (producir).
+// Si prodDate==eventDate (mismo día) NO se duplica — la tarjeta de entrega ya muestra chip "Por producir hoy".
+function eventsForCalendarEntries(){
+  const out=[];
+  eventsAllStatuses().forEach(q=>{
+    if(q.eventDate)out.push({iso:q.eventDate,tipo:"entregar",q:q});
+    const pd=_calProdDate(q);
+    if(pd&&pd!==q.eventDate&&_shouldShowProduccion(q))out.push({iso:pd,tipo:"producir",q:q});
+  });
+  return out;
+}
+// v7.6.5: label corto de cuándo entrega ("hoy", "mañana", "DD MMM")
+function _calEntregaLabel(iso){
+  if(!iso)return "—";
+  const todayIso=new Date().toISOString().slice(0,10);
+  if(iso===todayIso)return "hoy";
+  const t=new Date();t.setDate(t.getDate()+1);
+  const tomorrowIso=t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(t.getDate()).padStart(2,"0");
+  if(iso===tomorrowIso)return "mañana";
+  const p=parseIsoDate(iso);if(!p)return iso;
+  const mShort=["ENE","FEB","MAR","ABR","MAY","JUN","JUL","AGO","SEP","OCT","NOV","DIC"];
+  return p.d+" "+mShort[p.m];
+}
+// v7.6.5: tarjeta CHICA de "producir" — Opción B confirmada con Luis.
+// Una sola línea: cliente + cuándo entrega + monto. Click → abre doc.
+function renderWeekProductionCard(q){
+  const cli=(q.client||"—").replace(/[<>]/g,"");
+  const total=fm(getDocTotal(q));
+  const entStr=_calEntregaLabel(q.eventDate);
+  const hora=q.horaEntrega?" "+q.horaEntrega:"";
+  return '<div class="wd-ev-prod" onclick="openDocument(\''+q.kind+'\',\''+q.id+'\')">'+
+    '<span class="wep-icon">🔥</span>'+
+    '<span class="wep-label">Producir <strong>'+cli+'</strong></span>'+
+    '<span class="wep-meta">entrega '+entStr+hora+' · '+total+'</span>'+
+  '</div>';
+}
+
 function renderWeek(){
   if(!weekAnchor)weekAnchor=getMondayIso(new Date().toISOString().slice(0,10));
   const start=isoToDate(weekAnchor);
@@ -681,24 +735,29 @@ function renderWeek(){
   const startStr=start.getDate()+" "+mShort[start.getMonth()];
   const endStr=end.getDate()+" "+mShort[end.getMonth()]+" "+end.getFullYear();
   $("week-title").textContent="Semana del "+startStr+" al "+endStr;
-  const events=eventsAllStatuses();
-  // Agrupar por día
+  // v7.6.5: ahora cada doc puede aportar 2 entries (producir + entregar)
+  const entries=eventsForCalendarEntries();
   const byDay={};
-  events.forEach(q=>{(byDay[q.eventDate]=byDay[q.eventDate]||[]).push(q)});
+  entries.forEach(e=>{(byDay[e.iso]=byDay[e.iso]||[]).push(e)});
   // Render 7 días
   let html="";
   for(let i=0;i<7;i++){
     const d=new Date(start);d.setDate(start.getDate()+i);
     const iso=dateToIso(d);
-    const evs=(byDay[iso]||[]).sort((a,b)=>(a.horaEntrega||"").localeCompare(b.horaEntrega||""));
+    const evs=(byDay[iso]||[]).sort((a,b)=>{
+      // Producir primero (qué cocinar hoy), luego entregas ordenadas por hora
+      if(a.tipo!==b.tipo)return a.tipo==="producir"?-1:1;
+      return (a.q.horaEntrega||"").localeCompare(b.q.horaEntrega||"");
+    });
     const isToday=iso===todayIso;
     const dayClass="week-day"+(isToday?" today":"")+(evs.length?"":" empty-day");
     const dateBox='<div class="wd-date"><div class="wd-dow">'+dows[i]+'</div><div class="wd-num">'+d.getDate()+'</div><div class="wd-mon">'+mShort[d.getMonth()]+'</div></div>';
     let evsHtml;
     if(!evs.length){evsHtml='<div class="wd-empty-msg">Sin eventos</div>'}
     else{
-      // v5.4.3: agenda visual con estados operativos + chip pago + resumen productos
-      evsHtml='<div class="wd-evs">'+evs.map(q=>renderWeekEventCard(q,iso,todayIso)).join("")+'</div>';
+      evsHtml='<div class="wd-evs">'+evs.map(e=>{
+        return e.tipo==="producir"?renderWeekProductionCard(e.q):renderWeekEventCard(e.q,iso,todayIso);
+      }).join("")+'</div>';
     }
     html+='<div class="'+dayClass+'">'+dateBox+evsHtml+'</div>';
   }
@@ -820,11 +879,17 @@ function calPrevMonth(){calMonth--;if(calMonth<0){calMonth=11;calYear--}renderMo
 function calNextMonth(){calMonth++;if(calMonth>11){calMonth=0;calYear++}renderMonth()}
 function calGoToday(){const d=new Date();calMonth=d.getMonth();calYear=d.getFullYear();renderMonth()}
 
-function eventsForMonth(year,month){
-  return eventsAllStatuses().filter(q=>{
-    const p=parseIsoDate(q.eventDate);
+// v7.6.5: entries del mes (producir + entregar) reusando eventsForCalendarEntries
+function entriesForMonth(year,month){
+  return eventsForCalendarEntries().filter(e=>{
+    const p=parseIsoDate(e.iso);
     return p&&p.y===year&&p.m===month;
-  }).sort((a,b)=>a.eventDate.localeCompare(b.eventDate));
+  }).sort((a,b)=>{
+    if(a.iso!==b.iso)return a.iso.localeCompare(b.iso);
+    // Mismo día: producir antes que entregar; entre entregas, por hora
+    if(a.tipo!==b.tipo)return a.tipo==="producir"?-1:1;
+    return (a.q.horaEntrega||"").localeCompare(b.q.horaEntrega||"");
+  });
 }
 
 function renderMonth(){
@@ -833,9 +898,9 @@ function renderMonth(){
   const firstDay=new Date(calYear,calMonth,1);
   const daysInMonth=new Date(calYear,calMonth+1,0).getDate();
   let leadingBlanks=firstDay.getDay()-1;if(leadingBlanks<0)leadingBlanks=6;
-  const monthEvents=eventsForMonth(calYear,calMonth);
+  const monthEntries=entriesForMonth(calYear,calMonth);
   const byDay={};
-  monthEvents.forEach(q=>{const p=parseIsoDate(q.eventDate);if(!p)return;if(!byDay[p.d])byDay[p.d]=[];byDay[p.d].push(q)});
+  monthEntries.forEach(e=>{const p=parseIsoDate(e.iso);if(!p)return;if(!byDay[p.d])byDay[p.d]=[];byDay[p.d].push(e)});
   const dowLabels=["L","M","M","J","V","S","D"];
   let cells=dowLabels.map(l=>'<div class="cal-dow">'+l+'</div>').join("");
   for(let i=0;i<leadingBlanks;i++)cells+='<div class="cal-cell empty"></div>';
@@ -851,32 +916,51 @@ function renderMonth(){
     const onclick=hasEv?' onclick="calFocusDay('+d+')"':"";
     let inner='<div class="cd-num">'+d+'</div>';
     if(hasEv){
-      const pastillas=evs.slice(0,2).map(q=>{const lbl=(q.client||"—").split(/\s+/)[0].slice(0,8);return '<div class="cd-ev '+q.status+'" title="'+(q.client||"")+'">'+lbl+'</div>'}).join("");
-      const extra=evs.length>2?'<div class="cd-ev" style="background:#9E9E9E">+'+(evs.length-2)+'</div>':"";
+      // v7.6.5: pastillas con prefijo según tipo (🔥 producir / 🚚 entregar)
+      const pastillas=evs.slice(0,2).map(e=>{
+        const lbl=(e.q.client||"—").split(/\s+/)[0].slice(0,7);
+        const cls="cd-ev cd-ev-"+e.tipo+" "+(e.q.status||"");
+        const ico=e.tipo==="producir"?"🔥":"🚚";
+        return '<div class="'+cls+'" title="'+(e.tipo==="producir"?"Producir ":"Entregar ")+(e.q.client||"")+'">'+ico+' '+lbl+'</div>';
+      }).join("");
+      const extra=evs.length>2?'<div class="cd-ev cd-ev-more">+'+(evs.length-2)+'</div>':"";
       inner+='<div class="cd-evs">'+pastillas+extra+'</div>';
     }
     cells+='<div class="'+classes+'"'+onclick+'>'+inner+'</div>';
   }
   $("cal-grid").innerHTML=cells;
+  // ──────────── Lista debajo (entries del mes ordenadas) ────────────
   const sumEl=$("cal-sum-list");
-  if(!monthEvents.length){
-    sumEl.innerHTML='<div class="cal-sum-empty">📅 Sin entregas este mes.</div>';
-    $("cal-sum-title").textContent="Entregas del mes";
+  if(!monthEntries.length){
+    sumEl.innerHTML='<div class="cal-sum-empty">📅 Sin eventos este mes.</div>';
+    $("cal-sum-title").textContent="Eventos del mes";
     return;
   }
-  $("cal-sum-title").textContent="Entregas del mes ("+monthEvents.length+")";
+  $("cal-sum-title").textContent="Eventos del mes ("+monthEntries.length+")";
   const mShort=["ENE","FEB","MAR","ABR","MAY","JUN","JUL","AGO","SEP","OCT","NOV","DIC"];
-  sumEl.innerHTML=monthEvents.map(q=>{
-    const p=parseIsoDate(q.eventDate);
+  sumEl.innerHTML=monthEntries.map(e=>{
+    const q=e.q;
+    const p=parseIsoDate(e.iso);
     const sMeta=STATUS_META[q.status]||STATUS_META.enviada;
     const isQuote=q.kind==="quote";
     const typeTag=isQuote?'<span class="hc-type cot" style="margin-left:4px">Pedido</span>':'<span class="hc-type prop" style="margin-left:4px">Evento</span>';
-    const pax=q.pers?q.pers+' pax · ':'';
-    const mom=q.momento?q.momento:'';
-    const hora=q.horaEntrega?'⏰ '+q.horaEntrega:'';
-    const meta=[pax+mom,hora].filter(Boolean).join(' · ');
-    return '<div class="cal-ev-card '+q.status+'" id="cal-ev-'+p.d+'-'+q.id+'" onclick="openDocument(\''+q.kind+'\',\''+q.id+'\')"><div class="cal-ev-date"><div class="d">'+p.d+'</div><div class="m">'+mShort[p.m]+'</div></div><div class="cal-ev-body"><div class="cal-ev-cli">'+(q.client||"—")+typeTag+' <span class="hc-status '+sMeta.cls+'" style="margin-left:4px">'+sMeta.label+'</span></div><div class="cal-ev-meta"><span>'+meta+'</span></div></div></div>';
+    const pax=q.pers?q.pers+" pax · ":"";
+    const mom=q.momento?q.momento:"";
+    const hora=q.horaEntrega?"⏰ "+q.horaEntrega:"";
+    const meta=[pax+mom,hora].filter(Boolean).join(" · ");
+    // v7.6.5: prefijo según tipo
+    const accionPrefix=e.tipo==="producir"?'<span class="cal-ev-accion cal-ev-prod">🔥 Producir</span> ':'<span class="cal-ev-accion cal-ev-ent">🚚 Entregar</span> ';
+    const card='<div class="cal-ev-card cal-ev-'+e.tipo+' '+q.status+'" id="cal-ev-'+p.d+'-'+e.tipo+'-'+q.id+'" onclick="openDocument(\''+q.kind+'\',\''+q.id+'\')">'+
+      '<div class="cal-ev-date"><div class="d">'+p.d+'</div><div class="m">'+mShort[p.m]+'</div></div>'+
+      '<div class="cal-ev-body">'+
+        '<div class="cal-ev-cli">'+accionPrefix+(q.client||"—")+typeTag+' <span class="hc-status '+sMeta.cls+'" style="margin-left:4px">'+sMeta.label+'</span></div>'+
+        '<div class="cal-ev-meta"><span>'+meta+'</span></div>'+
+      '</div>'+
+    '</div>';
+    return card;
   }).join("");
+  // v7.6.5 hook: cuando llegue v7.8 (módulo Compras), agregar acá un 3er tipo de entry:
+  //   {iso, tipo:'comprar', q?} con prefijo "🛒 Compras por hacer" navegable al módulo Compras.
 }
 function calFocusDay(d){
   const cards=document.querySelectorAll('[id^="cal-ev-'+d+'-"]');
