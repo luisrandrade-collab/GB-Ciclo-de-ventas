@@ -3287,16 +3287,22 @@ function renderRecaudoMetodoModalContent(){
   }
   const maxMet=Math.max(...Object.values(recaudoMet),1);
   const metodos=(typeof METODOS_PAGO!=="undefined")?METODOS_PAGO:Object.keys(recaudoMet);
-  // Filtrar solo metodos con monto > 0 para no mostrar filas vacias
-  const metodosConMonto=metodos.filter(m=>(recaudoMet[m]||0)>0);
-  const rows=metodosConMonto.map(m=>{
+  // v7.5.2: mostrar TODOS los metodos (incluso los que estan en $0) para
+  // que Luis vea el panorama completo. Los $0 se ven en gris sin barra.
+  const rows=metodos.map(m=>{
     const v=recaudoMet[m]||0;
     const pct=Math.round(v*100/maxMet);
     const pctTotal=total>0?Math.round(v*100/total):0;
+    const isZero=v===0;
+    const labelColor=isZero?"#aaa":"#333";
+    const barBg=isZero?"#f5f5f5":"#E8F5E9";
+    const barFill=isZero?"transparent":"#1B5E20";
+    const valColor=isZero?"#aaa":"#1B5E20";
+    const valWeight=isZero?"400":"600";
     return '<div style="display:grid;grid-template-columns:140px 1fr 130px;gap:10px;align-items:center;padding:6px 0;font-size:13px;border-bottom:1px solid #f0f0f0">'+
-      '<div style="font-weight:600;color:#333">'+m+'</div>'+
-      '<div style="background:#E8F5E9;border-radius:4px;height:16px;overflow:hidden"><div style="background:#1B5E20;height:100%;width:'+pct+'%;transition:width .3s"></div></div>'+
-      '<div style="text-align:right;font-weight:600;color:#1B5E20">'+fmt(v)+' <span style="color:#888;font-weight:400;font-size:11px">('+pctTotal+'%)</span></div>'+
+      '<div style="font-weight:'+(isZero?"500":"600")+';color:'+labelColor+'">'+m+'</div>'+
+      '<div style="background:'+barBg+';border-radius:4px;height:16px;overflow:hidden"><div style="background:'+barFill+';height:100%;width:'+pct+'%;transition:width .3s"></div></div>'+
+      '<div style="text-align:right;font-weight:'+valWeight+';color:'+valColor+'">'+fmt(v)+(isZero?'':' <span style="color:#888;font-weight:400;font-size:11px">('+pctTotal+'%)</span>')+'</div>'+
     '</div>';
   }).join("");
   el.innerHTML=
