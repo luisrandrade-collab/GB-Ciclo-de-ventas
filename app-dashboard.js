@@ -3648,9 +3648,9 @@ function generarPdfProduccionConsolidada(){
     pdf.setFontSize(10);pdf.setFont(undefined,"normal");
     pdf.text(porDia[f].docs.length+" pedido(s) · "+Object.keys(porDia[f].productos).length+" producto(s) distinto(s)",M,y);y+=6;
 
-    // Tabla agregada ordenada por cantidad desc
+    // Tabla agregada ordenada alfabeticamente por nombre de producto
     const rows=Object.entries(porDia[f].productos)
-      .sort((a,b)=>b[1].qty-a[1].qty)
+      .sort((a,b)=>(a[1].name||"").localeCompare(b[1].name||"")||(a[1].desc||"").localeCompare(b[1].desc||""))
       .map(([key,g])=>[String(g.qty),g.name,g.desc,g.unit,String(g.pedidos.size),Array.from(g.pedidos).join(", ")]);
 
     if(pdf.autoTable){
