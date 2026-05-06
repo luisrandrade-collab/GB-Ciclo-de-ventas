@@ -2293,10 +2293,17 @@ function renderUrgent3d(){
     const fecha=q.eventDate||q.fechaEntrega;
     if(!fecha)return;
     if(fecha<todayIso||fecha>t3Iso)return; // fuera de ventana 3 días
-    // Por producir: pedido/aprobada (aún no empezó producción)
-    if(["pedido","aprobada"].includes(s))porProducir.push(q);
-    // Por entregar: en_produccion (cocina en marcha)
-    else if(s==="en_produccion")porEntregar.push(q);
+    // v7.7.5.2 fix: usar también q.produced (flag independiente del status).
+    // Antes solo miraba status → si Luis marcaba producido un pedido (q.produced=true)
+    // el status seguía siendo "pedido" y caía mal en "Por producir" cuando debería
+    // estar en "Por entregar".
+    if(q.produced){
+      porEntregar.push(q);
+    }else if(["pedido","aprobada"].includes(s)){
+      porProducir.push(q);
+    }else if(s==="en_produccion"){
+      porEntregar.push(q);
+    }
   });
 
   // Ordenar por fecha ascendente (más cercano primero)
