@@ -109,13 +109,23 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.7.5";
+const BUILD_VERSION="v7.7.5.1";
 const BUILD_DATE="2026-04-24";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
 const APP_YEAR=new Date().getFullYear();
 // v5.0: estado del usuario autenticado — se actualiza en onAuthStateChanged
 let currentUser=null;
+
+// v7.7.5.1: helpers de fecha en zona LOCAL.
+// Antes se usaba toISOString().slice(0,10) que devuelve UTC. Después de las 19:00
+// hora Bogotá (UTC-5) ya era el día siguiente en UTC → bugs como "1 entrega HOY"
+// mostrando pedidos del día siguiente.
+function gbDateToIso(d){
+  if(!d)return "";
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+}
+function gbTodayIso(){return gbDateToIso(new Date())}
 
 // ─── PDF SHARE/DOWNLOAD (v4.12.2) ──────────────────────────
 // Reemplaza doc.save() para evitar que en iPhone se filtre el blob URL al compartir.
@@ -1278,7 +1288,7 @@ async function loadAllHistory(){
 
 async function autoTransitionToEnProduccion(list){
   if(!cloudOnline)return;
-  const todayIso=new Date().toISOString().slice(0,10);
+  const todayIso=gbTodayIso();
   // E1.1 (2026-04-26): solo 'aprobada' se auto-promueve (limbo de propuestas que llegaron al
   // día del evento sin cerrar wizard). 'pedido' → 'en_produccion' YA NO es automático: requiere
   // botón "🔥 Iniciar producción" explícito que dispara Kathy cuando realmente prende la cocina.
@@ -1589,7 +1599,7 @@ async function reactivarPerdida(docId,kind,destino){
 function isAgendable(q){
   if(!q||q._wrongCollection||q.status==="superseded"||q.status==="convertida"||q.status==="anulada")return false;
   if(!q.eventDate)return false;
-  const hoy=new Date().toISOString().slice(0,10);
+  const hoy=gbTodayIso();
   if(q.eventDate<hoy)return false;
   const ok=(q.kind==="quote"&&["pedido","en_produccion"].includes(q.status))||(q.kind==="proposal"&&["aprobada","en_produccion"].includes(q.status));
   return ok;
@@ -1703,7 +1713,7 @@ function closeCustomRangeModal(){
 }
 function setCustomRangePreset(kind){
   const today=new Date();
-  const toIso=d=>d.toISOString().slice(0,10);
+  const toIso=d=>gbDateToIso(d);
   let from,to=toIso(today);
   if(kind==="last7"){const d=new Date(today);d.setDate(d.getDate()-6);from=toIso(d)}
   else if(kind==="last30"){const d=new Date(today);d.setDate(d.getDate()-29);from=toIso(d)}

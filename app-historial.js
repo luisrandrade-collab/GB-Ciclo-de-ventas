@@ -218,7 +218,7 @@ function _docEnSubfiltro(q,arch,filt){
       const meses=filt==="last_3m"?3:6;
       const d=new Date();
       d.setMonth(d.getMonth()-meses);
-      const cutoff=d.toISOString().slice(0,10);
+      const cutoff=gbDateToIso(d);
       return fEnt>=cutoff;
     }
   }
@@ -592,15 +592,15 @@ function openOrderModal(quoteId,ev){
   if(!q){if(typeof toast==="function")toast("No se encontró la cotización","error");else alert("No se encontró la cotización");return}
   $("om-num").value=q.quoteNumber||q.id;
   $("om-cli").value=q.client||"";
-  const hoy=new Date().toISOString().slice(0,10);
+  const hoy=gbTodayIso();
   $("om-fecha").value=hoy;
-  const mañana=new Date(Date.now()+86400000).toISOString().slice(0,10);
+  const mañana=gbDateToIso(new Date(Date.now()+86400000));
   const entrega=q.eventDate||mañana;
   $("om-entrega-fecha").value=entrega;
   $("om-entrega-hora").value=q.horaEntrega||"";
   const entregaDate=new Date(entrega+"T00:00:00");
   const prodDefault=new Date(entregaDate.getTime()-86400000);
-  const prodIso=prodDefault<new Date(hoy+"T00:00:00")?hoy:prodDefault.toISOString().slice(0,10);
+  const prodIso=prodDefault<new Date(hoy+"T00:00:00")?hoy:gbDateToIso(prodDefault);
   $("om-prod-fecha").value=q.productionDate||prodIso;
   // v5.4.0 (Bloque C): producción editable. Al cambiar fecha entrega, recalcula default
   // de producción (entrega - 1d) SOLO si el usuario no la ha editado manualmente.
@@ -618,7 +618,7 @@ function openOrderModal(quoteId,ev){
     const eD=new Date(e+"T00:00:00");
     const pD=new Date(eD.getTime()-86400000);
     const h=new Date(hoy+"T00:00:00");
-    const newProdDefault=(pD<h?hoy:pD.toISOString().slice(0,10));
+    const newProdDefault=(pD<h?hoy:gbDateToIso(pD));
     // Solo auto-actualiza si el usuario no la tocó
     if($("om-prod-fecha").dataset.userEdited!=="1"){
       $("om-prod-fecha").value=newProdDefault;
@@ -686,13 +686,13 @@ async function submitMarkAsOrder(){
   // pero el usuario puede ponerla el mismo día de la entrega si así lo necesita.
   // Validaciones: no puede ser en el pasado, no puede ser después de la entrega.
   // Si es el mismo día que la entrega, se pide confirmación explícita.
-  const todayIso=new Date().toISOString().slice(0,10);
+  const todayIso=gbTodayIso();
   let productionDate=$("om-prod-fecha").value;
   if(!productionDate){
     // Fallback defensivo si alguien vació el campo: re-calcular entrega-1d
     const _entD=new Date(fechaEntrega+"T00:00:00");
     const _prodD=new Date(_entD.getTime()-86400000);
-    productionDate=_prodD.toISOString().slice(0,10);
+    productionDate=gbDateToIso(_prodD);
     if(productionDate<todayIso)productionDate=todayIso;
   }
   if(productionDate<todayIso){
@@ -742,7 +742,7 @@ async function submitMarkAsOrder(){
     };
     if(pagos.length)patch.pagos=pagos;
     // v5.0.2: al confirmar un pedido con fecha futura, queda needsSync=true automáticamente.
-    const hoyIso=new Date().toISOString().slice(0,10);
+    const hoyIso=gbTodayIso();
     if(fechaEntrega&&fechaEntrega>=hoyIso)patch.needsSync=true;
     await updateDoc(doc(db,"quotes",quoteId),patch);
     const local=quotesCache.find(x=>x.id===quoteId&&x.kind==="quote");
@@ -767,7 +767,7 @@ async function assignDeliveryDate(quoteId,kind,ev){
   if(ev){ev.stopPropagation();ev.preventDefault()}
   const q=quotesCache.find(x=>x.id===quoteId&&x.kind===kind);
   if(!q){if(typeof toast==="function")toast("No se encontró el pedido","error");else alert("No se encontró el pedido");return}
-  const hoy=new Date().toISOString().slice(0,10);
+  const hoy=gbTodayIso();
   const fecha=prompt("Fecha de entrega (YYYY-MM-DD):",q.eventDate||hoy);
   if(!fecha)return;
   if(!/^\d{4}-\d{2}-\d{2}$/.test(fecha)){alert("Formato inválido. Usa YYYY-MM-DD");return}
@@ -799,7 +799,7 @@ function openApproveModal(propId,kind,ev){
   if(!p){if(typeof toast==="function")toast("No se encontró la propuesta","error");else alert("No se encontró la propuesta");return}
   $("am-num").value=p.quoteNumber||p.id;
   $("am-cli").value=p.client||"";
-  $("am-fecha").value=new Date().toISOString().slice(0,10);
+  $("am-fecha").value=gbTodayIso();
   $("am-entrega-fecha").value=p.eventDate||"";
   $("am-entrega-hora").value=p.horaEntrega||"";
   $("am-anticipo").value="";
@@ -866,7 +866,7 @@ async function submitApproveProposal(){
     if(fechaEntrega)patch.eventDate=fechaEntrega;
     if(horaEntrega)patch.horaEntrega=horaEntrega;
     if(pagos.length)patch.pagos=pagos;
-    const hoyIso=new Date().toISOString().slice(0,10);
+    const hoyIso=gbTodayIso();
     const effectiveEventDate=fechaEntrega||(quotesCache.find(x=>x.id===propId&&x.kind===kind)||{}).eventDate;
     if(effectiveEventDate&&effectiveEventDate>=hoyIso)patch.needsSync=true;
     await updateDoc(doc(db,coll,propId),patch);
@@ -985,7 +985,7 @@ function openSaldoModal(propId,ev){
   saldoSource={id:propId,kind:p.kind,doc:p};
   $("sm-num").value=p.quoteNumber||p.id;
   $("sm-cli").value=p.client||"";
-  $("sm-fecha").value=new Date().toISOString().slice(0,10);
+  $("sm-fecha").value=gbTodayIso();
   $("sm-metodo").value="";
   $("sm-notas").value="";
   $("sm-monto").value=saldoEstimado||"";
@@ -1039,7 +1039,7 @@ function openPagoModal(docId,kindOrEv,evMaybe){
   const cobrado=totalCobrado(q);
   const pend=Math.max(0,total-cobrado);
   $("pm-resumen").innerHTML="Total: <strong>"+fm(total)+"</strong> · Cobrado: <strong>"+fm(cobrado)+"</strong> · Pendiente: <strong>"+fm(pend)+"</strong>";
-  $("pm-fecha").value=new Date().toISOString().slice(0,10);
+  $("pm-fecha").value=gbTodayIso();
   $("pm-monto").value=pend||"";
   $("pm-metodo").value="";
   $("pm-tipo").value=cobrado===0?"anticipo":(pend>0?"parcial":"saldo");
@@ -1492,7 +1492,7 @@ function _doOpenDeliveryModal(docId,kind,q){
   entregaFoto2Base64=q.entregaData?.foto2Url||q.entregaData?.foto2Base64||null;
   $("dm-num").value=q.quoteNumber||q.id;
   $("dm-cli").value=q.client||"";
-  $("dm-fecha").value=q.entregaData?.fechaEntrega||new Date().toISOString().slice(0,10);
+  $("dm-fecha").value=q.entregaData?.fechaEntrega||gbTodayIso();
   $("dm-entregado-por").value=q.entregaData?.entregadoPor&&["Kathy","Juan Pablo","Luis"].includes(q.entregaData.entregadoPor)?q.entregaData.entregadoPor:(q.entregaData?.entregadoPor?"Otro":"");
   $("dm-entregado-otro").value=q.entregaData?.entregadoPor&&!["Kathy","Juan Pablo","Luis"].includes(q.entregaData.entregadoPor)?q.entregaData.entregadoPor:"";
   $("dm-entregado-otro").classList.toggle("hidden",$("dm-entregado-por").value!=="Otro");
@@ -1575,7 +1575,7 @@ async function submitDelivery(){
   // v7.0-α FIX-05: audit de transición FSM (no bloquea en audit, sí en enforce)
   if(typeof auditTransition==="function"&&!auditTransition(deliverySrc.doc.status,"entregado","submitDelivery "+deliverySrc.id))return;
   if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión","error");else alert("Sin conexión");return}
-  const fecha=$("dm-fecha").value||new Date().toISOString().slice(0,10);
+  const fecha=$("dm-fecha").value||gbTodayIso();
   let entregadoPor=$("dm-entregado-por").value;
   if(entregadoPor==="Otro"){entregadoPor=$("dm-entregado-otro").value.trim();if(!entregadoPor){alert("Indica quién entregó");return}}
   const notasEntrega=$("dm-notas-entrega").value.trim();
@@ -1773,7 +1773,7 @@ function openComentModal(docId,kind,ev){
   comentFotoBase64=c.fotoUrl||c.fotoBase64||null; // v5.0: fotoUrl o legacy base64
   $("cm-num").value=q.quoteNumber||q.id;
   $("cm-cli").value=q.client||"";
-  $("cm-fecha").value=c.fecha||new Date().toISOString().slice(0,10);
+  $("cm-fecha").value=c.fecha||gbTodayIso();
   $("cm-texto").value=c.texto||"";
   $("cm-foto").value="";
   if(comentFotoBase64)$("cm-foto-preview").innerHTML='<img src="'+comentFotoBase64+'" style="max-width:100%;max-height:160px;border-radius:6px;border:1px solid #ddd">';
@@ -1795,7 +1795,7 @@ async function submitComentario(){
   if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión","error");else alert("Sin conexión");return}
   const texto=$("cm-texto").value.trim();
   if(!texto&&!comentFotoBase64){alert("Agrega texto o una foto");return}
-  const fecha=$("cm-fecha").value||new Date().toISOString().slice(0,10);
+  const fecha=$("cm-fecha").value||gbTodayIso();
   const comentarioCliente={texto:texto,fecha:fecha,registradoEn:new Date().toISOString()};
   // v5.0: foto a Storage
   if(comentFotoBase64){
@@ -1916,7 +1916,7 @@ function openAnularModal(docId,kind,ev){
   $("an-notas").value="";
   $("an-accion").value="anular";
   // Fecha default para devolución = hoy
-  $("an-dev-fecha").value=new Date().toISOString().slice(0,10);
+  $("an-dev-fecha").value=gbTodayIso();
   $("an-dev-monto").value="";
   $("an-dev-metodo").value="";
   $("an-dev-notas").value="";
@@ -2533,7 +2533,7 @@ async function submitFe(docId,kind){
   if(requiereFE||_feBase64||numero){
     const feData=q.feData?{...q.feData}:{};
     if(numero)feData.numero=numero;
-    feData.fecha=feData.fecha||new Date().toISOString().slice(0,10);
+    feData.fecha=feData.fecha||gbTodayIso();
     if(_feBase64){
       try{
         if(typeof showLoader==="function")showLoader("Subiendo imagen...");

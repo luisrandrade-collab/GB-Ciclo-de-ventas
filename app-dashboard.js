@@ -53,20 +53,20 @@ function setDashPeriod(p){
 }
 function getDashRange(){
   const today=new Date();
-  const todayIso=today.toISOString().slice(0,10);
+  const todayIso=gbDateToIso(today);
   if(dashPeriod==="all")return{start:"0000-01-01",end:"9999-12-31",label:"Histórico completo"};
   // v7.0-α D1.1: período "Hoy" — start y end son el mismo día
   if(dashPeriod==="today")return{start:todayIso,end:todayIso,label:"Hoy ("+todayIso+")"};
-  if(dashPeriod==="week"){const start=new Date(today);start.setDate(start.getDate()-6);return{start:start.toISOString().slice(0,10),end:todayIso,label:"Últimos 7 días ("+start.toISOString().slice(0,10)+" → "+todayIso+")"}}
-  if(dashPeriod==="month"){const start=new Date(today.getFullYear(),today.getMonth(),1);return{start:start.toISOString().slice(0,10),end:todayIso,label:"Mes en curso ("+start.toISOString().slice(0,10).slice(0,7)+")"}}
-  if(dashPeriod==="year"){const start=new Date(today.getFullYear(),0,1);return{start:start.toISOString().slice(0,10),end:todayIso,label:"Año en curso ("+today.getFullYear()+")"}}
+  if(dashPeriod==="week"){const start=new Date(today);start.setDate(start.getDate()-6);return{start:gbDateToIso(start),end:todayIso,label:"Últimos 7 días ("+gbDateToIso(start)+" → "+todayIso+")"}}
+  if(dashPeriod==="month"){const start=new Date(today.getFullYear(),today.getMonth(),1);return{start:gbDateToIso(start),end:todayIso,label:"Mes en curso ("+gbDateToIso(start).slice(0,7)+")"}}
+  if(dashPeriod==="year"){const start=new Date(today.getFullYear(),0,1);return{start:gbDateToIso(start),end:todayIso,label:"Año en curso ("+today.getFullYear()+")"}}
   // v5.0.2: rango custom
   if(dashPeriod==="custom"&&dashCustomFrom&&dashCustomTo){
     return {start:dashCustomFrom,end:dashCustomTo,label:"Rango personalizado ("+dashCustomFrom+" → "+dashCustomTo+")"};
   }
   // Fallback si custom pero sin fechas: comportarse como mes
   const start=new Date(today.getFullYear(),today.getMonth(),1);
-  return{start:start.toISOString().slice(0,10),end:todayIso,label:"Mes en curso ("+start.toISOString().slice(0,10).slice(0,7)+")"};
+  return{start:gbDateToIso(start),end:todayIso,label:"Mes en curso ("+gbDateToIso(start).slice(0,7)+")"};
 }
 // v7.0-α D1.4: período anterior con misma duración que el actual, para Δ%.
 // 'all' no tiene anterior → null. Custom usa misma duración del rango.
@@ -88,8 +88,8 @@ function getDashRangePrev(){
     "custom":"vs rango anterior"
   };
   return {
-    start:prevStart.toISOString().slice(0,10),
-    end:prevEnd.toISOString().slice(0,10),
+    start:gbDateToIso(prevStart),
+    end:gbDateToIso(prevEnd),
     label:labelMap[dashPeriod]||"vs período anterior"
   };
 }
@@ -235,7 +235,7 @@ function dateOfSale(q){return q.orderData?.fechaAprobacion||q.approvalData?.fech
 // 3) Entregar hoy (en_produccion con fechaEntrega=hoy)
 function computeTodayZone(){
   const today=new Date();today.setHours(0,0,0,0);
-  const todayIso=today.toISOString().slice(0,10);
+  const todayIso=gbDateToIso(today);
   const items=[];
   (quotesCache||[]).forEach(q=>{
     if(q._wrongCollection)return;
@@ -372,6 +372,12 @@ function renderDashHead(){
 }
 
 async function renderDashboard(){
+  // v7.7.5.1: garantizar que el botón de período activo esté marcado en el PRIMER
+  // render (antes solo se actualizaba al hacer click → si Luis cargaba directo al
+  // dashboard nunca veía cuál estaba activo).
+  try{
+    document.querySelectorAll(".dp-btn").forEach(b=>b.classList.toggle("act",b.dataset.p===dashPeriod));
+  }catch{}
   if(!quotesCache.length){try{await loadAllHistory()}catch{}}
   // v5.2.1: cada sección se envuelve en try-catch para que un error en una
   // no impida que el resto del dashboard se renderice. Antes de v5.2 un error
@@ -490,9 +496,9 @@ async function renderDashboard(){
   // v7.5: Recaudo por método movido a Cartera (boton modal openRecaudoMetodoModal).
   // Próximas entregas (próximos 14 días, ignora período)
   _safe(()=>{
-    const todayIso2=new Date().toISOString().slice(0,10);
+    const todayIso2=gbTodayIso();
     const t14=new Date();t14.setDate(t14.getDate()+14);
-    const t14Iso=t14.toISOString().slice(0,10);
+    const t14Iso=gbDateToIso(t14);
     const upcoming=[];
     const sinFecha=[];
     quotesCache.forEach(q=>{
@@ -540,13 +546,13 @@ async function renderMiniDash(){
   if(!quotesCache.length){try{await loadAllHistory()}catch{}}
   const dashEl=$("mini-dash");if(!dashEl)return;
   const today=new Date();
-  const todayIso=today.toISOString().slice(0,10);
+  const todayIso=gbDateToIso(today);
   const weekEnd=new Date(today);weekEnd.setDate(weekEnd.getDate()+7);
-  const weekEndIso=weekEnd.toISOString().slice(0,10);
+  const weekEndIso=gbDateToIso(weekEnd);
   const tomorrow=new Date(today);tomorrow.setDate(tomorrow.getDate()+1);
-  const tomorrowIso=tomorrow.toISOString().slice(0,10);
+  const tomorrowIso=gbDateToIso(tomorrow);
   const pasado=new Date(today);pasado.setDate(pasado.getDate()+2);
-  const pasadoIso=pasado.toISOString().slice(0,10);
+  const pasadoIso=gbDateToIso(pasado);
   const upcoming={hoy:[],mañana:[],pasado:[],semana:[]};
   let saldoP=0;
   const statusAgendados={proposal:["aprobada","en_produccion"],quote:["pedido","en_produccion"]};
@@ -636,7 +642,7 @@ function getMondayIso(iso){
 }
 
 // ─── VISTA SEMANA ──────────────────────────────────────────
-function weekToday(){weekAnchor=getMondayIso(new Date().toISOString().slice(0,10));renderWeek()}
+function weekToday(){weekAnchor=getMondayIso(gbTodayIso());renderWeek()}
 function weekPrev(){if(!weekAnchor)weekToday();const d=isoToDate(weekAnchor);d.setDate(d.getDate()-7);weekAnchor=dateToIso(d);renderWeek()}
 function weekNext(){if(!weekAnchor)weekToday();const d=isoToDate(weekAnchor);d.setDate(d.getDate()+7);weekAnchor=dateToIso(d);renderWeek()}
 
@@ -687,7 +693,7 @@ function eventsForCalendarEntries(){
 // v7.6.5: label corto de cuándo entrega ("hoy", "mañana", "DD MMM")
 function _calEntregaLabel(iso){
   if(!iso)return "—";
-  const todayIso=new Date().toISOString().slice(0,10);
+  const todayIso=gbTodayIso();
   if(iso===todayIso)return "hoy";
   const t=new Date();t.setDate(t.getDate()+1);
   const tomorrowIso=t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(t.getDate()).padStart(2,"0");
@@ -711,10 +717,10 @@ function renderWeekProductionCard(q){
 }
 
 function renderWeek(){
-  if(!weekAnchor)weekAnchor=getMondayIso(new Date().toISOString().slice(0,10));
+  if(!weekAnchor)weekAnchor=getMondayIso(gbTodayIso());
   const start=isoToDate(weekAnchor);
   const end=new Date(start);end.setDate(end.getDate()+6);
-  const todayIso=new Date().toISOString().slice(0,10);
+  const todayIso=gbTodayIso();
   const monthNames=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
   const mShort=["ENE","FEB","MAR","ABR","MAY","JUN","JUL","AGO","SEP","OCT","NOV","DIC"];
   const dows=["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
@@ -1461,7 +1467,7 @@ function openDashDetail(tipo){
           extraTxt=colorTag+' desde entrega · '+extraTxt;
         }else if(q.eventDate){
           // No entregado aún: días hasta entrega (si futura) o "entrega vencida" (si pasada sin marcar)
-          const todayIso=new Date().toISOString().slice(0,10);
+          const todayIso=gbTodayIso();
           if(q.eventDate>=todayIso)extraTxt='<span class="dd-dias-tag neutro">Entrega '+q.eventDate+'</span> · '+extraTxt;
           else extraTxt='<span class="dd-dias-tag rojo">⚠️ Entrega '+q.eventDate+' sin cerrar</span> · '+extraTxt;
         }
@@ -1521,7 +1527,7 @@ function openDashDetail(tipo){
   if(tipo==="cobrar"){
     // v6.0.2 Item 8: desglose de antigüedad de saldo
     summaryBuilder=(rows)=>{
-      const todayIso=new Date().toISOString().slice(0,10);
+      const todayIso=gbTodayIso();
       let s1=0,s2=0,s3=0; // 1-3d, 4-14d, +15d (y al día)
       rows.forEach(r=>{
         const q=r.q;
@@ -1641,7 +1647,7 @@ function renderFantasmasBanner(){
 function renderBannerEntregasHoy(){
   const el=$("dash-banner-hoy");
   if(!el)return;
-  const hoyIso=new Date().toISOString().slice(0,10);
+  const hoyIso=gbTodayIso();
   const entregasHoy=quotesCache.filter(q=>{
     if(q._wrongCollection||q.status==="superseded"||q.status==="convertida"||q.status==="anulada")return false;
     if(q.eventDate!==hoyIso)return false;
@@ -1685,7 +1691,7 @@ function renderBannerConvertidasArchivables(){
 async function syncAgendaAllFuture(){
   try{
     if(!quotesCache.length){try{await loadAllHistory()}catch{}}
-    const hoyIso=new Date().toISOString().slice(0,10);
+    const hoyIso=gbTodayIso();
     // Pedidos agendados vivos con fecha futura (incluye hoy)
     const futuros=quotesCache.filter(q=>{
       if(q._wrongCollection||q.status==="superseded"||q.status==="convertida"||q.status==="anulada")return false;
@@ -1725,18 +1731,12 @@ async function syncAgendaAllFuture(){
 // Un tap genera .ics incremental SOLO con los pendientes, los marca synced tras compartir.
 // ═══════════════════════════════════════════════════════════
 function renderBannerSync(){
+  // v7.7.5.1: deprecated. Antes mostraba "X pedidos por sincronizar con Kathy y JP"
+  // del flujo viejo (compartir .ics manual por WhatsApp). Con v7.7.5 el sync es
+  // automático via Firebase Function suscribible — Kathy y JP ven los pedidos
+  // sin que Luis tenga que mandar nada. Banner siempre oculto.
   const el=$("dash-banner-sync");
-  if(!el)return;
-  // Solo docs agendables con needsSync explícitamente true
-  const pendientes=quotesCache.filter(q=>(typeof isAgendable==="function"?isAgendable(q):true)&&q.needsSync===true);
-  if(!pendientes.length){el.classList.add("hidden");el.innerHTML="";return}
-  el.classList.remove("hidden");
-  pendientes.sort((a,b)=>(a.eventDate+(a.horaEntrega||"")).localeCompare(b.eventDate+(b.horaEntrega||"")));
-  const primeros=pendientes.slice(0,3).map(q=>(q.client||"—")+" "+q.eventDate).join(" · ");
-  const mas=pendientes.length>3?" · +"+(pendientes.length-3)+" más":"";
-  el.innerHTML='<div class="dbs-ic">📤</div>'+
-    '<div class="dbs-txt"><strong>'+pendientes.length+' pedido'+(pendientes.length!==1?'s':'')+' por sincronizar con Kathy y JP</strong><br><span style="font-size:11px;opacity:.85">'+primeros+mas+'</span></div>'+
-    '<button onclick="syncPendingOnly()">Sincronizar ('+pendientes.length+')</button>';
+  if(el){el.classList.add("hidden");el.innerHTML=""}
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1765,7 +1765,7 @@ async function syncPendingOnly(){
     const lines=[..._icsHeader()];
     pendientes.forEach(q=>{lines.push(..._buildVeventsForDoc(q))});
     lines.push(..._icsFooter());
-    const hoyIso=new Date().toISOString().slice(0,10);
+    const hoyIso=gbTodayIso();
     const filename="GB-sync-"+hoyIso+".ics";
     await shareOrDownloadIcs(filename,lines);
     // Marcar como sincronizados
@@ -2281,9 +2281,9 @@ function renderUrgent3d(){
   const entCount=$("dash-urgent-ent-count");
   if(!prodBody||!entBody)return;
 
-  const todayIso=new Date().toISOString().slice(0,10);
+  const todayIso=gbTodayIso();
   const t3=new Date();t3.setDate(t3.getDate()+3);
-  const t3Iso=t3.toISOString().slice(0,10);
+  const t3Iso=gbDateToIso(t3);
 
   const porProducir=[],porEntregar=[];
   (quotesCache||[]).forEach(q=>{
@@ -2320,11 +2320,11 @@ function renderUrgent3d(){
 // renderDashboard() al terminar, así que el refresh es automático.
 function urgentItemHtml(q){
   const fecha=q.eventDate||q.fechaEntrega;
-  const today=new Date().toISOString().slice(0,10);
+  const today=gbTodayIso();
   const tomorrow=new Date();tomorrow.setDate(tomorrow.getDate()+1);
-  const tomorrowIso=tomorrow.toISOString().slice(0,10);
+  const tomorrowIso=gbDateToIso(tomorrow);
   const pasado=new Date();pasado.setDate(pasado.getDate()+2);
-  const pasadoIso=pasado.toISOString().slice(0,10);
+  const pasadoIso=gbDateToIso(pasado);
   let fechaLabel=fecha;
   let fechaCls="";
   if(fecha===today){fechaLabel="HOY "+fecha;fechaCls="urgent-d-today"}
@@ -2448,7 +2448,7 @@ function renderPipelineActivo(){
   const p=getPipelineActivo();
 
   // v6.0.2 Item 5 + 6: calcular urgencia y clientes únicos por bucket
-  const todayIso=new Date().toISOString().slice(0,10);
+  const todayIso=gbTodayIso();
   const stats=(bucketDocs,useEntrega)=>{
     const clientes=new Set();
     let urgentes=0,oldestDias=0;
@@ -2529,7 +2529,7 @@ function openPipelineDetail(bucket){
   //   - monto = saldo pendiente (no total)
   //   - extra con días desde entrega y chip WhatsApp (item 9)
   //   - _dashDocDate usa fechaEntrega para ordenar (más viejo primero)
-  const todayIso=new Date().toISOString().slice(0,10);
+  const todayIso=gbTodayIso();
   const rows=b.docs.map(q=>{
     const monto=useSaldo?(typeof saldoPendiente==="function"?saldoPendiente(q):0):(getDocTotal(q));
     let extra=null;
@@ -3133,9 +3133,9 @@ function _carteraCalcularRecaudo(desde,hasta){
 }
 
 function _primeroDelMes(){
-  const t=new Date();return new Date(t.getFullYear(),t.getMonth(),1).toISOString().slice(0,10);
+  const t=new Date();return gbDateToIso(new Date(t.getFullYear(),t.getMonth(),1));
 }
-function _hoy(){return new Date().toISOString().slice(0,10)}
+function _hoy(){return gbTodayIso()}
 
 function openRecaudoMetodoModal(){
   const m=$("recaudo-metodo-modal");
@@ -3283,8 +3283,8 @@ function setReportesTab(t){
 }
 
 // Helpers fecha
-function _reportesHoy(){return new Date().toISOString().slice(0,10)}
-function _reportesHoyMas(d){const t=new Date();t.setDate(t.getDate()+d);return t.toISOString().slice(0,10)}
+function _reportesHoy(){return gbTodayIso()}
+function _reportesHoyMas(d){const t=new Date();t.setDate(t.getDate()+d);return gbDateToIso(t)}
 
 function _reportesGetFecha(q){
   return q.eventDate||(q.orderData||{}).fechaEntrega||(q.approvalData||{}).fechaEntrega||"";
@@ -4410,10 +4410,10 @@ function _getPagosEnRango(filtros){
 function _carteraHistDefaults(){
   if(!_carteraHistFiltros.desde){
     const t=new Date();
-    _carteraHistFiltros.desde=new Date(t.getFullYear(),t.getMonth(),1).toISOString().slice(0,10);
+    _carteraHistFiltros.desde=gbDateToIso(new Date(t.getFullYear(),t.getMonth(),1));
   }
   if(!_carteraHistFiltros.hasta){
-    _carteraHistFiltros.hasta=new Date().toISOString().slice(0,10);
+    _carteraHistFiltros.hasta=gbTodayIso();
   }
 }
 
