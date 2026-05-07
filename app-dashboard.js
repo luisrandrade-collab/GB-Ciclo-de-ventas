@@ -3912,6 +3912,619 @@ function _heModalSelectorCobros(docsConSaldo){
   });
 }
 
+// ═══════════════════════════════════════════════════════════
+// v7.8.1: WIZARD HOJA DE ENTREGAS — multi-paso
+// ═══════════════════════════════════════════════════════════
+// 5 pasos secuenciales para imprimir hojas de un día complejo:
+// (1) clasificar entrega vs recoge
+// (2) cuántos carros + asignación
+// (3) editar horas para orden de reparto
+// (4) cobros (reusa _heModalSelectorCobros)
+// (5) generar N PDFs (1 por carro + 1 recogidas)
+// Estado solo en runtime — no se guarda en pedidos.
+
+let _heWizardState=null;
+
+// Detecta si un pedido tiene transporte cobrado (item con palabras clave en nombre)
+function _heTieneTransporteCobrado(q){
+  const isTransporte=(name)=>{
+    const n=String(name||"").toLowerCase();
+    return n.includes("transporte")||n.includes("domicilio")||n.includes("envío")||n.includes("envio")||n.includes("delivery");
+  };
+  if(q.kind==="quote"){
+    if((q.cart||[]).some(it=>isTransporte(it.n)&&(Number(it.qty)*Number(it.p)||0)>0))return true;
+    if((q.cust||[]).some(it=>isTransporte(it.n)&&(Number(it.qty)*Number(it.p)||0)>0))return true;
+  }else{
+    let tiene=false;
+    (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>{
+      if(isTransporte(it.name)&&(Number(it.qty)*Number(it.price)||0)>0)tiene=true;
+    })));
+    return tiene;
+  }
+  return false;
+}
+
+// Sugerencia automática de carros: agrupa por ciudad, si todos misma ciudad → split alfabético
+function _heAutoAsignarCarros(entregas,numCarros){
+  const asignacion=new Map();
+  if(!entregas.length||numCarros<1)return asignacion;
+  if(numCarros===1){entregas.forEach(q=>asignacion.set(q.id,1));return asignacion}
+  // Agrupar por city
+  const porCiudad=new Map();
+  entregas.forEach(q=>{
+    const c=(q.city||"sin").toLowerCase().trim();
+    if(!porCiudad.has(c))porCiudad.set(c,[]);
+    porCiudad.get(c).push(q);
+  });
+  const ciudades=Array.from(porCiudad.keys());
+  if(ciudades.length>=numCarros){
+    // Cada ciudad a un carro (round-robin si hay más ciudades que carros)
+    ciudades.forEach((c,i)=>{
+      const carro=(i%numCarros)+1;
+      porCiudad.get(c).forEach(q=>asignacion.set(q.id,carro));
+    });
+  }else{
+    // Misma ciudad mayoría → split alfabético balanceado
+    const sorted=entregas.slice().sort((a,b)=>(a.client||"").localeCompare(b.client||""));
+    const porCarro=Math.ceil(sorted.length/numCarros);
+    sorted.forEach((q,i)=>{
+      const carro=Math.min(Math.floor(i/porCarro)+1,numCarros);
+      asignacion.set(q.id,carro);
+    });
+  }
+  return asignacion;
+}
+
+// Punto de entrada del wizard. Reemplaza el flujo directo de generación.
+async function _heWizardOpen(docs){
+  if(!docs.length){
+    if(typeof toast==="function")toast("No hay pedidos en el rango","warn");
+    return;
+  }
+  // Inicializar estado
+  _heWizardState={
+    docs:docs.slice(),
+    step:1,
+    tipoDespacho:new Map(docs.map(q=>[q.id,"entrega"])),  // default: todos entrega
+    numCarros:1,
+    asignacionCarro:new Map(),
+    horaOverride:new Map(),
+    cobrosIncluidos:new Set(),
+    incluirCobros:false
+  };
+  // Crear overlay
+  const ov=document.createElement("div");
+  ov.id="he-wizard";
+  ov.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:9998;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto";
+  ov.innerHTML='<div id="he-wiz-card" style="background:#fff;border-radius:14px;max-width:680px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.3);font-family:var(--gb-font-body);display:flex;flex-direction:column;max-height:calc(100vh - 40px)"></div>';
+  document.body.appendChild(ov);
+  _heWizardRender();
+}
+
+function _heWizardClose(){
+  const ov=document.getElementById("he-wizard");
+  if(ov)ov.remove();
+  _heWizardState=null;
+}
+
+function _heWizardRender(){
+  if(!_heWizardState)return;
+  const card=document.getElementById("he-wiz-card");
+  if(!card)return;
+  const s=_heWizardState;
+  const totalSteps=5;
+  // Header con stepper
+  let html='<div style="padding:16px 20px;border-bottom:1px solid #E0E0E0">';
+  html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">';
+  html+='<div style="font-size:16px;font-weight:700;color:#1A1A1A">Generar hojas del día</div>';
+  html+='<button onclick="_heWizardClose()" style="background:transparent;border:none;font-size:22px;cursor:pointer;color:#9E9E9E;padding:0 6px">×</button>';
+  html+='</div>';
+  // Stepper
+  const stepLabels=["Despacho","Carros","Horas","Cobros","Generar"];
+  html+='<div style="display:flex;gap:6px;font-size:11px">';
+  for(let i=1;i<=totalSteps;i++){
+    const active=i===s.step;
+    const done=i<s.step;
+    const bg=active?"#1B5E20":(done?"#A5D6A7":"#E0E0E0");
+    const color=active||done?"#fff":"#757575";
+    html+='<div style="flex:1;background:'+bg+';color:'+color+';padding:5px 8px;border-radius:4px;text-align:center;font-weight:'+(active?700:500)+'">'+i+'. '+stepLabels[i-1]+'</div>';
+  }
+  html+='</div>';
+  html+='</div>';
+  // Body
+  html+='<div id="he-wiz-body" style="padding:18px 20px;overflow-y:auto;flex:1">';
+  if(s.step===1)html+=_heWizardStep1HTML();
+  else if(s.step===2)html+=_heWizardStep2HTML();
+  else if(s.step===3)html+=_heWizardStep3HTML();
+  else if(s.step===5)html+=_heWizardStep5HTML();
+  html+='</div>';
+  // Footer
+  html+='<div style="padding:14px 20px;border-top:1px solid #E0E0E0;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">';
+  html+='<button onclick="_heWizardClose()" style="background:#fff;color:#5D4037;border:1px solid #BDBDBD;padding:9px 14px;border-radius:8px;font-size:13px;cursor:pointer;font-family:var(--gb-font-body)">Cancelar</button>';
+  html+='<div style="display:flex;gap:8px">';
+  if(s.step>1)html+='<button onclick="_heWizardBack()" style="background:#fff;color:#1A237E;border:1px solid #1A237E;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">← Atrás</button>';
+  if(s.step<5){
+    html+='<button onclick="_heWizardNext()" style="background:#1B5E20;color:#fff;border:none;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">Siguiente →</button>';
+  }else{
+    html+='<button onclick="_heWizardGenerate()" style="background:#1B5E20;color:#fff;border:none;padding:9px 22px;border-radius:8px;font-size:13.5px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">📥 Generar PDFs</button>';
+  }
+  html+='</div>';
+  html+='</div>';
+  card.innerHTML=html;
+}
+
+// ─── STEP 1: Clasificar despacho ─────────────────────────
+function _heWizardStep1HTML(){
+  const s=_heWizardState;
+  let html='<div style="font-size:13px;color:#5D4037;margin-bottom:12px">¿Qué hace cada cliente? Por defecto se entrega; marcá los que vienen a recoger.</div>';
+  s.docs.forEach(q=>{
+    const tipo=s.tipoDespacho.get(q.id)||"entrega";
+    const tieneTransp=_heTieneTransporteCobrado(q);
+    const warn=(tipo==="recoge"&&tieneTransp)?'<div style="font-size:11px;color:#C62828;margin-top:3px">⚠️ Tiene transporte cobrado — verificar</div>':'';
+    html+='<div style="background:#fff;border:1px solid #E0E0E0;border-radius:8px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">';
+    html+='<div style="flex:1;min-width:160px">';
+    html+='<div style="font-size:13px;font-weight:700;color:#1A1A1A">'+escapeHtml((q.client||"(sin)").toUpperCase())+'</div>';
+    html+='<div style="font-size:11px;color:#9E9E9E">'+escapeHtml(q.id||"")+(q.city?' · '+escapeHtml(q.city):'')+(q.horaEntrega?' · '+q.horaEntrega:'')+'</div>';
+    html+=warn;
+    html+='</div>';
+    html+='<select onchange="_heWizSetTipo(\''+q.id+'\',this.value)" style="padding:6px 9px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px;font-family:var(--gb-font-body);background:#fff">';
+    html+='<option value="entrega"'+(tipo==="entrega"?" selected":"")+'>📦 Entregar</option>';
+    html+='<option value="recoge"'+(tipo==="recoge"?" selected":"")+'>🚶 Recoge cliente</option>';
+    html+='</select>';
+    html+='</div>';
+  });
+  return html;
+}
+
+function _heWizSetTipo(docId,tipo){
+  if(!_heWizardState)return;
+  _heWizardState.tipoDespacho.set(docId,tipo);
+  _heWizardRender();
+}
+
+// ─── STEP 2: Carros + asignación ─────────────────────────
+function _heWizardStep2HTML(){
+  const s=_heWizardState;
+  const entregas=s.docs.filter(q=>s.tipoDespacho.get(q.id)==="entrega");
+  let html='<div style="font-size:13px;color:#5D4037;margin-bottom:12px">¿Cuántos carros vas a usar para repartir las <strong>'+entregas.length+'</strong> entregas?</div>';
+  // Selector cuántos carros
+  html+='<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">';
+  html+='<label style="font-size:12px;color:#5D4037;font-weight:600">Carros:</label>';
+  for(let n=1;n<=Math.min(5,entregas.length);n++){
+    const active=s.numCarros===n;
+    html+='<button onclick="_heWizSetNumCarros('+n+')" style="background:'+(active?"#1B5E20":"#fff")+';color:'+(active?"#fff":"#1B5E20")+';border:1.5px solid #1B5E20;padding:6px 12px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer">'+n+'</button>';
+  }
+  html+='<button onclick="_heWizReSuggestCarros()" style="background:#fff;color:#5D4037;border:1px solid #BDBDBD;padding:6px 11px;border-radius:6px;font-size:11.5px;cursor:pointer;margin-left:auto">🔄 Re-sugerir auto</button>';
+  html+='</div>';
+  // UX hint: dejar claro que la asignación es editable
+  html+='<div style="font-size:11.5px;color:#5D4037;margin-bottom:6px">👇 Podés cambiar cualquier asignación manualmente si la sugerencia no te convence.</div>';
+  // Lista entregas con dropdown carro
+  html+='<div style="background:#FAFAFA;border-radius:8px;padding:8px">';
+  entregas.forEach(q=>{
+    const carro=s.asignacionCarro.get(q.id)||1;
+    html+='<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:#fff;border-radius:6px;margin-bottom:4px">';
+    html+='<div style="flex:1;min-width:0">';
+    html+='<div style="font-size:13px;font-weight:700">'+escapeHtml((q.client||"").toUpperCase())+'</div>';
+    html+='<div style="font-size:11px;color:#9E9E9E">'+escapeHtml(q.city||"")+(q.horaEntrega?' · '+q.horaEntrega:'')+'</div>';
+    html+='</div>';
+    html+='<select onchange="_heWizSetCarro(\''+q.id+'\',Number(this.value))" style="padding:5px 8px;border:1.5px solid #BDBDBD;border-radius:5px;font-size:12.5px;font-family:var(--gb-font-body);background:#fff">';
+    for(let n=1;n<=s.numCarros;n++){
+      html+='<option value="'+n+'"'+(carro===n?" selected":"")+'>Carro '+n+'</option>';
+    }
+    html+='</select>';
+    html+='</div>';
+  });
+  html+='</div>';
+  // Validación: cada carro al menos 1
+  const counts=new Map();
+  entregas.forEach(q=>{const c=s.asignacionCarro.get(q.id)||1;counts.set(c,(counts.get(c)||0)+1)});
+  const carrosVacios=[];
+  for(let n=1;n<=s.numCarros;n++)if(!counts.has(n))carrosVacios.push(n);
+  if(carrosVacios.length){
+    html+='<div style="background:#FFEBEE;border:1px solid #EF9A9A;border-radius:6px;padding:8px 11px;margin-top:10px;font-size:12px;color:#B71C1C"><strong>⚠️ Carro(s) sin pedidos:</strong> '+carrosVacios.map(n=>"Carro "+n).join(", ")+'. Asigná al menos uno o reducí el número de carros.</div>';
+  }
+  return html;
+}
+
+function _heWizSetNumCarros(n){
+  if(!_heWizardState)return;
+  _heWizardState.numCarros=n;
+  // Auto-resugerir
+  const entregas=_heWizardState.docs.filter(q=>_heWizardState.tipoDespacho.get(q.id)==="entrega");
+  _heWizardState.asignacionCarro=_heAutoAsignarCarros(entregas,n);
+  _heWizardRender();
+}
+function _heWizReSuggestCarros(){
+  if(!_heWizardState)return;
+  const entregas=_heWizardState.docs.filter(q=>_heWizardState.tipoDespacho.get(q.id)==="entrega");
+  _heWizardState.asignacionCarro=_heAutoAsignarCarros(entregas,_heWizardState.numCarros);
+  _heWizardRender();
+}
+function _heWizSetCarro(docId,n){
+  if(!_heWizardState)return;
+  _heWizardState.asignacionCarro.set(docId,n);
+  _heWizardRender();
+}
+
+// ─── STEP 3: Horas editables (+ permitir cambiar carro) ──
+function _heWizardStep3HTML(){
+  const s=_heWizardState;
+  let html='<div style="font-size:13px;color:#5D4037;margin-bottom:6px">Editá las horas para definir el orden de reparto. También podés mover un pedido de carro si te das cuenta acá. Nada se guarda en el pedido.</div>';
+  html+='<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button onclick="_heWizRestoreHoras()" style="background:#fff;color:#5D4037;border:1px solid #BDBDBD;padding:5px 11px;border-radius:6px;font-size:11.5px;cursor:pointer">Restaurar todas las horas originales</button></div>';
+  // Por carro
+  for(let n=1;n<=s.numCarros;n++){
+    const enCarro=s.docs.filter(q=>s.tipoDespacho.get(q.id)==="entrega"&&s.asignacionCarro.get(q.id)===n);
+    if(!enCarro.length)continue;
+    html+='<div style="margin-bottom:14px"><div style="font-size:12.5px;font-weight:700;color:#1A237E;margin-bottom:6px">🚐 Carro '+n+'</div>';
+    html+=_heWizHoraRows(enCarro,{tipo:"entrega",numCarros:s.numCarros});
+    html+='</div>';
+  }
+  // Recogidas
+  const recogen=s.docs.filter(q=>s.tipoDespacho.get(q.id)==="recoge");
+  if(recogen.length){
+    html+='<div style="margin-bottom:6px"><div style="font-size:12.5px;font-weight:700;color:#5D4037;margin-bottom:6px">🚶 Recogidas en la casa</div>';
+    html+=_heWizHoraRows(recogen,{tipo:"recoge",numCarros:0});
+    html+='</div>';
+  }
+  return html;
+}
+function _heWizHoraRows(arr,opts){
+  // Ordenar por hora actual (override o original)
+  const s=_heWizardState;
+  const isEntrega=opts&&opts.tipo==="entrega";
+  const numCarros=opts?(opts.numCarros||0):0;
+  const sorted=arr.slice().sort((a,b)=>{
+    const ha=s.horaOverride.get(a.id)||a.horaEntrega||"99:99";
+    const hb=s.horaOverride.get(b.id)||b.horaEntrega||"99:99";
+    return ha.localeCompare(hb);
+  });
+  let html='<div style="background:#FAFAFA;border-radius:6px;padding:6px">';
+  sorted.forEach(q=>{
+    const original=q.horaEntrega||"";
+    const override=s.horaOverride.get(q.id)||"";
+    const hora=override||original||"12:00";
+    const modificada=override&&override!==original;
+    html+='<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:#fff;border-radius:5px;margin-bottom:3px;flex-wrap:wrap">';
+    // data-docid para captura defensiva al avanzar
+    html+='<input type="time" data-docid="'+q.id+'" value="'+hora+'" oninput="_heWizSetHora(\''+q.id+'\',this.value)" onblur="_heWizSetHora(\''+q.id+'\',this.value)" style="padding:5px 8px;border:1.5px solid #BDBDBD;border-radius:5px;font-size:13px;font-family:var(--gb-font-body);width:110px">';
+    html+='<div style="flex:1;min-width:140px">';
+    html+='<div style="font-size:13px;font-weight:600">'+escapeHtml((q.client||"").toUpperCase())+(modificada?' <span style="font-size:10px;color:#F57F17;font-weight:700">📌 modificada</span>':'')+'</div>';
+    html+='<div style="font-size:10.5px;color:#9E9E9E">'+escapeHtml(q.id||"")+(original?' · original '+original:'')+(q.city?' · '+escapeHtml(q.city):'')+'</div>';
+    html+='</div>';
+    // Selector de carro (solo entregas con >1 carro)
+    if(isEntrega&&numCarros>1){
+      const carro=s.asignacionCarro.get(q.id)||1;
+      html+='<select onchange="_heWizMoveCarroFromStep3(\''+q.id+'\',Number(this.value))" title="Mover a otro carro" style="padding:5px 8px;border:1.5px solid #1A237E;border-radius:5px;font-size:12px;font-family:var(--gb-font-body);background:#fff;color:#1A237E;font-weight:600">';
+      for(let n=1;n<=numCarros;n++){
+        html+='<option value="'+n+'"'+(carro===n?" selected":"")+'>🚐 '+n+'</option>';
+      }
+      html+='</select>';
+    }
+    html+='</div>';
+  });
+  html+='</div>';
+  return html;
+}
+
+// Mueve un pedido a otro carro desde step 3 (sin perder horas editadas)
+function _heWizMoveCarroFromStep3(docId,nuevoCarro){
+  if(!_heWizardState)return;
+  // Capturar horas del DOM antes de re-renderizar (sino se pierden las editadas no blureadas)
+  _heCommitHorasFromDOM();
+  _heWizardState.asignacionCarro.set(docId,nuevoCarro);
+  _heWizardRender();
+}
+
+// Captura defensiva: lee todos los inputs de hora del DOM y guarda en state.
+// Se llama antes de avanzar de step 3, por si algún onchange/blur no disparó.
+function _heCommitHorasFromDOM(){
+  if(!_heWizardState)return;
+  document.querySelectorAll('#he-wiz-body input[type="time"][data-docid]').forEach(inp=>{
+    const id=inp.dataset.docid;
+    const v=inp.value;
+    if(id&&v)_heWizardState.horaOverride.set(id,v);
+  });
+}
+function _heWizSetHora(docId,hora){
+  if(!_heWizardState)return;
+  _heWizardState.horaOverride.set(docId,hora);
+  // No re-render (perdería el focus en el input). Solo actualiza el state.
+}
+function _heWizRestoreHoras(){
+  if(!_heWizardState)return;
+  _heWizardState.horaOverride.clear();
+  _heWizardRender();
+}
+
+// ─── STEP 5: Resumen + Generar ────────────────────────────
+function _heWizardStep5HTML(){
+  const s=_heWizardState;
+  const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
+  let html='<div style="font-size:13px;color:#5D4037;margin-bottom:12px">Vas a generar los siguientes documentos:</div>';
+  html+='<div style="background:#F1F8E9;border:1px solid #A5D6A7;border-radius:10px;padding:14px 16px;margin-bottom:10px">';
+  // Carros
+  for(let n=1;n<=s.numCarros;n++){
+    const enCarro=s.docs.filter(q=>s.tipoDespacho.get(q.id)==="entrega"&&s.asignacionCarro.get(q.id)===n);
+    if(!enCarro.length)continue;
+    const cobroCarro=enCarro.reduce((sum,q)=>{
+      if(!s.cobrosIncluidos.has(q.id))return sum;
+      return sum+((typeof saldoPendiente==="function")?saldoPendiente(q):0);
+    },0);
+    html+='<div style="margin-bottom:6px"><strong>🚐 Hoja Carro '+n+'</strong> — '+enCarro.length+' entrega'+(enCarro.length===1?'':'s');
+    if(cobroCarro>0)html+=' · <span style="color:#C62828">cobrar '+fmt(cobroCarro)+'</span>';
+    html+='</div>';
+  }
+  const recogen=s.docs.filter(q=>s.tipoDespacho.get(q.id)==="recoge");
+  if(recogen.length){
+    const cobroRecog=recogen.reduce((sum,q)=>{
+      if(!s.cobrosIncluidos.has(q.id))return sum;
+      return sum+((typeof saldoPendiente==="function")?saldoPendiente(q):0);
+    },0);
+    html+='<div><strong>🚶 Hoja Recogidas</strong> — '+recogen.length+' recogida'+(recogen.length===1?'':'s');
+    if(cobroRecog>0)html+=' · <span style="color:#C62828">cobrar '+fmt(cobroRecog)+'</span>';
+    html+='</div>';
+  }
+  html+='</div>';
+  // Validación: total docs
+  const totalEnPdfs=s.docs.length;
+  html+='<div style="font-size:11.5px;color:#1B5E20;margin-bottom:10px">✓ '+totalEnPdfs+' pedido'+(totalEnPdfs===1?'':'s')+' incluido'+(totalEnPdfs===1?'':'s')+' (ningún pedido queda afuera)</div>';
+  // Alertas transporte
+  const alertas=s.docs.filter(q=>s.tipoDespacho.get(q.id)==="recoge"&&_heTieneTransporteCobrado(q));
+  if(alertas.length){
+    html+='<div style="background:#FFF3E0;border:1px solid #FFB74D;border-radius:8px;padding:10px 12px;font-size:12px;color:#5D4037"><strong>⚠️ Atención:</strong> '+alertas.length+' pedido'+(alertas.length===1?'':'s')+' marcado'+(alertas.length===1?'':'s')+' como recoge tienen transporte cobrado:<br>';
+    html+=alertas.map(q=>'• '+escapeHtml(q.client||"")).join('<br>');
+    html+='</div>';
+  }
+  return html;
+}
+
+// ─── Navegación ──────────────────────────────────────────
+async function _heWizardNext(){
+  if(!_heWizardState)return;
+  const s=_heWizardState;
+  if(s.step===1){
+    // Calcular si hay entregas
+    const entregas=s.docs.filter(q=>s.tipoDespacho.get(q.id)==="entrega");
+    if(entregas.length<=1){
+      // Skip step 2 (1 carro implícito o ninguno)
+      s.numCarros=entregas.length?1:0;
+      entregas.forEach(q=>s.asignacionCarro.set(q.id,1));
+      s.step=3;
+    }else{
+      // Inicializar asignación auto
+      s.numCarros=Math.min(s.numCarros||2,entregas.length);
+      s.asignacionCarro=_heAutoAsignarCarros(entregas,s.numCarros);
+      s.step=2;
+    }
+    _heWizardRender();
+  }else if(s.step===2){
+    // Validar carros vacíos
+    const entregas=s.docs.filter(q=>s.tipoDespacho.get(q.id)==="entrega");
+    const counts=new Map();
+    entregas.forEach(q=>{const c=s.asignacionCarro.get(q.id)||1;counts.set(c,(counts.get(c)||0)+1)});
+    for(let n=1;n<=s.numCarros;n++){
+      if(!counts.has(n)){
+        if(typeof toast==="function")toast("Carro "+n+" no tiene pedidos. Asigná al menos uno o reducí los carros.","warn");
+        return;
+      }
+    }
+    s.step=3;
+    _heWizardRender();
+  }else if(s.step===3){
+    // v7.8.1: capturar horas del DOM antes de avanzar (defensivo).
+    _heCommitHorasFromDOM();
+    s.step=4;
+    _heWizardRender();
+    // Step 4: abrir modal de cobros (superpuesto). Si no hay docs con saldo, skip.
+    const docsConSaldo=s.docs.filter(q=>{
+      const sal=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
+      return sal>0;
+    });
+    if(!docsConSaldo.length){
+      s.cobrosIncluidos=new Set();
+      s.incluirCobros=false;
+      s.step=5;
+      _heWizardRender();
+      return;
+    }
+    const sel=await _heModalSelectorCobros(docsConSaldo);
+    if(sel===null){
+      // Canceló cobros — interpretar como "no incluir cobros" y avanzar
+      s.cobrosIncluidos=new Set();
+      s.incluirCobros=false;
+    }else{
+      s.cobrosIncluidos=sel;
+      s.incluirCobros=sel.size>0;
+    }
+    s.step=5;
+    _heWizardRender();
+  }
+}
+function _heWizardBack(){
+  if(!_heWizardState)return;
+  const s=_heWizardState;
+  if(s.step===5)s.step=3;
+  else if(s.step===3){
+    const entregas=s.docs.filter(q=>s.tipoDespacho.get(q.id)==="entrega");
+    s.step=entregas.length>1?2:1;
+  }else if(s.step>1)s.step--;
+  _heWizardRender();
+}
+
+// ─── Generar UN solo PDF con todas las hojas como páginas ──
+// v7.8.1 (revisión Luis): un único archivo. Click "imprimir" → todo sale junto,
+// imposible olvidarse de imprimir alguno y dejar pedidos sin hoja.
+async function _heWizardGenerate(){
+  if(!_heWizardState)return;
+  const s=_heWizardState;
+  // Aserción crítica: contar pedidos incluidos
+  const entregas=s.docs.filter(q=>s.tipoDespacho.get(q.id)==="entrega");
+  const recogen=s.docs.filter(q=>s.tipoDespacho.get(q.id)==="recoge");
+  if(entregas.length+recogen.length!==s.docs.length){
+    if(typeof toast==="function")toast("ERROR: pedidos sin clasificar","error");
+    return;
+  }
+  if(!entregas.length&&!recogen.length){
+    if(typeof toast==="function")toast("No hay pedidos para generar","warn");
+    return;
+  }
+  const {jsPDF}=window.jspdf;
+  const pdf=new jsPDF("l","mm","letter");
+  const W=279.4,H=215.9,M=10;
+  const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
+  let primeraPagina=true;
+  let hojasGeneradas=0;
+  // Carros
+  for(let n=1;n<=s.numCarros;n++){
+    const enCarro=entregas.filter(q=>s.asignacionCarro.get(q.id)===n);
+    if(!enCarro.length)continue;
+    if(!primeraPagina)pdf.addPage();
+    primeraPagina=false;
+    _heRenderHojaCarro(pdf,enCarro,n,s,W,H,M,fmt);
+    hojasGeneradas++;
+  }
+  // Recogidas
+  if(recogen.length){
+    if(!primeraPagina)pdf.addPage();
+    primeraPagina=false;
+    _heRenderHojaRecogidas(pdf,recogen,s,W,H,M,fmt);
+    hojasGeneradas++;
+  }
+  // Footer en cada página (paginación)
+  _repPdfFooter(pdf,W,H);
+  // Guardar UN solo archivo
+  const fecha=_reportesGetFecha(s.docs[0])||reportesFiltrosImpr.desde;
+  pdf.save("HojasReparto_"+fecha+".pdf");
+  if(typeof toast==="function")toast("✅ PDF generado con "+hojasGeneradas+" hoja"+(hojasGeneradas===1?"":"s"),"success");
+  _heWizardClose();
+}
+
+// ─── Render hoja de carro (1 página del PDF) ──────────────
+function _heRenderHojaCarro(pdf,docs,numCarro,state,W,H,M,fmt){
+  const sorted=docs.slice().sort((a,b)=>{
+    const ha=state.horaOverride.get(a.id)||a.horaEntrega||"99:99";
+    const hb=state.horaOverride.get(b.id)||b.horaEntrega||"99:99";
+    return ha.localeCompare(hb);
+  });
+  const fecha=_reportesGetFecha(sorted[0])||reportesFiltrosImpr.desde;
+  const subtitle=hojaFormatFecha(fecha)+"  ·  Carro "+numCarro+"  ·  "+sorted.length+" entrega"+(sorted.length===1?"":"s");
+  let y=_repPdfHeader(pdf,W,"HOJA DE ENTREGAS — CARRO "+numCarro,subtitle);
+  _heRenderTablaPdf(pdf,sorted,state,W,M,y,false);
+  _heRenderFooterPdf(pdf,sorted,state,W,M,fmt,"Conductor",numCarro);
+}
+
+// ─── Render hoja de recogidas (1 página del PDF) ──────────
+function _heRenderHojaRecogidas(pdf,docs,state,W,H,M,fmt){
+  const sorted=docs.slice().sort((a,b)=>{
+    const ha=state.horaOverride.get(a.id)||a.horaEntrega||"99:99";
+    const hb=state.horaOverride.get(b.id)||b.horaEntrega||"99:99";
+    return ha.localeCompare(hb);
+  });
+  const fecha=_reportesGetFecha(sorted[0])||reportesFiltrosImpr.desde;
+  const subtitle=hojaFormatFecha(fecha)+"  ·  "+sorted.length+" recogida"+(sorted.length===1?"":"s");
+  let y=_repPdfHeader(pdf,W,"HOJA DE RECOGIDAS EN LA CASA",subtitle);
+  _heRenderTablaPdf(pdf,sorted,state,W,M,y,true);
+  _heRenderFooterPdf(pdf,sorted,state,W,M,fmt,"Empacador",null);
+}
+
+// Render compartido: tabla con sub-fila items, columna QUIEN RECIBE en lugar de SAL/ENT.
+// esRecogida=true → omite columna DIRECCIÓN.
+function _heRenderTablaPdf(pdf,docs,state,W,M,startY,esRecogida){
+  const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
+  const incluirCobro=state.incluirCobros;
+  const tw=W-M*2;
+  // Construir filas
+  const rows=[];
+  docs.forEach(q=>{
+    const saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
+    const cobra=state.cobrosIncluidos.has(q.id);
+    const dirCorta=esRecogida?"":((q.dir||"").substring(0,40)+((q.dir||"").length>40?"...":""));
+    const hora=state.horaOverride.get(q.id)||q.horaEntrega||"—";
+    const fila=[hora,(q.client||"—").toString().toUpperCase(),q.id||""];
+    if(!esRecogida)fila.push(dirCorta+(q.city?"\n"+q.city:""));
+    fila.push(q.tel||"");
+    if(incluirCobro)fila.push((cobra&&saldo>0)?fmt(saldo):"—");
+    fila.push("");  // QUIEN RECIBE
+    fila.push("");  // FIRMA
+    rows.push(fila);
+    const itemsRes=_buildItemsResumenHE(q);
+    if(itemsRes){
+      const colSpan=fila.length;
+      rows.push([{content:"▸ "+itemsRes,colSpan:colSpan,styles:{fontSize:7,fontStyle:"italic",textColor:[80,80,80],halign:"left",cellPadding:{top:1.5,bottom:2,left:6,right:4},fillColor:[252,252,248]}}]);
+    }
+  });
+  // Heads y columnStyles dinámicos
+  const head=[];
+  const cs={};
+  let i=0;
+  head.push("HORA");cs[i++]={halign:"center",cellWidth:tw*0.07,fontStyle:"bold"};
+  head.push("CLIENTE");cs[i++]={halign:"left",cellWidth:tw*(esRecogida?0.22:0.18),fontStyle:"bold"};
+  head.push("DOC");cs[i++]={halign:"center",cellWidth:tw*0.10,fontSize:7};
+  if(!esRecogida){head.push("DIRECCIÓN");cs[i++]={halign:"left",cellWidth:tw*0.22,fontSize:7.5}}
+  head.push("TELÉFONO");cs[i++]={halign:"center",cellWidth:tw*0.10};
+  if(incluirCobro){head.push("A COBRAR");cs[i++]={halign:"right",cellWidth:tw*0.10,fontStyle:"bold"}}
+  head.push("QUIEN RECIBE");cs[i++]={halign:"center",cellWidth:tw*(esRecogida?0.20:0.13)};
+  head.push("FIRMA");cs[i++]={halign:"center",cellWidth:tw*(esRecogida?0.21:0.10)};
+  const idxACobrar=incluirCobro?(esRecogida?4:5):-1;
+  const idxQuien=incluirCobro?(esRecogida?5:6):(esRecogida?4:5);
+  const idxFirma=idxQuien+1;
+  pdf.autoTable({
+    startY:startY,
+    margin:{left:M,right:M},
+    head:[head],
+    body:rows,
+    theme:"grid",
+    headStyles:_REP_PDF_HEAD_STYLE,
+    bodyStyles:{fontSize:8,cellPadding:2,valign:"middle",minCellHeight:11},
+    columnStyles:cs,
+    didParseCell:function(data){
+      if(data.section!=="body")return;
+      if(idxACobrar>=0&&data.column.index===idxACobrar&&(!data.cell.colSpan||data.cell.colSpan===1)){
+        const txt=(data.cell.raw||"").toString();
+        if(txt&&txt!=="—"){data.cell.styles.textColor=[198,40,40]}
+        else{data.cell.styles.textColor=[180,180,180];data.cell.styles.fontStyle="normal"}
+      }
+    },
+    didDrawCell:function(data){
+      if(data.section!=="body")return;
+      if(data.cell.colSpan&&data.cell.colSpan>1)return;
+      // Línea para QUIEN RECIBE y FIRMA
+      if(data.column.index===idxQuien||data.column.index===idxFirma){
+        const lx1=data.cell.x+2;
+        const lx2=data.cell.x+data.cell.width-2;
+        const ly=data.cell.y+data.cell.height-3;
+        pdf.setDrawColor(150);pdf.setLineWidth(0.2);
+        pdf.line(lx1,ly,lx2,ly);
+      }
+    }
+  });
+}
+
+function _heRenderFooterPdf(pdf,docs,state,W,M,fmt,labelFirma,numCarro){
+  let y=pdf.lastAutoTable.finalY+8;
+  if(state.incluirCobros){
+    const saldo=docs.reduce((s,q)=>{
+      if(!state.cobrosIncluidos.has(q.id))return s;
+      return s+((typeof saldoPendiente==="function")?saldoPendiente(q):0);
+    },0);
+    pdf.setFontSize(10);pdf.setFont("helvetica","bold");
+    if(saldo>0){
+      pdf.setTextColor(198,40,40);
+      pdf.text("Total a cobrar"+(numCarro?" (Carro "+numCarro+")":" (recogidas)")+": "+fmt(saldo),M,y);
+    }else{
+      pdf.setTextColor(46,125,50);
+      pdf.text("✓ Sin cobros pendientes",M,y);
+    }
+    pdf.setTextColor(26,26,26);
+    y+=10;
+  }
+  pdf.setFontSize(10);pdf.setFont("helvetica","normal");
+  pdf.text(labelFirma+":",M,y);
+  pdf.line(M+25,y,M+100,y);
+  pdf.text("Firma:",M+110,y);
+  pdf.line(M+125,y,M+200,y);
+}
+
 // Helper: items compactos para sub-fila ("50 sándwich · 20 brownies · 30 jugos")
 function _buildItemsResumenHE(q){
   const parts=[];
@@ -3938,17 +4551,24 @@ async function generarPdfEntregas(){
     if(typeof toast==="function")toast("No hay pedidos en el rango con los filtros aplicados","warn");
     return;
   }
-  // v7.8.0.1: selección por cliente de qué cobros incluir en la hoja.
-  // Solo los docs con saldo>0 son "candidatos". Por defecto todos marcados.
-  // Si NO hay ningún saldo pendiente → no mostrar modal, generar sin info de cobro.
+  // v7.8.1: usa el wizard multi-paso. El wizard maneja todo (clasificar, carros, horas, cobros, generar N PDFs).
+  return _heWizardOpen(docs);
+}
+
+// v7.8.0.1 (legado): generador directo single-PDF — DEPRECATED (queda como referencia, no se llama)
+// El flujo actual va por el wizard. Si en algún momento queremos volver al directo, este código
+// puede recuperarse. NO ELIMINAR sin confirmar reemplazo estable del wizard.
+async function _generarPdfEntregasLegado(){
+  const docs=_impGetDocsRango(reportesIncluirEntregados);
+  if(!docs.length)return;
   const docsConSaldo=docs.filter(q=>{
     const s=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
     return s>0;
   });
-  let cobrosIncluidos=new Set(); // IDs de docs cuyo saldo va en "A COBRAR"
+  let cobrosIncluidos=new Set();
   if(docsConSaldo.length){
     const seleccion=await _heModalSelectorCobros(docsConSaldo);
-    if(seleccion===null)return; // canceló
+    if(seleccion===null)return;
     cobrosIncluidos=seleccion;
   }
   const incluirCobro=cobrosIncluidos.size>0;
