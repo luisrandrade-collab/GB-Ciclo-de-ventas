@@ -14,6 +14,8 @@ function computePropTotal(q){
   if(!q)return 0;
   let totMenu=0,totCatering=0;
   (q.sections||[]).forEach(sec=>{
+    // v7.8.4.2: secciones marcadas como alternativas (incluirEnTotal===false) no se suman
+    if(sec.incluirEnTotal===false)return;
     const isCateringSec=/servicio\s*de\s*catering|coordinaci[oó]n/i.test(sec.name||"");
     (sec.options||[]).forEach(opt=>{
       if(opt.label==="Opción A"||sec.options.length===1){
@@ -252,7 +254,14 @@ function applyPriceMemorySuggestions(){
 function addPropSection(){
   const name=prompt("Nombre de sección:\n(Ej: "+PROP_SECTION_NAMES.filter(n=>!propSections.find(s=>s.name===n)).join(", ")+")");
   if(!name)return;
-  propSections.push({id:"ps"+Date.now(),name,options:[{id:"po"+Date.now(),label:"Opción A",items:[]}]});
+  propSections.push({id:"ps"+Date.now(),name,incluirEnTotal:true,options:[{id:"po"+Date.now(),label:"Opción A",items:[]}]});
+  renderPropSections();
+}
+// v7.8.4.2: toggle "Incluir en TOTAL del servicio" para marcar secciones alternativas
+function togglePropSecIncluir(si){
+  const sec=propSections[si];
+  if(!sec)return;
+  sec.incluirEnTotal=(sec.incluirEnTotal===false)?true:false;
   renderPropSections();
 }
 
@@ -263,7 +272,12 @@ function renderPropSections(){
     :'';
   $("prop-sections").innerHTML=avisoHTML+propSections.map((sec,si)=>{
     const optLetters="ABCDEFGH";
-    return'<div class="prop-sec"><div class="sec-head"><span class="sec-title">'+sec.name+'</span><button class="del-btn" onclick="delPropSec('+si+')" title="Eliminar sección">×</button></div>'+
+    // v7.8.4.2: toggle "Incluir en TOTAL" — secciones alternativas no se suman
+    const incluir=(sec.incluirEnTotal!==false);
+    const toggleHTML='<label style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:500;color:'+(incluir?"var(--gb-neutral-500)":"#b91c1c")+';cursor:pointer;user-select:none;margin-right:10px" title="Si se desmarca, esta sección NO se sumará al TOTAL DEL SERVICIO (queda como alternativa)"><input type="checkbox" '+(incluir?"checked":"")+' onchange="togglePropSecIncluir('+si+')" style="cursor:pointer">'+(incluir?"Incluir en TOTAL":"⚠️ NO suma al total")+'</label>';
+    const altBadge=incluir?"":'<span style="display:inline-block;background:#fee2e2;color:#b91c1c;font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px;letter-spacing:.5px;margin-left:8px">ALTERNATIVA</span>';
+    const secStyle=incluir?"":'opacity:.75;border-left:3px solid #b91c1c';
+    return'<div class="prop-sec" style="'+secStyle+'"><div class="sec-head"><span class="sec-title">'+sec.name+altBadge+'</span><div style="display:flex;align-items:center">'+toggleHTML+'<button class="del-btn" onclick="delPropSec('+si+')" title="Eliminar sección">×</button></div></div>'+
     sec.options.map((opt,oi)=>{
       const sub=opt.items.reduce((s,it)=>s+(it.price||0)*(it.qty||0),0);
       return'<div class="opt-card"><div class="opt-head"><span class="opt-label">'+opt.label+'</span><div><span class="opt-sub">'+fm(sub)+'</span><button class="del-btn" style="font-size:14px" onclick="delPropOpt('+si+','+oi+')">×</button></div></div>'+
@@ -867,9 +881,13 @@ async function genPropPDF(){
     y+=5;
     function estH(nItems){return 10+nItems*9+9}
     propSections.forEach(sec=>{
+      // v7.8.4.2: marca visual ALTERNATIVA si la sección no está incluida en el TOTAL
+      const esAlternativa=(sec.incluirEnTotal===false);
+      const altSuffix=esAlternativa?"  ·  ALTERNATIVA (no incluida en TOTAL)":"";
+      const headerColor=esAlternativa?[185,28,28]:[26,26,26];
       sec.options.forEach(opt=>{
         const td=[];
-        td.push([{content:sec.name.toUpperCase()+" — "+opt.label,colSpan:4,styles:{fillColor:[26,26,26],textColor:[255,255,255],fontStyle:"bold",fontSize:8.5,halign:"left"}}]);
+        td.push([{content:sec.name.toUpperCase()+" — "+opt.label+altSuffix,colSpan:4,styles:{fillColor:headerColor,textColor:[255,255,255],fontStyle:"bold",fontSize:8.5,halign:"left"}}]);
         opt.items.forEach(it=>{
           const qStr=it.qty%1===0?String(it.qty):it.qty.toFixed(1);
           const nameCol=it.name+(it.desc?"\n"+it.desc:"")+(it.unit?"\n("+it.unit+")":"");
@@ -922,8 +940,11 @@ async function genPropPDF(){
     }
     // v5.0: calcula MIN y MAX por sección (antes solo Opción A).
     // Así el cliente ve un RANGO realista, no un valor de Opción A que podría ser el más barato.
+    // v7.8.4.2: secciones marcadas como alternativas (incluirEnTotal===false) no entran al TOTAL.
     let totMenuMin=0,totMenuMax=0,totCateringMin=0,totCateringMax=0;
+    let hayExcluidas=false;
     propSections.forEach(sec=>{
+      if(sec.incluirEnTotal===false){hayExcluidas=true;return}
       const isCateringSec=/servicio\s*de\s*catering|coordinaci[oó]n/i.test(sec.name||"");
       const opts=sec.options||[];
       if(!opts.length)return;
@@ -963,6 +984,14 @@ async function genPropPDF(){
       notaWrap.forEach(line=>{doc.text(line,mg+2,y);y+=3.5});
       doc.setTextColor(26,26,26);y+=3;
     }else{y+=3}
+    // v7.8.4.2: nota cuando hay secciones marcadas como alternativas (no incluidas en TOTAL)
+    if(hayExcluidas){
+      doc.setFont("helvetica","italic");doc.setFontSize(8);doc.setTextColor(185,28,28);
+      const notaAlt="Las secciones marcadas como ALTERNATIVA son opciones adicionales para que el cliente elija. No están incluidas en el TOTAL DEL SERVICIO.";
+      const altWrap=doc.splitTextToSize(notaAlt,tw-4);
+      altWrap.forEach(line=>{doc.text(line,mg+2,y);y+=3.5});
+      doc.setTextColor(26,26,26);y+=3;
+    }
     const repoItems=[];
     menajeItems.filter(m=>m.name&&(m.qty||m.price)).forEach(m=>{if(reposicionData[m.name])repoItems.push({name:m.name,price:reposicionData[m.name]})});
     if(repoItems.length){

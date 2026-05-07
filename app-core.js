@@ -109,8 +109,8 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.8.4b";
-const BUILD_DATE="2026-04-24";
+const BUILD_VERSION="v7.8.4.2";
+const BUILD_DATE="2026-05-07";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
 const APP_YEAR=new Date().getFullYear();
