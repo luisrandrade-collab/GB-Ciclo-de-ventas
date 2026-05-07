@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.8.7";
+const BUILD_VERSION="v7.8.7.1";
 const BUILD_DATE="2026-05-07";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -1214,10 +1214,11 @@ async function deleteOrArchiveProveedor(id){
 
 // ─── v7.8.6: PRODUCCIÓN ANTICIPADA — itemsProducidos por pedido ───
 // Guarda array de nombres (lowercase+trim) de items ya producidos en un pedido.
+// v7.8.7.1: detección de colección consistente con el resto de la app — docs GB-PF-* viven en propfinals/
 async function saveItemsProducidosToCloud(docId,kind,itemsProducidos){
   const {db,doc,updateDoc,serverTimestamp}=window.fb;
-  const col=kind==="quote"?"quotes":"proposals";
-  await updateDoc(doc(db,col,docId),{itemsProducidos:itemsProducidos,updatedAt:serverTimestamp(),...auditStamp()});
+  const coll=kind==="quote"?"quotes":(docId.startsWith("GB-PF-")?"propfinals":"proposals");
+  await updateDoc(doc(db,coll,docId),{itemsProducidos:itemsProducidos,updatedAt:serverTimestamp(),...auditStamp()});
 }
 
 // ─── v7.8.5: RECETAS INTERNAS (collection 'recetasInternas') ───

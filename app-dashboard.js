@@ -3404,11 +3404,11 @@ function _explodeComponentes(nombre,desc){
   const key=String(nombre||"").toLowerCase().trim()
     .replace(/\s*\*\s*$/,"")  // quitar marca " *" custom al final
     .replace(/\s+custom(?:\s+custom)*$/,"");  // quitar "CUSTOM" repetidos
-  // v7.8.5: usar Firestore si ya cargó, sino fallback hardcoded
-  const src=(typeof recetasInternasCache!=="undefined"&&recetasInternasCache!==null)
-    ? recetasInternasCache
-    : null;
-  const receta=src?src[key]:RECETAS_INTERNAS_HARDCODED[key];
+  // v7.8.7.1: Firestore tiene prioridad por-key. Si la receta no está en Firestore (o el cache aún no cargó),
+  // se cae al hardcoded para que la migración a Firestore sea opcional/incremental sin romper la hoja de producción.
+  const fsCache=(typeof recetasInternasCache!=="undefined"&&recetasInternasCache!==null)?recetasInternasCache:null;
+  let receta=fsCache?fsCache[key]:null;
+  if(!receta)receta=RECETAS_INTERNAS_HARDCODED[key];
   const ingredientes=receta?(Array.isArray(receta)?receta:receta.ingredientes):null;
   if(ingredientes)return ingredientes.slice();
   // 2. Sino, heurística sobre la descripción → componentes con q=1
@@ -3776,12 +3776,14 @@ function generarPdfProduccionPorCliente(){
     //   1. Fila padre (5 cols) con casilla principal en col 0.
     //   2. Sub-filas (colSpan 5) con casilla pequeña al inicio, una por componente.
     const items=[];
-    const addItem=(cant,nombre,desc,unidad,custom)=>{
+    const addItem=(cant,nombre,desc,unidad,custom,nombreBase)=>{
       // v7.8.4: skip productos no producibles (mesero, menaje, transporte, etc.)
       if(!_esProductoProducible(nombre))return;
       const cantNum=cant||0;
-      // v7.8.6: detectar si el item fue pre-producido
-      const yaProducido=(q.itemsProducidos||[]).some(p=>p===(nombre||"").toLowerCase().trim());
+      // v7.8.6/v7.8.7.1: detectar si el item fue pre-producido. Usa nombreBase (sin prefijo de
+      // sección/opción) para que el match funcione también en proposals.
+      const matchKey=((nombreBase||nombre)||"").toLowerCase().trim();
+      const yaProducido=(q.itemsProducidos||[]).some(p=>p===matchKey);
       if(yaProducido){
         // v7.8.6: fila ya-producida en gris, sin casilla de check, sin sub-filas
         const gs={textColor:[160,160,160],fontStyle:"italic"};
@@ -3819,12 +3821,13 @@ function generarPdfProduccionPorCliente(){
       }catch(e){console.warn("explodeComponentes A falló para",nombre,desc,e)}
     };
     if(q.kind==="quote"){
-      (q.cart||[]).forEach(it=>addItem(it.qty,it.n,it.d,it.u,false));
-      (q.cust||[]).forEach(it=>addItem(it.qty,it.n,it.d,it.u,true));
+      (q.cart||[]).forEach(it=>addItem(it.qty,it.n,it.d,it.u,false,it.n));
+      (q.cust||[]).forEach(it=>addItem(it.qty,it.n,it.d,it.u,true,it.n));
     }else{
       (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>{
         const prefix=sec.name?"["+sec.name+(opt.label?" "+opt.label:"")+"] ":"";
-        addItem(it.qty,prefix+(it.name||""),it.desc||"",it.unit||"",false);
+        // v7.8.7.1: nombreBase = it.name sin prefijo, para match con itemsProducidos
+        addItem(it.qty,prefix+(it.name||""),it.desc||"",it.unit||"",false,it.name||"");
       })));
     }
 
