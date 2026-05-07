@@ -3375,7 +3375,9 @@ function _esProductoProducible(nombre){
 // Ejemplo: 23 Plato Mixto × 2 Hojas de parra/plato = "46x Hojas de parra".
 // Key = nombre del producto en LOWERCASE+TRIM. Para agregar receta: añadir entrada.
 // (En v7.9 esto se reemplaza por BOM persistido editable desde UI.)
-const RECETAS_INTERNAS={
+// v7.8.5: fallback hardcoded. En producción se usa recetasInternasCache (Firestore).
+// Si recetasInternasCache===null (aún no cargado) se usa esto. Si está cargado, Firestore manda.
+const RECETAS_INTERNAS_HARDCODED={
   "plato mixto libanés":[
     {n:"Arroz Reina",         q:1},
     {n:"Tabbule",              q:1},
@@ -3385,7 +3387,6 @@ const RECETAS_INTERNAS={
     {n:"Tahinne",              q:1},
     {n:"Ghraybe",              q:1}
   ]
-  // Agregar acá nuevas recetas a medida que se confirmen.
 };
 
 // v7.8.4: detecta componentes dentro de la descripción de un producto.
@@ -3403,7 +3404,13 @@ function _explodeComponentes(nombre,desc){
   const key=String(nombre||"").toLowerCase().trim()
     .replace(/\s*\*\s*$/,"")  // quitar marca " *" custom al final
     .replace(/\s+custom(?:\s+custom)*$/,"");  // quitar "CUSTOM" repetidos
-  if(RECETAS_INTERNAS[key])return RECETAS_INTERNAS[key].slice();
+  // v7.8.5: usar Firestore si ya cargó, sino fallback hardcoded
+  const src=(typeof recetasInternasCache!=="undefined"&&recetasInternasCache!==null)
+    ? recetasInternasCache
+    : null;
+  const receta=src?src[key]:RECETAS_INTERNAS_HARDCODED[key];
+  const ingredientes=receta?(Array.isArray(receta)?receta:receta.ingredientes):null;
+  if(ingredientes)return ingredientes.slice();
   // 2. Sino, heurística sobre la descripción → componentes con q=1
   if(!desc)return [];
   const txt=String(desc).trim();
@@ -7209,4 +7216,164 @@ function renderCarteraCard(q,urgencia){
       (_pagos.length?'<button class="btn hc-btn-pagos-ver" onclick="openVerPagosModal(\''+id+'\',event)">📒 Ver pagos ('+_pagos.length+')</button>':'')+
     '</div>'+
     '</div>';
+}
+
+// ─── v7.8.5: RECETAS INTERNAS — CRUD UI ─────────────────────────────────────
+
+async function renderRecetasInternas(){
+  const wrap=$("recetas-int-list");
+  if(!wrap)return;
+  if(recetasInternasCache===null&&cloudOnline){
+    try{await loadRecetasInternasFromCloud()}catch{}
+  }
+  // Fuente: Firestore si disponible, sino hardcoded (para mostrar aunque Firestore falle)
+  const src=(recetasInternasCache!==null)?recetasInternasCache:RECETAS_INTERNAS_HARDCODED;
+  const keys=Object.keys(src).sort((a,b)=>a.localeCompare(b));
+  if(!keys.length){
+    wrap.innerHTML='<div style="text-align:center;padding:40px 20px;color:#757575"><div style="font-size:38px;margin-bottom:10px">🍽️</div><div style="font-size:14px;font-weight:600;color:#5D4037;margin-bottom:8px">No hay recetas internas aún</div><div style="font-size:12px;margin-bottom:14px">Creá la primera para que aparezca en la hoja de producción.</div><button class="btn bg" onclick="openRecetaEditor(null)" style="background:#1B5E20;color:#fff">+ Nueva receta</button></div>';
+    return;
+  }
+  let html='<div style="display:flex;flex-direction:column;gap:8px">';
+  keys.forEach(k=>{
+    const rec=src[k];
+    const ings=Array.isArray(rec)?rec:(rec.ingredientes||[]);
+    const id=(rec&&rec.id)||null;
+    const resumen=ings.map(i=>(i.q>1?i.q+"× ":"")+i.n).join(", ")||'Sin ingredientes';
+    html+='<div onclick="openRecetaEditor(\''+escapeHtml(k)+'\')" style="background:#fff;border:1px solid #E0E0E0;border-radius:10px;padding:12px 14px;cursor:pointer;transition:box-shadow .15s" onmouseover="this.style.boxShadow=\'0 2px 8px rgba(0,0,0,.08)\'" onmouseout="this.style.boxShadow=\'none\'">';
+    html+='<div style="font-size:14px;font-weight:700;color:#1A1A1A;text-transform:capitalize">'+escapeHtml(k)+'</div>';
+    html+='<div style="font-size:12px;color:#757575;margin-top:3px">'+ings.length+' ingrediente'+(ings.length===1?'':'s')+' · '+escapeHtml(resumen)+'</div>';
+    if(recetasInternasCache===null){
+      html+='<div style="font-size:10px;color:#FB8C00;margin-top:2px">⚡ Hardcoded — guardá para mover a Firestore</div>';
+    }
+    html+='</div>';
+  });
+  html+='</div>';
+  wrap.innerHTML=html;
+}
+
+let _recetaEditorKey=null; // nombre (key) de la receta en edición
+
+function openRecetaEditor(key){
+  _recetaEditorKey=key;
+  const src=(recetasInternasCache!==null)?recetasInternasCache:RECETAS_INTERNAS_HARDCODED;
+  const rec=key?src[key]:null;
+  const ings=rec?(Array.isArray(rec)?rec:(rec.ingredientes||[])):[];
+  $("receta-ed-title").textContent=key?"Editar receta":"Nueva receta";
+  $("receta-ed-nombre").value=key?key:"";
+  _recetaEditorRenderIngredientes(ings);
+  $("receta-ed-del-btn").style.display=(key&&recetasInternasCache!==null&&recetasInternasCache[key]?.id)?"inline-block":"none";
+  $("receta-ed-modal").classList.remove("hidden");
+}
+
+function closeRecetaEditor(){
+  $("receta-ed-modal").classList.add("hidden");
+  _recetaEditorKey=null;
+}
+
+function _recetaEditorRenderIngredientes(ings){
+  const wrap=$("receta-ed-ings");
+  if(!wrap)return;
+  let html='';
+  ings.forEach((ing,i)=>{
+    html+=_recetaIngRow(i,ing.n,ing.q);
+  });
+  wrap.innerHTML=html;
+}
+
+function _recetaIngRow(i,nombre,q){
+  return '<div id="receta-ing-row-'+i+'" style="display:flex;gap:6px;align-items:center;margin-bottom:6px">'+
+    '<input type="text" value="'+escapeHtml(nombre||'')+'" placeholder="Nombre ingrediente" style="flex:1;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px" id="receta-ing-n-'+i+'">'+
+    '<input type="number" value="'+(q||1)+'" min="0.1" step="0.1" style="width:70px;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;text-align:center" id="receta-ing-q-'+i+'" title="Cantidad por unidad del plato">'+
+    '<button onclick="_recetaIngEliminar('+i+')" style="background:none;border:none;cursor:pointer;color:#B71C1C;font-size:16px;padding:0 4px" title="Quitar">✕</button>'+
+  '</div>';
+}
+
+function recetaIngAgregar(){
+  const wrap=$("receta-ed-ings");
+  if(!wrap)return;
+  const rows=wrap.querySelectorAll('[id^="receta-ing-row-"]');
+  const i=rows.length;
+  const div=document.createElement("div");
+  div.innerHTML=_recetaIngRow(i,"",1);
+  wrap.appendChild(div.firstChild);
+  wrap.querySelector("#receta-ing-n-"+i)?.focus();
+}
+
+function _recetaIngEliminar(i){
+  const row=$("receta-ing-row-"+i);
+  if(row)row.remove();
+  // re-numerar
+  const wrap=$("receta-ed-ings");
+  if(!wrap)return;
+  const rows=wrap.querySelectorAll('[id^="receta-ing-row-"]');
+  rows.forEach((r,j)=>{
+    r.id="receta-ing-row-"+j;
+    const ni=r.querySelector('[id^="receta-ing-n-"]');
+    const qi=r.querySelector('[id^="receta-ing-q-"]');
+    const bi=r.querySelector('button');
+    if(ni)ni.id="receta-ing-n-"+j;
+    if(qi)qi.id="receta-ing-q-"+j;
+    if(bi)bi.setAttribute("onclick","_recetaIngEliminar("+j+")");
+  });
+}
+
+function _recetaEditorCollectIngredientes(){
+  const wrap=$("receta-ed-ings");
+  if(!wrap)return[];
+  const rows=wrap.querySelectorAll('[id^="receta-ing-row-"]');
+  const result=[];
+  rows.forEach((r,j)=>{
+    const n=(r.querySelector("#receta-ing-n-"+j)?.value||"").trim();
+    const q=parseFloat(r.querySelector("#receta-ing-q-"+j)?.value||"1")||1;
+    if(n)result.push({n,q});
+  });
+  return result;
+}
+
+async function saveRecetaEditor(){
+  const nombre=($("receta-ed-nombre").value||"").toLowerCase().trim();
+  if(!nombre){toast("El nombre es obligatorio","warn");return}
+  const ingredientes=_recetaEditorCollectIngredientes();
+  if(!ingredientes.length){toast("Agrega al menos un ingrediente","warn");return}
+  const src=(recetasInternasCache!==null)?recetasInternasCache:{};
+  const existingId=_recetaEditorKey&&src[_recetaEditorKey]?.id||null;
+  // Si editando y cambió el nombre, borrar el key viejo
+  const nombreCambio=_recetaEditorKey&&_recetaEditorKey!==nombre;
+  showLoader("Guardando...");
+  try{
+    if(nombreCambio&&existingId){
+      await deleteRecetaInternaFromCloud(existingId,_recetaEditorKey);
+      await saveRecetaInternaToCloud(nombre,ingredientes,null);
+    }else{
+      await saveRecetaInternaToCloud(nombre,ingredientes,existingId);
+    }
+    hideLoader();
+    toast("✅ Receta guardada","success");
+    closeRecetaEditor();
+    renderRecetasInternas();
+  }catch(e){
+    hideLoader();
+    toast("Error: "+e.message,"error");
+    console.error(e);
+  }
+}
+
+async function deleteRecetaEditor(){
+  if(!_recetaEditorKey)return;
+  const src=recetasInternasCache||{};
+  const id=src[_recetaEditorKey]?.id;
+  if(!id){toast("No se puede borrar: receta hardcoded. Guardá primero para que quede en Firestore.","warn");return}
+  if(!confirm('¿Eliminar la receta "'+_recetaEditorKey+'"?'))return;
+  showLoader("Eliminando...");
+  try{
+    await deleteRecetaInternaFromCloud(id,_recetaEditorKey);
+    hideLoader();
+    toast("Receta eliminada","success");
+    closeRecetaEditor();
+    renderRecetasInternas();
+  }catch(e){
+    hideLoader();
+    toast("Error: "+e.message,"error");
+    console.error(e);
+  }
 }

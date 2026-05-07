@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.8.4.2";
+const BUILD_VERSION="v7.8.5";
 const BUILD_DATE="2026-05-07";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -385,6 +385,7 @@ let proveedoresCache=[];  // v7.8 F1
 let comprasCache=[];      // v7.8 F2
 let preciosCatalogoCache=[];  // v7.8 F5
 let ajustesLogCache=[];   // v7.8.3 — log auditable de descuentos/perdones/notas crédito
+let recetasInternasCache=null; // v7.8.5 — null=sin cargar, {}=vacío Firestore
 let customProductsCache=[];
 let quotesCache=[];
 let currentQuoteNumber=null;
@@ -1211,6 +1212,43 @@ async function deleteOrArchiveProveedor(id){
   return {modo:"borrado",comprasVinculadas:0};
 }
 
+// ─── v7.8.5: RECETAS INTERNAS (collection 'recetasInternas') ───
+// Modelo: { nombre (lowercase+trim), ingredientes:[{n,q}], createdAt, updatedAt }
+async function loadRecetasInternasFromCloud(){
+  try{
+    const {db,collection,getDocs}=window.fb;
+    const snap=await getDocs(collection(db,"recetasInternas"));
+    recetasInternasCache={};
+    snap.forEach(d=>{const dat=d.data();recetasInternasCache[dat.nombre]={id:d.id,...dat};});
+    localStorage.setItem("gb_recetas_cache",JSON.stringify(recetasInternasCache));
+    return recetasInternasCache;
+  }catch(e){
+    console.error("loadRecetasInternas error",e);
+    try{recetasInternasCache=JSON.parse(localStorage.getItem("gb_recetas_cache")||"null")}catch{}
+    return recetasInternasCache;
+  }
+}
+
+async function saveRecetaInternaToCloud(nombre,ingredientes,existingId){
+  const {db,collection,doc,addDoc,updateDoc,serverTimestamp}=window.fb;
+  const obj={nombre:nombre,ingredientes:ingredientes};
+  if(existingId){
+    await updateDoc(doc(db,"recetasInternas",existingId),{...obj,updatedAt:serverTimestamp(),...auditStamp()});
+    if(recetasInternasCache)recetasInternasCache[nombre]={id:existingId,...obj};
+  }else{
+    const ref=await addDoc(collection(db,"recetasInternas"),{...obj,createdAt:serverTimestamp(),updatedAt:serverTimestamp(),...auditStamp()});
+    if(recetasInternasCache)recetasInternasCache[nombre]={id:ref.id,...obj};
+  }
+  localStorage.setItem("gb_recetas_cache",JSON.stringify(recetasInternasCache));
+}
+
+async function deleteRecetaInternaFromCloud(id,nombre){
+  const {db,doc,deleteDoc}=window.fb;
+  await deleteDoc(doc(db,"recetasInternas",id));
+  if(recetasInternasCache)delete recetasInternasCache[nombre];
+  localStorage.setItem("gb_recetas_cache",JSON.stringify(recetasInternasCache));
+}
+
 // ─── v7.8 F2: COMPRAS (collection 'compras') ────────────────
 // Modelo: { proveedorId, proveedorNombre (snapshot), fecha, items[], total,
 //           formaPago, comprobante: {url,path}|null, nota, estado, createdAt, updatedAt }
@@ -1996,6 +2034,7 @@ async function initApp(){
     await loadComprasFromCloud();
     await loadPreciosCatalogoFromCloud();
     await loadAjustesLogFromCloud();
+    await loadRecetasInternasFromCloud();
     await loadCustomProducts();
     await loadPriceMemory();
     setCloudStatus(true);
@@ -2047,7 +2086,8 @@ function setMode(m){
   // v7.8 F3-F5: agregados 'compras-pendientes', 'compras-historico', 'compras-catalogo'
   // v7.8.2: agregado 'pedidos-hojas' (Hojas para imprimir movido de Reportes a Pedidos)
   // v7.8.3: agregado 'cartera-ajustes-log' (Log auditable de descuentos/perdones)
-  ["dash","cot","prop","search","hist","seg","cal","ventas","cartera","cartera-historico","cartera-ajustes-log","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","pedidos-hojas","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup","clientes-directorio","clientes-ficha","clientes-comentarios","proveedores-directorio","compras-pendientes","compras-historico","compras-catalogo"].forEach(x=>{
+  // v7.8.5: agregado 'herr-recetas' (Herramientas > Recetas internas — CRUD Firestore)
+  ["dash","cot","prop","search","hist","seg","cal","ventas","cartera","cartera-historico","cartera-ajustes-log","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","pedidos-hojas","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup","clientes-directorio","clientes-ficha","clientes-comentarios","proveedores-directorio","compras-pendientes","compras-historico","compras-catalogo","herr-recetas"].forEach(x=>{
     const el=$("mode-"+x);
     if(el)el.classList.toggle("hidden",x!==m);
     document.querySelectorAll(".mode-btn.m-"+x).forEach(b=>b.classList.toggle("act",x===m));
@@ -2070,6 +2110,7 @@ function setMode(m){
   if(m==="compras-historico"&&typeof renderComprasHistorico==="function")renderComprasHistorico();
   if(m==="compras-catalogo"&&typeof renderComprasCatalogo==="function")renderComprasCatalogo();
   if(m==="backup"&&typeof renderSyncAgendaPanel==="function")renderSyncAgendaPanel();
+  if(m==="herr-recetas"&&typeof renderRecetasInternas==="function")renderRecetasInternas();
   if(m==="reportes"&&typeof renderReportes==="function")renderReportes();
   if(m==="cotizaciones"&&typeof renderCotizaciones==="function")renderCotizaciones();
   if(m==="perdidas"&&typeof renderPerdidas==="function")renderPerdidas();

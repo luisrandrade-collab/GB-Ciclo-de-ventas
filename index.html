@@ -1857,6 +1857,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <button class="sb-module__btn"><span class="gb-shell-icon">⚙️</span><span class="sb-module__label">Herramientas</span></button>
       <div class="sb-submenu">
         <a href="javascript:void(0)" class="is-soon" data-sub="herr/catalogo-productos">Catálogo de productos<span class="sub-soon">Pronto</span></a>
+        <a href="javascript:void(0)" data-sub="herr/recetas">Recetas internas</a>
         <a href="javascript:void(0)" data-sub="herr/backup">Mantenimiento y backups</a>
         <a href="javascript:void(0)" class="is-soon" data-sub="herr/configuracion">Configuración<span class="sub-soon">Pronto</span></a>
       </div>
@@ -1914,7 +1915,8 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'archivo/buscar':       'archivo-busqueda',
     'archivo/anuladas':     'archivo-anuladas',
     'archivo/convertidas':  'archivo-convertidas',
-    'herr/backup':          'backup'
+    'herr/backup':          'backup',
+    'herr/recetas':         'herr-recetas'
     // Pipeline, ops/despacho, ops/historico-hojas, compras/*, clientes/*, herr/* → undefined → SOON
   };
 
@@ -1951,6 +1953,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'archivo-anuladas':     'archivo/anuladas',
     'archivo-convertidas':  'archivo/convertidas',
     'backup':               'herr/backup',
+    'herr-recetas':         'herr/recetas',
     'search':               'ventas/cotizar'
   };
 
@@ -1983,7 +1986,8 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'archivo/buscar':       ['Archivo', 'Buscar todo'],
     'archivo/anuladas':     ['Archivo', 'Anuladas'],
     'archivo/convertidas':  ['Archivo', 'Convertidas / Versiones viejas'],
-    'herr/backup':          ['Herramientas', 'Mantenimiento y backups']
+    'herr/backup':          ['Herramientas', 'Mantenimiento y backups'],
+    'herr/recetas':         ['Herramientas', 'Recetas internas']
   };
 
   function gbShellEnsureCrumb(){
@@ -2397,6 +2401,48 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   </div>
 
   <!-- v7.5: Bloque 'Opciones avanzadas' movido a Herramientas > Mantenimiento y backups -->
+</div>
+
+<!-- ======== HERRAMIENTAS > RECETAS INTERNAS (v7.8.5) ======== -->
+<div id="mode-herr-recetas" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#1B5E20;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span>🍽️ Recetas internas</span>
+      <button class="btn bg" onclick="openRecetaEditor(null)" style="background:#1B5E20;color:#fff;font-size:12px;padding:5px 12px;margin-left:auto">+ Nueva receta</button>
+    </div>
+    <div style="background:#E8F5E9;border-left:3px solid #2E7D32;padding:10px 14px;margin-bottom:14px;border-radius:6px;font-size:12.5px;color:#1B5E20">
+      Las recetas definen los componentes de un producto (ej. Plato Mixto → Arroz Reina × 1, Hojas de parra × 2…).
+      Se usan en la hoja de producción para calcular cantidades totales. La cantidad (q) es por unidad del producto.
+    </div>
+    <div id="recetas-int-list"><div style="text-align:center;padding:30px;color:#9E9E9E;font-size:13px">Cargando...</div></div>
+  </div>
+</div>
+
+<!-- Modal editor receta interna (v7.8.5) -->
+<div id="receta-ed-modal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;display:flex;align-items:center;justify-content:center;padding:16px">
+  <div style="background:#fff;border-radius:14px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+    <div style="padding:16px 18px;border-bottom:1px solid #E0E0E0;display:flex;align-items:center;justify-content:space-between">
+      <div id="receta-ed-title" style="font-size:16px;font-weight:700;color:#1A1A1A">Receta</div>
+      <button onclick="closeRecetaEditor()" style="background:none;border:none;cursor:pointer;font-size:20px;color:#757575;line-height:1">✕</button>
+    </div>
+    <div style="padding:16px 18px">
+      <label style="font-size:12px;color:#555;display:block;margin-bottom:4px">Nombre de la receta (ej: plato mixto libanés)</label>
+      <input type="text" id="receta-ed-nombre" placeholder="Nombre del producto / receta" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;margin-bottom:14px">
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <label style="font-size:12px;color:#555;font-weight:600">Ingredientes</label>
+        <button onclick="recetaIngAgregar()" style="font-size:12px;background:#E8F5E9;color:#1B5E20;border:1px solid #A5D6A7;border-radius:6px;padding:4px 10px;cursor:pointer">+ Agregar</button>
+      </div>
+      <div style="font-size:11px;color:#9E9E9E;margin-bottom:8px">Nombre · Cantidad por unidad del plato</div>
+      <div id="receta-ed-ings" style="margin-bottom:14px"></div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;border-top:1px solid #F0F0F0;padding-top:14px">
+        <button id="receta-ed-del-btn" onclick="deleteRecetaEditor()" style="background:#FFEBEE;color:#B71C1C;border:1px solid #EF9A9A;border-radius:8px;padding:8px 16px;font-size:13px;cursor:pointer;display:none">🗑 Eliminar</button>
+        <button onclick="closeRecetaEditor()" style="background:#F5F5F5;color:#555;border:1px solid #ddd;border-radius:8px;padding:8px 16px;font-size:13px;cursor:pointer">Cancelar</button>
+        <button onclick="saveRecetaEditor()" style="background:#1B5E20;color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer">Guardar</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ======== HERRAMIENTAS > BACKUP MODE (v7.5) — Mantenimiento y backups ======== -->
@@ -4421,12 +4467,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.8.4.2"></script>
-<script src="app-core.js?v=7.8.4.2"></script>
-<script src="app-cotizar.js?v=7.8.4.2"></script>
-<script src="app-propuesta.js?v=7.8.4.2"></script>
-<script src="app-historial.js?v=7.8.4.2"></script>
-<script src="app-seguimiento.js?v=7.8.4.2"></script>
-<script src="app-dashboard.js?v=7.8.4.2"></script>
+<script src="app-assets.js?v=7.8.5"></script>
+<script src="app-core.js?v=7.8.5"></script>
+<script src="app-cotizar.js?v=7.8.5"></script>
+<script src="app-propuesta.js?v=7.8.5"></script>
+<script src="app-historial.js?v=7.8.5"></script>
+<script src="app-seguimiento.js?v=7.8.5"></script>
+<script src="app-dashboard.js?v=7.8.5"></script>
 </body>
 </html>
