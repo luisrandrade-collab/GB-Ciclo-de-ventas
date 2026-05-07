@@ -3695,9 +3695,22 @@ function generarPdfProduccionPorCliente(){
       // v7.8.4: skip productos no producibles (mesero, menaje, transporte, etc.)
       if(!_esProductoProducible(nombre))return;
       const cantNum=cant||0;
+      // v7.8.6: detectar si el item fue pre-producido
+      const yaProducido=(q.itemsProducidos||[]).some(p=>p===(nombre||"").toLowerCase().trim());
+      if(yaProducido){
+        // v7.8.6: fila ya-producida en gris, sin casilla de check, sin sub-filas
+        const gs={textColor:[160,160,160],fontStyle:"italic"};
+        items.push([
+          {content:"OK",styles:{...gs,halign:"center",fontSize:7}},
+          {content:"--",styles:{...gs,halign:"center"}},
+          {content:"[YA PROD.] "+(nombre||""),styles:gs},
+          {content:desc||"",styles:gs},
+          {content:unidad||"",styles:{...gs,halign:"center"}}
+        ]);
+        return;
+      }
       const fullName=(nombre||"")+(custom?" *":"");
-      // Fila padre
-      items.push(["",String(cantNum),fullName,desc||"",unidad||""]);
+      // Fila padre normal
       // Componentes (sub-filas con colSpan). cantTotal = cantPadre × qPorUnidad del componente.
       try{
         const comps=_explodeComponentes(nombre,desc);
@@ -3841,6 +3854,8 @@ function generarPdfProduccionConsolidada(){
       if(!name)return;
       // v7.8.4: skip productos no producibles (mesero, menaje, transporte, etc.)
       if(!_esProductoProducible(name))return;
+      // v7.8.6: skip items marcados como ya producidos anticipadamente
+      if((q.itemsProducidos||[]).some(p=>p===(name||"").toLowerCase().trim()))return;
       const key=name+"|"+(desc||"");
       if(!porDia[f].productos[key])porDia[f].productos[key]={name:name,qty:0,desc:desc||"",unit:unit||"",pedidos:new Set()};
       porDia[f].productos[key].qty+=qty;
@@ -7216,6 +7231,75 @@ function renderCarteraCard(q,urgencia){
       (_pagos.length?'<button class="btn hc-btn-pagos-ver" onclick="openVerPagosModal(\''+id+'\',event)">📒 Ver pagos ('+_pagos.length+')</button>':'')+
     '</div>'+
     '</div>';
+}
+
+// ─── v7.8.6: PRODUCCIÓN ANTICIPADA — modal checklist ────────────────────────
+
+function _getItemsProduciblesDeDoc(q){
+  const items=[];
+  if(q.kind==="quote"){
+    (q.cart||[]).forEach(it=>{if(_esProductoProducible(it.n))items.push({nombre:it.n,qty:it.qty||0})});
+    (q.cust||[]).forEach(it=>{if(_esProductoProducible(it.n))items.push({nombre:it.n,qty:it.qty||0,custom:true})});
+  }else{
+    (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>{
+      if(_esProductoProducible(it.name||""))items.push({nombre:it.name||"",qty:it.qty||0});
+    })));
+  }
+  return items;
+}
+
+let _itemsProdDocId=null,_itemsProdKind=null;
+
+function openItemsProducidosModal(docId,kind,ev){
+  if(ev)ev.stopPropagation();
+  const q=(typeof quotesCache!=="undefined")?quotesCache.find(x=>x.id===docId):null;
+  if(!q)return;
+  _itemsProdDocId=docId;_itemsProdKind=kind;
+  const titleEl=$("items-prod-titulo");
+  if(titleEl)titleEl.textContent=(q.client||docId)+" · "+docId;
+  const items=_getItemsProduciblesDeDoc(q);
+  const yaSet=new Set((q.itemsProducidos||[]).map(s=>(s||"").toLowerCase().trim()));
+  const wrap=$("items-prod-checklist");
+  if(!wrap)return;
+  if(!items.length){
+    wrap.innerHTML='<div style="text-align:center;padding:20px;color:#9E9E9E;font-size:13px">Este pedido no tiene items producibles.</div>';
+  }else{
+    wrap.innerHTML=items.map(it=>{
+      const key=(it.nombre||"").toLowerCase().trim();
+      const chk=yaSet.has(key)?'checked':'';
+      return '<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;cursor:pointer;margin-bottom:4px;background:#FAFAFA;border:1px solid #EEE">'+
+        '<input type="checkbox" class="prod-ant-check" value="'+escapeHtml(it.nombre)+'" '+chk+' style="width:16px;height:16px;cursor:pointer;accent-color:#E65100">'+
+        '<span style="flex:1;font-size:13px;color:#1A1A1A">'+escapeHtml(it.nombre)+'</span>'+
+        '<span style="font-size:11px;color:#9E9E9E">'+it.qty+' und</span>'+
+        '</label>';
+    }).join('');
+  }
+  $("items-prod-modal").classList.remove("hidden");
+}
+
+function closeItemsProducidosModal(){
+  $("items-prod-modal").classList.add("hidden");
+  _itemsProdDocId=null;_itemsProdKind=null;
+}
+
+async function saveItemsProducidosModal(){
+  if(!_itemsProdDocId)return;
+  const checks=document.querySelectorAll('#items-prod-checklist .prod-ant-check:checked');
+  const nombres=Array.from(checks).map(c=>(c.value||"").toLowerCase().trim()).filter(Boolean);
+  showLoader("Guardando...");
+  try{
+    await saveItemsProducidosToCloud(_itemsProdDocId,_itemsProdKind,nombres);
+    const q=(typeof quotesCache!=="undefined")?quotesCache.find(x=>x.id===_itemsProdDocId):null;
+    if(q)q.itemsProducidos=nombres;
+    hideLoader();
+    const msg=nombres.length?nombres.length+" item(s) marcados como anticipados":"Sin items anticipados";
+    toast("✅ "+msg,"success");
+    closeItemsProducidosModal();
+    if(typeof renderPedidosProduccion==="function")renderPedidosProduccion();
+    if(typeof renderPedidosAprobados==="function")renderPedidosAprobados();
+  }catch(e){
+    hideLoader();toast("Error: "+e.message,"error");console.error(e);
+  }
 }
 
 // ─── v7.8.5: RECETAS INTERNAS — CRUD UI ─────────────────────────────────────

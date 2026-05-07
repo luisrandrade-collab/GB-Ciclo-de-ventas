@@ -2938,6 +2938,9 @@ function _actionBtnsPorContexto(q,contexto){
       if(!q.eventDate)btns.push('<button class="btn hc-btn-order" onclick="assignDeliveryDate(\''+id+'\',\''+kind+'\',event)">📅 Asignar fecha</button>');
       // Iniciar producción (acción primaria)
       btns.push('<button class="btn hc-btn-order" style="background:#FFF3E0;color:#E65100;border-color:#FFB74D" onclick="markAsInProduction(\''+id+'\',\''+kind+'\',event)">🔥 Iniciar producción</button>');
+      // v7.8.6: producción anticipada (disponible desde aprobado también)
+      const _nAntA=(q.itemsProducidos||[]).length;
+      if(_nAntA)btns.push('<button class="btn hc-btn-prod-ant" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" onclick="openItemsProducidosModal(\''+id+'\',\''+kind+'\',event)">🥘 Anticipados ('+_nAntA+')</button>');
       // Skip producción → marcar producido directo
       btns.push('<button class="btn hc-btn-edit" onclick="toggleProduced(\''+id+'\',\''+kind+'\',event)">🔪 Marcar producido</button>');
       btns.push(btnIcs());
@@ -2952,6 +2955,11 @@ function _actionBtnsPorContexto(q,contexto){
     case "pedidos-produccion": {
       if(_editable&&!isPF)btns.push(btnEditar());
       btns.push(btnHistorial());
+      // v7.8.6: producción anticipada
+      const _nAnt=(q.itemsProducidos||[]).length;
+      const _antLabel=_nAnt?'🥘 Anticipados ('+_nAnt+')':'🥘 Anticipados';
+      const _antStyle=_nAnt?'background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7':'';
+      btns.push('<button class="btn hc-btn-prod-ant" style="'+_antStyle+'" onclick="openItemsProducidosModal(\''+id+'\',\''+kind+'\',event)">'+_antLabel+'</button>');
       btns.push('<button class="btn hc-btn-edit" onclick="toggleProduced(\''+id+'\',\''+kind+'\',event)">🔪 Marcar producido</button>');
       btns.push(btnIcs());
       btns.push(btnAnular());

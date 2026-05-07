@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.8.5.1";
+const BUILD_VERSION="v7.8.6";
 const BUILD_DATE="2026-05-07";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -1210,6 +1210,14 @@ async function deleteOrArchiveProveedor(id){
   proveedoresCache=proveedoresCache.filter(p=>p.id!==id);
   localStorage.setItem("gb_proveedores_cache",JSON.stringify(proveedoresCache));
   return {modo:"borrado",comprasVinculadas:0};
+}
+
+// ─── v7.8.6: PRODUCCIÓN ANTICIPADA — itemsProducidos por pedido ───
+// Guarda array de nombres (lowercase+trim) de items ya producidos en un pedido.
+async function saveItemsProducidosToCloud(docId,kind,itemsProducidos){
+  const {db,doc,updateDoc,serverTimestamp}=window.fb;
+  const col=kind==="quote"?"quotes":"proposals";
+  await updateDoc(doc(db,col,docId),{itemsProducidos:itemsProducidos,updatedAt:serverTimestamp(),...auditStamp()});
 }
 
 // ─── v7.8.5: RECETAS INTERNAS (collection 'recetasInternas') ───

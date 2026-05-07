@@ -2418,6 +2418,29 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   </div>
 </div>
 
+<!-- Modal producción anticipada (v7.8.6) -->
+<div id="items-prod-modal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9100;display:flex;align-items:center;justify-content:center;padding:16px">
+  <div style="background:#fff;border-radius:14px;width:100%;max-width:460px;max-height:88vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+    <div style="padding:14px 16px;border-bottom:1px solid #E0E0E0;display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-size:15px;font-weight:700;color:#1A1A1A">Producción anticipada</div>
+        <div id="items-prod-titulo" style="font-size:12px;color:#757575;margin-top:2px"></div>
+      </div>
+      <button onclick="closeItemsProducidosModal()" style="background:none;border:none;cursor:pointer;font-size:20px;color:#757575;line-height:1">✕</button>
+    </div>
+    <div style="padding:12px 16px">
+      <div style="background:#FFF8E1;border-left:3px solid #F9A825;padding:8px 12px;border-radius:6px;font-size:12px;color:#5D4037;margin-bottom:12px">
+        Marcá los items que ya están <strong>listos</strong>. No aparecerán en el PDF de producción consolidada del día.
+      </div>
+      <div id="items-prod-checklist" style="margin-bottom:14px"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;border-top:1px solid #F0F0F0;padding-top:12px">
+        <button onclick="closeItemsProducidosModal()" style="background:#F5F5F5;color:#555;border:1px solid #ddd;border-radius:8px;padding:8px 16px;font-size:13px;cursor:pointer">Cancelar</button>
+        <button onclick="saveItemsProducidosModal()" style="background:#E65100;color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal editor receta interna (v7.8.5) -->
 <div id="receta-ed-modal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;display:flex;align-items:center;justify-content:center;padding:16px">
   <div style="background:#fff;border-radius:14px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.18)">
@@ -4468,12 +4491,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.8.5.1"></script>
-<script src="app-core.js?v=7.8.5.1"></script>
-<script src="app-cotizar.js?v=7.8.5.1"></script>
-<script src="app-propuesta.js?v=7.8.5.1"></script>
-<script src="app-historial.js?v=7.8.5.1"></script>
-<script src="app-seguimiento.js?v=7.8.5.1"></script>
-<script src="app-dashboard.js?v=7.8.5.1"></script>
+<script src="app-assets.js?v=7.8.6"></script>
+<script src="app-core.js?v=7.8.6"></script>
+<script src="app-cotizar.js?v=7.8.6"></script>
+<script src="app-propuesta.js?v=7.8.6"></script>
+<script src="app-historial.js?v=7.8.6"></script>
+<script src="app-seguimiento.js?v=7.8.6"></script>
+<script src="app-dashboard.js?v=7.8.6"></script>
 </body>
 </html>
