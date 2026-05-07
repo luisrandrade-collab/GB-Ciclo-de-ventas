@@ -3305,10 +3305,17 @@ async function renderCartera(){
 // ═══════════════════════════════════════════════════════════
 
 let reportesTab="excel";
+// v7.8.0.1: filtros separados por tab para evitar que el default mensual del
+// tab Excel contamine al tab Imprimibles (que necesita default hoy/hoy).
 let reportesFiltros={
   desde: "",
   hasta: "",
   estado: "pendientes" // todos | pendientes | entregados
+};
+let reportesFiltrosImpr={
+  desde: "",
+  hasta: "",
+  estado: "pendientes"
 };
 let reportesResultado=null; // Cache del ultimo resultado generado
 
@@ -3390,8 +3397,12 @@ async function renderReportes(){
 let reportesIncluirEntregados=false;
 
 function renderReportesImprimibles(contentEl){
-  if(!reportesFiltros.desde)reportesFiltros.desde=_reportesHoy();
-  if(!reportesFiltros.hasta)reportesFiltros.hasta=_reportesHoyMas(7);
+  // v7.8.0.1: default SIEMPRE hoy/hoy al entrar al tab. Filtros separados de Excel.
+  // Si el usuario ya cambió manualmente y vuelve, se respeta su selección (porque
+  // los inputs guardan en reportesFiltrosImpr y no se resetean entre entradas
+  // dentro de la misma sesión, solo en la primera carga del tab).
+  if(!reportesFiltrosImpr.desde)reportesFiltrosImpr.desde=_reportesHoy();
+  if(!reportesFiltrosImpr.hasta)reportesFiltrosImpr.hasta=_reportesHoy();
 
   contentEl.innerHTML=
     '<div style="background:#F5F5F5;border-radius:10px;padding:14px 16px;margin-bottom:14px">'+
@@ -3399,11 +3410,11 @@ function renderReportesImprimibles(contentEl){
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'+
         '<div>'+
           '<label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Fecha desde</label>'+
-          '<input type="date" id="rep-imp-desde" value="'+reportesFiltros.desde+'" onchange="reportesFiltros.desde=this.value;renderReportesImprimiblesPreview()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
+          '<input type="date" id="rep-imp-desde" value="'+reportesFiltrosImpr.desde+'" onchange="reportesFiltrosImpr.desde=this.value;renderReportesImprimiblesPreview()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
         '</div>'+
         '<div>'+
           '<label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Fecha hasta</label>'+
-          '<input type="date" id="rep-imp-hasta" value="'+reportesFiltros.hasta+'" onchange="reportesFiltros.hasta=this.value;renderReportesImprimiblesPreview()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
+          '<input type="date" id="rep-imp-hasta" value="'+reportesFiltrosImpr.hasta+'" onchange="reportesFiltrosImpr.hasta=this.value;renderReportesImprimiblesPreview()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
         '</div>'+
       '</div>'+
       '<label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:11.5px;color:#555;cursor:pointer">'+
@@ -3442,7 +3453,8 @@ function _impCard(letra,emoji,titulo,descripcion,destinatario,onclick,soon){
 function _impGetDocsRango(includeEntregados){
   // Por defecto: solo pendientes (status pedido/aprobada/en_produccion).
   // Si includeEntregados=true: también entregado (para reimprimir hoja de entregas).
-  const desde=reportesFiltros.desde, hasta=reportesFiltros.hasta;
+  // v7.8.0.1: usa reportesFiltrosImpr (separado del tab Excel).
+  const desde=reportesFiltrosImpr.desde, hasta=reportesFiltrosImpr.hasta;
   if(!desde||!hasta)return [];
   const validStatus=includeEntregados
     ?{quote:["pedido","en_produccion","entregado"],proposal:["aprobada","en_produccion","entregado"]}
@@ -3463,10 +3475,11 @@ function _impGetDocsRango(includeEntregados){
 function renderReportesImprimiblesPreview(){
   const el=$("rep-imp-preview");
   if(!el)return;
-  if(!reportesFiltros.desde||!reportesFiltros.hasta){el.textContent="Elige rango de fechas para ver qué pedidos hay";return}
+  // v7.8.0.1: usa reportesFiltrosImpr
+  if(!reportesFiltrosImpr.desde||!reportesFiltrosImpr.hasta){el.textContent="Elige rango de fechas para ver qué pedidos hay";return}
   const docs=_impGetDocsRango(false);
   const docsConEntregados=_impGetDocsRango(true);
-  let txt="<strong>"+docs.length+"</strong> pedido"+(docs.length!==1?"s":"")+" pendiente"+(docs.length!==1?"s":"")+" en el rango "+reportesFiltros.desde+" → "+reportesFiltros.hasta;
+  let txt="<strong>"+docs.length+"</strong> pedido"+(docs.length!==1?"s":"")+" pendiente"+(docs.length!==1?"s":"")+" en el rango "+reportesFiltrosImpr.desde+" → "+reportesFiltrosImpr.hasta;
   if(reportesIncluirEntregados){
     const entregados=docsConEntregados.length-docs.length;
     txt+=". PDF D incluirá también <strong>"+entregados+"</strong> entregado"+(entregados!==1?"s":"")+" del rango (total "+docsConEntregados.length+")";
@@ -3638,7 +3651,7 @@ function generarPdfProduccionPorCliente(){
 
   _repPdfFooter(pdf,W,H);
 
-  const fname="OrdenProduccion_"+reportesFiltros.desde+(reportesFiltros.desde===reportesFiltros.hasta?"":"_a_"+reportesFiltros.hasta)+".pdf";
+  const fname="OrdenProduccion_"+reportesFiltrosImpr.desde+(reportesFiltrosImpr.desde===reportesFiltrosImpr.hasta?"":"_a_"+reportesFiltrosImpr.hasta)+".pdf";
   pdf.save(fname);
   if(typeof toast==="function")toast("PDF generado: "+docs.length+" hoja(s)","success");
 }
@@ -3726,7 +3739,7 @@ function generarPdfProduccionConsolidada(){
 
   _repPdfFooter(pdf,W,Hp);
 
-  const fname="ProduccionConsolidada_"+reportesFiltros.desde+(reportesFiltros.desde===reportesFiltros.hasta?"":"_a_"+reportesFiltros.hasta)+".pdf";
+  const fname="ProduccionConsolidada_"+reportesFiltrosImpr.desde+(reportesFiltrosImpr.desde===reportesFiltrosImpr.hasta?"":"_a_"+reportesFiltrosImpr.hasta)+".pdf";
   pdf.save(fname);
   if(typeof toast==="function")toast("PDF generado: "+dias.length+" día(s)","success");
 }
@@ -3827,14 +3840,95 @@ function generarPdfEmpaque(){
 
   _repPdfFooter(pdf,W,H);
 
-  const fname="Empaque_"+reportesFiltros.desde+(reportesFiltros.desde===reportesFiltros.hasta?"":"_a_"+reportesFiltros.hasta)+".pdf";
+  const fname="Empaque_"+reportesFiltrosImpr.desde+(reportesFiltrosImpr.desde===reportesFiltrosImpr.hasta?"":"_a_"+reportesFiltrosImpr.hasta)+".pdf";
   pdf.save(fname);
   if(typeof toast==="function")toast("PDF generado: "+docs.length+" hoja(s) de empaque","success");
 }
 
 // ─── F8: PDF D — Entregas con chequeo + firma ───────────────
+// v7.8.0.1 (2026-05-07): formato intermedio.
+//   • Sub-fila de items resumidos por cliente (▸ ítem · ítem · ...)
+//   • Columna A COBRAR reemplaza TOTAL + NOTAS PAGO. Si saldo=0 → "—".
+//   • Footer: "Total a cobrar hoy" solo si hay saldos. Si todo pagado → "Todo cancelado".
 
-function generarPdfEntregas(){
+// v7.8.0.1: modal selector de cobros para Hoja de Entregas.
+// Devuelve Promise<Set<string> | null>. Set vacío = ningún cobro. null = canceló.
+function _heModalSelectorCobros(docsConSaldo){
+  return new Promise(resolve=>{
+    // Crear overlay + modal dinámicamente
+    const overlay=document.createElement("div");
+    overlay.id="he-cobros-modal";
+    overlay.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto";
+    const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
+    let html='<div style="background:#fff;border-radius:14px;max-width:520px;width:100%;padding:18px 20px;box-shadow:0 8px 32px rgba(0,0,0,.3);font-family:var(--gb-font-body)">';
+    html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:10px;border-bottom:1px solid #E0E0E0">';
+    html+='<div style="font-size:17px;font-weight:700;color:#1A1A1A">¿Qué cobros incluir?</div>';
+    html+='<button id="he-cob-x" style="background:transparent;border:none;font-size:22px;cursor:pointer;color:#9E9E9E;padding:0 6px">×</button>';
+    html+='</div>';
+    html+='<div style="font-size:12.5px;color:#5D4037;margin-bottom:12px">Marcá los clientes que el repartidor va a cobrar en este viaje. Los desmarcados quedan sin valor en la hoja (aunque tengan saldo).</div>';
+    html+='<div style="display:flex;gap:8px;margin-bottom:10px">';
+    html+='<button id="he-cob-all" style="background:#fff;color:#1B5E20;border:1px solid #1B5E20;padding:5px 11px;border-radius:6px;font-size:11.5px;cursor:pointer">Marcar todos</button>';
+    html+='<button id="he-cob-none" style="background:#fff;color:#5D4037;border:1px solid #BDBDBD;padding:5px 11px;border-radius:6px;font-size:11.5px;cursor:pointer">Desmarcar todos</button>';
+    html+='</div>';
+    html+='<div id="he-cob-list" style="max-height:340px;overflow-y:auto;border:1px solid #EEE;border-radius:8px;padding:6px">';
+    docsConSaldo.forEach(q=>{
+      const saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
+      const fecha=_reportesGetFecha(q)||"";
+      html+='<label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;cursor:pointer;border-bottom:1px solid #F5F5F5" onmouseover="this.style.background=\'#FAFAFA\'" onmouseout="this.style.background=\'transparent\'">';
+      html+='<input type="checkbox" checked data-id="'+q.id+'" style="width:18px;height:18px;cursor:pointer;accent-color:#1B5E20">';
+      html+='<div style="flex:1;min-width:0">';
+      html+='<div style="font-size:13.5px;font-weight:700;color:#1A1A1A">'+escapeHtml((q.client||"(sin cliente)").toUpperCase())+'</div>';
+      html+='<div style="font-size:11px;color:#9E9E9E">'+fecha+(q.horaEntrega?" "+q.horaEntrega:"")+' · '+escapeHtml(q.id||"")+'</div>';
+      html+='</div>';
+      html+='<div style="font-size:14px;font-weight:700;color:#C62828">'+fmt(saldo)+'</div>';
+      html+='</label>';
+    });
+    html+='</div>';
+    html+='<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid #E0E0E0">';
+    html+='<button id="he-cob-cancel" style="background:#fff;color:#5D4037;border:1px solid #BDBDBD;padding:9px 14px;border-radius:8px;font-size:13px;cursor:pointer">Cancelar</button>';
+    html+='<button id="he-cob-ok" style="background:#1B5E20;color:#fff;border:none;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Generar PDF</button>';
+    html+='</div>';
+    html+='</div>';
+    overlay.innerHTML=html;
+    document.body.appendChild(overlay);
+
+    const close=(result)=>{
+      try{document.body.removeChild(overlay)}catch{}
+      resolve(result);
+    };
+    document.getElementById("he-cob-x").onclick=()=>close(null);
+    document.getElementById("he-cob-cancel").onclick=()=>close(null);
+    document.getElementById("he-cob-all").onclick=()=>{
+      overlay.querySelectorAll('input[type="checkbox"]').forEach(cb=>cb.checked=true);
+    };
+    document.getElementById("he-cob-none").onclick=()=>{
+      overlay.querySelectorAll('input[type="checkbox"]').forEach(cb=>cb.checked=false);
+    };
+    document.getElementById("he-cob-ok").onclick=()=>{
+      const ids=new Set();
+      overlay.querySelectorAll('input[type="checkbox"]:checked').forEach(cb=>ids.add(cb.dataset.id));
+      close(ids);
+    };
+  });
+}
+
+// Helper: items compactos para sub-fila ("50 sándwich · 20 brownies · 30 jugos")
+function _buildItemsResumenHE(q){
+  const parts=[];
+  if(q.kind==="quote"){
+    (q.cart||[]).forEach(it=>{if(it.n)parts.push((it.qty||0)+" "+it.n)});
+    (q.cust||[]).forEach(it=>{if(it.n)parts.push((it.qty||0)+" "+it.n+"*")});
+  }else{
+    (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>{
+      if(it.name)parts.push((it.qty||0)+" "+it.name);
+    })));
+  }
+  let str=parts.join(" · ");
+  if(str.length>220)str=str.substring(0,217)+"...";
+  return str;
+}
+
+async function generarPdfEntregas(){
   if(!window.jspdf||!window.jspdf.jsPDF){
     if(typeof toast==="function")toast("Error: jsPDF no cargado","error");
     return;
@@ -3844,6 +3938,20 @@ function generarPdfEntregas(){
     if(typeof toast==="function")toast("No hay pedidos en el rango con los filtros aplicados","warn");
     return;
   }
+  // v7.8.0.1: selección por cliente de qué cobros incluir en la hoja.
+  // Solo los docs con saldo>0 son "candidatos". Por defecto todos marcados.
+  // Si NO hay ningún saldo pendiente → no mostrar modal, generar sin info de cobro.
+  const docsConSaldo=docs.filter(q=>{
+    const s=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
+    return s>0;
+  });
+  let cobrosIncluidos=new Set(); // IDs de docs cuyo saldo va en "A COBRAR"
+  if(docsConSaldo.length){
+    const seleccion=await _heModalSelectorCobros(docsConSaldo);
+    if(seleccion===null)return; // canceló
+    cobrosIncluidos=seleccion;
+  }
+  const incluirCobro=cobrosIncluidos.size>0;
   const {jsPDF}=window.jspdf;
   // Landscape letter (mismo formato que la hoja existente del sistema)
   const pdf=new jsPDF("l","mm","letter");
@@ -3869,64 +3977,110 @@ function generarPdfEntregas(){
     const subtitle=hojaFormatFecha(f)+"  ·  "+porDia[f].length+" entrega"+(porDia[f].length!==1?"s":"");
     let y=_repPdfHeader(pdf,W,"HOJA DE ENTREGAS",subtitle);
 
-    // Tabla con casillas + firma. Look HojaEntregas existente.
     const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
-    const rows=porDia[f].map(q=>{
-      const total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||0);
+    // numCols: 9 si incluirCobro, 8 si no
+    const numCols=incluirCobro?9:8;
+    // Construir filas. Sub-fila items con colSpan dinámico.
+    const rows=[];
+    porDia[f].forEach(q=>{
       const saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
+      const cobraEsteCliente=cobrosIncluidos.has(q.id);
       const dirCorta=(q.dir||"").substring(0,40)+((q.dir||"").length>40?"...":"");
-      return [
+      // Fila principal
+      const fila=[
         (q.horaEntrega||"—"),
         (q.client||"—").toString().toUpperCase(),
         q.id||"",
         dirCorta+(q.city?"\n"+q.city:""),
-        q.tel||"",
-        fmt(total),
-        saldo>0?"SALDO "+fmt(saldo):"CANCELADO",
-        "","",
-        ""
+        q.tel||""
       ];
+      // A COBRAR: solo monto si el cliente está marcado para cobrar Y tiene saldo. Si no, "—".
+      if(incluirCobro)fila.push((cobraEsteCliente&&saldo>0)?fmt(saldo):"—");
+      fila.push("");  // SAL
+      fila.push("");  // ENT
+      fila.push("");  // FIRMA
+      rows.push(fila);
+      // Sub-fila items (colSpan dinámico)
+      const itemsResumen=_buildItemsResumenHE(q);
+      if(itemsResumen){
+        rows.push([{
+          content:"▸ "+itemsResumen,
+          colSpan:numCols,
+          styles:{
+            fontSize:7,
+            fontStyle:"italic",
+            textColor:[80,80,80],
+            halign:"left",
+            cellPadding:{top:1.5,bottom:2,left:6,right:4},
+            fillColor:[252,252,248]
+          }
+        }]);
+      }
     });
 
     if(pdf.autoTable){
       const tw=W-M*2;
+      const head=incluirCobro
+        ? [["HORA","CLIENTE","DOC","DIRECCIÓN","TELÉFONO","A COBRAR","SAL","ENT","FIRMA CLIENTE"]]
+        : [["HORA","CLIENTE","DOC","DIRECCIÓN","TELÉFONO","SAL","ENT","FIRMA CLIENTE"]];
+      const columnStyles=incluirCobro
+        ? {
+            0:{halign:"center",cellWidth:tw*0.07,fontStyle:"bold"},
+            1:{halign:"left",cellWidth:tw*0.18,fontStyle:"bold"},
+            2:{halign:"center",cellWidth:tw*0.10,fontSize:7},
+            3:{halign:"left",cellWidth:tw*0.24,fontSize:7.5},
+            4:{halign:"center",cellWidth:tw*0.10},
+            5:{halign:"right",cellWidth:tw*0.10,fontStyle:"bold"},
+            6:{halign:"center",cellWidth:tw*0.05},
+            7:{halign:"center",cellWidth:tw*0.05},
+            8:{halign:"center",cellWidth:tw*0.11}
+          }
+        : {
+            0:{halign:"center",cellWidth:tw*0.07,fontStyle:"bold"},
+            1:{halign:"left",cellWidth:tw*0.20,fontStyle:"bold"},
+            2:{halign:"center",cellWidth:tw*0.10,fontSize:7},
+            3:{halign:"left",cellWidth:tw*0.27,fontSize:7.5},
+            4:{halign:"center",cellWidth:tw*0.10},
+            5:{halign:"center",cellWidth:tw*0.05},
+            6:{halign:"center",cellWidth:tw*0.05},
+            7:{halign:"center",cellWidth:tw*0.16}
+          };
+      // Posiciones de SAL/ENT/FIRMA según haya o no A COBRAR
+      const idxSAL=incluirCobro?6:5;
+      const idxENT=incluirCobro?7:6;
+      const idxFIRMA=incluirCobro?8:7;
       pdf.autoTable({
         startY:y,
         margin:{left:M,right:M},
-        head:[["HORA","CLIENTE","DOC","DIRECCIÓN","TELÉFONO","TOTAL","NOTAS PAGO","SAL","ENT","FIRMA CLIENTE"]],
+        head:head,
         body:rows,
         theme:"grid",
         headStyles:_REP_PDF_HEAD_STYLE,
-        bodyStyles:{fontSize:7.5,cellPadding:2,valign:"middle",minCellHeight:14},
-        alternateRowStyles:_REP_PDF_ZEBRA,
-        columnStyles:{
-          0:{halign:"center",cellWidth:tw*0.07,fontStyle:"bold"},
-          1:{halign:"left",cellWidth:tw*0.16,fontStyle:"bold"},
-          2:{halign:"center",cellWidth:tw*0.09,fontSize:7},
-          3:{halign:"left",cellWidth:tw*0.22,fontSize:7.5},
-          4:{halign:"center",cellWidth:tw*0.09},
-          5:{halign:"right",cellWidth:tw*0.08},
-          6:{halign:"center",cellWidth:tw*0.09,fontStyle:"bold"},
-          7:{halign:"center",cellWidth:tw*0.05},
-          8:{halign:"center",cellWidth:tw*0.05},
-          9:{halign:"center",cellWidth:tw*0.10}
-        },
+        bodyStyles:{fontSize:8,cellPadding:2,valign:"middle",minCellHeight:11},
+        columnStyles:columnStyles,
         didParseCell:function(data){
-          // Color verde/rojo en NOTAS PAGO igual que HojaEntregas
-          if(data.section==="body"&&data.column.index===6){
+          if(data.section!=="body")return;
+          // A COBRAR (col 5): solo si incluirCobro
+          if(incluirCobro&&data.column.index===5&&(!data.cell.colSpan||data.cell.colSpan===1)){
             const txt=(data.cell.raw||"").toString();
-            if(txt==="CANCELADO"||txt==="CORTESÍA")data.cell.styles.textColor=[46,125,50];
-            else if(txt.indexOf("SALDO")===0)data.cell.styles.textColor=[198,40,40];
+            if(txt&&txt!=="—"){
+              data.cell.styles.textColor=[198,40,40];
+            }else{
+              data.cell.styles.textColor=[180,180,180];
+              data.cell.styles.fontStyle="normal";
+            }
           }
         },
         didDrawCell:function(data){
           if(data.section!=="body")return;
-          if(data.column.index===7||data.column.index===8){
+          // Skip filas merged (sub-filas items)
+          if(data.cell.colSpan&&data.cell.colSpan>1)return;
+          if(data.column.index===idxSAL||data.column.index===idxENT){
             const cx=data.cell.x+data.cell.width/2-2.5;
             const cy=data.cell.y+data.cell.height/2-2.5;
             pdf.setDrawColor(80);pdf.setLineWidth(0.3);
             pdf.rect(cx,cy,5,5);
-          }else if(data.column.index===9){
+          }else if(data.column.index===idxFIRMA){
             const lx1=data.cell.x+2;
             const lx2=data.cell.x+data.cell.width-2;
             const ly=data.cell.y+data.cell.height-3;
@@ -3938,14 +4092,24 @@ function generarPdfEntregas(){
       y=pdf.lastAutoTable.finalY+8;
     }
 
-    // Totales del dia + firma del conductor
-    const totalDia=porDia[f].reduce((s,q)=>s+((typeof getDocTotal==="function")?getDocTotal(q):(q.total||0)),0);
-    const saldoDia=porDia[f].reduce((s,q)=>s+((typeof saldoPendiente==="function")?saldoPendiente(q):0),0);
-    pdf.setFontSize(10);pdf.setFont("helvetica","bold");
-    pdf.setTextColor(26,26,26);
-    pdf.text("TOTAL DÍA: "+fmt(totalDia)+(saldoDia>0?"   ·   Saldo a cobrar: "+fmt(saldoDia):""),M,y);
+    // Footer: total a cobrar solo de los marcados (ya filtrado por incluirCobro y selección)
+    if(incluirCobro){
+      const saldoDia=porDia[f].reduce((s,q)=>{
+        if(!cobrosIncluidos.has(q.id))return s;
+        return s+((typeof saldoPendiente==="function")?saldoPendiente(q):0);
+      },0);
+      pdf.setFontSize(10);pdf.setFont("helvetica","bold");
+      if(saldoDia>0){
+        pdf.setTextColor(198,40,40);
+        pdf.text("Total a cobrar hoy: "+fmt(saldoDia),M,y);
+      }else{
+        pdf.setTextColor(46,125,50);
+        pdf.text("✓ Sin cobros pendientes",M,y);
+      }
+      pdf.setTextColor(26,26,26);
+      y+=10;
+    }
 
-    y+=10;
     pdf.setFontSize(10);pdf.setFont("helvetica","normal");
     pdf.text("Conductor:",M,y);
     pdf.line(M+25,y,M+100,y);
@@ -3955,7 +4119,7 @@ function generarPdfEntregas(){
 
   _repPdfFooter(pdf,W,H);
 
-  const fname="HojaEntregasPendientes_"+reportesFiltros.desde+(reportesFiltros.desde===reportesFiltros.hasta?"":"_a_"+reportesFiltros.hasta)+".pdf";
+  const fname="HojaEntregasPendientes_"+reportesFiltrosImpr.desde+(reportesFiltrosImpr.desde===reportesFiltrosImpr.hasta?"":"_a_"+reportesFiltrosImpr.hasta)+".pdf";
   pdf.save(fname);
   if(typeof toast==="function")toast("PDF generado: "+dias.length+" día(s) de entregas","success");
 }
