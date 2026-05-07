@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.8.1";
+const BUILD_VERSION="v7.8.2";
 const BUILD_DATE="2026-04-24";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -1963,7 +1963,8 @@ function setMode(m){
   // v7.7.3: agregado 'clientes-comentarios' (migrado del Dashboard)
   // v7.8 F1: agregado 'proveedores-directorio' (módulo Proveedores en Maestros)
   // v7.8 F3-F5: agregados 'compras-pendientes', 'compras-historico', 'compras-catalogo'
-  ["dash","cot","prop","search","hist","seg","cal","ventas","cartera","cartera-historico","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup","clientes-directorio","clientes-ficha","clientes-comentarios","proveedores-directorio","compras-pendientes","compras-historico","compras-catalogo"].forEach(x=>{
+  // v7.8.2: agregado 'pedidos-hojas' (Hojas para imprimir movido de Reportes a Pedidos)
+  ["dash","cot","prop","search","hist","seg","cal","ventas","cartera","cartera-historico","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","pedidos-hojas","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup","clientes-directorio","clientes-ficha","clientes-comentarios","proveedores-directorio","compras-pendientes","compras-historico","compras-catalogo"].forEach(x=>{
     const el=$("mode-"+x);
     if(el)el.classList.toggle("hidden",x!==m);
     document.querySelectorAll(".mode-btn.m-"+x).forEach(b=>b.classList.toggle("act",x===m));
@@ -1991,6 +1992,7 @@ function setMode(m){
   if(m==="pedidos-aprobados"&&typeof renderPedidosAprobados==="function")renderPedidosAprobados();
   if(m==="pedidos-produccion"&&typeof renderPedidosProduccion==="function")renderPedidosProduccion();
   if(m==="pedidos-producidos"&&typeof renderPedidosProducidos==="function")renderPedidosProducidos();
+  if(m==="pedidos-hojas"&&typeof renderPedidosHojas==="function")renderPedidosHojas();
   if(m==="entregar"&&typeof renderEntregar==="function")renderEntregar();
   if(m==="entregadas"&&typeof renderEntregadas==="function")renderEntregadas();
   if(m==="archivo-busqueda"&&typeof renderArchivoBusqueda==="function")renderArchivoBusqueda();

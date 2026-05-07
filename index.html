@@ -1786,6 +1786,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
         <a href="javascript:void(0)" data-sub="pedidos/aprobados">Aprobados</a>
         <a href="javascript:void(0)" data-sub="pedidos/produccion">En producción</a>
         <a href="javascript:void(0)" data-sub="pedidos/producidos">Producidos</a>
+        <a href="javascript:void(0)" data-sub="pedidos/hojas-imprimibles">Hojas para imprimir</a>
       </div>
     </div>
 
@@ -1809,7 +1810,6 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <button class="sb-module__btn"><span class="gb-shell-icon">📊</span><span class="sb-module__label">Reportes</span></button>
       <div class="sb-submenu">
         <a href="javascript:void(0)" data-sub="reportes/excel">Exportar Excel</a>
-        <a href="javascript:void(0)" data-sub="reportes/imprimibles">Hojas para imprimir</a>
       </div>
     </div>
 
@@ -1901,7 +1901,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'compras/catalogo':'compras-catalogo',
     // Legacy: 'ops/produccion' y 'ops/cobro' descontinuados en F4 (modulo Operaciones disuelto)
     'reportes/excel':       'reportes',
-    'reportes/imprimibles': 'reportes',
+    'pedidos/hojas-imprimibles': 'pedidos-hojas',
     'ventas/cotizaciones':  'cotizaciones',
     'ventas/perdidas':      'perdidas',
     'pedidos/aprobados':    'pedidos-aprobados',
@@ -1941,6 +1941,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'pedidos-aprobados':    'pedidos/aprobados',
     'pedidos-produccion':   'pedidos/produccion',
     'pedidos-producidos':   'pedidos/producidos',
+    'pedidos-hojas':        'pedidos/hojas-imprimibles',
     'entregar':             'entregas/por-entregar',
     'entregadas':           'entregas/entregadas',
     'archivo-busqueda':     'archivo/buscar',
@@ -1967,7 +1968,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'compras/historico':     ['Compras', 'Histórico'],
     'compras/catalogo':      ['Compras', 'Catálogo'],
     'reportes/excel':       ['Reportes', 'Exportar Excel'],
-    'reportes/imprimibles': ['Reportes', 'Hojas para imprimir'],
+    'pedidos/hojas-imprimibles': ['Pedidos', 'Hojas para imprimir'],
     'ventas/cotizaciones':  ['Ventas', 'Cotizaciones activas'],
     'ventas/perdidas':      ['Ventas', 'Perdidas'],
     'pedidos/aprobados':    ['Pedidos', 'Aprobados'],
@@ -2850,14 +2851,21 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
 <div id="mode-reportes" class="hidden">
   <div class="sec">
     <div class="stit" style="color:#0D47A1;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-      <span>📊 Reportes</span>
+      <span>📊 Reportes — Exportar Excel</span>
       <span id="reportes-summary" style="font-size:12px;font-weight:400;color:#888"></span>
     </div>
-    <div style="display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap" id="reportes-tabs">
-      <button class="cpill act" onclick="setReportesTab('excel')" id="reportes-tab-excel">📥 Exportar Excel</button>
-      <button class="cpill" onclick="setReportesTab('imprimibles')" id="reportes-tab-imprimibles">🖨️ Hojas para imprimir</button>
-    </div>
     <div id="reportes-content"></div>
+  </div>
+</div>
+
+<!-- v7.8.2: Hojas para imprimir movido de Reportes a Pedidos -->
+<div id="mode-pedidos-hojas" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#0D47A1;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <span>🖨️ Hojas para imprimir</span>
+      <span id="pedidos-hojas-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+    </div>
+    <div id="pedidos-hojas-content"></div>
   </div>
 </div>
 
@@ -4336,12 +4344,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.8.1"></script>
-<script src="app-core.js?v=7.8.1"></script>
-<script src="app-cotizar.js?v=7.8.1"></script>
-<script src="app-propuesta.js?v=7.8.1"></script>
-<script src="app-historial.js?v=7.8.1"></script>
-<script src="app-seguimiento.js?v=7.8.1"></script>
-<script src="app-dashboard.js?v=7.8.1"></script>
+<script src="app-assets.js?v=7.8.2"></script>
+<script src="app-core.js?v=7.8.2"></script>
+<script src="app-cotizar.js?v=7.8.2"></script>
+<script src="app-propuesta.js?v=7.8.2"></script>
+<script src="app-historial.js?v=7.8.2"></script>
+<script src="app-seguimiento.js?v=7.8.2"></script>
+<script src="app-dashboard.js?v=7.8.2"></script>
 </body>
 </html>

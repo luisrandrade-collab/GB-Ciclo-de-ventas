@@ -3319,11 +3319,9 @@ let reportesFiltrosImpr={
 };
 let reportesResultado=null; // Cache del ultimo resultado generado
 
-function setReportesTab(t){
-  if(t!=="excel"&&t!=="imprimibles")return;
-  reportesTab=t;
-  renderReportes();
-}
+// v7.8.2: setReportesTab queda como no-op por compatibilidad (toggle eliminado).
+// "Hojas para imprimir" se movió a Pedidos. Reportes solo tiene Excel.
+function setReportesTab(t){/* no-op desde v7.8.2 */}
 
 // Helpers fecha
 function _reportesHoy(){return gbTodayIso()}
@@ -3344,51 +3342,46 @@ async function renderReportes(){
   const summaryEl=$("reportes-summary");
   const contentEl=$("reportes-content");
   if(!contentEl)return;
-
-  ["excel","imprimibles"].forEach(t=>{
-    const tab=$("reportes-tab-"+t);
-    if(tab)tab.classList.toggle("act",t===reportesTab);
-  });
-
   if(summaryEl)summaryEl.textContent="";
-
-  if(reportesTab==="excel"){
-    // Defaults: hoy → +30 dias, pendientes
-    if(!reportesFiltros.desde)reportesFiltros.desde=_reportesHoy();
-    if(!reportesFiltros.hasta)reportesFiltros.hasta=_reportesHoyMas(30);
-
-    contentEl.innerHTML=
-      '<div style="background:#F5F5F5;border-radius:10px;padding:14px 16px;margin-bottom:14px">'+
-        '<div style="font-weight:700;font-size:13px;color:#0D47A1;margin-bottom:10px">Filtros (cambian aplican automáticamente)</div>'+
-        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'+
-          '<div>'+
-            '<label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Fecha desde</label>'+
-            '<input type="date" id="rep-desde" value="'+reportesFiltros.desde+'" onchange="generarReporte()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
-          '</div>'+
-          '<div>'+
-            '<label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Fecha hasta</label>'+
-            '<input type="date" id="rep-hasta" value="'+reportesFiltros.hasta+'" onchange="generarReporte()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
-          '</div>'+
+  // v7.8.2: solo Excel — "Hojas para imprimir" se movió a Pedidos.
+  if(!reportesFiltros.desde)reportesFiltros.desde=_reportesHoy();
+  if(!reportesFiltros.hasta)reportesFiltros.hasta=_reportesHoyMas(30);
+  contentEl.innerHTML=
+    '<div style="background:#F5F5F5;border-radius:10px;padding:14px 16px;margin-bottom:14px">'+
+      '<div style="font-weight:700;font-size:13px;color:#0D47A1;margin-bottom:10px">Filtros (cambian aplican automáticamente)</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'+
+        '<div>'+
+          '<label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Fecha desde</label>'+
+          '<input type="date" id="rep-desde" value="'+reportesFiltros.desde+'" onchange="generarReporte()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
         '</div>'+
-        '<div style="margin-bottom:12px">'+
-          '<label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Estado</label>'+
-          '<select id="rep-estado" onchange="generarReporte()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
-            '<option value="todos"'+(reportesFiltros.estado==="todos"?" selected":"")+'>Todos (vendidos)</option>'+
-            '<option value="pendientes"'+(reportesFiltros.estado==="pendientes"?" selected":"")+'>Solo pendientes de entregar</option>'+
-            '<option value="entregados"'+(reportesFiltros.estado==="entregados"?" selected":"")+'>Solo entregados</option>'+
-          '</select>'+
-        '</div>'+
-        '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
-          '<button class="btn" style="background:#1B5E20;color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px" onclick="descargarExcel()" id="rep-btn-excel" disabled style="opacity:.5">📥 Descargar Excel</button>'+
+        '<div>'+
+          '<label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Fecha hasta</label>'+
+          '<input type="date" id="rep-hasta" value="'+reportesFiltros.hasta+'" onchange="generarReporte()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
         '</div>'+
       '</div>'+
-      '<div id="rep-resultado"></div>';
+      '<div style="margin-bottom:12px">'+
+        '<label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Estado</label>'+
+        '<select id="rep-estado" onchange="generarReporte()" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
+          '<option value="todos"'+(reportesFiltros.estado==="todos"?" selected":"")+'>Todos (vendidos)</option>'+
+          '<option value="pendientes"'+(reportesFiltros.estado==="pendientes"?" selected":"")+'>Solo pendientes de entregar</option>'+
+          '<option value="entregados"'+(reportesFiltros.estado==="entregados"?" selected":"")+'>Solo entregados</option>'+
+        '</select>'+
+      '</div>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
+        '<button class="btn" style="background:#1B5E20;color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px" onclick="descargarExcel()" id="rep-btn-excel" disabled style="opacity:.5">📥 Descargar Excel</button>'+
+      '</div>'+
+    '</div>'+
+    '<div id="rep-resultado"></div>';
+  setTimeout(()=>generarReporte(),50);
+}
 
-    // Auto-generar al entrar
-    setTimeout(()=>generarReporte(),50);
-  }else if(reportesTab==="imprimibles"){
-    renderReportesImprimibles(contentEl);
-  }
+// v7.8.2: nueva vista — "Hojas para imprimir" bajo módulo Pedidos.
+// Reusa toda la lógica de renderReportesImprimibles existente.
+async function renderPedidosHojas(){
+  if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+  const contentEl=$("pedidos-hojas-content");
+  if(!contentEl)return;
+  renderReportesImprimibles(contentEl);
 }
 
 // ─── F4: Tab Imprimibles ─────────────────────────────────────
