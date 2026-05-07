@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.8.2";
+const BUILD_VERSION="v7.8.4b";
 const BUILD_DATE="2026-04-24";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -384,6 +384,7 @@ let clientsCache=[];
 let proveedoresCache=[];  // v7.8 F1
 let comprasCache=[];      // v7.8 F2
 let preciosCatalogoCache=[];  // v7.8 F5
+let ajustesLogCache=[];   // v7.8.3 — log auditable de descuentos/perdones/notas crédito
 let customProductsCache=[];
 let quotesCache=[];
 let currentQuoteNumber=null;
@@ -1300,6 +1301,86 @@ async function deletePrecioCatalogoFromCloud(id){
   localStorage.setItem("gb_preciosCatalogo_cache",JSON.stringify(preciosCatalogoCache));
 }
 
+// ─── v7.8.3: AJUSTES LOG (collection 'ajustesLog') ────────
+// Log auditable centralizado de descuentos, perdones y notas crédito.
+// Modelo: { docId, docKind, clienteName, clienteId?, monto (signed),
+//           motivo (req), tipo, fecha, createdAt, createdBy, deletedAt? }
+// Cada operación se guarda en 2 lugares:
+//   (1) collection ajustesLog (este archivo) — para queries cross-doc
+//   (2) array q.ajustes[] dentro del doc — para saldoPendiente() rápido
+// Ver applyAjusteToDoc() abajo y totalAjustes() en app-historial.js.
+
+async function loadAjustesLogFromCloud(){
+  try{
+    const {db,collection,getDocs}=window.fb;
+    const snap=await getDocs(collection(db,"ajustesLog"));
+    ajustesLogCache=[];
+    snap.forEach(d=>ajustesLogCache.push({id:d.id,...d.data()}));
+    // Sort por fecha desc (cliente, no en query para evitar índice compuesto)
+    ajustesLogCache.sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||""));
+    localStorage.setItem("gb_ajustesLog_cache",JSON.stringify(ajustesLogCache));
+    return ajustesLogCache;
+  }catch(e){
+    console.error("loadAjustesLog error",e);
+    try{ajustesLogCache=JSON.parse(localStorage.getItem("gb_ajustesLog_cache")||"[]")}catch{}
+    return ajustesLogCache;
+  }
+}
+
+// Crea entrada en ajustesLog. Devuelve { id, ...obj } con timestamp.
+async function saveAjusteToCloud(obj){
+  const {db,collection,addDoc,serverTimestamp}=window.fb;
+  const nowIso=new Date().toISOString();
+  const payload={...obj,createdAt:serverTimestamp(),createdAtIso:nowIso,...auditStamp()};
+  const ref=await addDoc(collection(db,"ajustesLog"),payload);
+  const entry={id:ref.id,...payload,createdAtIso:nowIso};
+  ajustesLogCache.unshift(entry);
+  localStorage.setItem("gb_ajustesLog_cache",JSON.stringify(ajustesLogCache));
+  return entry;
+}
+
+// Borrado lógico (marca deletedAt + deletedBy). NO elimina del log — auditoría forense.
+async function softDeleteAjuste(ajusteLogId,docId,docKind,ajusteIdInDoc){
+  const {db,doc,updateDoc,collection,getDocs,query,where,serverTimestamp}=window.fb;
+  // 1. Marcar en log
+  await updateDoc(doc(db,"ajustesLog",ajusteLogId),{
+    deletedAt:serverTimestamp(),
+    deletedBy:(currentUser&&currentUser.email)||"(sin email)"
+  });
+  const logEntry=ajustesLogCache.find(x=>x.id===ajusteLogId);
+  if(logEntry){logEntry.deletedAt=new Date().toISOString();logEntry.deletedBy=(currentUser&&currentUser.email)||""}
+  // 2. Quitar del q.ajustes[] del doc para que saldoPendiente vuelva a valor original
+  if(docId&&docKind&&ajusteIdInDoc){
+    const coll=docKind==="quote"?"quotes":(docKind==="proposal"?"proposals":"propfinals");
+    const q=quotesCache.find(x=>x.id===docId);
+    if(q){
+      q.ajustes=(q.ajustes||[]).filter(a=>a.id!==ajusteIdInDoc);
+      await updateDoc(doc(db,coll,docId),{ajustes:q.ajustes,updatedAt:serverTimestamp()});
+    }
+  }
+  localStorage.setItem("gb_ajustesLog_cache",JSON.stringify(ajustesLogCache));
+}
+
+// Helper: aplica un ajuste a un doc (push al q.ajustes[] + persiste).
+// Llamar DESPUÉS de saveAjusteToCloud (que devuelve la id del log).
+// Si esto falla, el log queda con la entrada y el doc no — preferible
+// (auditoría no se pierde) y el operador puede corregir manualmente.
+async function applyAjusteToDoc(q,docKind,ajusteEntry){
+  const {db,doc,updateDoc,serverTimestamp}=window.fb;
+  const coll=docKind==="quote"?"quotes":(docKind==="proposal"?"proposals":"propfinals");
+  const ajusteEnDoc={
+    id:ajusteEntry.id||("aj_"+Date.now()),
+    logId:ajusteEntry.id,  // referencia cruzada al log
+    monto:ajusteEntry.monto,
+    motivo:ajusteEntry.motivo,
+    tipo:ajusteEntry.tipo,
+    fecha:ajusteEntry.fecha
+  };
+  q.ajustes=q.ajustes||[];
+  q.ajustes.push(ajusteEnDoc);
+  await updateDoc(doc(db,coll,q.id),{ajustes:q.ajustes,updatedAt:serverTimestamp(),...auditStamp()});
+}
+
 // v7.7.1: extrae clientes únicos de quotesCache que NO existen en clientsCache.
 // Crea cada uno como tipo='persona', categoria='particular' (defaults).
 // Idempotente: skip si ya existe por nombre (case-insensitive + trim).
@@ -1914,6 +1995,7 @@ async function initApp(){
     await loadProveedoresFromCloud();
     await loadComprasFromCloud();
     await loadPreciosCatalogoFromCloud();
+    await loadAjustesLogFromCloud();
     await loadCustomProducts();
     await loadPriceMemory();
     setCloudStatus(true);
@@ -1964,7 +2046,8 @@ function setMode(m){
   // v7.8 F1: agregado 'proveedores-directorio' (módulo Proveedores en Maestros)
   // v7.8 F3-F5: agregados 'compras-pendientes', 'compras-historico', 'compras-catalogo'
   // v7.8.2: agregado 'pedidos-hojas' (Hojas para imprimir movido de Reportes a Pedidos)
-  ["dash","cot","prop","search","hist","seg","cal","ventas","cartera","cartera-historico","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","pedidos-hojas","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup","clientes-directorio","clientes-ficha","clientes-comentarios","proveedores-directorio","compras-pendientes","compras-historico","compras-catalogo"].forEach(x=>{
+  // v7.8.3: agregado 'cartera-ajustes-log' (Log auditable de descuentos/perdones)
+  ["dash","cot","prop","search","hist","seg","cal","ventas","cartera","cartera-historico","cartera-ajustes-log","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","pedidos-hojas","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup","clientes-directorio","clientes-ficha","clientes-comentarios","proveedores-directorio","compras-pendientes","compras-historico","compras-catalogo"].forEach(x=>{
     const el=$("mode-"+x);
     if(el)el.classList.toggle("hidden",x!==m);
     document.querySelectorAll(".mode-btn.m-"+x).forEach(b=>b.classList.toggle("act",x===m));
@@ -1978,6 +2061,7 @@ function setMode(m){
   if(m==="seg"&&typeof renderSeguimiento==="function")renderSeguimiento();
   if(m==="cartera"&&typeof renderCartera==="function")renderCartera();
   if(m==="cartera-historico"&&typeof renderCarteraHistorico==="function")renderCarteraHistorico();
+  if(m==="cartera-ajustes-log"&&typeof renderCarteraAjustesLog==="function")renderCarteraAjustesLog();
   if(m==="clientes-directorio"&&typeof renderClientesDirectorio==="function")renderClientesDirectorio();
   if(m==="clientes-ficha"&&typeof renderClienteFicha==="function")renderClienteFicha();
   if(m==="clientes-comentarios"&&typeof renderClientesComentarios==="function")renderClientesComentarios();

@@ -1803,6 +1803,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <div class="sb-submenu">
         <a href="javascript:void(0)" data-sub="cartera/pendientes">Pendientes de cobro</a>
         <a href="javascript:void(0)" data-sub="cartera/historico">Histórico de cobros</a>
+        <a href="javascript:void(0)" data-sub="cartera/ajustes-log">Log de ajustes</a>
       </div>
     </div>
 
@@ -1893,6 +1894,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'ventas/propuesta':  'prop',
     'cartera/pendientes': 'cartera',
     'cartera/historico':  'cartera-historico',
+    'cartera/ajustes-log':'cartera-ajustes-log',
     'clientes/directorio':'clientes-directorio',
     'clientes/comentarios':'clientes-comentarios',
     'proveedores/directorio':'proveedores-directorio',
@@ -1927,6 +1929,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'prop':   'ventas/propuesta',
     'cartera':              'cartera/pendientes',
     'cartera-historico':    'cartera/historico',
+    'cartera-ajustes-log':  'cartera/ajustes-log',
     'clientes-directorio':  'clientes/directorio',
     'clientes-ficha':       'clientes/directorio',
     'clientes-comentarios': 'clientes/comentarios',
@@ -1961,6 +1964,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'ventas/propuesta':  ['Ventas', 'Nueva propuesta'],
     'cartera/pendientes': ['Cartera', 'Pendientes de cobro'],
     'cartera/historico':  ['Cartera', 'Histórico de cobros'],
+    'cartera/ajustes-log':['Cartera', 'Log de ajustes'],
     'clientes/directorio':['Clientes', 'Directorio'],
     'clientes/comentarios':['Clientes', 'Comentarios'],
     'proveedores/directorio':['Proveedores', 'Directorio'],
@@ -2881,6 +2885,31 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   </div>
 </div>
 
+<!-- ======== CARTERA — LOG DE AJUSTES (v7.8.3) ======== -->
+<div id="mode-cartera-ajustes-log" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#E65100;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <span>⚖️ Log de ajustes</span>
+      <span id="ajustes-log-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+    </div>
+    <div id="ajustes-log-filters" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center;background:#FFF3E0;border:1px solid #FFCC80;border-radius:10px;padding:10px 12px">
+      <input id="ajl-search" type="text" placeholder="Buscar por cliente o motivo…" oninput="renderCarteraAjustesLog()" style="flex:1;min-width:180px;padding:8px 11px;border:1.5px solid #FFB74D;border-radius:6px;font-size:13px;font-family:var(--gb-font-body);background:#fff">
+      <input id="ajl-from" type="date" onchange="renderCarteraAjustesLog()" style="padding:8px;border:1.5px solid #FFB74D;border-radius:6px;font-size:12.5px;background:#fff">
+      <span style="color:#9E9E9E">→</span>
+      <input id="ajl-to" type="date" onchange="renderCarteraAjustesLog()" style="padding:8px;border:1.5px solid #FFB74D;border-radius:6px;font-size:12.5px;background:#fff">
+      <select id="ajl-tipo" onchange="renderCarteraAjustesLog()" style="padding:8px;border:1.5px solid #FFB74D;border-radius:6px;font-size:12.5px;background:#fff;font-family:var(--gb-font-body)">
+        <option value="">Todos los tipos</option>
+        <option value="ajuste_saldo">📉 Perdón / descuento</option>
+        <option value="nota_credito">📈 Nota crédito</option>
+        <option value="descuento_cotizacion">🏷️ Descuento cotización</option>
+        <option value="correccion">🔧 Corrección</option>
+      </select>
+    </div>
+    <div id="ajustes-log-stats" style="margin-bottom:14px"></div>
+    <div id="ajustes-log-list" style="padding:0 4px"></div>
+  </div>
+</div>
+
 <!-- ======== CLIENTES FICHA MODE (v7.7.2) — Vista detalle full ======== -->
 <div id="mode-clientes-ficha" class="hidden">
   <div class="sec">
@@ -3227,6 +3256,54 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       </div>
       <div class="mf-field"><label>Notas (opcional, recomendado si no hay foto)</label><textarea id="pm-notas" placeholder="Referencia, número de transacción, observación, etc."></textarea></div>
       <button class="mf-submit" style="background:#43A047" onclick="submitPago()">Registrar pago</button>
+    </div>
+  </div>
+</div>
+
+<!-- v7.8.3 Modal: Ajustar saldo / Nota crédito -->
+<div id="ajuste-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeAjusteModal()">
+  <div class="modal-box" style="max-height:92vh">
+    <div class="modal-head" style="background:linear-gradient(135deg,#FB8C00,#E65100)">
+      <span class="mtitle">⚖️ Ajustar saldo</span>
+      <button class="mclose" onclick="closeAjusteModal()">×</button>
+    </div>
+    <div class="mform">
+      <div class="mf-intro" style="background:#FFF3E0;border-color:#FB8C00;color:#E65100">
+        <strong>Caso típico:</strong> consignó menos de lo facturado y no vale la pena cobrar el faltante (cliente bueno).<br>
+        <strong>Nota crédito:</strong> pagó de más por error → queda saldo a favor del cliente para próximas compras.<br>
+        <em>El motivo es obligatorio y queda en log auditable.</em>
+      </div>
+      <div class="mf-field"><label>Documento</label><input type="text" id="aj-num" readonly style="background:var(--gb-cream);font-weight:700"></div>
+      <div class="mf-field"><label>Cliente</label><input type="text" id="aj-cli" readonly style="background:var(--gb-cream)"></div>
+      <div id="aj-resumen" class="saldo-pend" style="background:#FFF3E0;border-color:#FB8C00;color:#E65100"></div>
+      <div class="mf-field">
+        <label>Tipo de operación *</label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <label style="flex:1;min-width:140px;background:#fff;border:1.5px solid #FB8C00;border-radius:8px;padding:8px 10px;cursor:pointer;font-size:12.5px"><input type="radio" name="aj-tipo" value="ajuste_saldo" checked style="margin-right:6px">📉 Perdón / descuento al saldo</label>
+          <label style="flex:1;min-width:140px;background:#fff;border:1.5px solid #BDBDBD;border-radius:8px;padding:8px 10px;cursor:pointer;font-size:12.5px"><input type="radio" name="aj-tipo" value="nota_credito" style="margin-right:6px">📈 Nota crédito (pagó de más)</label>
+        </div>
+      </div>
+      <div class="mf-row">
+        <div class="mf-field"><label>Monto *</label><input type="number" id="aj-monto" placeholder="0" inputmode="numeric"></div>
+        <div class="mf-field"><label>Fecha</label><input type="date" id="aj-fecha"></div>
+      </div>
+      <div class="mf-field">
+        <label>Tipo de motivo *</label>
+        <select id="aj-tipo-motivo">
+          <option value="">— Seleccionar —</option>
+          <option value="consigno_menos">Cliente consignó menos</option>
+          <option value="perdon_cliente_bueno">Perdón cliente bueno</option>
+          <option value="error_cobro">Error de cobro / facturación</option>
+          <option value="redondeo">Redondeo</option>
+          <option value="acuerdo_comercial">Acuerdo comercial</option>
+          <option value="otro">Otro</option>
+        </select>
+      </div>
+      <div class="mf-field">
+        <label>Motivo / detalle * (queda en el log)</label>
+        <textarea id="aj-motivo" placeholder="Ej: La Mona consignó $13.000 menos. Cliente buena, no vale la pena cobrar el faltante." rows="3"></textarea>
+      </div>
+      <button class="mf-submit" style="background:#FB8C00" onclick="submitAjuste()">Guardar ajuste</button>
     </div>
   </div>
 </div>
@@ -4344,12 +4421,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.8.2"></script>
-<script src="app-core.js?v=7.8.2"></script>
-<script src="app-cotizar.js?v=7.8.2"></script>
-<script src="app-propuesta.js?v=7.8.2"></script>
-<script src="app-historial.js?v=7.8.2"></script>
-<script src="app-seguimiento.js?v=7.8.2"></script>
-<script src="app-dashboard.js?v=7.8.2"></script>
+<script src="app-assets.js?v=7.8.4b"></script>
+<script src="app-core.js?v=7.8.4b"></script>
+<script src="app-cotizar.js?v=7.8.4b"></script>
+<script src="app-propuesta.js?v=7.8.4b"></script>
+<script src="app-historial.js?v=7.8.4b"></script>
+<script src="app-seguimiento.js?v=7.8.4b"></script>
+<script src="app-dashboard.js?v=7.8.4b"></script>
 </body>
 </html>

@@ -3326,9 +3326,108 @@ function setReportesTab(t){/* no-op desde v7.8.2 */}
 // Helpers fecha
 function _reportesHoy(){return gbTodayIso()}
 function _reportesHoyMas(d){const t=new Date();t.setDate(t.getDate()+d);return gbDateToIso(t)}
+// v7.8.4: fin de mes actual (último día). Default del tab Excel — más útil que +30
+// que cruza meses arbitrariamente.
+function _reportesFinDeMes(){
+  const t=new Date();
+  // Día 0 del mes siguiente = último día del mes actual
+  const last=new Date(t.getFullYear(),t.getMonth()+1,0);
+  return gbDateToIso(last);
+}
 
 function _reportesGetFecha(q){
   return q.eventDate||(q.orderData||{}).fechaEntrega||(q.approvalData||{}).fechaEntrega||"";
+}
+
+// v7.8.4: día anterior a una fecha ISO (YYYY-MM-DD). La producción se hace
+// el día antes de la entrega.
+function _fechaProduccion(isoFecha){
+  if(!isoFecha)return "";
+  const d=new Date(isoFecha+"T12:00:00");
+  if(isNaN(d.getTime()))return "";
+  d.setDate(d.getDate()-1);
+  const yyyy=d.getFullYear();
+  const mm=String(d.getMonth()+1).padStart(2,"0");
+  const dd=String(d.getDate()).padStart(2,"0");
+  return yyyy+"-"+mm+"-"+dd;
+}
+// Formato corto DD/MM para encabezados
+function _fechaCorta(iso){
+  if(!iso)return "";
+  const p=iso.split("-");
+  if(p.length<3)return iso;
+  return p[2]+"/"+p[1];
+}
+
+// v7.8.4: PRODUCTOS NO PRODUCIBLES — se excluyen de PDFs de Producción (A y B).
+// Son items del pedido que NO se producen en cocina: personal, menaje, transporte, etc.
+// Se detectan por palabra clave en el nombre del producto. Lista ampliable.
+// (En v7.9 cada producto tendrá tipo: producido/comprado/servicio/contrato.)
+const _NO_PRODUCIBLES_RX=/\b(mesero|meseros|menaje|alquiler|alquileres|transporte|domicilio|env[ií]o|auxiliar|auxiliares)\b/;
+function _esProductoProducible(nombre){
+  const txt=String(nombre||"").toLowerCase();
+  return !_NO_PRODUCIBLES_RX.test(txt);
+}
+
+// v7.8.4: RECETAS INTERNAS — productos compuestos con cantidad por unidad.
+// Cada componente: { n: "Nombre", q: cantidad por unidad del producto padre }.
+// Si el producto se pide N veces, cocina ve: (N * q)x Nombre del componente.
+// Ejemplo: 23 Plato Mixto × 2 Hojas de parra/plato = "46x Hojas de parra".
+// Key = nombre del producto en LOWERCASE+TRIM. Para agregar receta: añadir entrada.
+// (En v7.9 esto se reemplaza por BOM persistido editable desde UI.)
+const RECETAS_INTERNAS={
+  "plato mixto libanés":[
+    {n:"Arroz Reina",         q:1},
+    {n:"Tabbule",              q:1},
+    {n:"Hojas de parra",       q:2},
+    {n:"Hojas de repollo",     q:2},
+    {n:"Quibbe BBQ",           q:1},
+    {n:"Tahinne",              q:1},
+    {n:"Ghraybe",              q:1}
+  ]
+  // Agregar acá nuevas recetas a medida que se confirmen.
+};
+
+// v7.8.4: detecta componentes dentro de la descripción de un producto.
+// Reglas:
+// - Si descripción contiene " + " o "+" → split por +. Caso típico: "Pollo + Ensalada".
+// - Si contiene "," → split por coma SOLO SI cada parte resultante tiene
+//   <= 4 palabras (lista corta de componentes/ingredientes). Si alguna parte
+//   es larga, es texto narrativo y NO se separa.
+// - Si empieza con preposición ("con", "de"...) → narrativa, NO se separa.
+// Devuelve array de strings (componentes) o [] si no hay componentes.
+// Devuelve array de {n, q} donde q = cantidad por unidad del producto padre.
+// Si viene de receta interna, usa el q definido. Si viene de heurística, q=1.
+function _explodeComponentes(nombre,desc){
+  // 1. Si el producto tiene receta interna definida, usarla (prioritaria)
+  const key=String(nombre||"").toLowerCase().trim()
+    .replace(/\s*\*\s*$/,"")  // quitar marca " *" custom al final
+    .replace(/\s+custom(?:\s+custom)*$/,"");  // quitar "CUSTOM" repetidos
+  if(RECETAS_INTERNAS[key])return RECETAS_INTERNAS[key].slice();
+  // 2. Sino, heurística sobre la descripción → componentes con q=1
+  if(!desc)return [];
+  const txt=String(desc).trim();
+  if(!txt)return [];
+  let parts=null;
+  // Detectar +
+  if(/\s\+\s|\+/.test(txt)){
+    const p=txt.split(/\s*\+\s*/).map(s=>s.trim()).filter(Boolean);
+    if(p.length>1)parts=p;
+  }
+  if(!parts){
+    // Detectar coma — solo si no empieza con preposición
+    const lower=txt.toLowerCase();
+    const empiezaPrep=/^(con|de|sin|para|incluye|m[aá]s|tipo|estilo)\b/.test(lower);
+    if(empiezaPrep||!txt.includes(","))return [];
+    const p=txt.split(/\s*,\s*/).map(s=>s.trim()).filter(Boolean);
+    if(p.length<=1)return [];
+    // Cada parte debe ser corta (≤4 palabras) para considerarse componente
+    const todasCortas=p.every(s=>s.split(/\s+/).filter(Boolean).length<=4);
+    if(!todasCortas)return [];
+    parts=p;
+  }
+  // Convertir a {n, q:1}
+  return parts.map(s=>({n:s,q:1}));
 }
 
 // Estados validos para "vendido" (compromiso real)
@@ -3344,8 +3443,9 @@ async function renderReportes(){
   if(!contentEl)return;
   if(summaryEl)summaryEl.textContent="";
   // v7.8.2: solo Excel — "Hojas para imprimir" se movió a Pedidos.
+  // v7.8.4: default = hoy a fin de mes actual (en lugar de hoy+30 que cruza meses).
   if(!reportesFiltros.desde)reportesFiltros.desde=_reportesHoy();
-  if(!reportesFiltros.hasta)reportesFiltros.hasta=_reportesHoyMas(30);
+  if(!reportesFiltros.hasta)reportesFiltros.hasta=_reportesFinDeMes();
   contentEl.innerHTML=
     '<div style="background:#F5F5F5;border-radius:10px;padding:14px 16px;margin-bottom:14px">'+
       '<div style="font-weight:700;font-size:13px;color:#0D47A1;margin-bottom:10px">Filtros (cambian aplican automáticamente)</div>'+
@@ -3550,31 +3650,76 @@ function generarPdfProduccionPorCliente(){
   docs.forEach((q,idx)=>{
     if(idx>0)pdf.addPage();
 
-    // Header con logo + dorado (look HojaEntregas)
-    const subtitle="Hoja "+(idx+1)+"/"+docs.length+"  ·  "+(q.kind==="quote"?"Cotización":"Propuesta")+" "+(q.id||"");
+    // v7.8.4: la producción se hace el día ANTERIOR a la entrega.
+    const fecha=_reportesGetFecha(q);
+    const hora=q.horaEntrega||(q.orderData||{}).horaEntrega||"";
+    const fechaProd=_fechaProduccion(fecha);
+
+    // Header con logo + dorado. Subtitle ahora destaca FECHA DE PRODUCCIÓN.
+    const subtitle="Hoja "+(idx+1)+"/"+docs.length+
+      (fechaProd?"  ·  PRODUCIR "+_fechaCorta(fechaProd):"")+
+      "  ·  "+(q.kind==="quote"?"Cotización":"Propuesta")+" "+(q.id||"");
     let y=_repPdfHeader(pdf,W,"ORDEN DE PRODUCCIÓN",subtitle);
 
     // Cliente / pedido datos
     pdf.setFontSize(14);pdf.setFont("helvetica","bold");
     pdf.text((q.client||"(sin cliente)").toUpperCase(),M,y+2);y+=8;
+    // v7.8.4: línea destacada "PRODUCIR el [día anterior]" + entrega como referencia.
+    // Sin emoji (jsPDF helvetica no soporta) — uso "►" que es ASCII extendido válido.
+    if(fechaProd){
+      pdf.setFontSize(11);pdf.setFont("helvetica","bold");
+      pdf.setTextColor(198,40,40); // rojo destaque
+      pdf.text(">> PRODUCIR EL: "+fechaProd,M,y);y+=5.5;
+      pdf.setTextColor(0,0,0);
+    }
     pdf.setFontSize(9.5);pdf.setFont("helvetica","normal");
-    const fecha=_reportesGetFecha(q);
-    const hora=q.horaEntrega||(q.orderData||{}).horaEntrega||"";
-    pdf.text("Entrega: "+fecha+(hora?"  "+hora:""),M,y);y+=4.5;
+    pdf.text("Para entrega: "+fecha+(hora?"  "+hora:""),M,y);y+=4.5;
     if(q.dir)pdf.text("Dirección: "+q.dir+(q.city?", "+q.city:""),M,y),y+=4.5;
     if(q.tel)pdf.text("Teléfono: "+q.tel,M,y),y+=4.5;
     if(q.att)pdf.text("Atención: "+q.att,M,y),y+=4.5;
     y+=3;
 
-    // Tabla productos con checkbox por item (col 0)
+    // v7.8.4: Tabla con item padre + sub-filas por componente.
+    // Cada item del pedido genera:
+    //   1. Fila padre (5 cols) con casilla principal en col 0.
+    //   2. Sub-filas (colSpan 5) con casilla pequeña al inicio, una por componente.
     const items=[];
+    const addItem=(cant,nombre,desc,unidad,custom)=>{
+      // v7.8.4: skip productos no producibles (mesero, menaje, transporte, etc.)
+      if(!_esProductoProducible(nombre))return;
+      const cantNum=cant||0;
+      const fullName=(nombre||"")+(custom?" *":"");
+      // Fila padre
+      items.push(["",String(cantNum),fullName,desc||"",unidad||""]);
+      // Componentes (sub-filas con colSpan). cantTotal = cantPadre × qPorUnidad del componente.
+      try{
+        const comps=_explodeComponentes(nombre,desc);
+        if(comps&&comps.length){
+          comps.forEach(comp=>{
+            const qPorUnidad=Number(comp.q)||1;
+            const qtyTotal=cantNum*qPorUnidad;
+            items.push([{
+              content:"      "+qtyTotal+"x  "+comp.n,
+              colSpan:5,
+              styles:{
+                halign:"left",
+                fontSize:8.5,
+                textColor:[80,80,80],
+                fillColor:[252,252,248],
+                cellPadding:{top:1.6,bottom:1.6,left:14,right:4}
+              }
+            }]);
+          });
+        }
+      }catch(e){console.warn("explodeComponentes A falló para",nombre,desc,e)}
+    };
     if(q.kind==="quote"){
-      (q.cart||[]).forEach(it=>items.push(["",String(it.qty||0),it.n||"",it.d||"",it.u||""]));
-      (q.cust||[]).forEach(it=>items.push(["",String(it.qty||0),(it.n||"")+" *",it.d||"",it.u||""]));
+      (q.cart||[]).forEach(it=>addItem(it.qty,it.n,it.d,it.u,false));
+      (q.cust||[]).forEach(it=>addItem(it.qty,it.n,it.d,it.u,true));
     }else{
       (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>{
         const prefix=sec.name?"["+sec.name+(opt.label?" "+opt.label:"")+"] ":"";
-        items.push(["",String(it.qty||0),prefix+(it.name||""),it.desc||"",it.unit||""]);
+        addItem(it.qty,prefix+(it.name||""),it.desc||"",it.unit||"",false);
       })));
     }
 
@@ -3588,7 +3733,7 @@ function generarPdfProduccionPorCliente(){
         theme:"grid",
         headStyles:_REP_PDF_HEAD_STYLE,
         bodyStyles:{fontSize:9,cellPadding:2.5,valign:"middle",minCellHeight:9},
-        alternateRowStyles:_REP_PDF_ZEBRA,
+        // Sin alternateRowStyles para no chocar con sub-filas
         columnStyles:{
           0:{halign:"center",cellWidth:tw*0.06},
           1:{halign:"center",cellWidth:tw*0.10,fontStyle:"bold"},
@@ -3597,7 +3742,17 @@ function generarPdfProduccionPorCliente(){
           4:{halign:"center",cellWidth:tw*0.14}
         },
         didDrawCell:function(data){
-          if(data.section==="body"&&data.column.index===0){
+          if(data.section!=="body")return;
+          // Sub-fila componente (colSpan>1): dibujar casilla pequeña al inicio
+          if(data.cell.colSpan&&data.cell.colSpan>1){
+            const cx=data.cell.x+5;
+            const cy=data.cell.y+data.cell.height/2-2;
+            pdf.setDrawColor(120);pdf.setLineWidth(0.25);
+            pdf.rect(cx,cy,4,4);
+            return;
+          }
+          // Fila padre: casilla normal en col 0
+          if(data.column.index===0){
             const cx=data.cell.x+data.cell.width/2-2.5;
             const cy=data.cell.y+data.cell.height/2-2.5;
             pdf.setDrawColor(80);pdf.setLineWidth(0.3);
@@ -3634,10 +3789,13 @@ function generarPdfProduccionPorCliente(){
     pdf.setFont("helvetica","normal");pdf.setFontSize(8);
     pdf.text("Firma de quien produjo",W-M-30,y+9,{align:"center"});
 
-    // * Productos custom marker (al pie de pagina)
-    if(items.some(r=>r[2].endsWith(" *"))){
+    // * Productos custom marker — relativo al final del contenido (no posición fija H-12)
+    // v7.8.4: filtrar solo filas padre (array 5 elementos); las sub-filas son objetos con colSpan.
+    if(items.some(r=>Array.isArray(r)&&r.length===5&&typeof r[2]==="string"&&r[2].endsWith(" *"))){
+      // Posición segura: max entre "después del footer" y "H-12" (cualquiera sea más bajo en página)
+      const yMarker=Math.min(y+18,H-12);
       pdf.setFontSize(7);pdf.setTextColor(120);
-      pdf.text("* Producto custom (no del catálogo).",M,H-12);
+      pdf.text("* Producto custom (no del catálogo).",M,yMarker);
       pdf.setTextColor(0);
     }
   });
@@ -3674,6 +3832,8 @@ function generarPdfProduccionConsolidada(){
     porDia[f].docs.push(q);
     const procItem=(name,qty,desc,unit)=>{
       if(!name)return;
+      // v7.8.4: skip productos no producibles (mesero, menaje, transporte, etc.)
+      if(!_esProductoProducible(name))return;
       const key=name+"|"+(desc||"");
       if(!porDia[f].productos[key])porDia[f].productos[key]={name:name,qty:0,desc:desc||"",unit:unit||"",pedidos:new Set()};
       porDia[f].productos[key].qty+=qty;
@@ -3693,13 +3853,42 @@ function generarPdfProduccionConsolidada(){
     if(idx>0)pdf.addPage();
 
     const totalUnidades=Object.values(porDia[f].productos).reduce((s,g)=>s+g.qty,0);
-    const subtitle=hojaFormatFecha(f)+"  ·  "+porDia[f].docs.length+" pedido(s)  ·  "+Object.keys(porDia[f].productos).length+" producto(s) distinto(s)  ·  "+totalUnidades+" unidades";
+    // v7.8.4: subtitle muestra fecha de PRODUCCIÓN (día anterior) + entrega como referencia
+    const fechaProd=_fechaProduccion(f);
+    const subtitle=(fechaProd?"PRODUCIR "+hojaFormatFecha(fechaProd)+"  ·  Para entrega "+hojaFormatFecha(f):hojaFormatFecha(f))+
+      "  ·  "+porDia[f].docs.length+" pedido(s)  ·  "+Object.keys(porDia[f].productos).length+" producto(s) distinto(s)  ·  "+totalUnidades+" unidades";
     let y=_repPdfHeader(pdf,W,"PRODUCCIÓN DEL DÍA",subtitle);
 
-    // Tabla agregada ordenada alfabeticamente por nombre+descripcion
-    const rows=Object.entries(porDia[f].productos)
+    // v7.8.4: Filas agregadas + sub-filas de componentes (mismo desglose que PDF A).
+    const rowsAgg=Object.entries(porDia[f].productos)
       .sort((a,b)=>(a[1].name||"").localeCompare(b[1].name||"")||(a[1].desc||"").localeCompare(b[1].desc||""))
-      .map(([key,g])=>[String(g.qty),g.name,g.desc,g.unit,String(g.pedidos.size),Array.from(g.pedidos).join(", ")]);
+      .map(([key,g])=>({qty:g.qty,name:g.name,desc:g.desc,unit:g.unit,pedCount:g.pedidos.size,clientes:Array.from(g.pedidos).join(", ")}));
+    const rows=[];
+    rowsAgg.forEach(g=>{
+      // Fila padre (6 columnas)
+      rows.push([String(g.qty),g.name,g.desc,g.unit,String(g.pedCount),g.clientes]);
+      // Sub-filas de componentes consolidados: cantTotal = qtyAgregada × qPorUnidad
+      try{
+        const comps=_explodeComponentes(g.name,g.desc);
+        if(comps&&comps.length){
+          comps.forEach(comp=>{
+            const qPorUnidad=Number(comp.q)||1;
+            const qtyTotal=g.qty*qPorUnidad;
+            rows.push([{
+              content:"      "+qtyTotal+"x  "+comp.n,
+              colSpan:6,
+              styles:{
+                halign:"left",
+                fontSize:8,
+                textColor:[80,80,80],
+                fillColor:[252,252,248],
+                cellPadding:{top:1.5,bottom:1.5,left:14,right:4}
+              }
+            }]);
+          });
+        }
+      }catch(e){console.warn("explodeComponentes B falló para",g.name,g.desc,e)}
+    });
 
     if(pdf.autoTable){
       const tw=W-M*2;
@@ -3711,7 +3900,7 @@ function generarPdfProduccionConsolidada(){
         theme:"grid",
         headStyles:_REP_PDF_HEAD_STYLE,
         bodyStyles:{fontSize:8.5,cellPadding:2.5,valign:"top",minCellHeight:8},
-        alternateRowStyles:_REP_PDF_ZEBRA,
+        // Sin alternateRowStyles para no chocar con sub-filas
         columnStyles:{
           0:{halign:"center",cellWidth:tw*0.08,fontStyle:"bold"},
           1:{halign:"left",cellWidth:tw*0.27,fontStyle:"bold"},
@@ -6601,6 +6790,9 @@ async function renderClienteFicha(){
     '</div>';
   }
 
+  // v7.8.3: Sección "Ajustes y descuentos" + saldo a favor
+  html+=_renderClienteAjustesSection(c);
+
   // Historial — chips de filtro + lista
   html+='<div style="margin-bottom:18px">'+
     '<div style="font-weight:700;font-size:14px;color:#1A1A1A;margin-bottom:8px">📜 Historial</div>'+
@@ -6705,6 +6897,184 @@ function _renderSeguimientosCliente(docs){
       '<div style="font-size:13px;font-weight:700;color:#5D4037;font-variant-numeric:tabular-nums">'+fm(total)+'</div>'+
     '</div>';
   }).join("");
+}
+
+// v7.8.3: helper para sección ajustes + saldo a favor en ficha cliente
+function _renderClienteAjustesSection(c){
+  if(!c||!c.name)return "";
+  const k=(c.name||"").toLowerCase().trim();
+  const ajustes=(typeof ajustesLogCache!=="undefined"?ajustesLogCache:[])
+    .filter(a=>!a.deletedAt&&(a.clienteName||"").toLowerCase().trim()===k);
+  const saldoFav=Number(c.saldoAFavor)||0;
+  if(!ajustes.length&&saldoFav<=0)return "";
+  // Acumulados por tipo
+  const totByTipo=new Map();
+  let totalAjustes=0;
+  ajustes.forEach(a=>{
+    const m=parseFloat(a.monto)||0;
+    totByTipo.set(a.tipo,(totByTipo.get(a.tipo)||0)+m);
+    totalAjustes+=m;
+  });
+  let html='<div style="margin-bottom:18px"><div style="font-weight:700;font-size:14px;color:#1A1A1A;margin-bottom:8px">⚖️ Ajustes y descuentos</div>';
+  // Cards de resumen
+  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">';
+  if(saldoFav>0){
+    html+='<div style="flex:1;min-width:160px;background:#E8F5E9;border:1px solid #66BB6A;border-radius:10px;padding:10px 12px"><div style="font-size:10.5px;color:#1B5E20;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Saldo a favor</div><div style="font-size:18px;font-weight:800;color:#1B5E20">'+fm(saldoFav)+'</div><div style="font-size:10.5px;color:#1B5E20;margin-top:2px">Aplicable a próximos cobros</div></div>';
+  }
+  if(totalAjustes>0){
+    html+='<div style="flex:1;min-width:160px;background:#FFF3E0;border:1px solid #FB8C00;border-radius:10px;padding:10px 12px"><div style="font-size:10.5px;color:#E65100;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Ajustes acumulados</div><div style="font-size:18px;font-weight:800;color:#E65100">'+fm(totalAjustes)+'</div><div style="font-size:10.5px;color:#E65100;margin-top:2px">'+ajustes.length+' operación'+(ajustes.length===1?"":"es")+'</div></div>';
+  }
+  html+='</div>';
+  // Lista de ajustes (últimos 5)
+  if(ajustes.length){
+    const sorted=ajustes.slice().sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||"")).slice(0,5);
+    html+='<div style="background:#fff;border:1px solid #E0E0E0;border-radius:10px;padding:6px">';
+    sorted.forEach(a=>{
+      const tipoLabel=AJUSTE_TIPO_LABEL[a.tipo]||a.tipo;
+      const motLabel=AJUSTE_MOTIVO_LABEL[a.tipoMotivo]||"";
+      html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:7px 10px;border-bottom:1px solid #F5F5F5;font-size:12.5px">';
+      html+='<div style="flex:1;min-width:0">';
+      html+='<div><strong>'+tipoLabel+'</strong>'+(motLabel?' · '+h(motLabel):'')+'</div>';
+      if(a.motivo)html+='<div style="font-size:11px;color:#757575;font-style:italic;margin-top:2px">"'+h(a.motivo)+'"</div>';
+      html+='<div style="font-size:10.5px;color:#9E9E9E;margin-top:2px">'+(a.fecha||"")+(a.docId?' · '+h(a.docId):'')+'</div>';
+      html+='</div>';
+      html+='<div style="font-weight:700;color:'+(a.tipo==="nota_credito"?"#1B5E20":"#E65100")+'">'+fm(a.monto||0)+'</div>';
+      html+='</div>';
+    });
+    html+='</div>';
+    if(ajustes.length>5){
+      html+='<div style="font-size:11px;color:#9E9E9E;margin-top:4px">+ '+(ajustes.length-5)+' más en <a href="javascript:void(0)" onclick="setMode(\'cartera-ajustes-log\')" style="color:#0D47A1;text-decoration:underline">Log completo</a></div>';
+    }
+  }
+  // Alerta de recurrencia
+  if(totalAjustes>0&&typeof getStatsCliente==="function"){
+    const docs=getDocsByCliente(c.name);
+    const stats=getStatsCliente(docs);
+    if(stats.cotizado>0){
+      const pct=(totalAjustes/stats.cotizado)*100;
+      if(pct>5){
+        html+='<div style="background:#FFEBEE;border:1px solid #EF9A9A;border-radius:8px;padding:8px 11px;margin-top:8px;font-size:11.5px;color:#B71C1C"><strong>⚠️ Alerta recurrencia:</strong> los ajustes representan el '+pct.toFixed(1)+'% del total cotizado al cliente.</div>';
+      }
+    }
+  }
+  html+='</div>';
+  return html;
+}
+
+// ═══════════════════════════════════════════════════════════
+// v7.8.3: LOG DE AJUSTES (cartera/ajustes-log)
+// ═══════════════════════════════════════════════════════════
+const AJUSTE_TIPO_LABEL={
+  ajuste_saldo:"📉 Perdón/descuento",
+  nota_credito:"📈 Nota crédito",
+  descuento_cotizacion:"🏷️ Descuento cotización",
+  correccion:"🔧 Corrección"
+};
+const AJUSTE_MOTIVO_LABEL={
+  consigno_menos:"Consignó menos",
+  perdon_cliente_bueno:"Perdón cliente bueno",
+  error_cobro:"Error de cobro",
+  redondeo:"Redondeo",
+  acuerdo_comercial:"Acuerdo comercial",
+  otro:"Otro"
+};
+
+async function renderCarteraAjustesLog(){
+  const list=$("ajustes-log-list");
+  const stats=$("ajustes-log-stats");
+  const sumEl=$("ajustes-log-summary");
+  if(!list)return;
+  if(!ajustesLogCache.length&&cloudOnline){try{await loadAjustesLogFromCloud()}catch{}}
+  const search=($("ajl-search")?.value||"").toLowerCase().trim();
+  const from=$("ajl-from")?.value||"";
+  const to=$("ajl-to")?.value||"";
+  const filterTipo=$("ajl-tipo")?.value||"";
+  const items=ajustesLogCache.filter(a=>{
+    if(a.deletedAt)return false;
+    if(filterTipo&&a.tipo!==filterTipo)return false;
+    const f=a.fecha||"";
+    if(from&&f<from)return false;
+    if(to&&f>to)return false;
+    if(search){
+      const hay=[a.clienteName,a.motivo,a.tipoMotivo].map(x=>(x||"").toLowerCase()).join(" ");
+      if(!hay.includes(search))return false;
+    }
+    return true;
+  }).sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||""));
+  // Stats
+  const totalMonto=items.reduce((s,a)=>s+(parseFloat(a.monto)||0),0);
+  if(sumEl)sumEl.textContent=items.length+" ajuste"+(items.length===1?"":"s")+" · "+fm(totalMonto);
+  if(stats){
+    if(items.length){
+      // Top 5 clientes con más descuentos en el filtro actual
+      const porCliente=new Map();
+      items.forEach(a=>{
+        const k=a.clienteName||"(sin)";
+        porCliente.set(k,(porCliente.get(k)||0)+(parseFloat(a.monto)||0));
+      });
+      const top=Array.from(porCliente.entries()).sort((a,b)=>b[1]-a[1]).slice(0,5);
+      let html='<div style="background:#FFF8E1;border:1px solid #FFD54F;border-radius:10px;padding:10px 14px">';
+      html+='<div style="font-size:12px;font-weight:700;color:#E65100;margin-bottom:6px">⚠️ Top clientes con más ajustes acumulados (en el filtro actual)</div>';
+      html+='<div style="display:flex;gap:6px;flex-wrap:wrap">';
+      top.forEach(([cli,monto])=>{
+        html+='<div style="background:#fff;border:1px solid #FFB74D;border-radius:6px;padding:5px 10px;font-size:11.5px"><strong>'+escapeHtml(cli)+'</strong> · <span style="color:#C62828;font-weight:700">'+fm(monto)+'</span></div>';
+      });
+      html+='</div></div>';
+      stats.innerHTML=html;
+    }else{
+      stats.innerHTML='';
+    }
+  }
+  if(!items.length){
+    list.innerHTML='<div style="text-align:center;padding:30px 20px;color:#757575"><div style="font-size:36px;margin-bottom:8px">⚖️</div><div style="font-size:14px;font-weight:600;color:#5D4037">Sin ajustes en el filtro</div><div style="font-size:12px;margin-top:4px">Cuando perdones un saldo o registres una nota crédito, aparece acá.</div></div>';
+    return;
+  }
+  let html="";
+  items.forEach(a=>{
+    const tipoLabel=AJUSTE_TIPO_LABEL[a.tipo]||a.tipo;
+    const motLabel=AJUSTE_MOTIVO_LABEL[a.tipoMotivo]||a.tipoMotivo||"";
+    const borderColor=a.tipo==="nota_credito"?"#1B5E20":"#E65100";
+    html+='<div style="background:#fff;border:1px solid #E0E0E0;border-left:4px solid '+borderColor+';border-radius:10px;padding:11px 14px;margin-bottom:8px">';
+    html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">';
+    html+='<div style="flex:1;min-width:180px">';
+    html+='<div style="font-size:13.5px;font-weight:700;color:#1A1A1A">'+escapeHtml(a.clienteName||"(sin cliente)")+'</div>';
+    html+='<div style="font-size:11.5px;color:#757575;margin-top:2px">'+tipoLabel+(motLabel?' · '+escapeHtml(motLabel):'')+' · '+(a.fecha||"sin fecha")+'</div>';
+    if(a.motivo)html+='<div style="font-size:12px;color:#5D4037;margin-top:6px;font-style:italic;line-height:1.4">"'+escapeHtml(a.motivo)+'"</div>';
+    if(a.docId)html+='<div style="font-size:10.5px;color:#9E9E9E;margin-top:4px">Doc: '+escapeHtml(a.docId)+'</div>';
+    if(a.createdByEmail||a.updatedByEmail)html+='<div style="font-size:10.5px;color:#9E9E9E;margin-top:2px">Por: '+escapeHtml(a.createdByEmail||a.updatedByEmail||"")+'</div>';
+    html+='</div>';
+    html+='<div style="text-align:right">';
+    html+='<div style="font-size:15px;font-weight:700;color:'+borderColor+'">'+fm(a.monto||0)+'</div>';
+    html+='<button onclick="ajusteLogConfirmDelete(\''+a.id+'\')" style="margin-top:4px;background:#fff;color:#C62828;border:1px solid #EF9A9A;padding:3px 8px;border-radius:5px;font-size:10.5px;cursor:pointer">Eliminar</button>';
+    html+='</div>';
+    html+='</div>';
+    html+='</div>';
+  });
+  list.innerHTML=html;
+}
+
+async function ajusteLogConfirmDelete(logId){
+  const a=ajustesLogCache.find(x=>x.id===logId);
+  if(!a)return;
+  if(!confirm("¿Eliminar este ajuste?\n\nCliente: "+a.clienteName+"\nMonto: "+fm(a.monto)+"\nMotivo: "+(a.motivo||"")+"\n\nNota: queda marcado como eliminado en el log (auditoría forense), pero el saldo del documento vuelve al valor original."))return;
+  showLoader("Eliminando ajuste...");
+  try{
+    // Buscar el id en q.ajustes[] (referenciado por logId) para deshacer
+    const q=quotesCache.find(x=>x.id===a.docId);
+    let ajusteIdInDoc=null;
+    if(q&&Array.isArray(q.ajustes)){
+      const found=q.ajustes.find(aj=>aj.logId===logId||aj.id===logId);
+      if(found)ajusteIdInDoc=found.id;
+    }
+    await softDeleteAjuste(logId,a.docId,a.docKind,ajusteIdInDoc);
+    hideLoader();
+    toast("Ajuste eliminado","success");
+    renderCarteraAjustesLog();
+    if(typeof renderCartera==="function"&&curMode==="cartera")renderCartera();
+  }catch(e){
+    hideLoader();
+    toast("Error: "+e.message,"error");
+  }
 }
 
 async function renderCarteraHistorico(){
@@ -6835,6 +7205,7 @@ function renderCarteraCard(q,urgencia){
     '</div>'+
     '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">'+
       '<button class="btn hc-btn-pago" onclick="openPagoModal(\''+id+'\',event)">💵 Cobrar</button>'+
+      '<button class="btn" style="background:#FFF3E0;color:#E65100;border:1px solid #FB8C00" onclick="openAjusteModal(\''+id+'\',event)">⚖️ Ajustar saldo</button>'+
       (_pagos.length?'<button class="btn hc-btn-pagos-ver" onclick="openVerPagosModal(\''+id+'\',event)">📒 Ver pagos ('+_pagos.length+')</button>':'')+
     '</div>'+
     '</div>';

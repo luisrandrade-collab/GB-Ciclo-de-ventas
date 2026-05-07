@@ -36,8 +36,23 @@ function getPagos(q){
   return out;
 }
 function totalCobrado(q){return getPagos(q).reduce((s,p)=>s+(parseInt(p.monto)||0),0)}
+// v7.8.3: suma de ajustes positivos aplicados al doc (perdón, descuento, corrección).
+// Solo cuenta los no eliminados (sin deletedAt). Notas crédito (Caso D) NO van al
+// q.ajustes[] del doc — se guardan como cliente.saldoAFavor (ver app-historial cliente).
+function totalAjustes(q){
+  if(!q||!Array.isArray(q.ajustes))return 0;
+  return q.ajustes.reduce((s,a)=>{
+    if(a.deletedAt)return s;
+    const m=parseFloat(a.monto)||0;
+    return s+(m>0?m:0); // solo suma positivos (descuentos al cliente)
+  },0);
+}
 // v4.12.1: usar getDocTotal — para propuestas viejas sin q.total recalcula igual que el PDF
-function saldoPendiente(q){const t=(typeof getDocTotal==="function"?getDocTotal(q):(q.total||q.totalReal||0));return Math.max(0,t-totalCobrado(q))}
+// v7.8.3: descontar también los ajustes (perdones, descuentos) del saldo pendiente.
+function saldoPendiente(q){
+  const t=(typeof getDocTotal==="function"?getDocTotal(q):(q.total||q.totalReal||0));
+  return Math.max(0,t-totalCobrado(q)-totalAjustes(q));
+}
 
 // ─── HISTORIAL render ──────────────────────────────────────
 // v5.1.0: Sistema de ARCHIVOS + FILTROS + BUSCADOR
@@ -1047,6 +1062,143 @@ function openPagoModal(docId,kindOrEv,evMaybe){
   $("pago-modal").classList.remove("hidden");
 }
 function closePagoModal(){$("pago-modal").classList.add("hidden");pagoSrc=null;pagoFotoBase64=null}
+
+// ─── v7.8.3: AJUSTE DE SALDO / NOTA CRÉDITO ───────────────
+let ajusteSrc=null;
+function openAjusteModal(docId,kindOrEv,evMaybe){
+  let kind,ev;
+  if(typeof kindOrEv==="string"){kind=kindOrEv;ev=evMaybe}
+  else{ev=kindOrEv;kind=null}
+  if(ev){ev.stopPropagation();ev.preventDefault()}
+  let q;
+  if(kind)q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
+  else q=quotesCache.find(x=>x.id===docId);
+  if(!q){if(typeof toast==="function")toast("No se encontró","error");return}
+  ajusteSrc={id:docId,kind:q.kind,doc:q};
+  $("aj-num").value=q.quoteNumber||q.id;
+  $("aj-cli").value=q.client||"";
+  const total=(typeof getDocTotal==="function"?getDocTotal(q):(q.total||q.totalReal||0));
+  const cobrado=totalCobrado(q);
+  const ajustes=(typeof totalAjustes==="function")?totalAjustes(q):0;
+  const pend=Math.max(0,total-cobrado-ajustes);
+  let resumenHtml="Total: <strong>"+fm(total)+"</strong> · Cobrado: <strong>"+fm(cobrado)+"</strong>";
+  if(ajustes>0)resumenHtml+=" · Ajustes previos: <strong>"+fm(ajustes)+"</strong>";
+  resumenHtml+=" · Pendiente: <strong>"+fm(pend)+"</strong>";
+  $("aj-resumen").innerHTML=resumenHtml;
+  $("aj-fecha").value=gbTodayIso();
+  $("aj-monto").value=pend||"";
+  $("aj-tipo-motivo").value="";
+  $("aj-motivo").value="";
+  // Default radio: ajuste_saldo
+  document.querySelectorAll('input[name="aj-tipo"]').forEach(r=>r.checked=(r.value==="ajuste_saldo"));
+  $("ajuste-modal").classList.remove("hidden");
+}
+function closeAjusteModal(){$("ajuste-modal").classList.add("hidden");ajusteSrc=null}
+
+async function submitAjuste(){
+  if(!ajusteSrc){toast("Sin documento","error");return}
+  const q=ajusteSrc.doc;
+  const tipo=document.querySelector('input[name="aj-tipo"]:checked')?.value||"ajuste_saldo";
+  const monto=parseFloat($("aj-monto").value||0)||0;
+  const tipoMotivo=$("aj-tipo-motivo").value;
+  const motivo=$("aj-motivo").value.trim();
+  // Validaciones
+  if(monto<=0){toast("El monto debe ser mayor a 0","warn");return}
+  if(!tipoMotivo){toast("Elegí un tipo de motivo","warn");return}
+  if(!motivo||motivo.length<5){toast("El motivo es obligatorio (al menos 5 caracteres)","warn");return}
+  // Confirmación
+  const tipoLabel=tipo==="ajuste_saldo"?"perdón / descuento al saldo":"nota crédito (saldo a favor del cliente)";
+  if(!confirm("Vas a aplicar "+tipoLabel+" de "+fm(monto)+" al doc "+(q.quoteNumber||q.id)+".\n\nMotivo: "+motivo+"\n\n¿Confirmar?"))return;
+  showLoader("Guardando ajuste...");
+  try{
+    const fecha=$("aj-fecha").value||gbTodayIso();
+    // 1. Guardar entrada en collection ajustesLog (audit trail)
+    const logEntry=await saveAjusteToCloud({
+      docId:q.id,
+      docKind:q.kind||"quote",
+      clienteName:q.client||"(sin cliente)",
+      clienteId:q.clientId||null,
+      monto:monto,  // siempre positivo en log; el tipo determina cómo se aplica
+      motivo:motivo,
+      tipoMotivo:tipoMotivo,
+      tipo:tipo,
+      fecha:fecha
+    });
+    // 2. Aplicación según tipo
+    if(tipo==="ajuste_saldo"){
+      // Push al q.ajustes[] del doc → saldoPendiente() lo descuenta
+      await applyAjusteToDoc(q,q.kind||"quote",{
+        id:logEntry.id,
+        monto:monto,
+        motivo:motivo,
+        tipo:tipo,
+        fecha:fecha
+      });
+    }else if(tipo==="nota_credito"){
+      // NO toca el doc original. Crea/incrementa cliente.saldoAFavor.
+      await _addSaldoAFavor(q.client||"(sin cliente)",monto,motivo,logEntry.id);
+    }
+    hideLoader();
+    toast(tipo==="ajuste_saldo"?"✅ Ajuste aplicado · saldo descontado":"✅ Nota crédito · saldo a favor del cliente","success",5000);
+    closeAjusteModal();
+    // Refrescar UI
+    if(typeof renderHist==="function")renderHist();
+    if(typeof renderCartera==="function"&&curMode==="cartera")renderCartera();
+    if(typeof renderDashboard==="function"&&curMode==="dash")renderDashboard();
+  }catch(e){
+    hideLoader();
+    console.error("submitAjuste error",e);
+    toast("Error: "+e.message,"error");
+  }
+}
+
+// Helper: agrega saldoAFavor a un cliente. Si el cliente no existe en
+// clientsCache, crea uno mínimo (solo nombre) para que el saldo persista.
+async function _addSaldoAFavor(clienteName,monto,motivo,logId){
+  const {db,collection,doc,addDoc,updateDoc,serverTimestamp}=window.fb;
+  const k=(clienteName||"").toLowerCase().trim();
+  if(!k)throw new Error("Nombre de cliente vacío");
+  let c=clientsCache.find(x=>(x.name||"").toLowerCase().trim()===k);
+  const nowIso=new Date().toISOString();
+  const movimiento={
+    monto:monto,
+    motivo:motivo,
+    logId:logId,
+    fecha:nowIso,
+    aplicadoEnDoc:null  // se llena cuando se use en un cobro futuro
+  };
+  if(c&&c.id){
+    const nuevoSaldo=(c.saldoAFavor||0)+monto;
+    const movs=Array.isArray(c.saldoAFavorMovs)?c.saldoAFavorMovs.slice():[];
+    movs.push(movimiento);
+    await updateDoc(doc(db,"clients",c.id),{
+      saldoAFavor:nuevoSaldo,
+      saldoAFavorMovs:movs,
+      updatedAt:serverTimestamp(),
+      ...auditStamp()
+    });
+    c.saldoAFavor=nuevoSaldo;
+    c.saldoAFavorMovs=movs;
+  }else{
+    // Cliente fantasma: crear mínimo
+    const obj={
+      name:clienteName,
+      tipo:"persona",
+      categoria:"particular",
+      saldoAFavor:monto,
+      saldoAFavorMovs:[movimiento],
+      createdAt:serverTimestamp(),
+      updatedAt:serverTimestamp(),
+      ...auditStamp(),
+      _autoCreated:true,
+      _autoCreatedFrom:"nota_credito"
+    };
+    const ref=await addDoc(collection(db,"clients"),obj);
+    clientsCache.push({id:ref.id,...obj});
+    clientsCache.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  }
+  localStorage.setItem("gb_clients_cache",JSON.stringify(clientsCache));
+}
 
 // Comprime foto en cliente: 800px JPEG 0.7
 function _compressImageFile(file,cb){
