@@ -1784,7 +1784,8 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <button class="sb-module__btn"><span class="gb-shell-icon">📦</span><span class="sb-module__label">Pedidos</span></button>
       <div class="sb-submenu">
         <a href="javascript:void(0)" data-sub="pedidos/aprobados">Aprobados</a>
-        <a href="javascript:void(0)" data-sub="pedidos/produccion">En producción</a>
+        <!-- v7.8.7: "En producción" oculto — absorb por Aprobados. Modo mantenido para compatibilidad -->
+        <!-- <a href="javascript:void(0)" data-sub="pedidos/produccion">En producción</a> -->
         <a href="javascript:void(0)" data-sub="pedidos/producidos">Producidos</a>
         <a href="javascript:void(0)" data-sub="pedidos/hojas-imprimibles">Hojas para imprimir</a>
       </div>
@@ -2415,6 +2416,17 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       Se usan en la hoja de producción para calcular cantidades totales. La cantidad (q) es por unidad del producto.
     </div>
     <div id="recetas-int-list"><div style="text-align:center;padding:30px;color:#9E9E9E;font-size:13px">Cargando...</div></div>
+  </div>
+</div>
+
+<!-- Modal lista de compras (v7.8.7) -->
+<div id="lista-compras-modal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9200;display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow-y:auto">
+  <div style="background:#fff;border-radius:14px;width:100%;max-width:500px;box-shadow:0 8px 32px rgba(0,0,0,.18);margin:auto">
+    <div style="padding:14px 16px;border-bottom:1px solid #E0E0E0;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;border-radius:14px 14px 0 0;z-index:1">
+      <div style="font-size:15px;font-weight:700;color:#1A1A1A">Lista de compras</div>
+      <button onclick="closeListaComprasModal()" style="background:none;border:none;cursor:pointer;font-size:20px;color:#757575;line-height:1">✕</button>
+    </div>
+    <div id="lista-compras-body" style="padding:14px 16px"></div>
   </div>
 </div>
 
@@ -4491,12 +4503,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.8.6"></script>
-<script src="app-core.js?v=7.8.6"></script>
-<script src="app-cotizar.js?v=7.8.6"></script>
-<script src="app-propuesta.js?v=7.8.6"></script>
-<script src="app-historial.js?v=7.8.6"></script>
-<script src="app-seguimiento.js?v=7.8.6"></script>
-<script src="app-dashboard.js?v=7.8.6"></script>
+<script src="app-assets.js?v=7.8.7"></script>
+<script src="app-core.js?v=7.8.7"></script>
+<script src="app-cotizar.js?v=7.8.7"></script>
+<script src="app-propuesta.js?v=7.8.7"></script>
+<script src="app-historial.js?v=7.8.7"></script>
+<script src="app-seguimiento.js?v=7.8.7"></script>
+<script src="app-dashboard.js?v=7.8.7"></script>
 </body>
 </html>

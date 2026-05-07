@@ -3528,14 +3528,16 @@ function renderReportesImprimibles(contentEl){
       _impCard("B","👨‍🍳","Producción consolidada","Suma de cantidades por producto del rango. Permite planificar cocina sin abrir cliente por cliente.","JP / cocina","generarPdfProduccionConsolidada()",false)+
       _impCard("C","📦","Empaque con chequeo","1 hoja por cliente con casillas por cada item. Para verificar antes de despachar.","Empacador","generarPdfEmpaque()",false)+
       _impCard("D","🚚","Entregas con chequeo + firma","Ruta del día con casillas de salió/entregado/firma del receptor.","Conductor","generarPdfEntregas()",false)+
+      _impCard("E","🛒","Lista de compras","Ingredientes necesarios para los pedidos del rango, calculados desde las recetas. Items sin receta aparecen tal cual. Excluye anticipados.","Kathy / compras","generarListaCompras()",false,"🛒 Ver lista")+
     '</div>';
   renderReportesImprimiblesPreview();
 }
 
-function _impCard(letra,emoji,titulo,descripcion,destinatario,onclick,soon){
+function _impCard(letra,emoji,titulo,descripcion,destinatario,onclick,soon,btnLabel){
+  const label=btnLabel||(soon?'Pronto':'📥 Generar PDF');
   const btn=soon
-    ?'<button disabled style="background:#eee;color:#999;border:none;padding:8px 14px;border-radius:6px;font-weight:600;font-size:12px;cursor:not-allowed">Pronto</button>'
-    :'<button onclick="'+onclick+'" style="background:#0D47A1;color:white;border:none;padding:8px 14px;border-radius:6px;font-weight:600;font-size:12px;cursor:pointer">📥 Generar PDF</button>';
+    ?'<button disabled style="background:#eee;color:#999;border:none;padding:8px 14px;border-radius:6px;font-weight:600;font-size:12px;cursor:not-allowed">'+label+'</button>'
+    :'<button onclick="'+onclick+'" style="background:#0D47A1;color:white;border:none;padding:8px 14px;border-radius:6px;font-weight:600;font-size:12px;cursor:pointer">'+label+'</button>';
   return '<div style="background:white;border:1px solid #ddd;border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px">'+
     '<div style="display:flex;align-items:center;gap:8px">'+
       '<div style="font-size:32px">'+emoji+'</div>'+
@@ -3639,6 +3641,89 @@ const _REP_PDF_HEAD_STYLE={fillColor:[26,26,26],textColor:255,fontStyle:"bold",f
 const _REP_PDF_ZEBRA={fillColor:[250,250,248]};
 
 // ─── F5: PDF A — Orden de producción por cliente ────────────
+
+// ─── v7.8.7: LISTA DE COMPRAS ────────────────────────────────────────────────
+// Calcula ingredientes necesarios para el rango usando recetas internas.
+// Items sin receta → aparecen tal cual. Items pre-producidos (itemsProducidos) → excluidos.
+function generarListaCompras(){
+  const docs=_impGetDocsRango(false);
+  if(!docs.length){toast("No hay pedidos en el rango seleccionado","warn");return}
+
+  const ing={};  // {key: {nombre, qty}} — ingredientes de recetas
+  const sinRec={}; // {key: {nombre, qty, unit}} — items sin receta
+
+  docs.forEach(q=>{
+    const yaSet=new Set((q.itemsProducidos||[]).map(s=>(s||"").toLowerCase().trim()));
+    const proc=(nombre,qty,desc,unit)=>{
+      if(!nombre||!_esProductoProducible(nombre))return;
+      if(yaSet.has((nombre||"").toLowerCase().trim()))return;
+      const comps=_explodeComponentes(nombre,desc);
+      if(comps&&comps.length){
+        comps.forEach(c=>{
+          const k=(c.n||"").toLowerCase().trim();
+          if(!ing[k])ing[k]={nombre:c.n,qty:0};
+          ing[k].qty+=(parseInt(qty)||0)*(Number(c.q)||1);
+        });
+      }else{
+        const k=(nombre||"").toLowerCase().trim();
+        if(!sinRec[k])sinRec[k]={nombre,qty:0,unit:unit||""};
+        sinRec[k].qty+=parseInt(qty)||0;
+      }
+    };
+    if(q.kind==="quote"){
+      (q.cart||[]).forEach(it=>proc(it.n,it.qty,it.d,it.u));
+      (q.cust||[]).forEach(it=>proc(it.n,it.qty,it.d,it.u));
+    }else{
+      (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>proc(it.name,it.qty,it.desc,it.unit))));
+    }
+  });
+
+  const ingList=Object.values(ing).sort((a,b)=>a.nombre.localeCompare(b.nombre));
+  const sinRecList=Object.values(sinRec).sort((a,b)=>a.nombre.localeCompare(b.nombre));
+  const desde=reportesFiltrosImpr.desde||"?";
+  const hasta=reportesFiltrosImpr.hasta||"?";
+  const rango=desde===hasta?desde:desde+" → "+hasta;
+
+  let html='<div style="font-size:13px;font-weight:700;color:#0D47A1;margin-bottom:10px">🛒 Lista de compras · '+escapeHtml(rango)+' · '+docs.length+' pedido(s)</div>';
+
+  if(ingList.length){
+    html+='<div style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Ingredientes (desde recetas)</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px">';
+    ingList.forEach(i=>{
+      html+='<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#F9FBE7;border:1px solid #E6EE9C;border-radius:6px">'+
+        '<span style="font-size:13px;color:#1A1A1A">'+escapeHtml(i.nombre)+'</span>'+
+        '<span style="font-size:13px;font-weight:700;color:#33691E">'+i.qty+' und</span>'+
+        '</div>';
+    });
+    html+='</div>';
+  }
+
+  if(sinRecList.length){
+    html+='<div style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Sin receta — productos directos</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px">';
+    sinRecList.forEach(i=>{
+      html+='<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#FFF8E1;border:1px solid #FFE082;border-radius:6px">'+
+        '<span style="font-size:13px;color:#1A1A1A">'+escapeHtml(i.nombre)+'</span>'+
+        '<span style="font-size:13px;font-weight:700;color:#E65100">'+i.qty+(i.unit?' '+i.unit:'')+'</span>'+
+        '</div>';
+    });
+    html+='</div>';
+  }
+
+  if(!ingList.length&&!sinRecList.length){
+    html+='<div style="color:#9E9E9E;font-size:13px">No hay items a comprar en el rango (todos anticipados o sin pedidos).</div>';
+  }
+
+  const modal=$("lista-compras-modal");
+  const body=$("lista-compras-body");
+  if(body)body.innerHTML=html;
+  if(modal)modal.classList.remove("hidden");
+}
+
+function closeListaComprasModal(){
+  const modal=$("lista-compras-modal");
+  if(modal)modal.classList.add("hidden");
+}
 
 function generarPdfProduccionPorCliente(){
   if(!window.jspdf||!window.jspdf.jsPDF){

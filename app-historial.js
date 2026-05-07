@@ -2765,10 +2765,11 @@ function getDocsPorEtapa(etapa,options){
         return isPerdida(q)&&(st==="enviada"||st==="propfinal");
 
       case "pedidos-aprobados":
-        // Cotizaciones marcadas pedido + propuestas aprobadas, sin producir aún
-        return (st==="pedido"||st==="aprobada")&&!q.produced;
+        // v7.8.7: absorbe en_produccion — estado intermedio eliminado del flujo visible
+        return (st==="pedido"||st==="aprobada"||st==="en_produccion")&&!q.produced;
 
       case "pedidos-produccion":
+        // Mantenido por compatibilidad; el sub-item está oculto en el sidebar
         return st==="en_produccion"&&!q.produced;
 
       case "pedidos-producidos":
@@ -2936,12 +2937,12 @@ function _actionBtnsPorContexto(q,contexto){
       if(_editable&&!isPF)btns.push(btnEditar());
       btns.push(btnHistorial());
       if(!q.eventDate)btns.push('<button class="btn hc-btn-order" onclick="assignDeliveryDate(\''+id+'\',\''+kind+'\',event)">📅 Asignar fecha</button>');
-      // Iniciar producción (acción primaria)
-      btns.push('<button class="btn hc-btn-order" style="background:#FFF3E0;color:#E65100;border-color:#FFB74D" onclick="markAsInProduction(\''+id+'\',\''+kind+'\',event)">🔥 Iniciar producción</button>');
-      // v7.8.6: producción anticipada (disponible desde aprobado también)
+      // v7.8.7: "Iniciar producción" eliminado — la producción arranca en la fecha establecida
+      // v7.8.6: producción anticipada — siempre visible
       const _nAntA=(q.itemsProducidos||[]).length;
-      if(_nAntA)btns.push('<button class="btn hc-btn-prod-ant" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" onclick="openItemsProducidosModal(\''+id+'\',\''+kind+'\',event)">🥘 Anticipados ('+_nAntA+')</button>');
-      // Skip producción → marcar producido directo
+      const _antLblA=_nAntA?'🥘 Anticipados ('+_nAntA+')':'🥘 Anticipados';
+      const _antStyleA=_nAntA?'background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7':'';
+      btns.push('<button class="btn hc-btn-prod-ant" style="'+_antStyleA+'" onclick="openItemsProducidosModal(\''+id+'\',\''+kind+'\',event)">'+_antLblA+'</button>');
       btns.push('<button class="btn hc-btn-edit" onclick="toggleProduced(\''+id+'\',\''+kind+'\',event)">🔪 Marcar producido</button>');
       btns.push(btnIcs());
       btns.push(btnAnular());
