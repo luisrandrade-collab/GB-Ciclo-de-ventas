@@ -2433,8 +2433,9 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
         <label style="font-size:12px;color:#555;font-weight:600">Ingredientes</label>
         <button onclick="recetaIngAgregar()" style="font-size:12px;background:#E8F5E9;color:#1B5E20;border:1px solid #A5D6A7;border-radius:6px;padding:4px 10px;cursor:pointer">+ Agregar</button>
       </div>
-      <div style="font-size:11px;color:#9E9E9E;margin-bottom:8px">Nombre · Cantidad por unidad del plato</div>
-      <div id="receta-ed-ings" style="margin-bottom:14px"></div>
+      <div style="font-size:11px;color:#9E9E9E;margin-bottom:8px">Nombre · Cantidad · Unidad · Precio/u · Merma %</div>
+      <div id="receta-ed-ings" style="margin-bottom:10px"></div>
+      <div id="receta-ed-total" style="font-size:13px;font-weight:700;color:#1B5E20;text-align:right;padding:6px 10px;background:#E8F5E9;border-radius:6px;margin-bottom:14px">Sin precios cargados</div>
 
       <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;border-top:1px solid #F0F0F0;padding-top:14px">
         <button id="receta-ed-del-btn" onclick="deleteRecetaEditor()" style="background:#FFEBEE;color:#B71C1C;border:1px solid #EF9A9A;border-radius:8px;padding:8px 16px;font-size:13px;cursor:pointer;display:none">🗑 Eliminar</button>
@@ -4467,12 +4468,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.8.5"></script>
-<script src="app-core.js?v=7.8.5"></script>
-<script src="app-cotizar.js?v=7.8.5"></script>
-<script src="app-propuesta.js?v=7.8.5"></script>
-<script src="app-historial.js?v=7.8.5"></script>
-<script src="app-seguimiento.js?v=7.8.5"></script>
-<script src="app-dashboard.js?v=7.8.5"></script>
+<script src="app-assets.js?v=7.8.5.1"></script>
+<script src="app-core.js?v=7.8.5.1"></script>
+<script src="app-cotizar.js?v=7.8.5.1"></script>
+<script src="app-propuesta.js?v=7.8.5.1"></script>
+<script src="app-historial.js?v=7.8.5.1"></script>
+<script src="app-seguimiento.js?v=7.8.5.1"></script>
+<script src="app-dashboard.js?v=7.8.5.1"></script>
 </body>
 </html>

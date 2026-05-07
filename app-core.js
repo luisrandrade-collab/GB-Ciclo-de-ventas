@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.8.5";
+const BUILD_VERSION="v7.8.5.1";
 const BUILD_DATE="2026-05-07";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -1229,9 +1229,9 @@ async function loadRecetasInternasFromCloud(){
   }
 }
 
-async function saveRecetaInternaToCloud(nombre,ingredientes,existingId){
+async function saveRecetaInternaToCloud(nombre,ingredientes,existingId,costoTotal){
   const {db,collection,doc,addDoc,updateDoc,serverTimestamp}=window.fb;
-  const obj={nombre:nombre,ingredientes:ingredientes};
+  const obj={nombre:nombre,ingredientes:ingredientes,costoTotal:costoTotal||0};
   if(existingId){
     await updateDoc(doc(db,"recetasInternas",existingId),{...obj,updatedAt:serverTimestamp(),...auditStamp()});
     if(recetasInternasCache)recetasInternasCache[nombre]={id:existingId,...obj};

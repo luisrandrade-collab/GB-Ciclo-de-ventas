@@ -7239,8 +7239,12 @@ async function renderRecetasInternas(){
     const ings=Array.isArray(rec)?rec:(rec.ingredientes||[]);
     const id=(rec&&rec.id)||null;
     const resumen=ings.map(i=>(i.q>1?i.q+"× ":"")+i.n).join(", ")||'Sin ingredientes';
+    const costo=rec&&!Array.isArray(rec)&&(rec.costoTotal||0)>0?fm(rec.costoTotal):null;
     html+='<div onclick="openRecetaEditor(\''+escapeHtml(k)+'\')" style="background:#fff;border:1px solid #E0E0E0;border-radius:10px;padding:12px 14px;cursor:pointer;transition:box-shadow .15s" onmouseover="this.style.boxShadow=\'0 2px 8px rgba(0,0,0,.08)\'" onmouseout="this.style.boxShadow=\'none\'">';
+    html+='<div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">';
     html+='<div style="font-size:14px;font-weight:700;color:#1A1A1A;text-transform:capitalize">'+escapeHtml(k)+'</div>';
+    html+=(costo?'<div style="font-size:12px;font-weight:700;color:#1B5E20;white-space:nowrap">'+costo+' / und</div>':'<div style="font-size:11px;color:#BDBDBD">Sin costos</div>');
+    html+='</div>';
     html+='<div style="font-size:12px;color:#757575;margin-top:3px">'+ings.length+' ingrediente'+(ings.length===1?'':'s')+' · '+escapeHtml(resumen)+'</div>';
     if(recetasInternasCache===null){
       html+='<div style="font-size:10px;color:#FB8C00;margin-top:2px">⚡ Hardcoded — guardá para mover a Firestore</div>';
@@ -7274,58 +7278,81 @@ function _recetaEditorRenderIngredientes(ings){
   const wrap=$("receta-ed-ings");
   if(!wrap)return;
   let html='';
-  ings.forEach((ing,i)=>{
-    html+=_recetaIngRow(i,ing.n,ing.q);
+  ings.forEach(ing=>{
+    html+=_recetaIngRow(ing.n,ing.q,ing.unidad,ing.costoUnit,ing.merma);
   });
   wrap.innerHTML=html;
+  _recetaCalcularTotal();
 }
 
-function _recetaIngRow(i,nombre,q){
-  return '<div id="receta-ing-row-'+i+'" style="display:flex;gap:6px;align-items:center;margin-bottom:6px">'+
-    '<input type="text" value="'+escapeHtml(nombre||'')+'" placeholder="Nombre ingrediente" style="flex:1;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px" id="receta-ing-n-'+i+'">'+
-    '<input type="number" value="'+(q||1)+'" min="0.1" step="0.1" style="width:70px;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;text-align:center" id="receta-ing-q-'+i+'" title="Cantidad por unidad del plato">'+
-    '<button onclick="_recetaIngEliminar('+i+')" style="background:none;border:none;cursor:pointer;color:#B71C1C;font-size:16px;padding:0 4px" title="Quitar">✕</button>'+
+// v7.8.5.1: unidades disponibles para ingredientes de receta
+const RECETA_UNIDADES=["g","kg","ml","L","unidad","porción","taza","cucharada","manojo","paquete"];
+
+function _recetaIngRow(nombre,q,unidad,costoUnit,merma){
+  const opts=RECETA_UNIDADES.map(u=>'<option value="'+u+'"'+(u===(unidad||"unidad")?' selected':'')+'>'+u+'</option>').join('');
+  return '<div class="receta-ing-row" style="border:1px solid #E8E8E8;border-radius:8px;padding:8px 10px;margin-bottom:6px;background:#FAFAFA">'+
+    '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">'+
+      '<input type="text" class="ring-n" value="'+escapeHtml(nombre||'')+'" placeholder="Nombre ingrediente" style="flex:1;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px" oninput="_recetaCalcularTotal()">'+
+      '<input type="number" class="ring-q" value="'+(q||1)+'" min="0.01" step="0.01" style="width:60px;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;text-align:center" title="Cantidad por unidad del plato" oninput="_recetaCalcularTotal()">'+
+      '<button onclick="_recetaIngEliminar(this)" style="background:none;border:none;cursor:pointer;color:#B71C1C;font-size:16px;padding:0 4px;flex-shrink:0" title="Quitar">✕</button>'+
+    '</div>'+
+    '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'+
+      '<span style="font-size:11px;color:#9E9E9E">Unidad:</span>'+
+      '<select class="ring-u" style="padding:3px 5px;border:1px solid #ddd;border-radius:5px;font-size:12px;color:#333" onchange="_recetaCalcularTotal()">'+opts+'</select>'+
+      '<span style="font-size:11px;color:#9E9E9E">$/u:</span>'+
+      '<input type="number" class="ring-c" value="'+(costoUnit>0?costoUnit:'')+'" min="0" step="100" placeholder="—" style="width:90px;padding:3px 6px;border:1px solid #ddd;border-radius:5px;font-size:12px;text-align:right" oninput="_recetaCalcularTotal()">'+
+      '<span style="font-size:11px;color:#9E9E9E">Merma:</span>'+
+      '<input type="number" class="ring-m" value="'+(merma>0?merma:'')+'" min="0" max="99" step="1" placeholder="0" style="width:46px;padding:3px 6px;border:1px solid #ddd;border-radius:5px;font-size:12px;text-align:center" oninput="_recetaCalcularTotal()">'+
+      '<span style="font-size:11px;color:#9E9E9E">%</span>'+
+      '<span class="ring-sub" style="font-size:11px;color:#2E7D32;margin-left:auto;font-weight:600"></span>'+
+    '</div>'+
   '</div>';
 }
 
 function recetaIngAgregar(){
   const wrap=$("receta-ed-ings");
   if(!wrap)return;
-  const rows=wrap.querySelectorAll('[id^="receta-ing-row-"]');
-  const i=rows.length;
   const div=document.createElement("div");
-  div.innerHTML=_recetaIngRow(i,"",1);
+  div.innerHTML=_recetaIngRow("",1,"unidad",0,0);
   wrap.appendChild(div.firstChild);
-  wrap.querySelector("#receta-ing-n-"+i)?.focus();
+  wrap.querySelector('.receta-ing-row:last-child .ring-n')?.focus();
+  _recetaCalcularTotal();
 }
 
-function _recetaIngEliminar(i){
-  const row=$("receta-ing-row-"+i);
-  if(row)row.remove();
-  // re-numerar
+function _recetaIngEliminar(btn){
+  btn.closest('.receta-ing-row')?.remove();
+  _recetaCalcularTotal();
+}
+
+function _recetaCalcularTotal(){
   const wrap=$("receta-ed-ings");
-  if(!wrap)return;
-  const rows=wrap.querySelectorAll('[id^="receta-ing-row-"]');
-  rows.forEach((r,j)=>{
-    r.id="receta-ing-row-"+j;
-    const ni=r.querySelector('[id^="receta-ing-n-"]');
-    const qi=r.querySelector('[id^="receta-ing-q-"]');
-    const bi=r.querySelector('button');
-    if(ni)ni.id="receta-ing-n-"+j;
-    if(qi)qi.id="receta-ing-q-"+j;
-    if(bi)bi.setAttribute("onclick","_recetaIngEliminar("+j+")");
+  const totalEl=$("receta-ed-total");
+  if(!wrap)return 0;
+  let total=0;
+  wrap.querySelectorAll('.receta-ing-row').forEach(r=>{
+    const q=parseFloat(r.querySelector('.ring-q')?.value||0)||0;
+    const c=parseFloat(r.querySelector('.ring-c')?.value||0)||0;
+    const m=parseFloat(r.querySelector('.ring-m')?.value||0)||0;
+    const sub=q*c*(1+(m/100));
+    const subEl=r.querySelector('.ring-sub');
+    if(subEl)subEl.textContent=c>0?fm(sub):'';
+    total+=sub;
   });
+  if(totalEl)totalEl.textContent=total>0?('Costo estimado: '+fm(Math.round(total))+' / unidad'):'Sin precios cargados';
+  return total;
 }
 
 function _recetaEditorCollectIngredientes(){
   const wrap=$("receta-ed-ings");
   if(!wrap)return[];
-  const rows=wrap.querySelectorAll('[id^="receta-ing-row-"]');
   const result=[];
-  rows.forEach((r,j)=>{
-    const n=(r.querySelector("#receta-ing-n-"+j)?.value||"").trim();
-    const q=parseFloat(r.querySelector("#receta-ing-q-"+j)?.value||"1")||1;
-    if(n)result.push({n,q});
+  wrap.querySelectorAll('.receta-ing-row').forEach(r=>{
+    const n=(r.querySelector('.ring-n')?.value||"").trim();
+    const q=parseFloat(r.querySelector('.ring-q')?.value||"1")||1;
+    const unidad=r.querySelector('.ring-u')?.value||"unidad";
+    const costoUnit=parseFloat(r.querySelector('.ring-c')?.value||"0")||0;
+    const merma=parseFloat(r.querySelector('.ring-m')?.value||"0")||0;
+    if(n)result.push({n,q,unidad,costoUnit,merma});
   });
   return result;
 }
@@ -7335,17 +7362,17 @@ async function saveRecetaEditor(){
   if(!nombre){toast("El nombre es obligatorio","warn");return}
   const ingredientes=_recetaEditorCollectIngredientes();
   if(!ingredientes.length){toast("Agrega al menos un ingrediente","warn");return}
+  const costoTotal=Math.round(ingredientes.reduce((s,i)=>s+(i.q||0)*(i.costoUnit||0)*(1+((i.merma||0)/100)),0));
   const src=(recetasInternasCache!==null)?recetasInternasCache:{};
   const existingId=_recetaEditorKey&&src[_recetaEditorKey]?.id||null;
-  // Si editando y cambió el nombre, borrar el key viejo
   const nombreCambio=_recetaEditorKey&&_recetaEditorKey!==nombre;
   showLoader("Guardando...");
   try{
     if(nombreCambio&&existingId){
       await deleteRecetaInternaFromCloud(existingId,_recetaEditorKey);
-      await saveRecetaInternaToCloud(nombre,ingredientes,null);
+      await saveRecetaInternaToCloud(nombre,ingredientes,null,costoTotal);
     }else{
-      await saveRecetaInternaToCloud(nombre,ingredientes,existingId);
+      await saveRecetaInternaToCloud(nombre,ingredientes,existingId,costoTotal);
     }
     hideLoader();
     toast("✅ Receta guardada","success");
