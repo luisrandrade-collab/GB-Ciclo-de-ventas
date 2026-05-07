@@ -156,6 +156,13 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
 .dash-banner-follow .dbf-txt strong{color:#B71C1C;font-weight:800}
 .dash-banner-follow button{background:#C62828;color:#fff;border:none;padding:8px 14px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:var(--gb-font-body)}
 .dash-banner-follow button:active{transform:scale(.97)}
+/* v7.8 F3: banner compras por hacer (lista pendiente) */
+.dash-banner-compras{background:linear-gradient(135deg,#FFF8E1,#FFE082);border:1.5px solid #FFB300;border-left:4px solid #F57F17;border-radius:10px;padding:12px 14px;margin:0 0 14px 0;display:flex;align-items:center;gap:10px;color:#5D4037;font-size:13px;line-height:1.4}
+.dash-banner-compras .dbf-ic{font-size:22px;flex-shrink:0}
+.dash-banner-compras .dbf-txt{flex:1;min-width:0}
+.dash-banner-compras .dbf-txt strong{color:#E65100;font-weight:800}
+.dash-banner-compras button{background:#F57F17;color:#fff;border:none;padding:8px 14px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:var(--gb-font-body)}
+.dash-banner-compras button:active{transform:scale(.97)}
 /* v5.0.4: Pestaña Seguimiento */
 #mode-seg{padding:0}
 .seg-head{padding:14px 8px 6px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
@@ -1809,9 +1816,9 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     <div class="sb-module" data-mod="compras">
       <button class="sb-module__btn"><span class="gb-shell-icon">🛒</span><span class="sb-module__label">Compras</span></button>
       <div class="sb-submenu">
-        <a href="javascript:void(0)" class="is-soon" data-sub="compras/pendientes">Lista pendiente<span class="sub-soon">Pronto</span></a>
-        <a href="javascript:void(0)" class="is-soon" data-sub="compras/historico">Histórico de compras<span class="sub-soon">Pronto</span></a>
-        <a href="javascript:void(0)" class="is-soon" data-sub="compras/catalogo">Catálogo de precios<span class="sub-soon">Pronto</span></a>
+        <a href="javascript:void(0)" data-sub="compras/pendientes">Lista pendiente</a>
+        <a href="javascript:void(0)" data-sub="compras/historico">Histórico</a>
+        <a href="javascript:void(0)" data-sub="compras/catalogo">Catálogo</a>
       </div>
     </div>
 
@@ -1835,6 +1842,16 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       </div>
     </div>
 
+    <!-- v7.8 F1: Proveedores en Maestros (paralelo a Clientes). Reutilizable por v8.x para menaje/transporte. -->
+    <div class="sb-module" data-mod="proveedores">
+      <button class="sb-module__btn"><span class="gb-shell-icon">🏪</span><span class="sb-module__label">Proveedores</span></button>
+      <div class="sb-submenu">
+        <a href="javascript:void(0)" data-sub="proveedores/directorio">Directorio</a>
+      </div>
+    </div>
+
+    <!-- v7.8 F1.5: Herramientas movido fuera de Maestros a sección propia "Configuración" -->
+    <div class="sb-section-label">Configuración</div>
     <div class="sb-module" data-mod="herramientas">
       <button class="sb-module__btn"><span class="gb-shell-icon">⚙️</span><span class="sb-module__label">Herramientas</span></button>
       <div class="sb-submenu">
@@ -1878,6 +1895,10 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'cartera/historico':  'cartera-historico',
     'clientes/directorio':'clientes-directorio',
     'clientes/comentarios':'clientes-comentarios',
+    'proveedores/directorio':'proveedores-directorio',
+    'compras/pendientes':'compras-pendientes',
+    'compras/historico':'compras-historico',
+    'compras/catalogo':'compras-catalogo',
     // Legacy: 'ops/produccion' y 'ops/cobro' descontinuados en F4 (modulo Operaciones disuelto)
     'reportes/excel':       'reportes',
     'reportes/imprimibles': 'reportes',
@@ -1909,6 +1930,11 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'clientes-directorio':  'clientes/directorio',
     'clientes-ficha':       'clientes/directorio',
     'clientes-comentarios': 'clientes/comentarios',
+    'proveedores-directorio':'proveedores/directorio',
+    'proveedores-ficha':     'proveedores/directorio',
+    'compras-pendientes':    'compras/pendientes',
+    'compras-historico':     'compras/historico',
+    'compras-catalogo':      'compras/catalogo',
     'reportes':             'reportes/excel',
     'cotizaciones':         'ventas/cotizaciones',
     'perdidas':             'ventas/perdidas',
@@ -1936,6 +1962,10 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'cartera/historico':  ['Cartera', 'Histórico de cobros'],
     'clientes/directorio':['Clientes', 'Directorio'],
     'clientes/comentarios':['Clientes', 'Comentarios'],
+    'proveedores/directorio':['Proveedores', 'Directorio'],
+    'compras/pendientes':    ['Compras', 'Lista pendiente'],
+    'compras/historico':     ['Compras', 'Histórico'],
+    'compras/catalogo':      ['Compras', 'Catálogo'],
     'reportes/excel':       ['Reportes', 'Exportar Excel'],
     'reportes/imprimibles': ['Reportes', 'Hojas para imprimir'],
     'ventas/cotizaciones':  ['Ventas', 'Cotizaciones activas'],
@@ -2266,6 +2296,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   <div id="dash-warn-fantasmas" class="dash-banner-warn hidden"></div>
   <div id="dash-banner-sync" class="dash-banner-sync hidden"></div>
   <div id="dash-banner-follow" class="dash-banner-follow hidden"></div>
+  <div id="dash-banner-compras-pend" class="dash-banner-compras hidden"></div>
   <div id="dash-banner-hoy" class="dash-banner-hoy hidden" onclick="setMode('cal')"></div>
   <div id="dash-banner-convertidas" class="dash-banner-info hidden"></div>
   <div id="dash-custom-range-info" class="dash-custom-info hidden"></div>
@@ -2883,6 +2914,98 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <button class="btn bg" onclick="openClienteEditor(null)" style="background:#1B5E20;color:#fff">+ Nuevo cliente</button>
     </div>
     <div id="cli-dir-list" style="padding:0 4px"></div>
+  </div>
+</div>
+
+<!-- ======== PROVEEDORES DIRECTORIO MODE (v7.8 F1) — CRUD del directorio de proveedores ======== -->
+<div id="mode-proveedores-directorio" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#5D4037;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <span>🏪 Directorio de proveedores</span>
+      <span id="prov-dir-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+    </div>
+    <div id="prov-dir-toolbar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+      <input id="prov-dir-search" type="text" placeholder="Buscar por nombre, categoría, NIT, tel, email…" oninput="renderProveedoresDirectorio()" style="flex:1;min-width:200px;padding:9px 12px;border:1.5px solid #BDBDBD;border-radius:8px;font-size:13px;font-family:var(--gb-font-body)">
+      <select id="prov-dir-filter-cat" onchange="renderProveedoresDirectorio()" style="padding:9px 10px;border:1.5px solid #BDBDBD;border-radius:8px;font-size:13px;background:#fff">
+        <option value="">Todas las categorías</option>
+        <option value="insumos">Insumos</option>
+        <option value="bebidas">Bebidas</option>
+        <option value="menaje">Menaje</option>
+        <option value="empaques">Empaques</option>
+        <option value="transporte">Transporte</option>
+        <option value="regalos">Regalos</option>
+        <option value="otro">Otro</option>
+      </select>
+      <button class="btn bg" onclick="openProveedorEditor(null)" style="background:#1B5E20;color:#fff">+ Nuevo proveedor</button>
+    </div>
+    <div id="prov-dir-list" style="padding:0 4px"></div>
+  </div>
+</div>
+
+<!-- ======== COMPRAS — LISTA PENDIENTE MODE (v7.8 F3) ======== -->
+<div id="mode-compras-pendientes" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#5D4037;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <span>📋 Lista pendiente</span>
+      <span id="compras-pend-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+    </div>
+    <!-- Anotar rápido -->
+    <div style="background:#FFF8E1;border:1.5px solid #FFCA28;border-radius:12px;padding:12px 14px;margin-bottom:14px">
+      <div style="font-size:12px;color:#5D4037;font-weight:700;margin-bottom:8px">⚡ Anotar rápido</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input id="compras-pend-quick-nombre" type="text" placeholder="¿Qué hay que comprar?" onkeydown="if(event.key==='Enter')comprasPendQuickAdd()" style="flex:1;min-width:200px;padding:10px 12px;border:1.5px solid #FFB300;border-radius:8px;font-size:14px;font-family:var(--gb-font-body);background:#fff">
+        <input id="compras-pend-quick-cant" type="number" min="0" step="any" placeholder="Cant" onkeydown="if(event.key==='Enter')comprasPendQuickAdd()" style="width:80px;padding:10px 11px;border:1.5px solid #FFB300;border-radius:8px;font-size:14px;font-family:var(--gb-font-body);background:#fff;text-align:right">
+        <button onclick="comprasPendQuickAdd()" style="background:#F57F17;color:#fff;border:none;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">+ Anotar</button>
+      </div>
+      <div style="font-size:11px;color:#9E6B3F;margin-top:6px">Sin proveedor ni precio — eso lo completás después al marcar como comprada.</div>
+    </div>
+    <!-- Toolbar -->
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+      <button class="btn bg" onclick="openCompraEditor(null,{estado:'pendiente'})" style="background:#1B5E20;color:#fff">+ Pendiente con detalle</button>
+    </div>
+    <div id="compras-pend-list" style="padding:0 4px"></div>
+  </div>
+</div>
+
+<!-- ======== COMPRAS — HISTÓRICO MODE (v7.8 F4) ======== -->
+<div id="mode-compras-historico" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#1B5E20;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <span>📚 Histórico de compras</span>
+      <span id="compras-hist-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+    </div>
+    <div id="compras-hist-toolbar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+      <input id="compras-hist-from" type="date" onchange="renderComprasHistorico()" style="padding:9px;border:1.5px solid #BDBDBD;border-radius:8px;font-size:13px;font-family:var(--gb-font-body)">
+      <span style="color:#9E9E9E">→</span>
+      <input id="compras-hist-to" type="date" onchange="renderComprasHistorico()" style="padding:9px;border:1.5px solid #BDBDBD;border-radius:8px;font-size:13px;font-family:var(--gb-font-body)">
+      <select id="compras-hist-prov" onchange="renderComprasHistorico()" style="padding:9px;border:1.5px solid #BDBDBD;border-radius:8px;font-size:13px;background:#fff;font-family:var(--gb-font-body);min-width:160px">
+        <option value="">Todos los proveedores</option>
+      </select>
+      <select id="compras-hist-pago" onchange="renderComprasHistorico()" style="padding:9px;border:1.5px solid #BDBDBD;border-radius:8px;font-size:13px;background:#fff;font-family:var(--gb-font-body)">
+        <option value="">Todos los pagos</option>
+        <option value="efectivo">Efectivo</option>
+        <option value="transferencia">Transferencia</option>
+        <option value="credito">Crédito</option>
+        <option value="otro">Otro</option>
+      </select>
+      <button class="btn bg" onclick="openCompraEditor(null,{estado:'comprada'})" style="background:#1B5E20;color:#fff">+ Registrar compra</button>
+    </div>
+    <div id="compras-hist-list" style="padding:0 4px"></div>
+  </div>
+</div>
+
+<!-- ======== COMPRAS — CATÁLOGO MODE (v7.8 F5) ======== -->
+<div id="mode-compras-catalogo" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#1A237E;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <span>📊 Catálogo de precios</span>
+      <span id="compras-cat-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+      <input id="compras-cat-search" type="text" placeholder="Buscar producto…" oninput="renderComprasCatalogo()" style="flex:1;min-width:200px;padding:9px 12px;border:1.5px solid #BDBDBD;border-radius:8px;font-size:13px;font-family:var(--gb-font-body)">
+      <button class="btn bg" onclick="openPrecioListaModal()" style="background:#1A237E;color:#fff">+ Precio de lista</button>
+    </div>
+    <div id="compras-cat-list" style="padding:0 4px"></div>
   </div>
 </div>
 
@@ -3778,19 +3901,28 @@ body{padding-bottom:84px}
       <span class="icon" style="background:var(--gb-warning-50);color:var(--gb-warning-600)"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="4" width="12" height="9" rx="1"/><path d="M5.5 4V2.5h5V4"/></svg></span>
       <div class="body"><div class="title">Registrar pedido directo</div><div class="desc">Sin pasar por cotización (cliente conocido)</div></div>
     </a>
-    <a class="sheet__item is-soon" data-action="soon" href="#">
-      <span class="icon" style="background:var(--gb-success-50);color:var(--gb-success-700)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h2.5l1.5 8h7L14 5H4.5"/><circle cx="6" cy="14" r="1"/><circle cx="12" cy="14" r="1"/></svg></span>
-      <div class="body"><div class="title">Registrar compra realizada</div><div class="desc">Con foto de tiquete y categoría</div></div>
+    <!-- v7.8 F3: "Anotar pendiente compra" activado — lleva a Lista pendiente con foco en input -->
+    <a class="sheet__item" data-action="add-pendiente" href="#">
+      <span class="icon" style="background:var(--gb-warning-50);color:var(--gb-warning-600)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3h10v10H3z"/><path d="M6 6h4M6 9h4"/></svg></span>
+      <div class="body"><div class="title">Anotar pendiente compra</div><div class="desc">Qué hace falta comprar (sin proveedor todavía)</div></div>
     </a>
-    <div class="sheet__group-label">Otros</div>
-    <a class="sheet__item is-soon" data-action="soon" href="#">
+    <!-- v7.8 F2: "Anotar compra" activado — abre modal compra con estado=comprada -->
+    <a class="sheet__item" data-action="add-compra" href="#">
+      <span class="icon" style="background:var(--gb-success-50);color:var(--gb-success-700)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h2.5l1.5 8h7L14 5H4.5"/><circle cx="6" cy="14" r="1"/><circle cx="12" cy="14" r="1"/></svg></span>
+      <div class="body"><div class="title">Anotar compra</div><div class="desc">Compra realizada con proveedor, ítems y comprobante</div></div>
+    </a>
+    <div class="sheet__group-label">Maestros</div>
+    <!-- v7.8 F1.5: activado "Agregar cliente" — abre modal directo (modal vive siempre montado en index.html) -->
+    <a class="sheet__item" data-action="add-cliente" href="#">
       <span class="icon" style="background:var(--gb-neutral-100,#f0f1f5);color:var(--gb-neutral-700,#3a3f4c)"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5.5" r="2.5"/><path d="M2.5 13.5c0-2.5 2.5-4 5.5-4s5.5 1.5 5.5 4"/></svg></span>
       <div class="body"><div class="title">Agregar cliente</div><div class="desc">Persona natural o empresa</div></div>
     </a>
-    <a class="sheet__item is-soon" data-action="soon" href="#">
-      <span class="icon" style="background:var(--gb-info-50);color:var(--gb-info-500)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M3 8h10M3 11.5h7"/></svg></span>
-      <div class="body"><div class="title">Nueva tarea o follow-up</div><div class="desc">Con fecha, recordatorio y vinculación opcional a cliente</div></div>
+    <!-- v7.8 F1.5: nuevo "Agregar proveedor" -->
+    <a class="sheet__item" data-action="add-proveedor" href="#">
+      <span class="icon" style="background:var(--gb-neutral-100,#f0f1f5);color:var(--gb-neutral-700,#3a3f4c)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h12v8H2z"/><path d="M2 6L4 2h8l2 4"/><path d="M6 10h4"/></svg></span>
+      <div class="body"><div class="title">Agregar proveedor</div><div class="desc">Mínimo el nombre — el resto opcional</div></div>
     </a>
+    <!-- v7.8 F1.5: "Nueva tarea o follow-up" eliminado — ya está en sidebar Inicio > Tareas y follow-ups -->
   </div>
 </div>
 <script>
@@ -3812,7 +3944,15 @@ body{padding-bottom:84px}
       setTimeout(function(){
         if(action==='cot'&&typeof window.setMode==='function')window.setMode('cot');
         else if(action==='prop'&&typeof window.setMode==='function')window.setMode('prop');
-        else if(action==='soon'&&typeof window.soonToast==='function')window.soonToast('Próximamente · v7.1');
+        // v7.8 F1.5: atajos directos a modales (no cambian de modo)
+        else if(action==='add-cliente'&&typeof window.openClienteEditor==='function')window.openClienteEditor(null);
+        else if(action==='add-proveedor'&&typeof window.openProveedorEditor==='function')window.openProveedorEditor(null);
+        else if(action==='add-compra'&&typeof window.openCompraEditor==='function')window.openCompraEditor(null,{estado:'comprada'});
+        else if(action==='add-pendiente'){
+          if(typeof window.setMode==='function')window.setMode('compras-pendientes');
+          setTimeout(function(){var el=document.getElementById('compras-pend-quick-nombre');if(el)el.focus();},250);
+        }
+        else if(action==='soon'&&typeof window.soonToast==='function')window.soonToast('Próximamente · v7.8');
       },200);
     });
   });
@@ -3956,14 +4096,252 @@ body{padding-bottom:84px}
   </div>
 </div>
 
+<!-- ======== PROVEEDOR EDITOR MODAL (v7.8 F1) ======== -->
+<div id="prov-ed-modal" class="hidden" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto">
+  <div style="background:#fff;border-radius:14px;max-width:560px;width:100%;padding:18px 20px;box-shadow:0 8px 32px rgba(0,0,0,.3);font-family:var(--gb-font-body)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #E0E0E0">
+      <div id="prov-ed-title" style="font-size:18px;font-weight:700;color:#1A1A1A">Editar proveedor</div>
+      <button onclick="closeProveedorEditor()" style="background:transparent;border:none;font-size:24px;cursor:pointer;color:#9E9E9E;padding:0 6px">×</button>
+    </div>
+
+    <!-- Nombre -->
+    <div style="margin-bottom:12px">
+      <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Nombre <span style="color:#C62828">*</span></label>
+      <input id="prov-ed-nombre" type="text" placeholder="Walmart, Distribuidora La 80, etc." style="width:100%;padding:10px 12px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:14px;font-family:var(--gb-font-body)">
+    </div>
+
+    <!-- Categoría + Categoría libre (Otro) -->
+    <div style="margin-bottom:12px">
+      <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Categoría</label>
+      <select id="prov-ed-categoria" onchange="provEdToggleCatOtro()" style="width:100%;padding:9px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px;font-family:var(--gb-font-body)">
+        <option value="">—</option>
+        <option value="insumos">🥬 Insumos</option>
+        <option value="bebidas">🥤 Bebidas</option>
+        <option value="menaje">🍽️ Menaje</option>
+        <option value="empaques">📦 Empaques</option>
+        <option value="transporte">🚛 Transporte</option>
+        <option value="regalos">🎁 Regalos</option>
+        <option value="otro">✏️ Otro (escribir)</option>
+      </select>
+    </div>
+    <div id="prov-ed-categoriaPersonalizada-wrap" class="hidden" style="margin-bottom:12px">
+      <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Categoría personalizada</label>
+      <input id="prov-ed-categoriaPersonalizada" type="text" placeholder="ej: flores, decoración, repostería" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body)">
+    </div>
+
+    <!-- Más datos (collapsable) -->
+    <details style="margin-bottom:12px;background:#FAFAFA;border:1px solid #E0E0E0;border-radius:8px;padding:10px 12px">
+      <summary style="cursor:pointer;font-weight:700;color:#5D4037;font-size:13px">📇 Más datos (opcional)</summary>
+      <div style="margin-top:10px">
+        <!-- ID -->
+        <div style="display:grid;grid-template-columns:90px 1fr;gap:10px;margin-bottom:10px">
+          <div>
+            <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Tipo doc</label>
+            <select id="prov-ed-tipoId" style="width:100%;padding:8px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px;font-family:var(--gb-font-body)">
+              <option value="">—</option>
+              <option value="NIT">NIT</option>
+              <option value="CC">CC</option>
+              <option value="CE">CE</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Número</label>
+            <input id="prov-ed-idNum" type="text" placeholder="900123456" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body)">
+          </div>
+        </div>
+        <!-- Tel + Email -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div>
+            <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Teléfono</label>
+            <input id="prov-ed-tel" type="text" placeholder="3001234567" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body)">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Email</label>
+            <input id="prov-ed-email" type="email" placeholder="ventas@proveedor.com" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body)">
+          </div>
+        </div>
+        <!-- Dirección -->
+        <div style="margin-bottom:10px">
+          <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Dirección</label>
+          <input id="prov-ed-direccion" type="text" placeholder="Cra 10 #5-50" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body)">
+        </div>
+        <!-- Quién atiende -->
+        <div style="margin-bottom:6px">
+          <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Quién atiende</label>
+          <input id="prov-ed-quienAtiende" type="text" placeholder="Carlos — vendedor zona norte" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body)">
+        </div>
+      </div>
+    </details>
+
+    <!-- Notas -->
+    <div style="margin-bottom:14px">
+      <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Notas</label>
+      <textarea id="prov-ed-notas" rows="2" placeholder="Tiempos de entrega, mínimos, condiciones de pago, etc." style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px;font-family:var(--gb-font-body);resize:vertical"></textarea>
+    </div>
+
+    <!-- Acciones -->
+    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid #E0E0E0">
+      <button id="prov-ed-del-btn" onclick="delProveedorEditor()" style="background:#fff;color:#C62828;border:1px solid #EF9A9A;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">🗑️ Eliminar</button>
+      <div style="display:flex;gap:8px">
+        <button onclick="closeProveedorEditor()" style="background:#fff;color:#5D4037;border:1px solid #BDBDBD;padding:9px 14px;border-radius:8px;font-size:13px;cursor:pointer;font-family:var(--gb-font-body)">Cancelar</button>
+        <button onclick="saveProveedorEditor()" style="background:#1B5E20;color:#fff;border:none;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======== COMPRA EDITOR MODAL (v7.8 F2) ======== -->
+<div id="compra-ed-modal" class="hidden" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto">
+  <div style="background:#fff;border-radius:14px;max-width:680px;width:100%;padding:18px 20px;box-shadow:0 8px 32px rgba(0,0,0,.3);font-family:var(--gb-font-body)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #E0E0E0">
+      <div id="compra-ed-title" style="font-size:18px;font-weight:700;color:#1A1A1A">Editar compra</div>
+      <button onclick="closeCompraEditor()" style="background:transparent;border:none;font-size:24px;cursor:pointer;color:#9E9E9E;padding:0 6px">×</button>
+    </div>
+
+    <!-- Estado (radio inline) -->
+    <div style="display:flex;gap:14px;margin-bottom:14px;padding:8px 12px;background:#FAFAFA;border-radius:8px">
+      <label style="font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px">
+        <input type="radio" name="compra-ed-estado" value="pendiente" id="compra-ed-estado-pendiente" onchange="compraEdToggleEstado()"> 📋 Pendiente
+      </label>
+      <label style="font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px">
+        <input type="radio" name="compra-ed-estado" value="comprada" id="compra-ed-estado-comprada" onchange="compraEdToggleEstado()"> ✅ Comprada
+      </label>
+    </div>
+
+    <!-- Proveedor + crear inline -->
+    <div style="margin-bottom:12px">
+      <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Proveedor <span style="color:#C62828">*</span></label>
+      <div style="display:flex;gap:8px">
+        <select id="compra-ed-proveedorId" style="flex:1;padding:9px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body);background:#fff">
+          <option value="">— Seleccionar proveedor —</option>
+        </select>
+        <button onclick="compraEdQuickCreateProveedor()" style="padding:9px 12px;background:#fff;color:#1B5E20;border:1.5px solid #1B5E20;border-radius:6px;font-size:13px;cursor:pointer;white-space:nowrap;font-family:var(--gb-font-body)">+ Nuevo</button>
+      </div>
+    </div>
+
+    <!-- Fecha + Forma de pago -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+      <div>
+        <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Fecha</label>
+        <input id="compra-ed-fecha" type="date" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body)">
+      </div>
+      <div>
+        <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Forma de pago</label>
+        <select id="compra-ed-formaPago" style="width:100%;padding:9px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px;font-family:var(--gb-font-body);background:#fff">
+          <option value="">—</option>
+          <option value="efectivo">💵 Efectivo</option>
+          <option value="transferencia">🏦 Transferencia</option>
+          <option value="credito">📅 Crédito</option>
+          <option value="otro">Otro</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Items dinámicos -->
+    <div style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <label style="font-size:11px;color:#757575;font-weight:700;letter-spacing:.04em;text-transform:uppercase">Ítems comprados</label>
+        <button onclick="compraEdAddItem()" style="padding:5px 10px;background:#1B5E20;color:#fff;border:none;border-radius:5px;font-size:11.5px;cursor:pointer;font-weight:600">+ Agregar ítem</button>
+      </div>
+      <datalist id="compra-ed-items-datalist"></datalist>
+      <div id="compra-ed-items-list" style="display:flex;flex-direction:column;gap:6px"></div>
+    </div>
+
+    <!-- Total -->
+    <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;margin-bottom:12px;padding:10px 12px;background:#F1F8E9;border-radius:8px">
+      <label style="font-size:13px;color:#1B5E20;font-weight:700">Total</label>
+      <input id="compra-ed-total" type="number" min="0" step="any" placeholder="Calculado automáticamente" style="width:160px;padding:9px 11px;border:1.5px solid #1B5E20;border-radius:6px;font-size:14px;font-weight:700;text-align:right;font-family:var(--gb-font-body);color:#1B5E20;background:#fff">
+    </div>
+
+    <!-- Comprobante -->
+    <div style="margin-bottom:12px">
+      <label style="font-size:11px;color:#757575;display:block;margin-bottom:6px">📷 Comprobante (foto del tiquete o factura)</label>
+      <input id="compra-ed-foto-input" type="file" accept="image/*" capture="environment" onchange="compraEdPreviewFoto(event)" style="font-size:12px">
+      <div id="compra-ed-foto-preview" style="margin-top:6px"></div>
+    </div>
+
+    <!-- Nota -->
+    <div style="margin-bottom:14px">
+      <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Nota</label>
+      <textarea id="compra-ed-nota" rows="2" placeholder="Detalles, descuentos aplicados, observaciones..." style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px;font-family:var(--gb-font-body);resize:vertical"></textarea>
+    </div>
+
+    <!-- Acciones -->
+    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid #E0E0E0">
+      <button id="compra-ed-del-btn" onclick="delCompraEditor()" style="background:#fff;color:#C62828;border:1px solid #EF9A9A;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">🗑️ Eliminar</button>
+      <div style="display:flex;gap:8px">
+        <button onclick="closeCompraEditor()" style="background:#fff;color:#5D4037;border:1px solid #BDBDBD;padding:9px 14px;border-radius:8px;font-size:13px;cursor:pointer;font-family:var(--gb-font-body)">Cancelar</button>
+        <button onclick="saveCompraEditor()" style="background:#1B5E20;color:#fff;border:none;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======== PRECIO DE LISTA MODAL (v7.8 F5) ======== -->
+<div id="precio-lista-modal" class="hidden" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto">
+  <div style="background:#fff;border-radius:14px;max-width:480px;width:100%;padding:18px 20px;box-shadow:0 8px 32px rgba(0,0,0,.3);font-family:var(--gb-font-body)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #E0E0E0">
+      <div id="precio-lista-title" style="font-size:18px;font-weight:700;color:#1A1A1A">+ Precio de lista</div>
+      <button onclick="closePrecioListaModal()" style="background:transparent;border:none;font-size:24px;cursor:pointer;color:#9E9E9E;padding:0 6px">×</button>
+    </div>
+    <div style="font-size:12px;color:#5D4037;margin-bottom:12px;background:#FFF8E1;padding:8px 11px;border-radius:6px;border:1px solid #FFE082">
+      Anotá un precio de lista de un proveedor sin necesidad de haber comprado todavía. Aparece en el Catálogo junto a las compras reales.
+    </div>
+    <div style="margin-bottom:10px">
+      <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Producto <span style="color:#C62828">*</span></label>
+      <input id="precio-lista-producto" type="text" list="compra-ed-items-datalist" placeholder="ej: Jamón serrano 500g" style="width:100%;padding:10px 12px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:14px;font-family:var(--gb-font-body)">
+    </div>
+    <div style="margin-bottom:10px">
+      <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Proveedor <span style="color:#C62828">*</span></label>
+      <select id="precio-lista-proveedorId" style="width:100%;padding:9px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body);background:#fff">
+        <option value="">— Seleccionar proveedor —</option>
+      </select>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+      <div>
+        <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Precio <span style="color:#C62828">*</span></label>
+        <input id="precio-lista-precio" type="number" min="0" step="any" placeholder="0" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body);text-align:right">
+      </div>
+      <div>
+        <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Fecha</label>
+        <input id="precio-lista-fecha" type="date" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body)">
+      </div>
+    </div>
+    <div style="margin-bottom:14px">
+      <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Nota</label>
+      <input id="precio-lista-nota" type="text" placeholder="ej: Sin IVA · mínimo 10 unidades" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px;font-family:var(--gb-font-body)">
+    </div>
+    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid #E0E0E0">
+      <button id="precio-lista-del-btn" onclick="delPrecioLista()" style="background:#fff;color:#C62828;border:1px solid #EF9A9A;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">🗑️ Eliminar</button>
+      <div style="display:flex;gap:8px">
+        <button onclick="closePrecioListaModal()" style="background:#fff;color:#5D4037;border:1px solid #BDBDBD;padding:9px 14px;border-radius:8px;font-size:13px;cursor:pointer;font-family:var(--gb-font-body)">Cancelar</button>
+        <button onclick="savePrecioLista()" style="background:#1A237E;color:#fff;border:none;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======== PROVEEDOR QUICK-CREATE MODAL (v7.8 F2) — desde modal compra ======== -->
+<div id="prov-quick-modal" class="hidden" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:310;display:flex;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border-radius:14px;max-width:380px;width:100%;padding:18px 20px;box-shadow:0 8px 32px rgba(0,0,0,.3);font-family:var(--gb-font-body)">
+    <div style="font-size:16px;font-weight:700;color:#1A1A1A;margin-bottom:12px">+ Nuevo proveedor (rápido)</div>
+    <input id="prov-quick-nombre" type="text" placeholder="Nombre del proveedor" style="width:100%;padding:10px 12px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:14px;font-family:var(--gb-font-body);margin-bottom:12px">
+    <div style="font-size:11px;color:#9E9E9E;margin-bottom:12px">Después podés completar los datos en Maestros &gt; Proveedores.</div>
+    <div style="display:flex;justify-content:flex-end;gap:8px">
+      <button onclick="closeProvQuick()" style="background:#fff;color:#5D4037;border:1px solid #BDBDBD;padding:8px 14px;border-radius:6px;font-size:13px;cursor:pointer;font-family:var(--gb-font-body)">Cancelar</button>
+      <button onclick="saveProvQuick()" style="background:#1B5E20;color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">Crear</button>
+    </div>
+  </div>
+</div>
+
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.7.5.2"></script>
-<script src="app-core.js?v=7.7.5.2"></script>
-<script src="app-cotizar.js?v=7.7.5.2"></script>
-<script src="app-propuesta.js?v=7.7.5.2"></script>
-<script src="app-historial.js?v=7.7.5.2"></script>
-<script src="app-seguimiento.js?v=7.7.5.2"></script>
-<script src="app-dashboard.js?v=7.7.5.2"></script>
+<script src="app-assets.js?v=7.8.0"></script>
+<script src="app-core.js?v=7.8.0"></script>
+<script src="app-cotizar.js?v=7.8.0"></script>
+<script src="app-propuesta.js?v=7.8.0"></script>
+<script src="app-historial.js?v=7.8.0"></script>
+<script src="app-seguimiento.js?v=7.8.0"></script>
+<script src="app-dashboard.js?v=7.8.0"></script>
 </body>
 </html>

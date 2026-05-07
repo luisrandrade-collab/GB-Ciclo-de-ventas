@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.7.5.2";
+const BUILD_VERSION="v7.8.0";
 const BUILD_DATE="2026-04-24";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -381,6 +381,9 @@ const $=id=>document.getElementById(id);
 let cart=[],cust=[],selCat="Todas",curStep="info",curMode="dash";
 let cloudOnline=false;
 let clientsCache=[];
+let proveedoresCache=[];  // v7.8 F1
+let comprasCache=[];      // v7.8 F2
+let preciosCatalogoCache=[];  // v7.8 F5
 let customProductsCache=[];
 let quotesCache=[];
 let currentQuoteNumber=null;
@@ -1139,6 +1142,164 @@ async function deleteClientFromCloud(id){
   localStorage.setItem("gb_clients_cache",JSON.stringify(clientsCache));
 }
 
+// ─── v7.8 F1: PROVEEDORES (collection 'proveedores') ───────
+// Mismo patrón que clientes: load/save (upsert por nombre)/delete + cache local
+// + fallback localStorage. Variable proveedoresCache definida arriba.
+async function loadProveedoresFromCloud(){
+  try{
+    const {db,collection,getDocs,query,orderBy}=window.fb;
+    const q=query(collection(db,"proveedores"),orderBy("nombre"));
+    const snap=await getDocs(q);
+    proveedoresCache=[];
+    snap.forEach(d=>proveedoresCache.push({id:d.id,...d.data()}));
+    localStorage.setItem("gb_proveedores_cache",JSON.stringify(proveedoresCache));
+    return proveedoresCache;
+  }catch(e){
+    console.error("loadProveedores error",e);
+    try{proveedoresCache=JSON.parse(localStorage.getItem("gb_proveedores_cache")||"[]")}catch{}
+    return proveedoresCache;
+  }
+}
+
+function _cleanProveedorObjForUpdate(obj){
+  const out={};
+  Object.keys(obj).forEach(k=>{
+    const v=obj[k];
+    if(typeof v==="string"){if(v.trim()!=="")out[k]=v}
+    else if(v!==undefined&&v!==null)out[k]=v;
+  });
+  return out;
+}
+
+async function saveProveedorToCloud(obj,opts){
+  const {db,collection,doc,addDoc,updateDoc,serverTimestamp}=window.fb;
+  const fullUpdate=opts&&opts.fullUpdate===true;
+  // Si opts.id viene, edición directa por id (caso modal). Sin id → upsert por nombre.
+  const targetId=opts&&opts.id;
+  const existing=targetId
+    ? proveedoresCache.find(p=>p.id===targetId)
+    : proveedoresCache.find(p=>(p.nombre||"").toLowerCase()===(obj.nombre||"").toLowerCase());
+  if(existing&&existing.id){
+    const updateObj=fullUpdate?obj:_cleanProveedorObjForUpdate(obj);
+    await updateDoc(doc(db,"proveedores",existing.id),{...updateObj,updatedAt:serverTimestamp(),...auditStamp()});
+    Object.assign(existing,updateObj);
+  }else{
+    const ref=await addDoc(collection(db,"proveedores"),{...obj,createdAt:serverTimestamp(),updatedAt:serverTimestamp(),...auditStamp()});
+    proveedoresCache.push({id:ref.id,...obj});
+    proveedoresCache.sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||""));
+  }
+  localStorage.setItem("gb_proveedores_cache",JSON.stringify(proveedoresCache));
+}
+
+// Borra proveedor SI no tiene compras vinculadas. Si tiene → marca archivado=true.
+// Devuelve {modo: "borrado"|"archivado", comprasVinculadas: N}
+async function deleteOrArchiveProveedor(id){
+  const {db,doc,deleteDoc,updateDoc,serverTimestamp}=window.fb;
+  const vinculadas=(typeof comprasCache!=="undefined")
+    ? comprasCache.filter(c=>c.proveedorId===id).length
+    : 0;
+  if(vinculadas>0){
+    await updateDoc(doc(db,"proveedores",id),{archivado:true,updatedAt:serverTimestamp(),...auditStamp()});
+    const p=proveedoresCache.find(x=>x.id===id);if(p)p.archivado=true;
+    localStorage.setItem("gb_proveedores_cache",JSON.stringify(proveedoresCache));
+    return {modo:"archivado",comprasVinculadas:vinculadas};
+  }
+  await deleteDoc(doc(db,"proveedores",id));
+  proveedoresCache=proveedoresCache.filter(p=>p.id!==id);
+  localStorage.setItem("gb_proveedores_cache",JSON.stringify(proveedoresCache));
+  return {modo:"borrado",comprasVinculadas:0};
+}
+
+// ─── v7.8 F2: COMPRAS (collection 'compras') ────────────────
+// Modelo: { proveedorId, proveedorNombre (snapshot), fecha, items[], total,
+//           formaPago, comprobante: {url,path}|null, nota, estado, createdAt, updatedAt }
+async function loadComprasFromCloud(){
+  try{
+    const {db,collection,getDocs,query,orderBy}=window.fb;
+    // Sin orderBy en Firestore para no exigir índice — sort en cliente
+    const snap=await getDocs(collection(db,"compras"));
+    comprasCache=[];
+    snap.forEach(d=>comprasCache.push({id:d.id,...d.data()}));
+    // Orden: sin fecha (pendientes) primero, luego fecha desc
+    comprasCache.sort((a,b)=>{
+      const fa=a.fecha||"";const fb=b.fecha||"";
+      if(!fa&&fb)return -1;
+      if(fa&&!fb)return 1;
+      return fb.localeCompare(fa);
+    });
+    localStorage.setItem("gb_compras_cache",JSON.stringify(comprasCache));
+    return comprasCache;
+  }catch(e){
+    console.error("loadCompras error",e);
+    try{comprasCache=JSON.parse(localStorage.getItem("gb_compras_cache")||"[]")}catch{}
+    return comprasCache;
+  }
+}
+
+async function saveCompraToCloud(obj,opts){
+  const {db,collection,doc,addDoc,updateDoc,serverTimestamp}=window.fb;
+  const targetId=opts&&opts.id;
+  if(targetId){
+    await updateDoc(doc(db,"compras",targetId),{...obj,updatedAt:serverTimestamp(),...auditStamp()});
+    const c=comprasCache.find(x=>x.id===targetId);
+    if(c)Object.assign(c,obj);
+    localStorage.setItem("gb_compras_cache",JSON.stringify(comprasCache));
+    return targetId;
+  }
+  const nowIso=new Date().toISOString();
+  const ref=await addDoc(collection(db,"compras"),{...obj,createdAt:serverTimestamp(),createdAtIso:nowIso,updatedAt:serverTimestamp(),...auditStamp()});
+  comprasCache.unshift({id:ref.id,...obj,createdAtIso:nowIso});
+  localStorage.setItem("gb_compras_cache",JSON.stringify(comprasCache));
+  return ref.id;
+}
+
+async function deleteCompraFromCloud(id){
+  const {db,doc,deleteDoc}=window.fb;
+  await deleteDoc(doc(db,"compras",id));
+  comprasCache=comprasCache.filter(c=>c.id!==id);
+  localStorage.setItem("gb_compras_cache",JSON.stringify(comprasCache));
+}
+
+// ─── v7.8 F5: PRECIOS CATÁLOGO (collection 'preciosCatalogo') ───
+// Entradas manuales de precio sin compra real. Collection separada para no
+// contaminar queries de compras. Modelo: {producto (norm), productoOriginal,
+// proveedorId, proveedorNombre, precio, fecha, nota}.
+async function loadPreciosCatalogoFromCloud(){
+  try{
+    const {db,collection,getDocs}=window.fb;
+    const snap=await getDocs(collection(db,"preciosCatalogo"));
+    preciosCatalogoCache=[];
+    snap.forEach(d=>preciosCatalogoCache.push({id:d.id,...d.data()}));
+    localStorage.setItem("gb_preciosCatalogo_cache",JSON.stringify(preciosCatalogoCache));
+    return preciosCatalogoCache;
+  }catch(e){
+    console.error("loadPreciosCatalogo error",e);
+    try{preciosCatalogoCache=JSON.parse(localStorage.getItem("gb_preciosCatalogo_cache")||"[]")}catch{}
+    return preciosCatalogoCache;
+  }
+}
+
+async function savePrecioCatalogoToCloud(obj,opts){
+  const {db,collection,doc,addDoc,updateDoc,serverTimestamp}=window.fb;
+  const targetId=opts&&opts.id;
+  if(targetId){
+    await updateDoc(doc(db,"preciosCatalogo",targetId),{...obj,updatedAt:serverTimestamp(),...auditStamp()});
+    const e=preciosCatalogoCache.find(x=>x.id===targetId);
+    if(e)Object.assign(e,obj);
+  }else{
+    const ref=await addDoc(collection(db,"preciosCatalogo"),{...obj,createdAt:serverTimestamp(),...auditStamp()});
+    preciosCatalogoCache.push({id:ref.id,...obj});
+  }
+  localStorage.setItem("gb_preciosCatalogo_cache",JSON.stringify(preciosCatalogoCache));
+}
+
+async function deletePrecioCatalogoFromCloud(id){
+  const {db,doc,deleteDoc}=window.fb;
+  await deleteDoc(doc(db,"preciosCatalogo",id));
+  preciosCatalogoCache=preciosCatalogoCache.filter(p=>p.id!==id);
+  localStorage.setItem("gb_preciosCatalogo_cache",JSON.stringify(preciosCatalogoCache));
+}
+
 // v7.7.1: extrae clientes únicos de quotesCache que NO existen en clientsCache.
 // Crea cada uno como tipo='persona', categoria='particular' (defaults).
 // Idempotente: skip si ya existe por nombre (case-insensitive + trim).
@@ -1750,6 +1911,9 @@ async function initApp(){
   await fbReady();
   try{
     await loadClientsFromCloud();
+    await loadProveedoresFromCloud();
+    await loadComprasFromCloud();
+    await loadPreciosCatalogoFromCloud();
     await loadCustomProducts();
     await loadPriceMemory();
     setCloudStatus(true);
@@ -1797,7 +1961,9 @@ function setMode(m){
   // v7.7.1: agregado 'clientes-directorio' (módulo Clientes CRM)
   // v7.7.2: agregado 'clientes-ficha' (vista detalle del cliente desde directorio)
   // v7.7.3: agregado 'clientes-comentarios' (migrado del Dashboard)
-  ["dash","cot","prop","search","hist","seg","cal","ventas","cartera","cartera-historico","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup","clientes-directorio","clientes-ficha","clientes-comentarios"].forEach(x=>{
+  // v7.8 F1: agregado 'proveedores-directorio' (módulo Proveedores en Maestros)
+  // v7.8 F3-F5: agregados 'compras-pendientes', 'compras-historico', 'compras-catalogo'
+  ["dash","cot","prop","search","hist","seg","cal","ventas","cartera","cartera-historico","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup","clientes-directorio","clientes-ficha","clientes-comentarios","proveedores-directorio","compras-pendientes","compras-historico","compras-catalogo"].forEach(x=>{
     const el=$("mode-"+x);
     if(el)el.classList.toggle("hidden",x!==m);
     document.querySelectorAll(".mode-btn.m-"+x).forEach(b=>b.classList.toggle("act",x===m));
@@ -1814,6 +1980,10 @@ function setMode(m){
   if(m==="clientes-directorio"&&typeof renderClientesDirectorio==="function")renderClientesDirectorio();
   if(m==="clientes-ficha"&&typeof renderClienteFicha==="function")renderClienteFicha();
   if(m==="clientes-comentarios"&&typeof renderClientesComentarios==="function")renderClientesComentarios();
+  if(m==="proveedores-directorio"&&typeof renderProveedoresDirectorio==="function")renderProveedoresDirectorio();
+  if(m==="compras-pendientes"&&typeof renderComprasPendientes==="function")renderComprasPendientes();
+  if(m==="compras-historico"&&typeof renderComprasHistorico==="function")renderComprasHistorico();
+  if(m==="compras-catalogo"&&typeof renderComprasCatalogo==="function")renderComprasCatalogo();
   if(m==="backup"&&typeof renderSyncAgendaPanel==="function")renderSyncAgendaPanel();
   if(m==="reportes"&&typeof renderReportes==="function")renderReportes();
   if(m==="cotizaciones"&&typeof renderCotizaciones==="function")renderCotizaciones();
@@ -1903,6 +2073,13 @@ async function doSearch(){
   C.forEach(p=>{if(p.n.toLowerCase().includes(qStr)||(p.d||"").toLowerCase().includes(qStr))results.push({type:"prod",id:p.id,data:p})});
   customProductsCache.forEach(cp=>{if(cp.n.toLowerCase().includes(qStr)||(cp.d||"").toLowerCase().includes(qStr))results.push({type:"cprod",id:cp.id,data:cp})});
   clientsCache.forEach(c=>{if(c.name.toLowerCase().includes(qStr)||(c.idnum||"").includes(qStr)||(c.tel||"").includes(qStr))results.push({type:"cli",id:c.id,data:c})});
+  // v7.8 F1: incluir proveedores en búsqueda global
+  proveedoresCache.forEach(p=>{
+    if(p.archivado)return;
+    const n=(p.nombre||"").toLowerCase();
+    if(n.includes(qStr)||(p.idNum||"").includes(qStr)||(p.tel||"").includes(qStr)||(p.email||"").toLowerCase().includes(qStr))
+      results.push({type:"prov",id:p.id,data:p});
+  });
   if(!quotesCache.length&&cloudOnline){try{await loadAllHistory()}catch{}}
   quotesCache.forEach(q=>{
     const qn=(q.quoteNumber||q.id||"").toLowerCase();
