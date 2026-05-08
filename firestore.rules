@@ -1,0 +1,103 @@
+// Gourmet Bites v7 — Firestore Security Rules
+// Diseñadas: 2026-05-08 PM
+// Pre-condición v7.9 #1
+//
+// MODELO: nivel B (medio) — whitelist de emails + ajustesLog append-only.
+// Una vez deployado, requiere que la skill capture-receta migre a OAuth
+// desktop flow (decisión 2026-05-08, aún pendiente).
+//
+// Para deployar:
+//   firebase deploy --only firestore:rules
+// Ver _internos/Firestore_rules_deploy_procedure.md
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── Whitelist de usuarios autorizados ──────────────────────
+    // Solo emails listados pueden leer/escribir cualquier collection.
+    // Para agregar a Kathy o JP, sumar su email Google a esta lista.
+    function isAuthorized() {
+      return request.auth != null
+          && request.auth.token.email_verified == true
+          && request.auth.token.email in [
+               'luisrandrade@gmail.com'
+             ];
+    }
+
+    // ─── Default deny ───────────────────────────────────────────
+    // Cualquier path no listado abajo queda bloqueado para todos.
+    // Esto incluye cualquier collection nueva que se cree sin actualizar
+    // este archivo — mejor falla cerrada que abierta.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ─── Collections operativas (CRUD completo si autorizado) ───
+
+    // Cotizaciones GB-COT-*
+    match /quotes/{docId} {
+      allow read, write: if isAuthorized();
+    }
+
+    // Propuestas iniciales GB-PROP-*
+    match /proposals/{docId} {
+      allow read, write: if isAuthorized();
+    }
+
+    // Propuestas finales GB-PF-*
+    match /propfinals/{docId} {
+      allow read, write: if isAuthorized();
+    }
+
+    // Directorio de clientes
+    match /clients/{docId} {
+      allow read, write: if isAuthorized();
+    }
+
+    // Directorio de proveedores
+    match /proveedores/{docId} {
+      allow read, write: if isAuthorized();
+    }
+
+    // Compras registradas
+    match /compras/{docId} {
+      allow read, write: if isAuthorized();
+    }
+
+    // Catálogo de productos de compra frecuente
+    match /preciosCatalogo/{docId} {
+      allow read, write: if isAuthorized();
+    }
+
+    // Productos custom registrados desde cotizaciones
+    match /custom_products/{docId} {
+      allow read, write: if isAuthorized();
+    }
+
+    // Recetas internas (ingredientes + costos por producto)
+    // La skill capture-receta escribe acá vía REST API. Cuando deployen
+    // estas rules, debe migrar a OAuth para autenticarse como Luis.
+    match /recetasInternas/{docId} {
+      allow read, write: if isAuthorized();
+    }
+
+    // Configuración del sistema (ej. price_memory)
+    match /config/{docId} {
+      allow read, write: if isAuthorized();
+    }
+
+    // ─── Collections con restricciones especiales ───────────────
+
+    // ajustesLog — log auditable de descuentos/perdones (v7.8.3).
+    // Append-only: se puede leer y crear, pero NO modificar ni borrar
+    // entradas existentes. Esto preserva la auditoría histórica.
+    // Si se necesita "anular" una entrada, agregar otra entrada nueva
+    // que la referencie (no editar la original).
+    match /ajustesLog/{docId} {
+      allow read, create: if isAuthorized();
+      allow update, delete: if false;
+    }
+  }
+}
