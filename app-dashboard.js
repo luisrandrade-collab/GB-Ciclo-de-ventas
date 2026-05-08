@@ -7699,6 +7699,9 @@ function _recetaEditorCollectIngredientes(){
   return result;
 }
 
+// v7.8.11: rename transaccional (crear nuevo → si éxito → borrar viejo) + catch robusto
+// con contexto de error explícito. Reemplaza el flujo viejo delete-then-create que destruía
+// la receta original si el create fallaba (causa probable del bug Arroz Reina del 2026-05-07).
 async function saveRecetaEditor(){
   const nombre=($("receta-ed-nombre").value||"").toLowerCase().trim();
   if(!nombre){toast("El nombre es obligatorio","warn");return}
@@ -7708,22 +7711,49 @@ async function saveRecetaEditor(){
   const src=(recetasInternasCache!==null)?recetasInternasCache:{};
   const existingId=_recetaEditorKey&&src[_recetaEditorKey]?.id||null;
   const nombreCambio=_recetaEditorKey&&_recetaEditorKey!==nombre;
+  const modo=nombreCambio&&existingId?"rename":(existingId?"update":"create");
+
   showLoader("Guardando...");
+
+  // FASE 1: persistir en Firestore. Cualquier error aquí se reporta como error de save.
+  let saveOk=false;
+  let renameWarn=null; // si rename: éxito del create pero falla del delete del viejo
   try{
-    if(nombreCambio&&existingId){
-      await deleteRecetaInternaFromCloud(existingId,_recetaEditorKey);
+    if(modo==="rename"){
+      // Crear el nuevo doc PRIMERO. Si falla → la receta vieja queda intacta (recuperable).
       await saveRecetaInternaToCloud(nombre,ingredientes,null,costoTotal);
+      // Solo si el create tuvo éxito intentamos borrar el viejo.
+      try{
+        await deleteRecetaInternaFromCloud(existingId,_recetaEditorKey);
+      }catch(eDel){
+        // El nuevo ya existe — la receta nueva está OK. Pero quedó duplicado el viejo.
+        renameWarn={oldId:existingId,oldKey:_recetaEditorKey,error:eDel?.message||String(eDel)};
+        console.warn("[saveRecetaEditor] rename: create OK, delete del viejo falló",renameWarn);
+      }
     }else{
       await saveRecetaInternaToCloud(nombre,ingredientes,existingId,costoTotal);
     }
-    hideLoader();
-    toast("✅ Receta guardada","success");
-    closeRecetaEditor();
-    renderRecetasInternas();
+    saveOk=true;
   }catch(e){
     hideLoader();
-    toast("Error: "+e.message,"error");
-    console.error(e);
+    const msg=e?.message||String(e)||"(sin detalle)";
+    toast("Error guardando receta: "+msg,"error");
+    console.error("[saveRecetaEditor] save falló",{modo,nombre,oldKey:_recetaEditorKey,existingId,error:e});
+    return;
+  }
+
+  // FASE 2: efectos post-save (UI). Errores acá NO invalidan el save — solo se loguean.
+  hideLoader();
+  if(renameWarn){
+    toast("⚠️ Receta guardada como '"+nombre+"' pero no se pudo borrar la versión vieja '"+renameWarn.oldKey+"'. Eliminala manualmente desde Herramientas.","warn",8000);
+  }else{
+    toast("✅ Receta guardada","success");
+  }
+  try{
+    closeRecetaEditor();
+    renderRecetasInternas();
+  }catch(eUi){
+    console.error("[saveRecetaEditor] render post-save falló (save sí persistió)",eUi);
   }
 }
 
