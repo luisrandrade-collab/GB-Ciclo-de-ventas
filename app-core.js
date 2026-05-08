@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.8.7.1";
+const BUILD_VERSION="v7.8.8";
 const BUILD_DATE="2026-05-07";
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
@@ -2288,14 +2288,19 @@ function getDelivStr(){const d=$("f-date").value,moms=getMomentos();if(!d&&!moms
 
 // ─── CLIENT MANAGEMENT ─────────────────────────────────────
 function refreshCliSel(){
+  // v7.8.8: campos del usuario (c.name, c.idtype, c.idnum, c.id) escapados para evitar XSS
+  // si un cliente tiene caracteres tipo < > & " ' en nombre o documento.
+  const _esc=typeof escapeHtml==="function"?escapeHtml:(s=>String(s||""));
   const sel=$("sel-cli");
-  if(sel)sel.innerHTML='<option value="">— Nuevo cliente —</option>'+clientsCache.map(c=>'<option value="'+c.id+'">'+c.name+(c.idtype?' — '+c.idtype+' '+c.idnum:'')+'</option>').join("");
+  if(sel)sel.innerHTML='<option value="">— Nuevo cliente —</option>'+clientsCache.map(c=>'<option value="'+_esc(c.id)+'">'+_esc(c.name)+(c.idtype?' — '+_esc(c.idtype)+' '+_esc(c.idnum):'')+'</option>').join("");
   refreshCliSelP();
 }
 function refreshCliSelP(){
   const sel=$("sel-cli-p");
   if(!sel)return;
-  sel.innerHTML='<option value="">— Nuevo cliente —</option>'+clientsCache.map(c=>'<option value="'+c.id+'">'+c.name+(c.idtype?' — '+c.idtype+' '+c.idnum:'')+'</option>').join("");
+  // v7.8.8: ver comentario en refreshCliSel — escape de campos cliente.
+  const _esc=typeof escapeHtml==="function"?escapeHtml:(s=>String(s||""));
+  sel.innerHTML='<option value="">— Nuevo cliente —</option>'+clientsCache.map(c=>'<option value="'+_esc(c.id)+'">'+_esc(c.name)+(c.idtype?' — '+_esc(c.idtype)+' '+_esc(c.idnum):'')+'</option>').join("");
 }
 async function autoSaveClientFromCot(){
   const name=$("f-cli").value.trim();

@@ -439,8 +439,7 @@ async function renderHist(){
       }
     }else if(!isProp&&(status==="pedido"||status==="en_produccion")){
       if(!q.eventDate)actionBtns.push('<button class="btn hc-btn-order" onclick="assignDeliveryDate(\''+q.id+'\',\'quote\',event)">📅 Asignar fecha de entrega</button>');
-      // E1.1: botón "Iniciar producción" solo si status==='pedido' y no está ya producido.
-      if(status==="pedido"&&!q.produced)actionBtns.push('<button class="btn hc-btn-order" style="background:#FFF3E0;color:#E65100;border-color:#FFB74D" onclick="markAsInProduction(\''+q.id+'\',\'quote\',event)">🔥 Iniciar producción</button>');
+      // v7.8.8: botón "🔥 Iniciar producción" eliminado — la producción arranca por fecha automática (decisión v7.8.7).
       // v7.0-α FIX-02b: si NO producido → botón normal "Marcar producido". Si SÍ producido →
       // botón verde "Producido ✓" clickeable para desmarcar (con confirm).
       if(!q.produced)actionBtns.push('<button class="btn hc-btn-edit" onclick="toggleProduced(\''+q.id+'\',\'quote\',event)">🔪 Marcar producido</button>');
@@ -466,8 +465,7 @@ async function renderHist(){
       }
     }else if(isProp&&(status==="aprobada"||status==="en_produccion")){
       if(!q.eventDate)actionBtns.push('<button class="btn hc-btn-order" onclick="assignDeliveryDate(\''+q.id+'\',\'proposal\',event)">📅 Asignar fecha de entrega</button>');
-      // E1.1: botón "Iniciar producción" solo si status==='aprobada' (equivalente a 'pedido' del lado quotes) y no producido.
-      if(status==="aprobada"&&!q.produced)actionBtns.push('<button class="btn hc-btn-order" style="background:#FFF3E0;color:#E65100;border-color:#FFB74D" onclick="markAsInProduction(\''+q.id+'\',\'proposal\',event)">🔥 Iniciar producción</button>');
+      // v7.8.8: botón "🔥 Iniciar producción" eliminado — la producción arranca por fecha automática (decisión v7.8.7).
       // v7.0-α FIX-02b: ver explicación arriba (mismo patrón para propuestas)
       if(!q.produced)actionBtns.push('<button class="btn hc-btn-edit" onclick="toggleProduced(\''+q.id+'\',\'proposal\',event)">🔪 Marcar producido</button>');
       else actionBtns.push('<button class="btn hc-btn-edit" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" title="Toca para desmarcar producido" onclick="confirmUnproduced(\''+q.id+'\',\'proposal\',event)">🔪 Producido ✓</button>');
@@ -1431,30 +1429,10 @@ async function onAdjuntarPagoFile(ev,idx){
 }
 
 // ─── PRODUCED FLAG ─────────────────────────────────────────
-// E1.1 (2026-04-26): transición manual pedido/aprobada → en_produccion. Disparada por Kathy
-// cuando realmente prende la cocina. Reemplaza el auto-promote por fecha que existía antes.
-async function markAsInProduction(docId,kind,ev){
-  if(ev){ev.stopPropagation();ev.preventDefault()}
-  const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
-  if(!q)return;
-  if(q.status==="en_produccion"){if(typeof toast==="function")toast("Ya está en producción","info");return}
-  if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión","error");else alert("Sin conexión");return}
-  const _prev=q.status;
-  if(typeof auditTransition==="function"&&!auditTransition(_prev,"en_produccion","markAsInProduction "+docId))return;
-  try{
-    showLoader("Iniciando producción...");
-    const {db,doc,updateDoc,serverTimestamp}=window.fb;
-    const coll=kind==="quote"?"quotes":(docId.startsWith("GB-PF-")?"propfinals":"proposals");
-    const patch={status:"en_produccion",updatedAt:serverTimestamp()};
-    if(q.produced===undefined||q.produced===null)patch.produced=false;
-    await updateDoc(doc(db,coll,docId),patch);
-    q.status="en_produccion";
-    if(patch.produced===false)q.produced=false;
-    hideLoader();renderHist();
-    if(curMode==="dash"&&typeof renderDashboard==="function")renderDashboard();
-    if(typeof toast==="function")toast("🔥 Producción iniciada","success",3000);
-  }catch(e){hideLoader();toast("Error: "+e.message,"error")}
-}
+// v7.8.8: función markAsInProduction eliminada. La transición a en_produccion ocurre
+// automáticamente por fecha (autoTransitionToEnProduccion en app-core.js).
+// Decisión v7.8.7: ocultar el sub-item "En producción" del sidebar; v7.8.8 elimina el botón.
+// El modo pedidos-produccion sigue activo como red de seguridad (cleanup post-v8.2).
 
 async function toggleProduced(docId,kind,ev){
   if(ev){ev.stopPropagation();ev.preventDefault()}
@@ -2661,7 +2639,9 @@ function previewFeFoto(ev){
   if(!file){_feBase64=null;$("fe-foto-preview").innerHTML="";return}
   if(file.type==="application/pdf"){
     _feBase64="pdf-placeholder";
-    $("fe-foto-preview").innerHTML='<div style="padding:8px;background:#E3F2FD;border-radius:6px;font-size:11px">📄 '+file.name+' ('+Math.round(file.size/1024)+' KB)</div>';
+    // v7.8.8: file.name escapado — un PDF con nombre tipo `<script>` no debe inyectar HTML.
+    const _esc=typeof escapeHtml==="function"?escapeHtml:(s=>String(s||""));
+    $("fe-foto-preview").innerHTML='<div style="padding:8px;background:#E3F2FD;border-radius:6px;font-size:11px">📄 '+_esc(file.name)+' ('+Math.round(file.size/1024)+' KB)</div>';
     const reader=new FileReader();
     reader.onload=e=>{_feBase64=e.target.result};
     reader.readAsDataURL(file);

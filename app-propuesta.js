@@ -315,7 +315,10 @@ function renderPicker(){
   const customMatches=showCustom?customProductsCache.filter(p=>!s||p.n.toLowerCase().includes(s)||(p.d||"").toLowerCase().includes(s)):[];
   const catsList=["Todas",...new Set(C.map(x=>x.c))];
   if(customProductsCache.length)catsList.push("Custom guardados");
-  $("pk-cats").innerHTML=catsList.map(c=>'<button class="cpill '+(c===pkCat?"act":"")+'" onclick="pkCat=\''+c.replace(/'/g,"\\'")+'\';renderPicker()">'+c+'</button>').join("");
+  // v7.8.8: dataset attribute en lugar de interpolación inline en onclick (escape parcial era frágil).
+  // El handler lee dataset.cat — robusto frente a apóstrofes, backticks, HTML.
+  const _esc=typeof escapeHtml==="function"?escapeHtml:(s=>String(s||""));
+  $("pk-cats").innerHTML=catsList.map(c=>'<button class="cpill '+(c===pkCat?"act":"")+'" data-cat="'+_esc(c)+'" onclick="pkCat=this.dataset.cat;renderPicker()">'+_esc(c)+'</button>').join("");
   if(!catalogMatches.length&&!customMatches.length){$("pk-list").innerHTML='<div class="empty"><div class="ic">🔍</div><p>Sin resultados</p></div>';return}
   let html="";
   if(customMatches.length){

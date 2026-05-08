@@ -2843,7 +2843,8 @@ function renderClienteView(){
   const cli=_clienteFiltroActivo;
   const docs=quotesCache.filter(q=>!q._wrongCollection&&q.client===cli);
   if(!docs.length){
-    el.innerHTML='<div class="cli-view"><div class="cli-view-title">⚠️ Sin datos para "'+cli.replace(/[<>]/g,"")+'"</div></div>';
+    // v7.8.8: escapeHtml completo en lugar de replace parcial (cubría < > pero no & " ').
+    el.innerHTML='<div class="cli-view"><div class="cli-view-title">⚠️ Sin datos para "'+escapeHtml(cli)+'"</div></div>';
     return;
   }
   // Calcular métricas
@@ -3699,7 +3700,10 @@ function generarListaCompras(){
   }
 
   if(sinRecList.length){
-    html+='<div style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Sin receta — productos directos</div>';
+    // v7.8.8: aclarar que estos son productos finales del catálogo (no insumos), por eso van como
+    // "comprar tal cual" o "producir directo". La cantidad es de unidades vendidas, no de insumos.
+    html+='<div style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Productos finales sin receta</div>';
+    html+='<div style="font-size:11px;color:#9E7A00;margin-bottom:6px;font-style:italic">Cantidades = unidades vendidas. Estos productos no tienen receta cargada en Herramientas → Recetas internas, por lo que aparecen como producto final (no se desglosan en ingredientes).</div>';
     html+='<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px">';
     sinRecList.forEach(i=>{
       html+='<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#FFF8E1;border:1px solid #FFE082;border-radius:6px">'+
@@ -4070,14 +4074,32 @@ function generarPdfEmpaque(){
     y+=3;
 
     // Items con casilla en col 0
+    // v7.8.8: items pre-producidos (q.itemsProducidos) → fila en gris con "[YA PROD.]", sin casilla.
+    // Coherente con PDF A (línea ~3787) — el empacador ve el item pero sabe que ya estaba listo.
     const items=[];
+    const yaSet=new Set((q.itemsProducidos||[]).map(s=>(s||"").toLowerCase().trim()));
+    const _gs={textColor:[160,160,160],fontStyle:"italic"};
+    const _addItemC=(qty,nombre,desc,unidad,custom,nombreBase)=>{
+      const matchKey=((nombreBase||nombre)||"").toLowerCase().trim();
+      if(yaSet.has(matchKey)){
+        items.push([
+          {content:"OK",styles:{..._gs,halign:"center",fontSize:7}},
+          {content:String(qty||0),styles:{..._gs,halign:"center"}},
+          {content:"[YA PROD.] "+(nombre||"")+(custom?" *":""),styles:_gs},
+          {content:desc||"",styles:_gs},
+          {content:unidad||"",styles:{..._gs,halign:"center"}}
+        ]);
+        return;
+      }
+      items.push(["",String(qty||0),(nombre||"")+(custom?" *":""),desc||"",unidad||""]);
+    };
     if(q.kind==="quote"){
-      (q.cart||[]).forEach(it=>items.push(["",String(it.qty||0),it.n||"",it.d||"",it.u||""]));
-      (q.cust||[]).forEach(it=>items.push(["",String(it.qty||0),(it.n||"")+" *",it.d||"",it.u||""]));
+      (q.cart||[]).forEach(it=>_addItemC(it.qty,it.n,it.d,it.u,false,it.n));
+      (q.cust||[]).forEach(it=>_addItemC(it.qty,it.n,it.d,it.u,true,it.n));
     }else{
       (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>{
         const prefix=sec.name?"["+sec.name+(opt.label?" "+opt.label:"")+"] ":"";
-        items.push(["",String(it.qty||0),prefix+(it.name||""),it.desc||"",it.unit||""]);
+        _addItemC(it.qty,prefix+(it.name||""),it.desc||"",it.unit||"",false,it.name||"");
       })));
     }
 
@@ -4101,6 +4123,9 @@ function generarPdfEmpaque(){
         },
         didDrawCell:function(data){
           if(data.section==="body"&&data.column.index===0){
+            // v7.8.8: filas pre-producidas tienen content "OK" en col 0 → no dibujar casilla.
+            const raw=data.cell.raw;
+            if(raw&&typeof raw==="object"&&raw.content==="OK")return;
             const cx=data.cell.x+data.cell.width/2-2.5;
             const cy=data.cell.y+data.cell.height/2-2.5;
             pdf.setDrawColor(80);pdf.setLineWidth(0.3);
@@ -4818,14 +4843,18 @@ function _heRenderFooterPdf(pdf,docs,state,W,M,fmt,labelFirma,numCarro){
 }
 
 // Helper: items compactos para sub-fila ("50 sándwich · 20 brownies · 30 jugos")
+// v7.8.8: items pre-producidos (q.itemsProducidos) van con prefijo "[YA PROD.] " para que el
+// conductor sepa que ese item no se cargó hoy desde cocina (ya estaba listo de antes).
 function _buildItemsResumenHE(q){
+  const yaSet=new Set((q.itemsProducidos||[]).map(s=>(s||"").toLowerCase().trim()));
+  const _mark=(nombre)=>yaSet.has((nombre||"").toLowerCase().trim())?"[YA PROD.] ":"";
   const parts=[];
   if(q.kind==="quote"){
-    (q.cart||[]).forEach(it=>{if(it.n)parts.push((it.qty||0)+" "+it.n)});
-    (q.cust||[]).forEach(it=>{if(it.n)parts.push((it.qty||0)+" "+it.n+"*")});
+    (q.cart||[]).forEach(it=>{if(it.n)parts.push(_mark(it.n)+(it.qty||0)+" "+it.n)});
+    (q.cust||[]).forEach(it=>{if(it.n)parts.push(_mark(it.n)+(it.qty||0)+" "+it.n+"*")});
   }else{
     (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>{
-      if(it.name)parts.push((it.qty||0)+" "+it.name);
+      if(it.name)parts.push(_mark(it.name)+(it.qty||0)+" "+it.name);
     })));
   }
   let str=parts.join(" · ");
@@ -7324,16 +7353,27 @@ function renderCarteraCard(q,urgencia){
 // ─── v7.8.6: PRODUCCIÓN ANTICIPADA — modal checklist ────────────────────────
 
 function _getItemsProduciblesDeDoc(q){
-  const items=[];
+  // v7.8.8: dedupe por nombre lowercase. En proposals, un mismo producto puede aparecer en
+  // múltiples opciones (ej. "Tabbule" en Opt A y Opt B); el modal de anticipados debe mostrarlo
+  // una sola vez sumando qty, porque q.itemsProducidos[] es un set por nombre, no por opción.
+  const byKey=new Map();
+  const _add=(nombre,qty,custom)=>{
+    if(!_esProductoProducible(nombre||""))return;
+    const key=(nombre||"").toLowerCase().trim();
+    if(!key)return;
+    const prev=byKey.get(key);
+    if(prev){prev.qty+=Number(qty||0)}
+    else byKey.set(key,{nombre:nombre||"",qty:Number(qty||0),custom:!!custom});
+  };
   if(q.kind==="quote"){
-    (q.cart||[]).forEach(it=>{if(_esProductoProducible(it.n))items.push({nombre:it.n,qty:it.qty||0})});
-    (q.cust||[]).forEach(it=>{if(_esProductoProducible(it.n))items.push({nombre:it.n,qty:it.qty||0,custom:true})});
+    (q.cart||[]).forEach(it=>_add(it.n,it.qty,false));
+    (q.cust||[]).forEach(it=>_add(it.n,it.qty,true));
   }else{
     (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>{
-      if(_esProductoProducible(it.name||""))items.push({nombre:it.name||"",qty:it.qty||0});
+      _add(it.name,it.qty,false);
     })));
   }
-  return items;
+  return Array.from(byKey.values());
 }
 
 let _itemsProdDocId=null,_itemsProdKind=null;
