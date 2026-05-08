@@ -243,7 +243,7 @@ function _docEnSubfiltro(q,arch,filt){
 async function renderHist(){
   const el=$("hist-list");
   el.innerHTML='<div class="empty"><div class="spinner" style="margin:0 auto 10px"></div><p>Cargando historial...</p></div>';
-  try{await loadAllHistory()}catch(e){}
+  try{await loadAllHistory()}catch(e){console.error("[renderHist] loadAllHistory falló",e); if(typeof toast==="function")toast("Error cargando histórico — recargá la página","error",6000);}
   if(!quotesCache.length){el.innerHTML='<div class="empty"><div class="ic">📁</div><p>No hay cotizaciones guardadas</p></div>';return}
 
   // Contadores por archivo (todos, independiente del sub-filtro/búsqueda)
@@ -795,7 +795,7 @@ async function assignDeliveryDate(quoteId,kind,ev){
     if(q.orderData){patch["orderData.fechaEntrega"]=fecha;patch["orderData.horaEntrega"]=hora}
     // v5.0.2: fecha futura → needsSync
     if(fecha>=hoy)patch.needsSync=true;
-    const coll=kind==="quote"?"quotes":(quoteId.startsWith("GB-PF-")?"propfinals":"proposals");
+    const coll=getCollectionName(quoteId,kind);
     await updateDoc(doc(db,coll,quoteId),patch);
     q.eventDate=fecha;q.horaEntrega=hora;
     if(q.orderData){q.orderData.fechaEntrega=fecha;q.orderData.horaEntrega=hora}
@@ -871,10 +871,7 @@ async function submitApproveProposal(){
   try{
     showLoader("Actualizando estado...");
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
-    let coll;
-    if(kind==="quote")coll="quotes";
-    else if(propId&&propId.startsWith("GB-PF-"))coll="propfinals";
-    else coll="proposals";
+    const coll=getCollectionName(propId,kind);
     const patch={status:"aprobada",approvalData:approvalData,updatedAt:serverTimestamp()};
     if(fechaEntrega)patch.eventDate=fechaEntrega;
     if(horaEntrega)patch.horaEntrega=horaEntrega;
@@ -897,10 +894,7 @@ let dupSource=null;
 function openDuplicateModal(kind,id,ev){
   if(ev){ev.stopPropagation();ev.preventDefault()}
   if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión","error");else alert("Sin conexión.");return}
-  let coll;
-  if(kind==="quote")coll="quotes";
-  else if(id&&id.startsWith("GB-PF-"))coll="propfinals";
-  else coll="proposals";
+  const coll=getCollectionName(id,kind);
   showLoader("Cargando para duplicar...");
   const {db,doc,getDoc}=window.fb;
   getDoc(doc(db,coll,id)).then(snap=>{
@@ -1019,7 +1013,7 @@ async function submitSaldoCobrado(){
     showLoader("Registrando cobro...");
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
     const propId=saldoSource.id;
-    const coll=saldoSource.kind==="quote"?"quotes":(propId.startsWith("GB-PF-")?"propfinals":"proposals");
+    const coll=getCollectionName(propId,saldoSource.kind);
     await updateDoc(doc(db,coll,propId),{saldoData:saldoData,updatedAt:serverTimestamp()});
     saldoSource.doc.saldoData=saldoData;
     hideLoader();closeSaldoModal();
@@ -1247,7 +1241,7 @@ async function submitPago(){
   try{
     showLoader("Registrando pago...");
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
-    const coll=pagoSrc.kind==="quote"?"quotes":(pagoSrc.id.startsWith("GB-PF-")?"propfinals":"proposals");
+    const coll=getCollectionName(pagoSrc.id,pagoSrc.kind);
     const pagosActuales=getPagos(pagoSrc.doc).map(p=>({...p}));
     pagosActuales.push(nuevo);
     await updateDoc(doc(db,coll,pagoSrc.id),{pagos:pagosActuales,updatedAt:serverTimestamp(),...auditStamp()});
@@ -1370,7 +1364,7 @@ async function savePagoEdit(idx){
   try{
     showLoader("Guardando cambio...");
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
-    const coll=kind==="quote"?"quotes":(docId.startsWith("GB-PF-")?"propfinals":"proposals");
+    const coll=getCollectionName(docId,kind);
     const changelog=Array.isArray(q.pago_changelog)?[...q.pago_changelog]:[];
     changelog.push({pagoIdx:idx,timestamp:new Date().toISOString(),changes});
     await updateDoc(doc(db,coll,docId),{pagos,pago_changelog:changelog,updatedAt:serverTimestamp()});
@@ -1413,7 +1407,7 @@ async function onAdjuntarPagoFile(ev,idx){
       pagosActuales[idx].fotoUrl=url;
       pagosActuales[idx].fotoAdjuntadaEn=new Date().toISOString();
       const {db,doc,updateDoc,serverTimestamp}=window.fb;
-      const coll=kind==="quote"?"quotes":(docId.startsWith("GB-PF-")?"propfinals":"proposals");
+      const coll=getCollectionName(docId,kind);
       await updateDoc(doc(db,coll,docId),{pagos:pagosActuales,updatedAt:serverTimestamp(),...auditStamp()});
       q.pagos=pagosActuales;
       hideLoader();
@@ -1443,7 +1437,7 @@ async function toggleProduced(docId,kind,ev){
   try{
     showLoader("Actualizando...");
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
-    const coll=kind==="quote"?"quotes":(docId.startsWith("GB-PF-")?"propfinals":"proposals");
+    const coll=getCollectionName(docId,kind);
     await updateDoc(doc(db,coll,docId),{produced:newVal,producedAt:newVal?new Date().toISOString():null,updatedAt:serverTimestamp()});
     q.produced=newVal;q.producedAt=newVal?new Date().toISOString():null;
     hideLoader();renderHist();
@@ -1751,7 +1745,7 @@ async function submitDelivery(){
     showLoader("Registrando entrega...");
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
     const propId=deliverySrc.id;
-    const coll=deliverySrc.kind==="quote"?"quotes":(propId.startsWith("GB-PF-")?"propfinals":"proposals");
+    const coll=getCollectionName(propId,deliverySrc.kind);
     await updateDoc(doc(db,coll,propId),{
       status:"entregado",
       fechaEntrega:fecha,
@@ -1945,7 +1939,7 @@ async function submitComentario(){
     showLoader("Guardando comentario...");
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
     const propId=comentSrc.id;
-    const coll=comentSrc.kind==="quote"?"quotes":(propId.startsWith("GB-PF-")?"propfinals":"proposals");
+    const coll=getCollectionName(propId,comentSrc.kind);
     await updateDoc(doc(db,coll,propId),{comentarioCliente:comentarioCliente,updatedAt:serverTimestamp(),...auditStamp()});
     comentSrc.doc.comentarioCliente=comentarioCliente;
     hideLoader();closeComentModal();
@@ -2107,10 +2101,7 @@ async function submitAnular(){
   try{
     showLoader("Anulando...");
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
-    let coll;
-    if(kind==="quote")coll="quotes";
-    else if(docId&&docId.startsWith("GB-PF-"))coll="propfinals";
-    else coll="proposals";
+    const coll=getCollectionName(docId,kind);
 
     const anuladaData={
       fecha:new Date().toISOString(),
@@ -2195,14 +2186,8 @@ async function linkPendingReplacement(newDocId,newKind,client){
   const {db,doc,updateDoc,serverTimestamp}=window.fb;
   const oldId=pending.id;
   const oldKind=pending.kind;
-  let oldColl;
-  if(oldKind==="quote")oldColl="quotes";
-  else if(oldId.startsWith("GB-PF-"))oldColl="propfinals";
-  else oldColl="proposals";
-  let newColl;
-  if(newKind==="quote")newColl="quotes";
-  else if(newDocId.startsWith("GB-PF-"))newColl="propfinals";
-  else newColl="proposals";
+  const oldColl=getCollectionName(oldId,oldKind);
+  const newColl=getCollectionName(newDocId,newKind);
   await updateDoc(doc(db,oldColl,oldId),{replacedBy:newDocId,expectsReplacement:false,updatedAt:serverTimestamp()});
   await updateDoc(doc(db,newColl,newDocId),{replaces:oldId,updatedAt:serverTimestamp()});
   pending.replacedBy=newDocId;
@@ -2536,8 +2521,8 @@ async function linkOptionGroup(docIdA,kindA,docIdB,kindB){
   const b=quotesCache.find(x=>x.id===docIdB&&x.kind===kindB);
   if(!a||!b)return;
   const groupId=a.optionGroupId||b.optionGroupId||("og-"+Date.now().toString(36));
-  const collA=kindA==="quote"?"quotes":(docIdA.startsWith("GB-PF-")?"propfinals":"proposals");
-  const collB=kindB==="quote"?"quotes":(docIdB.startsWith("GB-PF-")?"propfinals":"proposals");
+  const collA=getCollectionName(docIdA,kindA);
+  const collB=getCollectionName(docIdB,kindB);
   try{
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
     if(typeof showLoader==="function")showLoader("Vinculando opciones...");
@@ -2562,8 +2547,8 @@ async function unlinkOptionGroup(docIdA,kindA,docIdB,kindB){
   const b=quotesCache.find(x=>x.id===docIdB&&x.kind===kindB);
   if(!a||!b)return;
   const group=quotesCache.filter(x=>x.optionGroupId&&x.optionGroupId===a.optionGroupId);
-  const collA=kindA==="quote"?"quotes":(docIdA.startsWith("GB-PF-")?"propfinals":"proposals");
-  const collB=kindB==="quote"?"quotes":(docIdB.startsWith("GB-PF-")?"propfinals":"proposals");
+  const collA=getCollectionName(docIdA,kindA);
+  const collB=getCollectionName(docIdB,kindB);
   try{
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
     if(typeof showLoader==="function")showLoader("Desvinculando...");
@@ -2659,7 +2644,7 @@ async function submitFe(docId,kind){
   if(!q)return;
   const requiereFE=!!($("fe-requiere")&&$("fe-requiere").checked);
   const numero=($("fe-numero")&&$("fe-numero").value.trim())||"";
-  const coll=kind==="quote"?"quotes":(docId.startsWith("GB-PF-")?"propfinals":"proposals");
+  const coll=getCollectionName(docId,kind);
   const patch={requiereFE:requiereFE,updatedAt:serverTimestamp(),...auditStamp()};
 
   if(requiereFE||_feBase64||numero){

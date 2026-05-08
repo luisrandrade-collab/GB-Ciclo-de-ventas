@@ -109,8 +109,22 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.8.8";
+const BUILD_VERSION="v7.8.9";
 const BUILD_DATE="2026-05-07";
+
+// ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
+// Helper único para resolver la colección Firestore de un documento por kind+id.
+// REGLA CRÍTICA: usar SIEMPRE este helper para updateDoc/getDoc/setDoc/deleteDoc.
+// No replicar la lógica inline (causó hotfix v7.8.7.1 #1 — saveItemsProducidosToCloud
+// escribía PFs en 'proposals' en lugar de 'propfinals').
+//   - kind='quote' → 'quotes' (cotizaciones GB-COT-*)
+//   - docId que empieza con 'GB-PF-' → 'propfinals' (propuestas finales)
+//   - resto → 'proposals' (propuestas iniciales GB-PROP-*)
+function getCollectionName(docId, kind){
+  if(kind==="quote")return "quotes";
+  if(typeof docId==="string"&&docId.startsWith("GB-PF-"))return "propfinals";
+  return "proposals";
+}
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
 const APP_YEAR=new Date().getFullYear();
@@ -185,7 +199,9 @@ async function savePdfConCopiaStorage(doc,baseName,kind,docId){
     return savePdf(doc,baseName+".pdf");
   }
   // 1. Calcular próxima versión
-  const coll=kind==="quote"?"quotes":(kind==="propfinal"?"propfinals":"proposals");
+  // v7.8.9: usar helper único. NOTA — caso histórico que usaba kind==="propfinal" como
+  // distinción explícita; el helper detecta GB-PF-* por ID, que es la fuente de verdad.
+  const coll=getCollectionName(docId,kind);
   const q=(quotesCache||[]).find(x=>x.id===docId);
   const prevCount=(q&&typeof q.pdfRegenCount==="number")?q.pdfRegenCount:0;
   const nextVersion=prevCount+1;
@@ -454,6 +470,40 @@ function auditTransition(fromStatus,toStatus,context){
     return false;
   }
   return true; // audit mode: NO bloquea
+}
+
+// ─── updateStatus (v7.8.9) ─────────────────────────────────
+// Helper único para cambios de status. Centraliza:
+//   1. auditTransition (FSM guard) — bloquea si __GB_V7_ENFORCE_FSM=true y la transición es inválida
+//   2. updateDoc con patch + serverTimestamp + auditStamp
+//   3. Actualización local en quotesCache
+// Uso: await updateStatus(docId, kind, "entregado", "openDeliveryModal", {entregaData}) →
+//   escribe {status:"entregado",updatedAt,...auditStamp,entregaData} en la colección correcta.
+// Retorna: true si OK, false si auditTransition rechazó (en enforce) o el doc no existe.
+async function updateStatus(docId,kind,newStatus,context,extraPatch){
+  if(!docId||!kind||!newStatus){
+    console.warn("[updateStatus] faltan args",{docId,kind,newStatus});
+    return false;
+  }
+  const q=(quotesCache||[]).find(x=>x.id===docId&&x.kind===kind);
+  const fromStatus=q?q.status:undefined;
+  if(typeof auditTransition==="function"&&fromStatus){
+    if(!auditTransition(fromStatus,newStatus,context||"updateStatus "+docId))return false;
+  }
+  try{
+    const {db,doc,updateDoc,serverTimestamp}=window.fb;
+    const coll=getCollectionName(docId,kind);
+    const patch={status:newStatus,updatedAt:serverTimestamp()};
+    if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
+    if(extraPatch&&typeof extraPatch==="object")Object.assign(patch,extraPatch);
+    await updateDoc(doc(db,coll,docId),patch);
+    if(q)q.status=newStatus;
+    return true;
+  }catch(e){
+    console.error("[updateStatus] updateDoc falló",{docId,kind,newStatus,context,error:e});
+    if(typeof toast==="function")toast("Error guardando estado: "+(e.message||e),"error");
+    return false;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1217,7 +1267,7 @@ async function deleteOrArchiveProveedor(id){
 // v7.8.7.1: detección de colección consistente con el resto de la app — docs GB-PF-* viven en propfinals/
 async function saveItemsProducidosToCloud(docId,kind,itemsProducidos){
   const {db,doc,updateDoc,serverTimestamp}=window.fb;
-  const coll=kind==="quote"?"quotes":(docId.startsWith("GB-PF-")?"propfinals":"proposals");
+  const coll=getCollectionName(docId,kind);
   await updateDoc(doc(db,coll,docId),{itemsProducidos:itemsProducidos,updatedAt:serverTimestamp(),...auditStamp()});
 }
 
@@ -1586,10 +1636,7 @@ async function autoTransitionToEnProduccion(list){
   try{
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
     for(const q of candidatos){
-      let coll;
-      if(q.kind==="quote")coll="quotes";
-      else if(q.id&&q.id.startsWith("GB-PF-"))coll="propfinals";
-      else coll="proposals";
+      const coll=getCollectionName(q.id,q.kind);
       try{
         await updateDoc(doc(db,coll,q.id),{status:"en_produccion",updatedAt:serverTimestamp()});
         q.status="en_produccion";
@@ -1603,10 +1650,7 @@ async function autoTransitionToEnProduccion(list){
 
 async function deleteHistoryItem(kind,id){
   const {db,doc,deleteDoc}=window.fb;
-  let coll;
-  if(kind==="quote")coll="quotes";
-  else if(id&&id.startsWith("GB-PF-"))coll="propfinals";
-  else coll="proposals";
+  const coll=getCollectionName(id,kind);
   await deleteDoc(doc(db,coll,id));
   quotesCache=quotesCache.filter(q=>!(q.kind===kind&&q.id===id));
 }
@@ -1755,10 +1799,7 @@ async function setFollowUp(docId,kind,nuevoEstado,extra){
   const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
   if(!q)return false;
   const {db,doc,updateDoc,serverTimestamp}=window.fb;
-  let coll;
-  if(kind==="quote")coll="quotes";
-  else if(docId&&docId.startsWith("GB-PF-"))coll="propfinals";
-  else coll="proposals";
+  const coll=getCollectionName(docId,kind);
   const patch={
     followUp:nuevoEstado,
     followUpUpdatedAt:new Date().toISOString(),
@@ -1801,10 +1842,7 @@ async function addNotaSeguimiento(docId,kind,texto){
   const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
   if(!q)return false;
   const {db,doc,updateDoc,serverTimestamp}=window.fb;
-  let coll;
-  if(kind==="quote")coll="quotes";
-  else if(docId&&docId.startsWith("GB-PF-"))coll="propfinals";
-  else coll="proposals";
+  const coll=getCollectionName(docId,kind);
   const nuevaNota={
     fecha:new Date().toISOString(),
     texto:texto.trim(),
@@ -1842,10 +1880,7 @@ async function reactivarPerdida(docId,kind,destino){
   if(!q)return false;
   if(getFollowUp(q)!=="perdida"){toast("El documento no está marcado como perdida","warn");return false}
   const {db,doc,updateDoc,serverTimestamp,deleteField}=window.fb;
-  let coll;
-  if(kind==="quote")coll="quotes";
-  else if(docId&&docId.startsWith("GB-PF-"))coll="propfinals";
-  else coll="proposals";
+  const coll=getCollectionName(docId,kind);
   const ahora=new Date().toISOString();
   const reactivadaData={
     fecha:ahora,
@@ -1899,10 +1934,7 @@ async function markAsNeedsSync(docId,kind){
   if(!cloudOnline)return;
   try{
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
-    let coll;
-    if(kind==="quote")coll="quotes";
-    else if(docId&&docId.startsWith("GB-PF-"))coll="propfinals";
-    else coll="proposals";
+    const coll=getCollectionName(docId,kind);
     const payload={needsSync:true,updatedAt:serverTimestamp()};
     // audit stamp si está disponible (v5.0.0)
     if(typeof auditStamp==="function"){Object.assign(payload,auditStamp())}
@@ -1919,10 +1951,7 @@ async function markAsSynced(docs){
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
     const now=new Date().toISOString();
     for(const q of docs){
-      let coll;
-      if(q.kind==="quote")coll="quotes";
-      else if(q.id&&q.id.startsWith("GB-PF-"))coll="propfinals";
-      else coll="proposals";
+      const coll=getCollectionName(q.id,q.kind);
       const payload={needsSync:false,lastSyncAt:now,updatedAt:serverTimestamp()};
       if(typeof auditStamp==="function"){Object.assign(payload,auditStamp())}
       try{
@@ -1957,10 +1986,7 @@ async function markAllUnsyncedAsPending(){
     const {db,doc,updateDoc,serverTimestamp}=window.fb;
     let ok=0,fail=0;
     for(const q of pendientes){
-      let coll;
-      if(q.kind==="quote")coll="quotes";
-      else if(q.id&&q.id.startsWith("GB-PF-"))coll="propfinals";
-      else coll="proposals";
+      const coll=getCollectionName(q.id,q.kind);
       const payload={needsSync:true,updatedAt:serverTimestamp()};
       if(typeof auditStamp==="function"){Object.assign(payload,auditStamp())}
       try{await updateDoc(doc(db,coll,q.id),payload);q.needsSync=true;ok++}
@@ -2576,10 +2602,7 @@ async function revertDelivery(quoteId,kind,opts){
   if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión","error");return false}
   try{
     const {db,doc,runTransaction,serverTimestamp,deleteField}=window.fb;
-    let coll;
-    if(kind==="quote")coll="quotes";
-    else if(quoteId&&quoteId.startsWith("GB-PF-"))coll="propfinals";
-    else coll="proposals";
+    const coll=getCollectionName(quoteId,kind);
     const ref=doc(db,coll,quoteId);
     const reasonClean=(opts.reason||"").trim();
     const result=await runTransaction(db,async tx=>{
@@ -2662,10 +2685,7 @@ async function openDocument(kind,id){
     // Si no está en cache (ej. búsqueda desde fuera del historial), leer Firestore
     if(!q){
       const {db,doc,getDoc}=window.fb;
-      let coll;
-      if(kind==="quote")coll="quotes";
-      else if(id&&id.startsWith("GB-PF-"))coll="propfinals";
-      else coll="proposals";
+      const coll=getCollectionName(id,kind);
       showLoader("Cargando...");
       const snap=await getDoc(doc(db,coll,id));
       hideLoader();
@@ -2911,10 +2931,7 @@ function _openRevertDeliveryConfirmModal(opts){
 async function loadQuote(kind,id){
   try{
     const {db,doc,getDoc}=window.fb;
-    let coll;
-    if(kind==="quote")coll="quotes";
-    else if(id&&id.startsWith("GB-PF-"))coll="propfinals";
-    else coll="proposals";
+    const coll=getCollectionName(id,kind);
     showLoader("Cargando...");
     const snap=await getDoc(doc(db,coll,id));
     hideLoader();

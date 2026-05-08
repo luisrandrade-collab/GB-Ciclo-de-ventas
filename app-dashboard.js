@@ -2074,10 +2074,7 @@ async function confirmRestoreBackup(){
       const q=toAdd[i];
       try{
         const kind=q.kind||"quote";
-        let coll;
-        if(kind==="quote")coll="quotes";
-        else if(q.id&&q.id.startsWith("GB-PF-"))coll="propfinals";
-        else coll="proposals";
+        const coll=getCollectionName(q.id,kind);
         // Limpiar campos internos que no deben viajar
         const {_wrongCollection,_isPF,kind:_k,..._clean}=q;
         _clean.restoredAt=serverTimestamp();
@@ -2168,7 +2165,7 @@ async function migrarFotosStorage(){
       // Subir foto a Storage
       const {url}=await uploadFotoFromBase64(t.base64,t.tipo,t.docId,t.path);
       // Recargar doc desde Firestore para tener data fresca
-      const coll=t.kind==="quote"?"quotes":(t.docId.startsWith("GB-PF-")?"propfinals":"proposals");
+      const coll=getCollectionName(t.docId,t.kind);
       const snap=await getDoc(doc(db,coll,t.docId));
       if(!snap.exists()){skip++;continue}
       const d=snap.data();
@@ -2241,10 +2238,7 @@ async function normalizarDocsSinStatus(){
     $("loader-msg").textContent="Normalizando · "+(i+1)+"/"+candidatos.length;
     try{
       const nuevoStatus=(q.kind==="proposal"&&q.id&&q.id.startsWith("GB-PF-"))?"propfinal":"enviada";
-      let coll;
-      if(q.kind==="quote")coll="quotes";
-      else if(q.id&&q.id.startsWith("GB-PF-"))coll="propfinals";
-      else coll="proposals";
+      const coll=getCollectionName(q.id,q.kind);
       const patch={status:nuevoStatus,updatedAt:serverTimestamp()};
       if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
       await updateDoc(doc(db,coll,q.id),patch);

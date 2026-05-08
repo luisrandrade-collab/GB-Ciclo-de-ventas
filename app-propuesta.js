@@ -150,9 +150,9 @@ function rememberPricesFromProposal(){
 function loadLastPersonalRates(){
   try{
     const saved=JSON.parse(localStorage.getItem("gb_personal_rates")||"{}");
-    if(saved.meseros){Object.keys(saved.meseros).forEach(k=>{if(saved.meseros[k]&&!personalData.meseros[k])personalData.meseros[k]=saved.meseros[k]})}
-    if(saved.auxiliares){Object.keys(saved.auxiliares).forEach(k=>{if(saved.auxiliares[k]&&!personalData.auxiliares[k])personalData.auxiliares[k]=saved.auxiliares[k]})}
-  }catch(e){}
+    if(saved&&saved.meseros){Object.keys(saved.meseros).forEach(k=>{if(saved.meseros[k]&&!personalData.meseros[k])personalData.meseros[k]=saved.meseros[k]})}
+    if(saved&&saved.auxiliares){Object.keys(saved.auxiliares).forEach(k=>{if(saved.auxiliares[k]&&!personalData.auxiliares[k])personalData.auxiliares[k]=saved.auxiliares[k]})}
+  }catch(e){console.warn("[loadLastPersonalRates]",e)}
 }
 function savePersonalRates(){
   try{
@@ -161,7 +161,7 @@ function savePersonalRates(){
       auxiliares:{valor4h:personalData.auxiliares.valor4h,valorHoraExtra:personalData.auxiliares.valorHoraExtra}
     };
     localStorage.setItem("gb_personal_rates",JSON.stringify(toSave));
-  }catch(e){}
+  }catch(e){console.warn("[savePersonalRates]",e)}
 }
 
 function suggestMeseros(){
@@ -427,7 +427,7 @@ async function savePropQuote(silent){
     }
     if(!pNum)pNum=await getNextNumber("proposal");
     await autoSaveClientFromProp();
-    propSections.forEach(sec=>sec.options.forEach(opt=>opt.items.forEach(it=>{if(!it.catId&&it.name){try{registerCustomProduct(it.name,it.desc||"",it.price||0,"")}catch(e){}}})));
+    propSections.forEach(sec=>sec.options.forEach(opt=>opt.items.forEach(it=>{if(!it.catId&&it.name){try{registerCustomProduct(it.name,it.desc||"",it.price||0,"")}catch(e){console.warn("[registerCustomProduct propuesta]",it.name,e)}}})));
     aperturaFrase=$("fp-apertura").value.trim()||aperturaFrase;
     fechaVencimiento=$("fp-fecha-venc").value||fechaVencimiento;
     let prevStatus="enviada",prevApprovalData=null,prevPropFinalRef=null,prevPagos=null,prevEntregaData=null,prevComentarioCliente=null,prevProductionDate=null,prevProduced=null,prevHoraEntrega=null,prevPdfHistorial=null,prevPdfRegenCount=null,prevEditHistory=null,prevOptionGroupId=null,prevFeData=null;
