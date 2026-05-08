@@ -231,8 +231,19 @@ function dateOfSale(q){return q.orderData?.fechaAprobacion||q.approvalData?.fech
 // ─── v7.0-α D1.3 · Zona "Lo que pasa hoy" ──────────────────
 // 3 categorías reales (tareas → v7.1, no aplica). Orden por urgencia:
 // 1) Cobros vencidos (saldo>0 + entregado hace >7 días, mayor antigüedad primero)
-// 2) Producir hoy (pedido/aprobada con fechaEntrega=hoy, sin q.produced)
-// 3) Entregar hoy (en_produccion con fechaEntrega=hoy)
+// 2) Producir hoy — pedido/aprobada con fechaProduccion=hoy y !q.produced.
+//    Modelo: producción se hace el día anterior a la entrega (v7.8.4),
+//    así que "producir hoy" = entrega MAÑANA. Caso edge urgente: entrega
+//    HOY pero todavía sin producir → también entra como urgency=0.5 (más
+//    arriba que las producciones normales).
+//    v7.8.11.1: corregir criterio (antes usaba fEnt=hoy = entrega hoy,
+//    lo cual confundía con la rama 3 y dejaba sin mostrar las producciones
+//    reales del día — entregas de mañana).
+// 3) Entregar hoy — status=en_produccion CON fechaEntrega=hoy, O bien
+//    status in [pedido,aprobada] + q.produced=true CON fechaEntrega=hoy.
+//    v7.8.11.1: incluir produced=true sobre status=pedido/aprobada porque
+//    desde v7.8.7 el flujo no cambia status al marcar producido — el flag
+//    q.produced es independiente. Antes el widget no mostraba estos pedidos.
 function computeTodayZone(){
   const today=new Date();today.setHours(0,0,0,0);
   const todayIso=gbDateToIso(today);
@@ -262,21 +273,28 @@ function computeTodayZone(){
       }
       return;
     }
-    // 2) Producir hoy
-    if(["pedido","aprobada"].includes(s)&&fEnt===todayIso&&!q.produced){
-      const hora=q.horaEntrega||"";
-      items.push({
-        urgency:1,q:q,
-        when:"HOY"+(hora?" "+hora:""),whenSub:"falta producir",
-        tag:"PRODUCCIÓN",
-        title:(q.client||"—")+" · falta producir",
-        sub:(q.id||"")+(hora?" · entrega "+hora:""),
-        amount:getDocTotal(q),
-        sortKey:hora||"99:99"
-      });
+    // 2) Producir hoy — v7.8.11.1: criterio corregido a fechaProduccion
+    if(["pedido","aprobada"].includes(s)&&!q.produced){
+      const fechaProd=_fechaProduccion(fEnt);
+      const esProdHoy=fechaProd===todayIso;        // entrega mañana
+      const esEntregaHoySinProd=fEnt===todayIso;   // edge urgente: entrega hoy sin producir
+      if(esProdHoy||esEntregaHoySinProd){
+        const hora=q.horaEntrega||"";
+        items.push({
+          urgency:esEntregaHoySinProd?0.5:1,
+          q:q,
+          when:esEntregaHoySinProd?"🚨 URGENTE":"PRODUCIR HOY",
+          whenSub:esEntregaHoySinProd?"entrega HOY sin producir":(hora?"entrega mañana "+hora:"para mañana"),
+          tag:"PRODUCCIÓN",
+          title:(q.client||"—")+" · falta producir",
+          sub:(q.id||"")+(hora?" · entrega "+hora:""),
+          amount:getDocTotal(q),
+          sortKey:hora||"99:99"
+        });
+      }
     }
-    // 3) Entregar hoy
-    if(s==="en_produccion"&&fEnt===todayIso){
+    // 3) Entregar hoy — v7.8.11.1: aceptar también status=pedido/aprobada con produced=true
+    if((s==="en_produccion"||(["pedido","aprobada"].includes(s)&&q.produced))&&fEnt===todayIso){
       const hora=q.horaEntrega||"";
       const saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
       items.push({
@@ -297,6 +315,28 @@ function computeTodayZone(){
   });
   return items;
 }
+// v7.8.11.1: resumen agregado de la jornada (entregas + producciones).
+// Cubre tanto pendientes como completadas para visibilidad de carga del día.
+function _computeTodayCounts(){
+  const today=new Date();today.setHours(0,0,0,0);
+  const todayIso=gbDateToIso(today);
+  let entregasHoy=0,produccionesHoy=0,produccionesHechas=0;
+  (quotesCache||[]).forEach(q=>{
+    if(q._wrongCollection)return;
+    const s=q.status||"enviada";
+    if(["anulada","superseded","convertida","entregado"].includes(s))return;
+    const fEnt=q.fechaEntrega||q.eventDate;
+    if(!fEnt)return;
+    if(fEnt===todayIso)entregasHoy++;
+    const fechaProd=_fechaProduccion(fEnt);
+    if(fechaProd===todayIso&&["pedido","aprobada"].includes(s)){
+      produccionesHoy++;
+      if(q.produced)produccionesHechas++;
+    }
+  });
+  return {entregasHoy,produccionesHoy,produccionesHechas};
+}
+
 function renderTodayZone(){
   const list=$("dash-today-zone-list");
   const countEl=$("dash-today-zone-count");
@@ -309,11 +349,34 @@ function renderTodayZone(){
     if(vencidos>0)txt+=" · "+vencidos+" vencido"+(vencidos!==1?"s":"");
     countEl.textContent=txt;
   }
+
+  // v7.8.11.1: barra resumen de la jornada (siempre visible si hay actividad)
+  const counts=_computeTodayCounts();
+  const hayActividad=counts.entregasHoy>0||counts.produccionesHoy>0;
+  let summaryHtml="";
+  if(hayActividad){
+    const parts=[];
+    if(counts.entregasHoy>0){
+      parts.push('📦 '+counts.entregasHoy+' entrega'+(counts.entregasHoy!==1?'s':'')+' hoy');
+    }
+    if(counts.produccionesHoy>0){
+      const pendientes=counts.produccionesHoy-counts.produccionesHechas;
+      let txt='🔪 '+counts.produccionesHoy+' producci'+(counts.produccionesHoy!==1?'ones':'ón')+' hoy';
+      if(counts.produccionesHechas>0){
+        if(pendientes===0)txt+=' (✅ todo listo)';
+        else txt+=' (✅ '+counts.produccionesHechas+' lista'+(counts.produccionesHechas!==1?'s':'')+' / '+pendientes+' pendiente'+(pendientes!==1?'s':'')+')';
+      }
+      parts.push(txt);
+    }
+    summaryHtml='<div style="padding:8px 12px;background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;margin-bottom:10px;font-size:12.5px;color:#5D4037;font-weight:600;display:flex;flex-wrap:wrap;gap:14px;line-height:1.4">'+parts.map(p=>'<span>'+p+'</span>').join('')+'</div>';
+  }
+
   if(!items.length){
-    list.innerHTML='<div class="today-empty">Nada urgente hoy ✓</div>';
+    const emptyMsg=hayActividad?'Todo listo ✓':'Nada urgente hoy ✓';
+    list.innerHTML=summaryHtml+'<div class="today-empty">'+emptyMsg+'</div>';
     return;
   }
-  list.innerHTML=items.map(it=>{
+  list.innerHTML=summaryHtml+items.map(it=>{
     const variantCls=it.urgency===0?"today-item--vencido":"today-item--hoy";
     const amount=it.amount?fm(it.amount):"—";
     const cli=String(it.title).replace(/[<>]/g,"");
