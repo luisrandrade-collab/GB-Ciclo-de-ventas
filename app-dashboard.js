@@ -3380,7 +3380,20 @@ const RECETAS_INTERNAS_HARDCODED={
     {n:"Hojas de repollo",     q:2},
     {n:"Quibbe BBQ",           q:1},
     {n:"Tahinne",              q:1},
-    {n:"Ghraybe",              q:1}
+    {n:"Ghraybe",              q:1},
+    // v7.8.10: 1/2 pan árabe por plato (1 pita se parte en 2 mitades)
+    {n:"Pan árabe",            q:0.5, unidad:"und"}
+  ],
+  // v7.8.10: nuevo hardcoded para Vegetariano. Antes caía a heurística sobre desc
+  // ("Tabbule, Falafel, Arroz lentejas, Berenjenas, Tahinne, Labne") que ignoraba el pan.
+  "plato mixto vegetariano":[
+    {n:"Tabbule",              q:1},
+    {n:"Falafel",              q:1},
+    {n:"Arroz lentejas",       q:1},
+    {n:"Berenjenas",           q:1},
+    {n:"Tahinne",              q:1},
+    {n:"Labne",                q:1},
+    {n:"Pan árabe",            q:1, unidad:"und"}
   ]
 };
 
@@ -3640,12 +3653,39 @@ const _REP_PDF_ZEBRA={fillColor:[250,250,248]};
 // ─── v7.8.7: LISTA DE COMPRAS ────────────────────────────────────────────────
 // Calcula ingredientes necesarios para el rango usando recetas internas.
 // Items sin receta → aparecen tal cual. Items pre-producidos (itemsProducidos) → excluidos.
+//
+// v7.8.10:
+//  - Preserva el campo `unidad` por ingrediente (g/ml/und/etc.) en lugar de mostrar "und" fijo.
+//    Ante conflicto entre dos recetas que aportan al mismo ingrediente con unidades distintas,
+//    prevalece la PRIMERA encontrada y se loggea console.warn. v7.9 BOM normaliza con insumos compartidos.
+//  - Explosión recursiva: si un ingrediente del primer pase es a su vez una receta (caso típico:
+//    hardcoded "Plato Mixto Libanés" lista "Arroz Reina" / "Tabbule" / etc. como componentes),
+//    se expande en un segundo pase iterativo hasta MAX_DEPTH=5 (defensivo contra ciclos).
+//  - Datos crudos de la lista quedan cacheados en _listaComprasUltima para que generarPdfListaCompras
+//    no recalcule (mismo origen de datos = misma vista en PDF que en modal).
+const _LISTA_COMPRAS_MAX_DEPTH=5;
+let _listaComprasUltima=null; // {ingList, sinRecList, rango, nDocs}
+
 function generarListaCompras(){
   const docs=_impGetDocsRango(false);
   if(!docs.length){toast("No hay pedidos en el rango seleccionado","warn");return}
 
-  const ing={};  // {key: {nombre, qty}} — ingredientes de recetas
-  const sinRec={}; // {key: {nombre, qty, unit}} — items sin receta
+  const ing={};  // {key: {nombre, qty, unidad}} — ingredientes desglosados desde recetas
+  const sinRec={}; // {key: {nombre, qty, unit}} — productos finales sin receta
+
+  // Helper local: agrega un componente al map ing[]. Resuelve unidad con first-wins.
+  const _addIng=(comp,multQty)=>{
+    const k=(comp.n||"").toLowerCase().trim();
+    const u=comp.unidad||"";
+    if(!ing[k]){
+      ing[k]={nombre:comp.n,qty:0,unidad:u};
+    }else if(u&&ing[k].unidad&&u!==ing[k].unidad){
+      console.warn("[lista compras] conflicto de unidad para \""+comp.n+"\": \""+ing[k].unidad+"\" vs \""+u+"\". Mantengo \""+ing[k].unidad+"\".");
+    }else if(u&&!ing[k].unidad){
+      ing[k].unidad=u;
+    }
+    ing[k].qty+=multQty*(Number(comp.q)||1);
+  };
 
   docs.forEach(q=>{
     const yaSet=new Set((q.itemsProducidos||[]).map(s=>(s||"").toLowerCase().trim()));
@@ -3654,11 +3694,7 @@ function generarListaCompras(){
       if(yaSet.has((nombre||"").toLowerCase().trim()))return;
       const comps=_explodeComponentes(nombre,desc);
       if(comps&&comps.length){
-        comps.forEach(c=>{
-          const k=(c.n||"").toLowerCase().trim();
-          if(!ing[k])ing[k]={nombre:c.n,qty:0};
-          ing[k].qty+=(parseInt(qty)||0)*(Number(c.q)||1);
-        });
+        comps.forEach(c=>_addIng(c,parseInt(qty)||0));
       }else{
         const k=(nombre||"").toLowerCase().trim();
         if(!sinRec[k])sinRec[k]={nombre,qty:0,unit:unit||""};
@@ -3673,11 +3709,34 @@ function generarListaCompras(){
     }
   });
 
+  // v7.8.10: segundo pase — si un ingrediente del map ES a su vez una receta (productos-como-componente
+  // dentro de un hardcoded recipe, ej. "Arroz Reina" en "Plato Mixto Libanés"), expandirlo a sus
+  // ingredientes raw. Iterativo con depth limit defensivo.
+  for(let depth=0;depth<_LISTA_COMPRAS_MAX_DEPTH;depth++){
+    let changed=false;
+    Object.keys(ing).forEach(k=>{
+      const sub=_explodeComponentes(ing[k].nombre,"");
+      if(sub&&sub.length){
+        const qty=ing[k].qty;
+        delete ing[k];
+        sub.forEach(c=>_addIng(c,qty));
+        changed=true;
+      }
+    });
+    if(!changed)break;
+    if(depth===_LISTA_COMPRAS_MAX_DEPTH-1){
+      console.warn("[lista compras] depth limit ("+_LISTA_COMPRAS_MAX_DEPTH+") alcanzado en expansion recursiva — posible ciclo en recetas");
+    }
+  }
+
   const ingList=Object.values(ing).sort((a,b)=>a.nombre.localeCompare(b.nombre));
   const sinRecList=Object.values(sinRec).sort((a,b)=>a.nombre.localeCompare(b.nombre));
   const desde=reportesFiltrosImpr.desde||"?";
   const hasta=reportesFiltrosImpr.hasta||"?";
   const rango=desde===hasta?desde:desde+" → "+hasta;
+
+  // v7.8.10: cachear resultado para que generarPdfListaCompras() use el mismo dataset
+  _listaComprasUltima={ingList,sinRecList,rango,nDocs:docs.length};
 
   let html='<div style="font-size:13px;font-weight:700;color:#0D47A1;margin-bottom:10px">🛒 Lista de compras · '+escapeHtml(rango)+' · '+docs.length+' pedido(s)</div>';
 
@@ -3687,7 +3746,7 @@ function generarListaCompras(){
     ingList.forEach(i=>{
       html+='<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#F9FBE7;border:1px solid #E6EE9C;border-radius:6px">'+
         '<span style="font-size:13px;color:#1A1A1A">'+escapeHtml(i.nombre)+'</span>'+
-        '<span style="font-size:13px;font-weight:700;color:#33691E">'+i.qty+' und</span>'+
+        '<span style="font-size:13px;font-weight:700;color:#33691E">'+i.qty+' '+escapeHtml(i.unidad||'und')+'</span>'+
         '</div>';
     });
     html+='</div>';
@@ -3702,7 +3761,7 @@ function generarListaCompras(){
     sinRecList.forEach(i=>{
       html+='<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#FFF8E1;border:1px solid #FFE082;border-radius:6px">'+
         '<span style="font-size:13px;color:#1A1A1A">'+escapeHtml(i.nombre)+'</span>'+
-        '<span style="font-size:13px;font-weight:700;color:#E65100">'+i.qty+(i.unit?' '+i.unit:'')+'</span>'+
+        '<span style="font-size:13px;font-weight:700;color:#E65100">'+i.qty+(i.unit?' '+escapeHtml(i.unit):'')+'</span>'+
         '</div>';
     });
     html+='</div>';
@@ -3716,6 +3775,83 @@ function generarListaCompras(){
   const body=$("lista-compras-body");
   if(body)body.innerHTML=html;
   if(modal)modal.classList.remove("hidden");
+}
+
+// v7.8.10 — PDF E: lista de compras imprimible/compartible.
+// Usa el snapshot _listaComprasUltima generado por generarListaCompras() (ya con expansion recursiva
+// y unidades resueltas). Si no hay snapshot, pedir al usuario que abra la lista primero.
+function generarPdfListaCompras(){
+  if(!window.jspdf||!window.jspdf.jsPDF){
+    if(typeof toast==="function")toast("Error: jsPDF no cargado","error");
+    return;
+  }
+  if(!_listaComprasUltima){
+    if(typeof toast==="function")toast("Generá la lista primero (botón 'Ver lista').","warn");
+    return;
+  }
+  const {ingList,sinRecList,rango,nDocs}=_listaComprasUltima;
+  if(!ingList.length&&!sinRecList.length){
+    if(typeof toast==="function")toast("No hay items para exportar.","warn");
+    return;
+  }
+
+  const {jsPDF}=window.jspdf;
+  const pdf=new jsPDF("p","mm","a4");
+  const W=210,H=297,M=14;
+
+  // jsPDF + helvetica no renderiza glifos Unicode "→" (U+2192) ni "·" (U+00B7) consistentemente.
+  // Sanitizamos solo el subtitle (no afecta el modal HTML).
+  const rangoPdf=rango.replace(/\s*→\s*/g," a ");
+  const subtitle=rangoPdf+"  -  "+nDocs+" pedido(s)";
+  let y=_repPdfHeader(pdf,W,"LISTA DE COMPRAS",subtitle);
+
+  // Sección 1: ingredientes desde recetas
+  if(ingList.length){
+    pdf.setFontSize(10);pdf.setFont("helvetica","bold");
+    pdf.setTextColor(51,105,30);
+    pdf.text("Ingredientes (desde recetas)",M,y);
+    y+=2;
+    pdf.autoTable({
+      startY:y+1,
+      head:[["Ingrediente","Cantidad","Unidad"]],
+      body:ingList.map(i=>[i.nombre, i.qty, (i.unidad||"und")]),
+      theme:"grid",
+      headStyles:_REP_PDF_HEAD_STYLE,
+      alternateRowStyles:_REP_PDF_ZEBRA,
+      styles:{fontSize:9,cellPadding:2.5,valign:"middle"},
+      columnStyles:{0:{cellWidth:"auto"},1:{cellWidth:25,halign:"right"},2:{cellWidth:22,halign:"center"}},
+      margin:{left:M,right:M}
+    });
+    y=pdf.lastAutoTable.finalY+6;
+  }
+
+  // Sección 2: productos sin receta
+  if(sinRecList.length){
+    if(y>H-50){pdf.addPage();y=20}
+    pdf.setFontSize(10);pdf.setFont("helvetica","bold");
+    pdf.setTextColor(230,81,0);
+    pdf.text("Productos finales sin receta",M,y);
+    pdf.setFontSize(8);pdf.setFont("helvetica","italic");pdf.setTextColor(120,120,120);
+    pdf.text("Cantidades = unidades vendidas. Sin receta cargada en Herramientas > Recetas internas.",M,y+5);
+    y+=8;
+    pdf.setTextColor(0,0,0);
+    pdf.autoTable({
+      startY:y,
+      head:[["Producto","Cantidad","Unidad"]],
+      body:sinRecList.map(i=>[i.nombre, i.qty, (i.unit||"und")]),
+      theme:"grid",
+      headStyles:_REP_PDF_HEAD_STYLE,
+      alternateRowStyles:_REP_PDF_ZEBRA,
+      styles:{fontSize:9,cellPadding:2.5,valign:"middle"},
+      columnStyles:{0:{cellWidth:"auto"},1:{cellWidth:25,halign:"right"},2:{cellWidth:22,halign:"center"}},
+      margin:{left:M,right:M}
+    });
+  }
+
+  _repPdfFooter(pdf,W,H);
+
+  const fname="ListaCompras_"+rango.replace(/[^\d-]/g,"_")+".pdf";
+  pdf.save(fname);
 }
 
 function closeListaComprasModal(){
