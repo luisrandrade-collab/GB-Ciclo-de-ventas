@@ -109,8 +109,8 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.8.9";
-const BUILD_DATE="2026-05-07";
+const BUILD_VERSION="v7.8.9.1";
+const BUILD_DATE="2026-05-08";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
 // Helper único para resolver la colección Firestore de un documento por kind+id.
@@ -1273,12 +1273,17 @@ async function saveItemsProducidosToCloud(docId,kind,itemsProducidos){
 
 // ─── v7.8.5: RECETAS INTERNAS (collection 'recetasInternas') ───
 // Modelo: { nombre (lowercase+trim), ingredientes:[{n,q}], createdAt, updatedAt }
+// v7.8.9.1: normalización defensiva del key de cache en load/save/delete.
+// _explodeComponentes busca con lowercase+trim; cualquier entrada con casing distinto
+// (legacy en Firestore o caller no-normalizado) quedaría huérfana en la cache.
+function _normRecetaKey(nombre){return String(nombre||"").toLowerCase().trim()}
+
 async function loadRecetasInternasFromCloud(){
   try{
     const {db,collection,getDocs}=window.fb;
     const snap=await getDocs(collection(db,"recetasInternas"));
     recetasInternasCache={};
-    snap.forEach(d=>{const dat=d.data();recetasInternasCache[dat.nombre]={id:d.id,...dat};});
+    snap.forEach(d=>{const dat=d.data();recetasInternasCache[_normRecetaKey(dat.nombre)]={id:d.id,...dat};});
     localStorage.setItem("gb_recetas_cache",JSON.stringify(recetasInternasCache));
     return recetasInternasCache;
   }catch(e){
@@ -1290,13 +1295,14 @@ async function loadRecetasInternasFromCloud(){
 
 async function saveRecetaInternaToCloud(nombre,ingredientes,existingId,costoTotal){
   const {db,collection,doc,addDoc,updateDoc,serverTimestamp}=window.fb;
-  const obj={nombre:nombre,ingredientes:ingredientes,costoTotal:costoTotal||0};
+  const nombreNorm=_normRecetaKey(nombre);
+  const obj={nombre:nombreNorm,ingredientes:ingredientes,costoTotal:costoTotal||0};
   if(existingId){
     await updateDoc(doc(db,"recetasInternas",existingId),{...obj,updatedAt:serverTimestamp(),...auditStamp()});
-    if(recetasInternasCache)recetasInternasCache[nombre]={id:existingId,...obj};
+    if(recetasInternasCache)recetasInternasCache[nombreNorm]={id:existingId,...obj};
   }else{
     const ref=await addDoc(collection(db,"recetasInternas"),{...obj,createdAt:serverTimestamp(),updatedAt:serverTimestamp(),...auditStamp()});
-    if(recetasInternasCache)recetasInternasCache[nombre]={id:ref.id,...obj};
+    if(recetasInternasCache)recetasInternasCache[nombreNorm]={id:ref.id,...obj};
   }
   localStorage.setItem("gb_recetas_cache",JSON.stringify(recetasInternasCache));
 }
@@ -1304,7 +1310,7 @@ async function saveRecetaInternaToCloud(nombre,ingredientes,existingId,costoTota
 async function deleteRecetaInternaFromCloud(id,nombre){
   const {db,doc,deleteDoc}=window.fb;
   await deleteDoc(doc(db,"recetasInternas",id));
-  if(recetasInternasCache)delete recetasInternasCache[nombre];
+  if(recetasInternasCache)delete recetasInternasCache[_normRecetaKey(nombre)];
   localStorage.setItem("gb_recetas_cache",JSON.stringify(recetasInternasCache));
 }
 
