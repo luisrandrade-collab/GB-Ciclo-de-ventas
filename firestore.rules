@@ -16,14 +16,29 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ─── Whitelist de usuarios autorizados ──────────────────────
-    // Solo emails listados pueden leer/escribir cualquier collection.
-    // Para agregar a Kathy o JP, sumar su email Google a esta lista.
+    // Dos vías de autorización:
+    //  - HUMANO: email verificado por Google + en la whitelist (defensa contra
+    //    hijack de email vía registro email/password con un email ajeno).
+    //  - SKILL BOT: identificado por UID exacto (su email es @gourmet-bites.app,
+    //    no es real, entonces no se puede verificar — la defensa real es la
+    //    secrecía del password). UID es único e inmutable.
     function isAuthorized() {
+      return isHumanAuthorized() || isSkillBot();
+    }
+
+    function isHumanAuthorized() {
       return request.auth != null
           && request.auth.token.email_verified == true
           && request.auth.token.email in [
                'luisrandrade@gmail.com'
              ];
+    }
+
+    function isSkillBot() {
+      // skill-bot@gourmet-bites.app — UID generado por Firebase al crear el user.
+      // Si el bot se recrea (eliminado y vuelto a crear), actualizar este UID.
+      return request.auth != null
+          && request.auth.uid == 'VjfJSGQ8yzZne7fcEB3elLsspOz2';
     }
 
     // ─── Default deny ───────────────────────────────────────────
@@ -34,57 +49,60 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // ─── Collections operativas (CRUD completo si autorizado) ───
+    // ─── Collections operativas (CRUD completo solo humanos) ───
+    // El skill-bot NO tiene acceso a estas — defensa en profundidad por si
+    // se filtra el password del bot, el daño está acotado a recetasInternas.
 
     // Cotizaciones GB-COT-*
     match /quotes/{docId} {
-      allow read, write: if isAuthorized();
+      allow read, write: if isHumanAuthorized();
     }
 
     // Propuestas iniciales GB-PROP-*
     match /proposals/{docId} {
-      allow read, write: if isAuthorized();
+      allow read, write: if isHumanAuthorized();
     }
 
     // Propuestas finales GB-PF-*
     match /propfinals/{docId} {
-      allow read, write: if isAuthorized();
+      allow read, write: if isHumanAuthorized();
     }
 
     // Directorio de clientes
     match /clients/{docId} {
-      allow read, write: if isAuthorized();
+      allow read, write: if isHumanAuthorized();
     }
 
     // Directorio de proveedores
     match /proveedores/{docId} {
-      allow read, write: if isAuthorized();
+      allow read, write: if isHumanAuthorized();
     }
 
     // Compras registradas
     match /compras/{docId} {
-      allow read, write: if isAuthorized();
+      allow read, write: if isHumanAuthorized();
     }
 
     // Catálogo de productos de compra frecuente
     match /preciosCatalogo/{docId} {
-      allow read, write: if isAuthorized();
+      allow read, write: if isHumanAuthorized();
     }
 
     // Productos custom registrados desde cotizaciones
     match /custom_products/{docId} {
-      allow read, write: if isAuthorized();
-    }
-
-    // Recetas internas (ingredientes + costos por producto)
-    // La skill capture-receta escribe acá vía REST API. Cuando deployen
-    // estas rules, debe migrar a OAuth para autenticarse como Luis.
-    match /recetasInternas/{docId} {
-      allow read, write: if isAuthorized();
+      allow read, write: if isHumanAuthorized();
     }
 
     // Configuración del sistema (ej. price_memory)
     match /config/{docId} {
+      allow read, write: if isHumanAuthorized();
+    }
+
+    // ─── Collections con acceso del skill-bot ───────────────────
+
+    // Recetas internas (ingredientes + costos por producto).
+    // La skill capture-receta escribe acá. Acceso para humanos y skill-bot.
+    match /recetasInternas/{docId} {
       allow read, write: if isAuthorized();
     }
 
@@ -95,8 +113,9 @@ service cloud.firestore {
     // entradas existentes. Esto preserva la auditoría histórica.
     // Si se necesita "anular" una entrada, agregar otra entrada nueva
     // que la referencie (no editar la original).
+    // Solo humanos (el bot no tiene razón para escribir aquí).
     match /ajustesLog/{docId} {
-      allow read, create: if isAuthorized();
+      allow read, create: if isHumanAuthorized();
       allow update, delete: if false;
     }
   }
