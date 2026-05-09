@@ -3522,26 +3522,18 @@ function _explodeComponentes(nombre,desc){
   const hc=RECETAS_INTERNAS_HARDCODED[key];
   if(hc)return hc.slice();
 
-  // Heurística sobre descripción → componentes con q=1
+  // Heurística "+" sobre descripción → componentes con q=1.
+  // v7.9.2.1: eliminada heurística de comas — causaba que "Champiñones, espinacas, ricotta"
+  // (ingredientes de receta) aparecieran como sub-ítems en la comanda en vez del nombre del producto.
+  // Solo split por "+" queda activo (ej. "Pollo + Ensalada Delirio" → 2 ítems de lasagna).
   if(!desc)return [];
   const txt=String(desc).trim();
   if(!txt)return [];
-  let parts=null;
   if(/\s\+\s|\+/.test(txt)){
     const p=txt.split(/\s*\+\s*/).map(s=>s.trim()).filter(Boolean);
-    if(p.length>1)parts=p;
+    if(p.length>1)return p.map(s=>({n:s,q:1}));
   }
-  if(!parts){
-    const lower=txt.toLowerCase();
-    const empiezaPrep=/^(con|de|sin|para|incluye|m[aá]s|tipo|estilo)\b/.test(lower);
-    if(empiezaPrep||!txt.includes(","))return [];
-    const p=txt.split(/\s*,\s*/).map(s=>s.trim()).filter(Boolean);
-    if(p.length<=1)return [];
-    const todasCortas=p.every(s=>s.split(/\s+/).filter(Boolean).length<=4);
-    if(!todasCortas)return [];
-    parts=p;
-  }
-  return parts.map(s=>({n:s,q:1}));
+  return [];
 }
 
 // Estados validos para "vendido" (compromiso real)
@@ -4030,8 +4022,9 @@ function generarPdfProduccionPorCliente(){
         return;
       }
       const fullName=(nombre||"")+(custom?" *":"");
-      // Fila padre normal
-      // Componentes (sub-filas con colSpan). cantTotal = cantPadre × qPorUnidad del componente.
+      // Fila padre + sub-filas de componentes.
+      // v7.9.2.1: cuando NO hay componentes, imprimir el producto padre como fila standalone
+      // (antes quedaba invisible si _explodeComponentes devolvía []).
       try{
         const comps=_explodeComponentes(nombre,desc);
         if(comps&&comps.length){
@@ -4050,6 +4043,15 @@ function generarPdfProduccionPorCliente(){
               }
             }]);
           });
+        }else{
+          // Sin componentes: mostrar como ítem único con checkbox
+          items.push([
+            "",
+            {content:cantNum+"x",styles:{halign:"center",fontStyle:"bold"}},
+            fullName,
+            desc||"",
+            unidad||""
+          ]);
         }
       }catch(e){console.warn("explodeComponentes A falló para",nombre,desc,e)}
     };
