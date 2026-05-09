@@ -1,0 +1,120 @@
+// Gourmet Bites v7 — Cloud Storage Security Rules
+// Diseñadas: 2026-05-09 PM (post-incidente de pagos perdidos)
+//
+// MODELO: defensa en profundidad sobre evidencia financiera/legal.
+//
+// Carpetas y reglas:
+//   pagos/                  — comprobantes de pago. INMUTABLE.
+//   entregas/               — fotos de entrega. INMUTABLE.
+//   facturas/               — facturas electrónicas. INMUTABLE.
+//   comprobantes-compras/   — comprobantes de compras. INMUTABLE.
+//   comentarios/            — fotos de comentarios en pedidos. INMUTABLE.
+//   pdfs/                   — PDFs generados (cotizaciones, propuestas). INMUTABLE.
+//   productos/              — fotos del catálogo. MUTABLE (editor v7.9.1).
+//
+// "Inmutable" = create OK, update/delete bloqueado desde SDK.
+// El owner del proyecto puede borrar manualmente vía Firebase Console
+// si es estrictamente necesario (ej. limpieza de huérfanos), pero no hay
+// código del app que pueda borrar evidencia.
+//
+// Para deployar:
+//   firebase deploy --only storage:rules
+
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ─── Whitelist humano (mismo patrón que firestore.rules) ───
+    function isHumanAuthorized() {
+      return request.auth != null
+          && request.auth.token.email_verified == true
+          && request.auth.token.email in [
+               'luisrandrade@gmail.com'
+             ];
+    }
+
+    function isAuthorized() {
+      return isHumanAuthorized() || (
+        request.auth != null
+        && request.auth.uid == 'VjfJSGQ8yzZne7fcEB3elLsspOz2'
+      );
+    }
+
+    function isImageUnder(maxBytes) {
+      return request.resource.size < maxBytes
+          && request.resource.contentType.matches('image/.*');
+    }
+
+    function isPdfUnder(maxBytes) {
+      return request.resource.size < maxBytes
+          && request.resource.contentType == 'application/pdf';
+    }
+
+    // ─── Default deny ────────────────────────────────────────
+    // Cualquier path no listado abajo queda bloqueado.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // ─── pagos/ — INMUTABLE (evidencia financiera) ───────────
+    // Crítico: aquí van los comprobantes de transferencia/efectivo.
+    // No se puede borrar ni reemplazar desde la app — protege contra
+    // bugs (uploads duplicados se quedan, hay que limpiar manualmente
+    // con script auditable) y contra credenciales comprometidas.
+    match /pagos/{file} {
+      allow read: if isHumanAuthorized();
+      allow create: if isHumanAuthorized() && isImageUnder(10 * 1024 * 1024);
+      allow update, delete: if false;
+    }
+
+    // ─── entregas/ — INMUTABLE (evidencia de entrega) ────────
+    match /entregas/{file} {
+      allow read: if isHumanAuthorized();
+      allow create: if isHumanAuthorized() && isImageUnder(10 * 1024 * 1024);
+      allow update, delete: if false;
+    }
+
+    // ─── facturas/ — INMUTABLE (evidencia tributaria) ────────
+    match /facturas/{file} {
+      allow read: if isHumanAuthorized();
+      allow create: if isHumanAuthorized() && isImageUnder(10 * 1024 * 1024);
+      allow update, delete: if false;
+    }
+
+    // ─── comprobantes-compras/ — INMUTABLE (evidencia compras) ──
+    match /comprobantes-compras/{file} {
+      allow read: if isHumanAuthorized();
+      allow create: if isHumanAuthorized() && isImageUnder(10 * 1024 * 1024);
+      allow update, delete: if false;
+    }
+
+    // ─── comentarios/ — INMUTABLE (anotaciones operativas) ──
+    match /comentarios/{file} {
+      allow read: if isHumanAuthorized();
+      allow create: if isHumanAuthorized() && isImageUnder(10 * 1024 * 1024);
+      allow update, delete: if false;
+    }
+
+    // ─── pdfs/ — INMUTABLE (legal/historical) ────────────────
+    // Cotizaciones, propuestas y propuestas finales generadas.
+    // Cada nueva versión sube como vNN_timestamp.pdf, las anteriores
+    // quedan como historial inmodificable.
+    match /pdfs/{kind}/{docId}/{file} {
+      allow read: if isHumanAuthorized();
+      allow create: if isHumanAuthorized() && isPdfUnder(20 * 1024 * 1024);
+      allow update, delete: if false;
+    }
+
+    // ─── productos/ — MUTABLE (editor del catálogo v7.9.1) ──
+    // Read PÚBLICO sin auth — para que catalogo.html liste fotos sin login.
+    // Write/delete solo humanos autorizados (la skill-bot no toca fotos).
+    // Es el ÚNICO path con delete habilitado desde SDK, por necesidad
+    // del editor (botón "🗑️ Foto" para reemplazar imagen).
+    match /productos/{file} {
+      allow read: if true;
+      allow create, update: if isHumanAuthorized() && isImageUnder(5 * 1024 * 1024);
+      allow delete: if isHumanAuthorized();
+    }
+  }
+}
