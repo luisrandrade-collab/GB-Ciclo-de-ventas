@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.2.2";
+const BUILD_VERSION="v7.9.3";
 const BUILD_DATE="2026-05-09";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
@@ -387,7 +387,33 @@ const C=[
 ];
 const TR={"La Calera":{n:"Transporte La Calera",p:10000},"Bogotá":{n:"Transporte Bogotá",p:20000},"Chía":{n:"Transporte Chía / Cajicá",p:40000},"Cajicá":{n:"Transporte Chía / Cajicá",p:40000}};
 let CATS=["Todas",...new Set(C.map(x=>x.c))];
-function refreshCats(){const hasCatCustom=customProductsCache.some(cp=>cp.inCatalog);const baseCats=["Todas",...new Set(C.map(x=>x.c))];CATS=hasCatCustom?[...baseCats,"Personalizados"]:baseCats}
+// v7.9.3: mapear productosCache al schema del cotizador
+function _getCatProdsFromFirestore(){
+  if(!productosCache||!Object.keys(productosCache).length)return[];
+  return Object.values(productosCache)
+    .filter(p=>p.activo!==false&&p.visibleEnListaPrecios!==false)
+    .map(p=>({
+      id:p.productId,
+      productId:p.productId,
+      n:p.nombre,
+      d:p.descripcion||"",
+      p:p.precio||0,
+      u:p.unidad||"",
+      c:(categoriasCache&&categoriasCache[p.categoriaId]&&categoriasCache[p.categoriaId].nombre)||"General"
+    }));
+}
+function refreshCats(){
+  const hasCatCustom=customProductsCache.some(cp=>cp.inCatalog);
+  const fireProds=_getCatProdsFromFirestore();
+  let baseCats;
+  if(fireProds.length>0){
+    // v7.9.3: categorías dinámicas desde productosCache
+    baseCats=["Todas",...new Set(fireProds.map(x=>x.c))];
+  }else{
+    baseCats=["Todas",...new Set(C.map(x=>x.c))];
+  }
+  CATS=hasCatCustom?[...baseCats,"Personalizados"]:baseCats;
+}
 
 // ─── HELPERS ───────────────────────────────────────────────
 const fm=n=>"$"+n.toLocaleString("es-CO");
@@ -2603,10 +2629,34 @@ function updUI(){const c=totCnt(),n=distIt();const b=$("cbadge"),bar=$("cbar");i
 // ─── CATEGORY/PRODUCT RENDER ───────────────────────────────
 function renderCats(){$("cats").innerHTML=CATS.map(c=>`<button class="cpill ${c===selCat?'act':''}" onclick="selC('${c.replace(/'/g,"\\'")}')">${c==="Todas"?"Todas":c}</button>`).join("")}
 function selC(c){selCat=c;renderCats();renderP()}
-function renderP(){refreshCats();renderCats();const s=($("sbox").value||"").toLowerCase();const catProds=customProductsCache.filter(cp=>cp.inCatalog).map(cp=>({id:"cp_"+cp.id,c:"Personalizados",n:cp.n,d:cp.d||"",p:cp.p||0,u:cp.u||"",_cpId:cp.id}));const allProds=C.concat(catProds);const f=allProds.filter(p=>(selCat==="Todas"||p.c===selCat)&&(!s||p.n.toLowerCase().includes(s)||(p.d||"").toLowerCase().includes(s)));const el=$("plist");const atMax=distIt()>=MX;
+function renderP(){refreshCats();renderCats();const s=($("sbox").value||"").toLowerCase();const catProds=customProductsCache.filter(cp=>cp.inCatalog).map(cp=>({id:"cp_"+cp.id,c:"Personalizados",n:cp.n,d:cp.d||"",p:cp.p||0,u:cp.u||"",_cpId:cp.id}));
+// v7.9.3: usar productosCache cuando esté disponible, fallback a C[]
+const fireProds=_getCatProdsFromFirestore();
+const baseProds=fireProds.length>0?fireProds:C;
+const allProds=baseProds.concat(catProds);
+const f=allProds.filter(p=>(selCat==="Todas"||p.c===selCat)&&(!s||p.n.toLowerCase().includes(s)||(p.d||"").toLowerCase().includes(s)));const el=$("plist");const atMax=distIt()>=MX;
 if(!f.length){el.innerHTML='<div class="empty"><div class="ic">🔍</div><p>No se encontraron productos</p><button class="btn bg" onclick="togCF()">+ Personalizado</button></div>';return}
-el.innerHTML=f.map(p=>{const ic=cart.find(x=>x.id===p.id);const canAdd=!atMax||ic;return'<div class="pcard '+(ic?'inc':'')+'"><div class="pinfo"><div class="pname">'+p.n+'</div>'+(p.d?'<div class="pdesc">'+p.d+'</div>':'')+'<div class="punit">'+p.u+'</div><div class="pprice">'+fm(p.p)+'</div></div><div>'+(ic?'<div class="qc"><button class="qb" onclick="chgQ('+p.id+','+(ic.qty-1)+')">−</button><input type="number" class="qn" value="'+ic.qty+'" min="1" onchange="chgQ('+p.id+',+this.value)" onfocus="this.select()"><button class="qb" onclick="chgQ('+p.id+','+(ic.qty+1)+')">+</button></div>':canAdd?'<button class="abtn" onclick="addC('+p.id+')">Agregar</button>':'<span style="font-size:11px;color:var(--gb-neutral-400)">Máx</span>')+'</div></div>'}).join("");updUI()}
-function addC(id){if(distIt()>=MX){toast("Máximo "+MX+" productos","warn");return}const p=C.find(x=>x.id===id);if(!p)return;const e=cart.find(x=>x.id===id);if(e)e.qty++;else cart.push({...p,qty:1,origP:p.p,edited:false});renderP()}
+el.innerHTML=f.map(p=>{
+// v7.9.3: ids string (productId) se pasan entre comillas simples en onclick
+const idJs=typeof p.id==="string"?"'"+p.id+"'":p.id;
+const ic=cart.find(x=>x.id===p.id);const canAdd=!atMax||ic;return'<div class="pcard '+(ic?'inc':'')+'"><div class="pinfo"><div class="pname">'+escapeHtml(p.n)+'</div>'+(p.d?'<div class="pdesc">'+escapeHtml(p.d)+'</div>':'')+'<div class="punit">'+escapeHtml(p.u||"")+'</div><div class="pprice">'+fm(p.p)+'</div></div><div>'+(ic?'<div class="qc"><button class="qb" onclick="chgQ('+idJs+','+(ic.qty-1)+')">−</button><input type="number" class="qn" value="'+ic.qty+'" min="1" onchange="chgQ('+idJs+',+this.value)" onfocus="this.select()"><button class="qb" onclick="chgQ('+idJs+','+(ic.qty+1)+')">+</button></div>':canAdd?'<button class="abtn" onclick="addC('+idJs+')">Agregar</button>':'<span style="font-size:11px;color:var(--gb-neutral-400)">Máx</span>')+'</div></div>';}).join("");updUI()}
+function addC(id){
+  if(distIt()>=MX){toast("Máximo "+MX+" productos","warn");return}
+  // v7.9.3: buscar en productosCache (string id) o en C[] (numeric id)
+  let p=null,extra={};
+  if(typeof id==="string"&&productosCache&&productosCache[id]){
+    const fp=productosCache[id];
+    p={id:fp.productId,n:fp.nombre,d:fp.descripcion||"",p:fp.precio||0,u:fp.unidad||""};
+    extra={productId:fp.productId};
+  }else{
+    p=C.find(x=>x.id===id);
+  }
+  if(!p)return;
+  const e=cart.find(x=>x.id===id);
+  if(e)e.qty++;
+  else cart.push({...p,...extra,qty:1,origP:p.p,edited:false});
+  renderP();
+}
 function chgQ(id,q){q=parseInt(q)||0;if(q<=0)cart=cart.filter(x=>x.id!==id);else{const i=cart.find(x=>x.id===id);if(i)i.qty=q}renderP()}
 
 // ─── CUSTOM PRODUCTS ───────────────────────────────────────
