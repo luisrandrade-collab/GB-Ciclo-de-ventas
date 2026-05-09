@@ -7958,39 +7958,52 @@ async function renderCatalogoProductos(){
   listEl.innerHTML=html;
 }
 
-// v7.9.0.4: marcar todos los productos activos como visibleEnWeb=true
-// para que aparezcan en catalogo.html público (la migración los puso en false por default).
+// v7.9.0.4: marcar todos los productos + categorías activos como visibleEnWeb=true
+// para que aparezcan en catalogo.html público. La migración los puso en false por default.
 async function hacerVisiblesEnWeb(){
   if(!productosCache||!Object.keys(productosCache).length){
     toast("Catálogo no migrado","warn");return;
   }
-  const candidatos=Object.values(productosCache).filter(p=>p.activo!==false&&p.visibleEnWeb!==true);
-  if(!candidatos.length){
-    toast("Todos los productos activos ya son visibles en web","success");
+  const prodsCandidatos=Object.values(productosCache).filter(p=>p.activo!==false&&p.visibleEnWeb!==true);
+  const catsCandidatas=Object.values(categoriasCache||{}).filter(c=>c.activo!==false&&c.visibleEnWeb!==true);
+  if(!prodsCandidatos.length&&!catsCandidatas.length){
+    toast("Todo el catálogo ya es visible en web","success");
     return;
   }
-  if(!confirm("Vas a marcar "+candidatos.length+" productos como visibleEnWeb=true.\n\nDespués de aplicar, todos esos productos van a aparecer en catalogo.html público (Linktree).\n\n¿Continuar?"))return;
+  if(!confirm("Vas a marcar "+prodsCandidatos.length+" productos + "+catsCandidatas.length+" categorías como visibleEnWeb=true.\n\nDespués de aplicar, aparecen en catalogo.html público (Linktree).\n\n¿Continuar?"))return;
 
-  showLoader("Actualizando 0/"+candidatos.length+"…");
+  showLoader("Actualizando…");
   const {db,doc,setDoc,serverTimestamp}=window.fb;
   let ok=0,fail=0;
-  for(let i=0;i<candidatos.length;i++){
-    const p=candidatos[i];
-    showLoader("Actualizando "+(i+1)+"/"+candidatos.length+"… "+p.nombre);
+
+  // 1. Categorías primero (más rápido, son menos)
+  for(let i=0;i<catsCandidatas.length;i++){
+    const c=catsCandidatas[i];
+    showLoader("Categorías "+(i+1)+"/"+catsCandidatas.length+"… "+c.nombre);
+    try{
+      await setDoc(doc(db,"categorias",c.categoriaId),{
+        visibleEnWeb:true,updatedAt:serverTimestamp(),...auditStamp(),
+      },{merge:true});
+      categoriasCache[c.categoriaId].visibleEnWeb=true;
+      ok++;
+    }catch(e){console.error("[hacerVisiblesEnWeb cat]",c.categoriaId,e);fail++}
+  }
+
+  // 2. Productos
+  for(let i=0;i<prodsCandidatos.length;i++){
+    const p=prodsCandidatos[i];
+    showLoader("Productos "+(i+1)+"/"+prodsCandidatos.length+"… "+p.nombre);
     try{
       await setDoc(doc(db,"productos",p.productId),{
-        visibleEnWeb:true,
-        updatedAt:serverTimestamp(),
-        ...auditStamp(),
+        visibleEnWeb:true,updatedAt:serverTimestamp(),...auditStamp(),
       },{merge:true});
       productosCache[p.productId].visibleEnWeb=true;
       ok++;
-    }catch(e){
-      console.error("[hacerVisiblesEnWeb] falló",p.productId,e);
-      fail++;
-    }
+    }catch(e){console.error("[hacerVisiblesEnWeb prod]",p.productId,e);fail++}
   }
+
   localStorage.setItem("gb_productos_cache",JSON.stringify(productosCache));
+  localStorage.setItem("gb_categorias_cache",JSON.stringify(categoriasCache));
   hideLoader();
   toast((fail>0?"⚠ ":"✅ ")+ok+" marcados visibleEnWeb"+(fail>0?", "+fail+" fallaron":""),fail>0?"warn":"success",6000);
   renderCatalogoProductos();
