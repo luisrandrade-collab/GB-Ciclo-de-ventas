@@ -3461,50 +3461,86 @@ const RECETAS_INTERNAS_HARDCODED={
 };
 
 // v7.8.4: detecta componentes dentro de la descripción de un producto.
-// Reglas:
-// - Si descripción contiene " + " o "+" → split por +. Caso típico: "Pollo + Ensalada".
-// - Si contiene "," → split por coma SOLO SI cada parte resultante tiene
-//   <= 4 palabras (lista corta de componentes/ingredientes). Si alguna parte
-//   es larga, es texto narrativo y NO se separa.
-// - Si empieza con preposición ("con", "de"...) → narrativa, NO se separa.
-// Devuelve array de strings (componentes) o [] si no hay componentes.
-// Devuelve array de {n, q} donde q = cantidad por unidad del producto padre.
-// Si viene de receta interna, usa el q definido. Si viene de heurística, q=1.
+// Devuelve array de {n, q, unidad?} donde q = cantidad por unidad del producto padre.
+// v7.9.2: si el producto tiene recetaKey + porciones en productosCache, aplica
+// factor = porciones / receta.rendimiento para escalar ingredientes correctamente.
+
+// v7.9.2: reverse lookup en productosCache por nombre (lowercase+trim).
+function _findProductoByNombre(nombreKey){
+  if(typeof productosCache==="undefined"||!productosCache)return null;
+  return Object.values(productosCache).find(p=>
+    p.activo!==false&&String(p.nombre||"").toLowerCase().trim()===nombreKey
+  )||null;
+}
+
 function _explodeComponentes(nombre,desc){
-  // 1. Si el producto tiene receta interna definida, usarla (prioritaria)
   const key=String(nombre||"").toLowerCase().trim()
-    .replace(/\s*\*\s*$/,"")  // quitar marca " *" custom al final
-    .replace(/\s+custom(?:\s+custom)*$/,"");  // quitar "CUSTOM" repetidos
-  // v7.8.7.1: Firestore tiene prioridad por-key. Si la receta no está en Firestore (o el cache aún no cargó),
-  // se cae al hardcoded para que la migración a Firestore sea opcional/incremental sin romper la hoja de producción.
+    .replace(/\s*\*\s*$/,"")
+    .replace(/\s+custom(?:\s+custom)*$/,"");
   const fsCache=(typeof recetasInternasCache!=="undefined"&&recetasInternasCache!==null)?recetasInternasCache:null;
+
+  // v7.9.2: intentar BOM vía productosCache (recetaKey + factor porciones/rendimiento)
+  const producto=_findProductoByNombre(key);
+  if(producto&&producto.recetaKey&&fsCache){
+    const rKey=String(producto.recetaKey).toLowerCase().trim();
+    const recetaBOM=fsCache[rKey];
+    const ings=recetaBOM&&(Array.isArray(recetaBOM)?recetaBOM:recetaBOM.ingredientes);
+    if(ings&&ings.length){
+      const rendimiento=Number(recetaBOM.rendimiento)||0;
+      const porciones=Number(producto.porciones)||1;
+      const factor=(rendimiento>0)?porciones/rendimiento:1;
+      if(rendimiento>0&&factor!==1){
+        console.debug("[BOM] "+nombre+" → receta '"+rKey+"' rendimiento="+rendimiento+", porciones="+porciones+", factor="+factor.toFixed(3));
+      }
+      return ings.map(ing=>({
+        n:ing.n,
+        q:(Number(ing.q)||1)*factor,
+        unidad:ing.unidad||""
+      }));
+    }
+  }
+
+  // Ruta clásica: match directo nombre → key en recetasInternasCache
   let receta=fsCache?fsCache[key]:null;
-  if(!receta)receta=RECETAS_INTERNAS_HARDCODED[key];
-  const ingredientes=receta?(Array.isArray(receta)?receta:receta.ingredientes):null;
-  if(ingredientes)return ingredientes.slice();
-  // 2. Sino, heurística sobre la descripción → componentes con q=1
+  if(receta){
+    const ings=Array.isArray(receta)?receta:receta.ingredientes;
+    if(ings&&ings.length){
+      // v7.9.2: si la receta de Firestore tiene rendimiento Y encontramos el producto,
+      // aplicar factor. Si no hay info de porciones, factor=1 (q ya es por-unidad legacy).
+      const rendimiento=Number(receta.rendimiento)||0;
+      const porciones=Number(producto&&producto.porciones)||1;
+      const factor=(rendimiento>0)?porciones/rendimiento:1;
+      return ings.map(ing=>({
+        n:ing.n,
+        q:(Number(ing.q)||1)*factor,
+        unidad:ing.unidad||""
+      }));
+    }
+  }
+
+  // Fallback hardcoded (q ya está per-unit, no se escala)
+  const hc=RECETAS_INTERNAS_HARDCODED[key];
+  if(hc)return hc.slice();
+
+  // Heurística sobre descripción → componentes con q=1
   if(!desc)return [];
   const txt=String(desc).trim();
   if(!txt)return [];
   let parts=null;
-  // Detectar +
   if(/\s\+\s|\+/.test(txt)){
     const p=txt.split(/\s*\+\s*/).map(s=>s.trim()).filter(Boolean);
     if(p.length>1)parts=p;
   }
   if(!parts){
-    // Detectar coma — solo si no empieza con preposición
     const lower=txt.toLowerCase();
     const empiezaPrep=/^(con|de|sin|para|incluye|m[aá]s|tipo|estilo)\b/.test(lower);
     if(empiezaPrep||!txt.includes(","))return [];
     const p=txt.split(/\s*,\s*/).map(s=>s.trim()).filter(Boolean);
     if(p.length<=1)return [];
-    // Cada parte debe ser corta (≤4 palabras) para considerarse componente
     const todasCortas=p.every(s=>s.split(/\s+/).filter(Boolean).length<=4);
     if(!todasCortas)return [];
     parts=p;
   }
-  // Convertir a {n, q:1}
   return parts.map(s=>({n:s,q:1}));
 }
 
