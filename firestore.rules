@@ -119,14 +119,20 @@ service cloud.firestore {
     //                el daño está limitado a agregar productos nuevos (visibles
     //                y revertibles desde el editor).
     match /productos/{docId} {
-      allow read: if isAuthorized();
+      // Read PÚBLICO TOTAL sin auth — para que la página catalogo.html
+      // (Linktree, web propia) pueda listar el catálogo sin login.
+      // El frontend filtra por activo!=false y visibleEnWeb!=false.
+      // Trade-off aceptado: usuario malicioso ve todos los productos
+      // incluso archivados/ocultos, pero NO puede modificar nada.
+      // No info ultra-sensible (nombres, precios, descripciones).
+      allow read: if true;
       allow create: if isAuthorized();
       allow update, delete: if isHumanAuthorized();
     }
 
     // Categorías editables del catálogo. Mismo modelo que productos.
     match /categorias/{docId} {
-      allow read: if isAuthorized();
+      allow read: if true;
       allow create: if isAuthorized();
       allow update, delete: if isHumanAuthorized();
     }
