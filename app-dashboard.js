@@ -7958,6 +7958,44 @@ async function renderCatalogoProductos(){
   listEl.innerHTML=html;
 }
 
+// v7.9.0.4: marcar todos los productos activos como visibleEnWeb=true
+// para que aparezcan en catalogo.html público (la migración los puso en false por default).
+async function hacerVisiblesEnWeb(){
+  if(!productosCache||!Object.keys(productosCache).length){
+    toast("Catálogo no migrado","warn");return;
+  }
+  const candidatos=Object.values(productosCache).filter(p=>p.activo!==false&&p.visibleEnWeb!==true);
+  if(!candidatos.length){
+    toast("Todos los productos activos ya son visibles en web","success");
+    return;
+  }
+  if(!confirm("Vas a marcar "+candidatos.length+" productos como visibleEnWeb=true.\n\nDespués de aplicar, todos esos productos van a aparecer en catalogo.html público (Linktree).\n\n¿Continuar?"))return;
+
+  showLoader("Actualizando 0/"+candidatos.length+"…");
+  const {db,doc,setDoc,serverTimestamp}=window.fb;
+  let ok=0,fail=0;
+  for(let i=0;i<candidatos.length;i++){
+    const p=candidatos[i];
+    showLoader("Actualizando "+(i+1)+"/"+candidatos.length+"… "+p.nombre);
+    try{
+      await setDoc(doc(db,"productos",p.productId),{
+        visibleEnWeb:true,
+        updatedAt:serverTimestamp(),
+        ...auditStamp(),
+      },{merge:true});
+      productosCache[p.productId].visibleEnWeb=true;
+      ok++;
+    }catch(e){
+      console.error("[hacerVisiblesEnWeb] falló",p.productId,e);
+      fail++;
+    }
+  }
+  localStorage.setItem("gb_productos_cache",JSON.stringify(productosCache));
+  hideLoader();
+  toast((fail>0?"⚠ ":"✅ ")+ok+" marcados visibleEnWeb"+(fail>0?", "+fail+" fallaron":""),fail>0?"warn":"success",6000);
+  renderCatalogoProductos();
+}
+
 // v7.9.0.2: archivar productos custom no-cliente (servicios, bebidas, regalos, basura)
 async function archivarCustomsNoCliente(){
   if(!productosCache||!Object.keys(productosCache).length){
