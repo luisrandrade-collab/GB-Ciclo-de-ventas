@@ -4322,7 +4322,22 @@ function generarPdfEmpaque(){
         ]);
         return;
       }
-      items.push(["",String(qty||0),(nombre||"")+(custom?" *":""),desc||"",unidad||""]);
+      // v7.9.2.2: explotar componentes en empaque — cada ítem físico tiene su propia fila y casilla.
+      // "9x Plato Mixto" → 9x Arroz Reina, 18x Hojas de parra, etc.
+      try{
+        const comps=_explodeComponentes(nombre,desc);
+        if(comps&&comps.length){
+          comps.forEach(comp=>{
+            const qPorUnidad=Number(comp.q)||1;
+            const qtyTotal=Math.round((qty||0)*qPorUnidad*1000)/1000;
+            items.push(["",String(qtyTotal),comp.n,"",comp.unidad||""]);
+          });
+        }else{
+          items.push(["",String(qty||0),(nombre||"")+(custom?" *":""),desc||"",unidad||""]);
+        }
+      }catch(e){
+        items.push(["",String(qty||0),(nombre||"")+(custom?" *":""),desc||"",unidad||""]);
+      }
     };
     if(q.kind==="quote"){
       (q.cart||[]).forEach(it=>_addItemC(it.qty,it.n,it.d,it.u,false,it.n));
