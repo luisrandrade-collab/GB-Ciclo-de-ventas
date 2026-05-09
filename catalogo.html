@@ -317,7 +317,7 @@ function render() {
   const cont = document.getElementById("contenido");
   const filtroVisible = activeCat === "" ? null : activeCat;
   const cats = allCategorias
-    .filter(c => c.activo !== false && c.visibleEnWeb !== false)
+    .filter(c => c.activo !== false)
     .filter(c => !filtroVisible || c.categoriaId === filtroVisible)
     .sort((a, b) => (a.orden || 9999) - (b.orden || 9999));
 
@@ -325,7 +325,7 @@ function render() {
   let totalProductos = 0;
   for (const cat of cats) {
     const prods = allProductos
-      .filter(p => p.activo !== false && p.visibleEnWeb !== false && p.categoriaId === cat.categoriaId)
+      .filter(p => p.activo !== false && p.categoriaId === cat.categoriaId)
       .sort((a, b) => (a.ordenDentroDeCategoria || 9999) - (b.ordenDentroDeCategoria || 9999));
     if (prods.length === 0) continue;
     totalProductos += prods.length;
@@ -373,8 +373,8 @@ function renderFiltros() {
   const filtros = document.getElementById("filtros");
   // Solo categorías que tienen productos visibles
   const cats = allCategorias
-    .filter(c => c.activo !== false && c.visibleEnWeb !== false)
-    .filter(c => allProductos.some(p => p.activo !== false && p.visibleEnWeb !== false && p.categoriaId === c.categoriaId))
+    .filter(c => c.activo !== false)
+    .filter(c => allProductos.some(p => p.activo !== false && p.categoriaId === c.categoriaId))
     .sort((a, b) => (a.orden || 9999) - (b.orden || 9999));
   // Limpiar filtros excepto el "Todos" inicial
   filtros.innerHTML = `<button class="${activeCat === "" ? "active" : ""}" data-cat="">Todos</button>`;
