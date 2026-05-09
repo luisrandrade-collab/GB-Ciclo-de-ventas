@@ -7925,16 +7925,25 @@ async function renderCatalogoProductos(){
         dropOpts+='<option value="'+escapeHtml(c.categoriaId)+'">'+escapeHtml(c.nombre)+'</option>';
       });
       html+='<div style="padding:8px 14px;border-top:1px solid #F0F0F0;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12.5px">';
-      // Izquierda: checkbox + nombre + badges
+      // Izquierda: checkbox + foto + nombre + badges
       html+='<div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">';
       html+='<label title="Visible en Lista de precios" style="display:flex;align-items:center;cursor:pointer;flex-shrink:0">'+
         '<input type="checkbox" '+checked+' onchange="toggleVisibleEnListaPrecios(\''+escapeHtml(p.productId)+'\',this.checked)" style="cursor:pointer">'+
       '</label>';
+      // v7.9.0.2: thumbnail de foto + botones subir/cambiar/borrar
+      const tieneFoto=!!p.fotoUrl;
+      const thumbHtml=tieneFoto?
+        '<img src="'+escapeHtml(p.fotoUrl)+'" alt="" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid #E0E0E0;flex-shrink:0;cursor:pointer" onclick="subirFotoProducto(\''+escapeHtml(p.productId)+'\')" title="Cambiar foto">':
+        '<button onclick="subirFotoProducto(\''+escapeHtml(p.productId)+'\')" title="Subir foto" style="width:36px;height:36px;border:1px dashed #BDBDBD;background:#FAFAFA;border-radius:6px;cursor:pointer;font-size:14px;color:#757575;flex-shrink:0;padding:0">📸</button>';
+      html+=thumbHtml;
       html+='<div style="flex:1;min-width:0;overflow:hidden"><span style="font-weight:600;color:'+(visible?'#1A1A1A':'#9E9E9E')+'">'+escapeHtml(p.nombre)+'</span>'+tipoBadge+recetaBadge+'</div>';
       html+='</div>';
-      // Derecha: precio + unidad + dropdown mover
+      // Derecha: precio + unidad + dropdown mover + (si hay foto) botón borrar
       html+='<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">';
       html+='<div style="font-size:11px;color:#757575;white-space:nowrap;text-align:right">'+(p.precio?fm(p.precio):'—')+'<br><span>'+escapeHtml(p.unidad||'')+'</span></div>';
+      if(tieneFoto){
+        html+='<button onclick="borrarFotoProducto(\''+escapeHtml(p.productId)+'\')" title="Borrar foto" style="background:none;border:1px solid #EF9A9A;border-radius:5px;padding:2px 6px;cursor:pointer;font-size:11px;color:#C62828">🗑️ Foto</button>';
+      }
       if(dropOpts){
         html+='<select onchange="moverProductoACategoria(\''+escapeHtml(p.productId)+'\',this.value)" title="Mover a otra categoría" style="font-size:11px;padding:2px 4px;border:1px solid #E0E0E0;border-radius:5px;background:#fff;cursor:pointer;max-width:140px">'+
           '<option value="">→ Mover</option>'+dropOpts+
@@ -8278,6 +8287,57 @@ async function eliminarCategoria(catId){
       toast("Error: "+(e?.message||e),"error");
       console.error("[eliminarCategoria]",e);
     }
+  }
+}
+
+// ─── v7.9.0.2: SUBIR/BORRAR FOTO DE PRODUCTO ───
+let _catalogoFotoActiveProductId=null;
+
+function subirFotoProducto(productId){
+  if(!productId)return;
+  _catalogoFotoActiveProductId=productId;
+  const inp=$("catalogo-foto-input");
+  if(!inp){toast("Input de archivo no encontrado","error");return}
+  inp.value=""; // permite re-seleccionar mismo archivo
+  inp.click();
+}
+
+async function _onCatalogoFotoSelected(ev){
+  const productId=_catalogoFotoActiveProductId;
+  _catalogoFotoActiveProductId=null;
+  const file=ev.target.files&&ev.target.files[0];
+  if(!file||!productId)return;
+  // Validar tipo
+  if(!file.type.startsWith("image/")){
+    toast("El archivo debe ser una imagen","warn");
+    return;
+  }
+  showLoader("Subiendo foto…");
+  try{
+    await uploadFotoProductoToCloud(productId,file);
+    hideLoader();
+    toast("✅ Foto guardada","success");
+    renderCatalogoProductos();
+  }catch(e){
+    hideLoader();
+    toast("Error subiendo foto: "+(e?.message||e),"error");
+    console.error("[subirFotoProducto] falló",{productId,error:e});
+  }
+}
+
+async function borrarFotoProducto(productId){
+  if(!productId||!productosCache||!productosCache[productId])return;
+  if(!confirm("¿Eliminar la foto del producto \""+productosCache[productId].nombre+"\"?"))return;
+  showLoader("Eliminando foto…");
+  try{
+    await eliminarFotoProductoFromCloud(productId);
+    hideLoader();
+    toast("Foto eliminada","success");
+    renderCatalogoProductos();
+  }catch(e){
+    hideLoader();
+    toast("Error: "+(e?.message||e),"error");
+    console.error("[borrarFotoProducto] falló",{productId,error:e});
   }
 }
 

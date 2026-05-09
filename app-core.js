@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.0.1";
+const BUILD_VERSION="v7.9.0.2";
 const BUILD_DATE="2026-05-09";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
@@ -1538,6 +1538,82 @@ async function migrarCatalogoAFirestore(progressCb){
     prodsCreados,prodsActualizados,prodsTotal:C.length,
     errores
   };
+}
+
+// ─── v7.9.0.2: FOTOS DE PRODUCTOS (Firebase Storage) ───
+// Path: productos/{productId}.jpg
+// La foto se redimensiona a max 800px de ancho antes de subir (para no
+// llenar Storage con fotos de 5MB+ del celular). URL queda en producto.fotoUrl.
+
+// Redimensiona una imagen File/Blob a máx maxW px de ancho, mantiene aspect ratio.
+// Retorna un Blob JPEG calidad 0.85.
+async function _resizeImageBlob(file,maxW){
+  return new Promise((resolve,reject)=>{
+    const img=new Image();
+    img.onload=()=>{
+      const ratio=img.width>maxW?maxW/img.width:1;
+      const w=Math.round(img.width*ratio);
+      const h=Math.round(img.height*ratio);
+      const canvas=document.createElement("canvas");
+      canvas.width=w;canvas.height=h;
+      const ctx=canvas.getContext("2d");
+      ctx.drawImage(img,0,0,w,h);
+      canvas.toBlob(b=>b?resolve(b):reject(new Error("No se pudo generar el JPEG")),"image/jpeg",0.85);
+    };
+    img.onerror=()=>reject(new Error("Imagen inválida"));
+    img.src=URL.createObjectURL(file);
+  });
+}
+
+// Sube foto del producto y guarda fotoUrl en Firestore. Path único por productId
+// (sobrescribe la anterior si ya había foto).
+async function uploadFotoProductoToCloud(productId,file){
+  if(!productId)throw new Error("productId requerido");
+  if(!file)throw new Error("file requerido");
+  if(!cloudOnline)throw new Error("Sin conexión");
+  // Resize a max 800px ancho (suficiente para web + WhatsApp + PDF, típicamente <100KB)
+  const blob=await _resizeImageBlob(file,800);
+  const path="productos/"+productId+".jpg";
+  const url=await uploadToStorage(blob,path);
+  // Guardar URL en Firestore
+  const {db,doc,setDoc,serverTimestamp}=window.fb;
+  await setDoc(doc(db,"productos",productId),{
+    fotoUrl:url,
+    fotoPath:path,
+    updatedAt:serverTimestamp(),
+    ...auditStamp()
+  },{merge:true});
+  if(productosCache&&productosCache[productId]){
+    productosCache[productId].fotoUrl=url;
+    productosCache[productId].fotoPath=path;
+    localStorage.setItem("gb_productos_cache",JSON.stringify(productosCache));
+  }
+  return url;
+}
+
+async function eliminarFotoProductoFromCloud(productId){
+  if(!productId)throw new Error("productId requerido");
+  if(!cloudOnline)throw new Error("Sin conexión");
+  const p=productosCache&&productosCache[productId];
+  const path=p&&p.fotoPath?p.fotoPath:"productos/"+productId+".jpg";
+  // Borrar de Storage (puede fallar si ya no existe — ignorar)
+  try{
+    const {storage,storageRef,deleteObject}=window.fb;
+    await deleteObject(storageRef(storage,path));
+  }catch(e){console.warn("[eliminarFotoProducto] delete Storage fail (puede ser OK si no existía):",e?.message||e)}
+  // Limpiar fotoUrl en Firestore
+  const {db,doc,setDoc,serverTimestamp}=window.fb;
+  await setDoc(doc(db,"productos",productId),{
+    fotoUrl:null,
+    fotoPath:null,
+    updatedAt:serverTimestamp(),
+    ...auditStamp()
+  },{merge:true});
+  if(productosCache&&productosCache[productId]){
+    productosCache[productId].fotoUrl=null;
+    productosCache[productId].fotoPath=null;
+    localStorage.setItem("gb_productos_cache",JSON.stringify(productosCache));
+  }
 }
 
 // ─── v7.8 F2: COMPRAS (collection 'compras') ────────────────
