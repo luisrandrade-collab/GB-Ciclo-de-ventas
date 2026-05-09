@@ -7958,6 +7958,60 @@ async function renderCatalogoProductos(){
   listEl.innerHTML=html;
 }
 
+// v7.9.0.2: archivar productos custom no-cliente (servicios, bebidas, regalos, basura)
+async function archivarCustomsNoCliente(){
+  if(!productosCache||!Object.keys(productosCache).length){
+    toast("Catálogo no migrado","warn");return;
+  }
+  // Detectar candidatos a archivar
+  const candidatos=[];
+  Object.values(productosCache).forEach(p=>{
+    if(p.activo===false)return;
+    let razon=null;
+    if(p.categoriaId==="servicios")razon="servicio";
+    else if(p.categoriaId==="bebidas-e-insumos")razon="bebida/insumo";
+    else if(p.nombre&&p.nombre.includes("CUSTOM CUSTOM"))razon="basura";
+    else if(p.nombre&&/\(regalo\)/i.test(p.nombre))razon="regalo";
+    if(razon)candidatos.push({pid:p.productId,nombre:p.nombre,razon});
+  });
+
+  if(!candidatos.length){
+    toast("No hay productos custom no-cliente para archivar","warn");
+    return;
+  }
+
+  let mensaje="Vas a archivar "+candidatos.length+" producto(s) (activo=false). Quedan en Firestore como histórico pero NO aparecen en lista de precios, web ni cotizador.\n\n";
+  candidatos.forEach(c=>{mensaje+="  ["+c.razon+"] "+c.nombre+"\n"});
+  mensaje+="\n¿Continuar?";
+  if(!confirm(mensaje))return;
+
+  showLoader("Archivando 0/"+candidatos.length+"…");
+  const {db,doc,setDoc,serverTimestamp}=window.fb;
+  let ok=0,fail=0;
+  for(let i=0;i<candidatos.length;i++){
+    const c=candidatos[i];
+    showLoader("Archivando "+(i+1)+"/"+candidatos.length+"… "+c.nombre);
+    try{
+      await setDoc(doc(db,"productos",c.pid),{
+        activo:false,
+        updatedAt:serverTimestamp(),
+        archivedAt:new Date().toISOString(),
+        archivedReason:"no-vendible-cliente",
+        ...auditStamp(),
+      },{merge:true});
+      productosCache[c.pid].activo=false;
+      ok++;
+    }catch(e){
+      console.error("[archivar] falló",c.pid,e);
+      fail++;
+    }
+  }
+  localStorage.setItem("gb_productos_cache",JSON.stringify(productosCache));
+  hideLoader();
+  toast((fail>0?"⚠ ":"✅ ")+ok+" archivados"+(fail>0?", "+fail+" fallaron":""),fail>0?"warn":"success",6000);
+  renderCatalogoProductos();
+}
+
 async function ejecutarMigracionCatalogo(){
   if(!confirm("Vas a migrar los "+(C?.length||0)+" productos del catálogo hardcoded a Firestore.\n\nLa operación es idempotente — re-ejecutar no duplica.\n\n¿Continuar?"))return;
   const btn=$("catalogo-migracion-btn");
@@ -8323,6 +8377,72 @@ async function _onCatalogoFotoSelected(ev){
     toast("Error subiendo foto: "+(e?.message||e),"error");
     console.error("[subirFotoProducto] falló",{productId,error:e});
   }
+}
+
+// ─── v7.9.0.2.1: BATCH UPLOAD de fotos (productId desde filename) ───
+function iniciarBatchUploadFotos(){
+  const inp=$("catalogo-foto-batch-input");
+  if(!inp){toast("Input de batch no encontrado","error");return}
+  inp.value="";
+  inp.click();
+}
+
+async function _onCatalogoFotoBatchSelected(ev){
+  const files=Array.from(ev.target.files||[]);
+  if(!files.length)return;
+  if(!productosCache||!Object.keys(productosCache).length){
+    toast("Catálogo no migrado — migrá primero","warn");
+    return;
+  }
+  // Resolver productId de cada filename (sin extensión, lowercase)
+  const items=files.map(f=>{
+    const base=f.name.replace(/\.[^/.]+$/,"").toLowerCase().trim();
+    const productExists=!!productosCache[base];
+    return {file:f,productId:base,productExists,nombre:productExists?productosCache[base].nombre:""};
+  });
+  const validos=items.filter(i=>i.productExists);
+  const invalidos=items.filter(i=>!i.productExists);
+
+  if(!validos.length){
+    toast("Ninguno de los "+files.length+" archivos coincide con un productId del catálogo","warn",8000);
+    if(invalidos.length){
+      console.warn("[batch fotos] archivos sin match:",invalidos.map(i=>i.file.name));
+    }
+    return;
+  }
+
+  let mensaje="Vas a subir "+validos.length+" foto(s) a Firestore.\n\n";
+  if(invalidos.length){
+    mensaje+="⚠ "+invalidos.length+" archivo(s) NO coinciden con productos y se saltarán:\n";
+    mensaje+=invalidos.slice(0,5).map(i=>"  - "+i.file.name).join("\n");
+    if(invalidos.length>5)mensaje+="\n  ... y "+(invalidos.length-5)+" más";
+    mensaje+="\n\n";
+  }
+  mensaje+="¿Continuar?";
+  if(!confirm(mensaje))return;
+
+  showLoader("Subiendo 0/"+validos.length+"…");
+  let ok=0,fail=0;
+  const errores=[];
+  for(let i=0;i<validos.length;i++){
+    const it=validos[i];
+    showLoader("Subiendo "+(i+1)+"/"+validos.length+"… "+it.nombre);
+    try{
+      await uploadFotoProductoToCloud(it.productId,it.file);
+      ok++;
+    }catch(e){
+      fail++;
+      errores.push({productId:it.productId,error:e?.message||String(e)});
+      console.error("[batch fotos] falló "+it.productId,e);
+    }
+  }
+  hideLoader();
+  let resumen="Batch terminado: "+ok+" subidas";
+  if(fail>0)resumen+=", "+fail+" fallidas";
+  if(invalidos.length>0)resumen+=", "+invalidos.length+" saltadas";
+  toast((fail>0?"⚠ ":"✅ ")+resumen,fail>0?"warn":"success",8000);
+  if(errores.length)console.error("[batch fotos] errores:",errores);
+  renderCatalogoProductos();
 }
 
 async function borrarFotoProducto(productId){

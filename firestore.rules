@@ -89,8 +89,11 @@ service cloud.firestore {
     }
 
     // Productos custom registrados desde cotizaciones
+    // skill-bot puede leer (para skills que migran custom → catálogo principal).
+    // Write sigue solo para humanos.
     match /custom_products/{docId} {
-      allow read, write: if isHumanAuthorized();
+      allow read: if isAuthorized();
+      allow write: if isHumanAuthorized();
     }
 
     // Configuración del sistema (ej. price_memory)
@@ -107,14 +110,25 @@ service cloud.firestore {
 
     // ─── Catálogo (v7.9 BOM) ────────────────────────────────────
     // Productos como entidad de primera clase, con metadata para BOM y web.
-    // Solo humanos (skill-bot NO accede — defensa en profundidad).
+    // Read: humanos + skill-bot (skill-bot necesita leer para skills tipo
+    //       match-fotos-instagram que cruzan datos externos contra el catálogo).
+    // Create: humanos + skill-bot (skill-bot crea productos nuevos durante
+    //         migraciones, ej. importar custom_products al catálogo).
+    // Update/Delete: solo humanos. skill-bot NO modifica productos existentes —
+    //                defensa en profundidad: si se filtra el password del bot,
+    //                el daño está limitado a agregar productos nuevos (visibles
+    //                y revertibles desde el editor).
     match /productos/{docId} {
-      allow read, write: if isHumanAuthorized();
+      allow read: if isAuthorized();
+      allow create: if isAuthorized();
+      allow update, delete: if isHumanAuthorized();
     }
 
-    // Categorías editables del catálogo.
+    // Categorías editables del catálogo. Mismo modelo que productos.
     match /categorias/{docId} {
-      allow read, write: if isHumanAuthorized();
+      allow read: if isAuthorized();
+      allow create: if isAuthorized();
+      allow update, delete: if isHumanAuthorized();
     }
 
     // ─── Collections con acceso del skill-bot ───────────────────

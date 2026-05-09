@@ -2458,7 +2458,12 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     <div id="catalogo-migracion-zone" style="background:#fff;border:1px solid #E0E0E0;border-radius:10px;padding:14px;margin-bottom:14px">
       <div style="font-size:13px;font-weight:700;color:#1A1A1A;margin-bottom:8px">🚀 Migración del catálogo C[] → Firestore</div>
       <div id="catalogo-migracion-status" style="font-size:12px;color:#757575;margin-bottom:10px">Cargando estado…</div>
-      <button id="catalogo-migracion-btn" class="btn" onclick="ejecutarMigracionCatalogo()" style="background:#0D47A1;color:#fff;font-size:13px;padding:8px 16px">Migrar catálogo a Firestore</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="catalogo-migracion-btn" class="btn" onclick="ejecutarMigracionCatalogo()" style="background:#0D47A1;color:#fff;font-size:13px;padding:8px 16px">Migrar catálogo a Firestore</button>
+        <button onclick="iniciarBatchUploadFotos()" title="Subir varias fotos a la vez. Cada archivo debe llamarse productId.jpg (ej. arroz-reina-10-pers.jpg)" style="background:#1B5E20;color:#fff;border:none;border-radius:8px;font-size:13px;padding:8px 16px;cursor:pointer">📤 Importar fotos masivamente</button>
+        <button onclick="archivarCustomsNoCliente()" title="Marca como activo=false los productos que no se venden a clientes (servicios, bebidas, regalos, basura)" style="background:#C62828;color:#fff;border:none;border-radius:8px;font-size:13px;padding:8px 16px;cursor:pointer">🗄️ Archivar customs no-cliente</button>
+      </div>
+      <div style="font-size:11px;color:#9E9E9E;margin-top:8px;line-height:1.4">El batch upload espera archivos con nombre <code>productId.jpg</code> (ej. <code>arroz-reina-10-pers.jpg</code>). Los archivos cuyo productId no exista se saltan con warning.</div>
     </div>
     <div id="catalogo-list-zone">
       <div style="font-size:13px;font-weight:700;color:#1A1A1A;margin-bottom:8px">Productos en Firestore</div>
@@ -2466,6 +2471,8 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     </div>
     <!-- v7.9.0.2: input file oculto compartido para subir fotos de productos -->
     <input type="file" id="catalogo-foto-input" accept="image/*" style="display:none" onchange="_onCatalogoFotoSelected(event)">
+    <!-- v7.9.0.2.1: input file MÚLTIPLE para batch upload de fotos -->
+    <input type="file" id="catalogo-foto-batch-input" accept="image/*" multiple style="display:none" onchange="_onCatalogoFotoBatchSelected(event)">
   </div>
 </div>
 
