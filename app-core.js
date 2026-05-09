@@ -109,8 +109,8 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.8.11.2";
-const BUILD_DATE="2026-05-08";
+const BUILD_VERSION="v7.9.0";
+const BUILD_DATE="2026-05-09";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
 // Helper único para resolver la colección Firestore de un documento por kind+id.
@@ -1314,6 +1314,232 @@ async function deleteRecetaInternaFromCloud(id,nombre){
   localStorage.setItem("gb_recetas_cache",JSON.stringify(recetasInternasCache));
 }
 
+// ─── v7.9.0: PRODUCTOS + CATEGORÍAS (collections 'productos','categorias') ───
+// Schema documentado en _internos/Plan_de_accion_v7_9_0.json.
+// v7.9.0 es ADITIVO: la migración carga el catálogo a Firestore pero la app
+// sigue usando C[] hardcoded como source of truth. v7.9.1+ migra los flujos.
+
+let productosCache=null;   // {productId: {productId, nombre, ...}}
+let categoriasCache=null;  // {categoriaId: {categoriaId, nombre, ...}}
+
+// Slug generator: lowercase, NFD strip accents, no alfanumérico → "-", collapse "--"
+function _slugify(text){
+  return String(text||"").toLowerCase().trim()
+    .normalize("NFD").replace(/[̀-ͯ]/g,"")  // strip diacritics
+    .replace(/[^a-z0-9]+/g,"-")
+    .replace(/^-+|-+$/g,"");
+}
+
+// Detecta porciones desde nombre o unidad. Default 1.
+// Ejemplos: "Arroz Reina (10 pers)" → 10, "(individual)" → 1, "(20 uds)" → 20.
+function _detectarPorciones(nombre,unidad){
+  const n=String(nombre||"");
+  // Regex de mayor a menor especificidad
+  const patrones=[
+    /\((\d+)\s*pers(?:onas)?\)/i,
+    /\((\d+)p\)/i,
+    /\((\d+)\s*uds?\)/i,
+    /\((\d+)\s*porciones?\)/i,
+    /\((\d+)\s*unidades?\)/i,
+  ];
+  for(const re of patrones){
+    const m=n.match(re);
+    if(m)return parseInt(m[1],10);
+  }
+  if(/\((indiv(?:idual)?)\)/i.test(n))return 1;
+  // Fallback: probar la unidad
+  const u=String(unidad||"");
+  const muu=u.match(/(\d+)\s*(?:personas?|porciones?|unidades?|uds?)/i);
+  if(muu)return parseInt(muu[1],10);
+  return 1;
+}
+
+// Receta master key = nombre base sin sufijo de presentación (lowercase+trim).
+// "Arroz Reina (10 pers)" → "arroz reina". "Tabbule" → "tabbule".
+function _detectarRecetaKey(nombre){
+  return String(nombre||"").toLowerCase().trim()
+    .replace(/\s*\([^)]+\)\s*$/,"")
+    .trim();
+}
+
+async function loadProductosFromCloud(){
+  try{
+    const {db,collection,getDocs}=window.fb;
+    const snap=await getDocs(collection(db,"productos"));
+    productosCache={};
+    snap.forEach(d=>{const dat=d.data();productosCache[dat.productId||d.id]={id:d.id,...dat}});
+    localStorage.setItem("gb_productos_cache",JSON.stringify(productosCache));
+    return productosCache;
+  }catch(e){
+    console.error("loadProductosFromCloud error",e);
+    try{productosCache=JSON.parse(localStorage.getItem("gb_productos_cache")||"null")}catch{}
+    return productosCache;
+  }
+}
+
+async function loadCategoriasFromCloud(){
+  try{
+    const {db,collection,getDocs}=window.fb;
+    const snap=await getDocs(collection(db,"categorias"));
+    categoriasCache={};
+    snap.forEach(d=>{const dat=d.data();categoriasCache[dat.categoriaId||d.id]={id:d.id,...dat}});
+    localStorage.setItem("gb_categorias_cache",JSON.stringify(categoriasCache));
+    return categoriasCache;
+  }catch(e){
+    console.error("loadCategoriasFromCloud error",e);
+    try{categoriasCache=JSON.parse(localStorage.getItem("gb_categorias_cache")||"null")}catch{}
+    return categoriasCache;
+  }
+}
+
+// ─── v7.9.0 MIGRACIÓN: catálogo C[] hardcoded → Firestore ───
+// Idempotente: re-ejecutar no duplica docs. Para productos/categorias
+// existentes, hace updateDoc preservando createdAt y campos web editables
+// (visibleEnWeb, fotoUrl, alergenos, descripcionWeb, ordenDentroDeCategoria,
+// activo). Solo sobrescribe campos derivados de C[] (nombre, precio, etc).
+async function migrarCatalogoAFirestore(progressCb){
+  if(!cloudOnline){throw new Error("Sin conexión a Firestore")}
+  if(!Array.isArray(C)||!C.length){throw new Error("C[] vacío o no disponible")}
+  const {db,doc,setDoc,getDoc,serverTimestamp}=window.fb;
+
+  // 1. Generar categorías desde C[].c distinct, con orden = primer legacyId
+  const catsByName={};
+  C.forEach(p=>{
+    if(!p.c)return;
+    if(!catsByName[p.c]){
+      catsByName[p.c]={nombre:p.c,orden:p.id};
+    }
+  });
+
+  // 2. Subir/upsert categorías
+  let catsCreadas=0,catsActualizadas=0;
+  for(const cat of Object.values(catsByName)){
+    const catId=_slugify(cat.nombre);
+    if(!catId)continue;
+    const ref=doc(db,"categorias",catId);
+    const existing=await getDoc(ref);
+    if(existing.exists()){
+      // Update solo campos derivados (preserva visibleEnWeb, descripcion, etc.)
+      await setDoc(ref,{
+        categoriaId:catId,
+        nombre:cat.nombre,
+        orden:cat.orden,
+        updatedAt:serverTimestamp(),
+        ...auditStamp(),
+      },{merge:true});
+      catsActualizadas++;
+    }else{
+      await setDoc(ref,{
+        categoriaId:catId,
+        nombre:cat.nombre,
+        orden:cat.orden,
+        visibleEnWeb:false,
+        descripcion:null,
+        activo:true,
+        createdAt:serverTimestamp(),
+        updatedAt:serverTimestamp(),
+        createdVia:"migration:v7.9.0",
+        ...auditStamp(),
+      });
+      catsCreadas++;
+    }
+  }
+
+  // 3. Detectar productos compuestos (nombre lowercase está en RECETAS_INTERNAS_HARDCODED)
+  const HARDCODED=(typeof RECETAS_INTERNAS_HARDCODED!=="undefined")?RECETAS_INTERNAS_HARDCODED:{};
+
+  // 4. Subir/upsert productos
+  let prodsCreados=0,prodsActualizados=0,errores=[];
+  const usedSlugs=new Set();
+  for(let i=0;i<C.length;i++){
+    const p=C[i];
+    if(progressCb)progressCb(i+1,C.length,p.n);
+    try{
+      // Slug con detección de colisión
+      let slug=_slugify(p.n);
+      if(usedSlugs.has(slug)){
+        let n=2;while(usedSlugs.has(slug+"-"+n))n++;
+        console.warn("[migracion] colisión slug para \""+p.n+"\", usando "+slug+"-"+n);
+        slug=slug+"-"+n;
+      }
+      usedSlugs.add(slug);
+
+      const nombreLower=p.n.toLowerCase().trim();
+      const esCompuesto=Object.prototype.hasOwnProperty.call(HARDCODED,nombreLower);
+      const tipo=esCompuesto?"compuesto":"atomico";
+      const componentes=esCompuesto?HARDCODED[nombreLower].map(c=>({
+        nombreLegacy:c.n,
+        q:c.q||1,
+        unidad:c.unidad||"porcion",
+        productIdHijo:null,  // se resolverá en v7.9.2
+      })):null;
+      const recetaKey=esCompuesto?null:_detectarRecetaKey(p.n);
+      const porciones=esCompuesto?1:_detectarPorciones(p.n,p.u);
+      const categoriaId=p.c?_slugify(p.c):null;
+
+      const ref=doc(db,"productos",slug);
+      const existing=await getDoc(ref);
+      if(existing.exists()){
+        // Update solo campos derivados (preserva campos web + activo si fueron editados)
+        await setDoc(ref,{
+          productId:slug,
+          legacyId:p.id,
+          nombre:p.n,
+          categoriaId:categoriaId,
+          descripcion:p.d||"",
+          precio:p.p||0,
+          unidad:p.u||"",
+          tipo:tipo,
+          recetaKey:recetaKey,
+          porciones:porciones,
+          componentes:componentes,
+          updatedAt:serverTimestamp(),
+          ...auditStamp(),
+        },{merge:true});
+        prodsActualizados++;
+      }else{
+        await setDoc(ref,{
+          productId:slug,
+          legacyId:p.id,
+          nombre:p.n,
+          categoriaId:categoriaId,
+          descripcion:p.d||"",
+          precio:p.p||0,
+          unidad:p.u||"",
+          tipo:tipo,
+          recetaKey:recetaKey,
+          porciones:porciones,
+          componentes:componentes,
+          visibleEnWeb:false,
+          fotoUrl:null,
+          alergenos:[],
+          descripcionWeb:null,
+          ordenDentroDeCategoria:p.id,
+          activo:true,
+          createdAt:serverTimestamp(),
+          updatedAt:serverTimestamp(),
+          createdVia:"migration:v7.9.0",
+          ...auditStamp(),
+        });
+        prodsCreados++;
+      }
+    }catch(e){
+      console.error("[migracion] producto "+p.id+" \""+p.n+"\" falló",e);
+      errores.push({legacyId:p.id,nombre:p.n,error:e?.message||String(e)});
+    }
+  }
+
+  // Refrescar caches locales
+  await loadCategoriasFromCloud();
+  await loadProductosFromCloud();
+
+  return {
+    catsCreadas,catsActualizadas,catsTotal:Object.keys(catsByName).length,
+    prodsCreados,prodsActualizados,prodsTotal:C.length,
+    errores
+  };
+}
+
 // ─── v7.8 F2: COMPRAS (collection 'compras') ────────────────
 // Modelo: { proveedorId, proveedorNombre (snapshot), fecha, items[], total,
 //           formaPago, comprobante: {url,path}|null, nota, estado, createdAt, updatedAt }
@@ -2128,7 +2354,8 @@ function setMode(m){
   // v7.8.2: agregado 'pedidos-hojas' (Hojas para imprimir movido de Reportes a Pedidos)
   // v7.8.3: agregado 'cartera-ajustes-log' (Log auditable de descuentos/perdones)
   // v7.8.5: agregado 'herr-recetas' (Herramientas > Recetas internas — CRUD Firestore)
-  ["dash","cot","prop","search","hist","seg","cal","ventas","cartera","cartera-historico","cartera-ajustes-log","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","pedidos-hojas","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup","clientes-directorio","clientes-ficha","clientes-comentarios","proveedores-directorio","compras-pendientes","compras-historico","compras-catalogo","herr-recetas"].forEach(x=>{
+  // v7.9.0: agregado 'herr-catalogo' (Herramientas > Catálogo de productos)
+  ["dash","cot","prop","search","hist","seg","cal","ventas","cartera","cartera-historico","cartera-ajustes-log","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","pedidos-hojas","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup","clientes-directorio","clientes-ficha","clientes-comentarios","proveedores-directorio","compras-pendientes","compras-historico","compras-catalogo","herr-recetas","herr-catalogo"].forEach(x=>{
     const el=$("mode-"+x);
     if(el)el.classList.toggle("hidden",x!==m);
     document.querySelectorAll(".mode-btn.m-"+x).forEach(b=>b.classList.toggle("act",x===m));
@@ -2152,6 +2379,7 @@ function setMode(m){
   if(m==="compras-catalogo"&&typeof renderComprasCatalogo==="function")renderComprasCatalogo();
   if(m==="backup"&&typeof renderSyncAgendaPanel==="function")renderSyncAgendaPanel();
   if(m==="herr-recetas"&&typeof renderRecetasInternas==="function")renderRecetasInternas();
+  if(m==="herr-catalogo"&&typeof renderCatalogoProductos==="function")renderCatalogoProductos();
   if(m==="reportes"&&typeof renderReportes==="function")renderReportes();
   if(m==="cotizaciones"&&typeof renderCotizaciones==="function")renderCotizaciones();
   if(m==="perdidas"&&typeof renderPerdidas==="function")renderPerdidas();

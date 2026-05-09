@@ -1854,10 +1854,10 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
 
     <!-- v7.8 F1.5: Herramientas movido fuera de Maestros a sección propia "Configuración" -->
     <div class="sb-section-label">Configuración</div>
-    <div class="sb-module" data-mod="herramientas">
+    <div class="sb-module" data-mod="herr">
       <button class="sb-module__btn"><span class="gb-shell-icon">⚙️</span><span class="sb-module__label">Herramientas</span></button>
       <div class="sb-submenu">
-        <a href="javascript:void(0)" class="is-soon" data-sub="herr/catalogo-productos">Catálogo de productos<span class="sub-soon">Pronto</span></a>
+        <a href="javascript:void(0)" data-sub="herr/catalogo-productos">Catálogo de productos</a>
         <a href="javascript:void(0)" data-sub="herr/recetas">Recetas internas</a>
         <a href="javascript:void(0)" data-sub="herr/backup">Mantenimiento y backups</a>
         <a href="javascript:void(0)" class="is-soon" data-sub="herr/configuracion">Configuración<span class="sub-soon">Pronto</span></a>
@@ -1917,7 +1917,8 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'archivo/anuladas':     'archivo-anuladas',
     'archivo/convertidas':  'archivo-convertidas',
     'herr/backup':          'backup',
-    'herr/recetas':         'herr-recetas'
+    'herr/recetas':         'herr-recetas',
+    'herr/catalogo-productos': 'herr-catalogo'
     // Pipeline, ops/despacho, ops/historico-hojas, compras/*, clientes/*, herr/* → undefined → SOON
   };
 
@@ -1955,6 +1956,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'archivo-convertidas':  'archivo/convertidas',
     'backup':               'herr/backup',
     'herr-recetas':         'herr/recetas',
+    'herr-catalogo':        'herr/catalogo-productos',
     'search':               'ventas/cotizar'
   };
 
@@ -1988,7 +1990,8 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'archivo/anuladas':     ['Archivo', 'Anuladas'],
     'archivo/convertidas':  ['Archivo', 'Convertidas / Versiones viejas'],
     'herr/backup':          ['Herramientas', 'Mantenimiento y backups'],
-    'herr/recetas':         ['Herramientas', 'Recetas internas']
+    'herr/recetas':         ['Herramientas', 'Recetas internas'],
+    'herr/catalogo-productos': ['Herramientas', 'Catálogo de productos']
   };
 
   function gbShellEnsureCrumb(){
@@ -2402,6 +2405,31 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   </div>
 
   <!-- v7.5: Bloque 'Opciones avanzadas' movido a Herramientas > Mantenimiento y backups -->
+</div>
+
+<!-- ======== HERRAMIENTAS > CATÁLOGO DE PRODUCTOS (v7.9.0) ======== -->
+<div id="mode-herr-catalogo" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#0D47A1;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span>📦 Catálogo de productos</span>
+      <span style="font-size:11px;font-weight:400;color:#757575;margin-left:8px">v7.9.0 — sólo lectura, edición desde v7.9.1</span>
+    </div>
+    <div style="background:#E3F2FD;border-left:3px solid #0D47A1;padding:10px 14px;margin-bottom:14px;border-radius:6px;font-size:12.5px;color:#0D47A1;line-height:1.5">
+      <div style="font-weight:700;margin-bottom:4px">v7.9 BOM — Migración del catálogo a Firestore</div>
+      Hoy el catálogo (113 productos) está hardcoded en el código. Esta versión migra cada producto a Firestore con metadata extendida (tipo atómico/compuesto, recetaKey, porciones, campos web reservados).
+      La migración es <b>idempotente</b> — re-ejecutar no duplica ni pisa campos editados a mano.
+      Después de migrar, el flujo de cotizar/producir sigue igual hasta v7.9.4 (los flujos críticos no se tocan en v7.9.0).
+    </div>
+    <div id="catalogo-migracion-zone" style="background:#fff;border:1px solid #E0E0E0;border-radius:10px;padding:14px;margin-bottom:14px">
+      <div style="font-size:13px;font-weight:700;color:#1A1A1A;margin-bottom:8px">🚀 Migración del catálogo C[] → Firestore</div>
+      <div id="catalogo-migracion-status" style="font-size:12px;color:#757575;margin-bottom:10px">Cargando estado…</div>
+      <button id="catalogo-migracion-btn" class="btn" onclick="ejecutarMigracionCatalogo()" style="background:#0D47A1;color:#fff;font-size:13px;padding:8px 16px">Migrar catálogo a Firestore</button>
+    </div>
+    <div id="catalogo-list-zone">
+      <div style="font-size:13px;font-weight:700;color:#1A1A1A;margin-bottom:8px">Productos en Firestore</div>
+      <div id="catalogo-list"><div style="text-align:center;padding:30px;color:#9E9E9E;font-size:13px">Cargando…</div></div>
+    </div>
+  </div>
 </div>
 
 <!-- ======== HERRAMIENTAS > RECETAS INTERNAS (v7.8.5) ======== -->
@@ -4506,12 +4534,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.8.11.2"></script>
-<script src="app-core.js?v=7.8.11.2"></script>
-<script src="app-cotizar.js?v=7.8.11.2"></script>
-<script src="app-propuesta.js?v=7.8.11.2"></script>
-<script src="app-historial.js?v=7.8.11.2"></script>
-<script src="app-seguimiento.js?v=7.8.11.2"></script>
-<script src="app-dashboard.js?v=7.8.11.2"></script>
+<script src="app-assets.js?v=7.9.0"></script>
+<script src="app-core.js?v=7.9.0"></script>
+<script src="app-cotizar.js?v=7.9.0"></script>
+<script src="app-propuesta.js?v=7.9.0"></script>
+<script src="app-historial.js?v=7.9.0"></script>
+<script src="app-seguimiento.js?v=7.9.0"></script>
+<script src="app-dashboard.js?v=7.9.0"></script>
 </body>
 </html>

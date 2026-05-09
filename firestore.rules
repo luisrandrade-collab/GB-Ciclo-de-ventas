@@ -98,6 +98,25 @@ service cloud.firestore {
       allow read, write: if isHumanAuthorized();
     }
 
+    // Contadores transaccionales para consecutivos (quotes-YYYY, proposals-YYYY, propfinals-YYYY).
+    // getNextNumber() en app-core.js usa runTransaction para get + set atómicos.
+    // ⚠ Sin esta rule, NO SE PUEDEN CREAR cotizaciones/propuestas nuevas.
+    match /counters/{docId} {
+      allow read, write: if isHumanAuthorized();
+    }
+
+    // ─── Catálogo (v7.9 BOM) ────────────────────────────────────
+    // Productos como entidad de primera clase, con metadata para BOM y web.
+    // Solo humanos (skill-bot NO accede — defensa en profundidad).
+    match /productos/{docId} {
+      allow read, write: if isHumanAuthorized();
+    }
+
+    // Categorías editables del catálogo.
+    match /categorias/{docId} {
+      allow read, write: if isHumanAuthorized();
+    }
+
     // ─── Collections con acceso del skill-bot ───────────────────
 
     // Recetas internas (ingredientes + costos por producto).

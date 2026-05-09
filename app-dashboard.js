@@ -7839,3 +7839,101 @@ async function deleteRecetaEditor(){
     console.error(e);
   }
 }
+
+// ─── v7.9.0: CATÁLOGO DE PRODUCTOS (UI mínima — migración + lectura) ───
+async function renderCatalogoProductos(){
+  const statusEl=$("catalogo-migracion-status");
+  const listEl=$("catalogo-list");
+  if(!statusEl||!listEl)return;
+
+  statusEl.textContent="Consultando estado…";
+  listEl.innerHTML='<div style="text-align:center;padding:30px;color:#9E9E9E;font-size:13px">Cargando…</div>';
+
+  if(typeof productosCache!=="undefined"&&productosCache===null&&cloudOnline){
+    try{await loadProductosFromCloud()}catch{}
+  }
+  if(typeof categoriasCache!=="undefined"&&categoriasCache===null&&cloudOnline){
+    try{await loadCategoriasFromCloud()}catch{}
+  }
+
+  const prodsCount=(typeof productosCache!=="undefined"&&productosCache)?Object.keys(productosCache).length:0;
+  const catsCount=(typeof categoriasCache!=="undefined"&&categoriasCache)?Object.keys(categoriasCache).length:0;
+  const codeCount=Array.isArray(C)?C.length:0;
+
+  if(prodsCount===0){
+    statusEl.innerHTML='<span style="color:#E65100;font-weight:600">⚠ Catálogo aún no migrado</span> · <span>Hardcoded en código tiene '+codeCount+' productos. Firestore: 0.</span>';
+  }else if(prodsCount<codeCount){
+    statusEl.innerHTML='<span style="color:#E65100;font-weight:600">⚠ Migración parcial</span> · Hardcoded: '+codeCount+' · Firestore: '+prodsCount+' · Categorías: '+catsCount+'. Re-ejecutá para completar.';
+  }else{
+    statusEl.innerHTML='<span style="color:#1B5E20;font-weight:600">✓ Catálogo migrado</span> · Productos: '+prodsCount+' · Categorías: '+catsCount+'. Re-ejecutar es seguro (idempotente).';
+  }
+
+  if(prodsCount===0){
+    listEl.innerHTML='<div style="padding:20px;background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;color:#9E7A00;font-size:13px;text-align:center">Sin productos en Firestore. Ejecutá la migración para poblar la collection.</div>';
+    return;
+  }
+
+  // Agrupar por categoría
+  const porCat={};
+  Object.values(productosCache).forEach(p=>{
+    const cid=p.categoriaId||"sin-categoria";
+    if(!porCat[cid])porCat[cid]={nombre:(categoriasCache&&categoriasCache[cid]&&categoriasCache[cid].nombre)||cid,productos:[]};
+    porCat[cid].productos.push(p);
+  });
+
+  let html='<div style="display:flex;flex-direction:column;gap:12px">';
+  Object.keys(porCat).sort((a,b)=>{
+    const oa=(categoriasCache&&categoriasCache[a]&&categoriasCache[a].orden)||999;
+    const ob=(categoriasCache&&categoriasCache[b]&&categoriasCache[b].orden)||999;
+    return oa-ob;
+  }).forEach(cid=>{
+    const cat=porCat[cid];
+    cat.productos.sort((a,b)=>(a.ordenDentroDeCategoria||999)-(b.ordenDentroDeCategoria||999));
+    html+='<div style="border:1px solid #E0E0E0;border-radius:10px;overflow:hidden">';
+    html+='<div style="background:#F5F5F5;padding:8px 14px;font-size:12.5px;font-weight:700;color:#424242">'+escapeHtml(cat.nombre)+' <span style="font-weight:400;color:#9E9E9E">('+cat.productos.length+')</span></div>';
+    html+='<div style="display:flex;flex-direction:column">';
+    cat.productos.forEach(p=>{
+      const tipoBadge=p.tipo==="compuesto"?
+        '<span style="background:#FFE0B2;color:#E65100;padding:1px 6px;border-radius:4px;font-size:10.5px;font-weight:700;margin-left:6px">COMPUESTO</span>':
+        '';
+      const recetaBadge=p.recetaKey?
+        '<span style="font-size:11px;color:#1B5E20;margin-left:6px">→ '+escapeHtml(p.recetaKey)+(p.porciones>1?' ×1/'+p.porciones:'')+'</span>':
+        (p.tipo==="atomico"?'<span style="font-size:11px;color:#9E7A00;margin-left:6px">sin receta</span>':'');
+      html+='<div style="padding:8px 14px;border-top:1px solid #F0F0F0;display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:12.5px">';
+      html+='<div><span style="font-weight:600;color:#1A1A1A">'+escapeHtml(p.nombre)+'</span>'+tipoBadge+recetaBadge+'</div>';
+      html+='<div style="font-size:11px;color:#757575;white-space:nowrap">'+(p.precio?fm(p.precio):'—')+' · '+escapeHtml(p.unidad||'')+'</div>';
+      html+='</div>';
+    });
+    html+='</div></div>';
+  });
+  html+='</div>';
+  listEl.innerHTML=html;
+}
+
+async function ejecutarMigracionCatalogo(){
+  if(!confirm("Vas a migrar los "+(C?.length||0)+" productos del catálogo hardcoded a Firestore.\n\nLa operación es idempotente — re-ejecutar no duplica.\n\n¿Continuar?"))return;
+  const btn=$("catalogo-migracion-btn");
+  const statusEl=$("catalogo-migracion-status");
+  if(btn)btn.disabled=true;
+  showLoader("Migrando catálogo…");
+  try{
+    const result=await migrarCatalogoAFirestore((idx,total,nombre)=>{
+      if(statusEl)statusEl.innerHTML='<span style="color:#0D47A1">Migrando '+idx+'/'+total+'</span> · '+escapeHtml(nombre);
+    });
+    hideLoader();
+    if(btn)btn.disabled=false;
+    if(result.errores.length){
+      toast("Migración completa con "+result.errores.length+" errores — ver consola","warn",8000);
+      console.error("[migrarCatalogoAFirestore] errores:",result.errores);
+    }else{
+      toast("✅ Migración completa: "+result.prodsCreados+"+"+result.prodsActualizados+"="+result.prodsTotal+" productos · "+result.catsTotal+" categorías","success",6000);
+    }
+    renderCatalogoProductos();
+  }catch(e){
+    hideLoader();
+    if(btn)btn.disabled=false;
+    const msg=e?.message||String(e)||"(sin detalle)";
+    toast("Error en migración: "+msg,"error",10000);
+    console.error("[ejecutarMigracionCatalogo] falló",e);
+  }
+}
