@@ -3595,7 +3595,7 @@ function renderReportesImprimibles(contentEl){
       '<div id="rep-imp-preview" style="margin-top:10px;font-size:12px;color:#555"></div>'+
     '</div>'+
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">'+
-      _impCard("A","🍳","Orden de producción","1 hoja por cliente. Productos a producir, datos de entrega, espacio para notas y firma de quien lo hizo.","JP / cocina","generarPdfProduccionPorCliente()",false)+
+      _impCard("A","🍳","Orden de Producción - Comanda","1 hoja por cliente. Productos a producir, datos de entrega, espacio para notas y firma de quien lo hizo.","JP / cocina","generarPdfProduccionPorCliente()",false)+
       _impCard("B","👨‍🍳","Producción consolidada","Suma de cantidades por producto del rango. Permite planificar cocina sin abrir cliente por cliente.","JP / cocina","generarPdfProduccionConsolidada()",false)+
       _impCard("C","📦","Empaque con chequeo","1 hoja por cliente con casillas por cada item. Para verificar antes de despachar.","Empacador","generarPdfEmpaque()",false)+
       _impCard("D","🚚","Entregas con chequeo + firma","Ruta del día con casillas de salió/entregado/firma del receptor.","Conductor","generarPdfEntregas()",false)+
@@ -3948,7 +3948,7 @@ function generarPdfProduccionPorCliente(){
     const subtitle="Hoja "+(idx+1)+"/"+docs.length+
       (fechaProd?"  ·  PRODUCIR "+_fechaCorta(fechaProd):"")+
       "  ·  "+(q.kind==="quote"?"Cotización":"Propuesta")+" "+(q.id||"");
-    let y=_repPdfHeader(pdf,W,"ORDEN DE PRODUCCIÓN",subtitle);
+    let y=_repPdfHeader(pdf,W,"ORDEN DE PRODUCCIÓN - COMANDA",subtitle);
 
     // Cliente / pedido datos
     pdf.setFontSize(14);pdf.setFont("helvetica","bold");
