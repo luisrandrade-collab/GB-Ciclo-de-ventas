@@ -1777,6 +1777,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
         <a href="javascript:void(0)" data-sub="ventas/propuesta">Nueva propuesta</a>
         <a href="javascript:void(0)" data-sub="ventas/cotizaciones">Cotizaciones activas</a>
         <a href="javascript:void(0)" data-sub="ventas/perdidas">Perdidas</a>
+        <a href="javascript:void(0)" data-sub="ventas/lista-precios">Lista de precios</a>
       </div>
     </div>
 
@@ -1908,6 +1909,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'pedidos/hojas-imprimibles': 'pedidos-hojas',
     'ventas/cotizaciones':  'cotizaciones',
     'ventas/perdidas':      'perdidas',
+    'ventas/lista-precios': 'lista-precios',
     'pedidos/aprobados':    'pedidos-aprobados',
     'pedidos/produccion':   'pedidos-produccion',
     'pedidos/producidos':   'pedidos-producidos',
@@ -1945,6 +1947,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'reportes':             'reportes/excel',
     'cotizaciones':         'ventas/cotizaciones',
     'perdidas':             'ventas/perdidas',
+    'lista-precios':        'ventas/lista-precios',
     'pedidos-aprobados':    'pedidos/aprobados',
     'pedidos-produccion':   'pedidos/produccion',
     'pedidos-producidos':   'pedidos/producidos',
@@ -1991,7 +1994,8 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'archivo/convertidas':  ['Archivo', 'Convertidas / Versiones viejas'],
     'herr/backup':          ['Herramientas', 'Mantenimiento y backups'],
     'herr/recetas':         ['Herramientas', 'Recetas internas'],
-    'herr/catalogo-productos': ['Herramientas', 'Catálogo de productos']
+    'herr/catalogo-productos': ['Herramientas', 'Catálogo de productos'],
+    'ventas/lista-precios':    ['Ventas', 'Lista de precios']
   };
 
   function gbShellEnsureCrumb(){
@@ -2405,6 +2409,37 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   </div>
 
   <!-- v7.5: Bloque 'Opciones avanzadas' movido a Herramientas > Mantenimiento y backups -->
+</div>
+
+<!-- ======== VENTAS > LISTA DE PRECIOS (v7.9.0.1) ======== -->
+<div id="mode-lista-precios" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#0D47A1;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span>📋 Lista de precios</span>
+    </div>
+    <div style="background:#E3F2FD;border-left:3px solid #0D47A1;padding:10px 14px;margin-bottom:14px;border-radius:6px;font-size:12.5px;color:#0D47A1;line-height:1.5">
+      Genera un PDF con el catálogo de productos. Incluye solo productos marcados como visibles (en Herramientas > Catálogo de productos podés ocultar los que no quieras mostrar al cliente).
+    </div>
+    <div style="background:#fff;border:1px solid #E0E0E0;border-radius:10px;padding:14px;margin-bottom:14px;display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#1A1A1A;cursor:pointer">
+          <input type="checkbox" id="lp-show-prices" checked style="cursor:pointer"> Mostrar precios
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#1A1A1A;cursor:pointer">
+          <input type="checkbox" id="lp-show-alergenos" style="cursor:pointer"> Mostrar alérgenos
+        </label>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <label style="font-size:13px;color:#1A1A1A;white-space:nowrap">Para cliente:</label>
+        <input type="text" id="lp-cliente" placeholder="(opcional)" style="flex:1;min-width:180px;padding:6px 10px;border:1px solid #E0E0E0;border-radius:6px;font-size:13px">
+      </div>
+      <div style="display:flex;justify-content:flex-end">
+        <button onclick="generarPdfListaPrecios()" style="background:#0D47A1;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:600;cursor:pointer">📄 Generar PDF</button>
+      </div>
+    </div>
+    <div id="lp-summary" style="font-size:12px;color:#757575;margin-bottom:8px"></div>
+    <div id="lp-list"><div style="text-align:center;padding:30px;color:#9E9E9E;font-size:13px">Cargando…</div></div>
+  </div>
 </div>
 
 <!-- ======== HERRAMIENTAS > CATÁLOGO DE PRODUCTOS (v7.9.0) ======== -->
@@ -4534,12 +4569,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.9.0"></script>
-<script src="app-core.js?v=7.9.0"></script>
-<script src="app-cotizar.js?v=7.9.0"></script>
-<script src="app-propuesta.js?v=7.9.0"></script>
-<script src="app-historial.js?v=7.9.0"></script>
-<script src="app-seguimiento.js?v=7.9.0"></script>
-<script src="app-dashboard.js?v=7.9.0"></script>
+<script src="app-assets.js?v=7.9.0.1"></script>
+<script src="app-core.js?v=7.9.0.1"></script>
+<script src="app-cotizar.js?v=7.9.0.1"></script>
+<script src="app-propuesta.js?v=7.9.0.1"></script>
+<script src="app-historial.js?v=7.9.0.1"></script>
+<script src="app-seguimiento.js?v=7.9.0.1"></script>
+<script src="app-dashboard.js?v=7.9.0.1"></script>
 </body>
 </html>

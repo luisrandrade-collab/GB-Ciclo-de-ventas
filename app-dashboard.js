@@ -7873,24 +7873,41 @@ async function renderCatalogoProductos(){
     return;
   }
 
-  // Agrupar por categoría
+  // Lista de categorías para dropdowns "mover producto"
+  const allCats=Object.values(categoriasCache||{}).sort((a,b)=>(a.orden||999)-(b.orden||999));
+
+  // Agrupar por categoría (incluye "sin-categoria" si hay productos huérfanos)
   const porCat={};
   Object.values(productosCache).forEach(p=>{
     const cid=p.categoriaId||"sin-categoria";
-    if(!porCat[cid])porCat[cid]={nombre:(categoriasCache&&categoriasCache[cid]&&categoriasCache[cid].nombre)||cid,productos:[]};
+    if(!porCat[cid])porCat[cid]={nombre:(categoriasCache&&categoriasCache[cid]&&categoriasCache[cid].nombre)||"(sin categoría)",productos:[]};
     porCat[cid].productos.push(p);
   });
 
-  let html='<div style="display:flex;flex-direction:column;gap:12px">';
+  // v7.9.0.1: barra de acciones arriba (crear categoría)
+  let html='<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button onclick="crearCategoria()" style="background:#1B5E20;color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:12.5px;font-weight:600;cursor:pointer">+ Nueva categoría</button></div>';
+
+  html+='<div style="display:flex;flex-direction:column;gap:12px">';
   Object.keys(porCat).sort((a,b)=>{
     const oa=(categoriasCache&&categoriasCache[a]&&categoriasCache[a].orden)||999;
     const ob=(categoriasCache&&categoriasCache[b]&&categoriasCache[b].orden)||999;
     return oa-ob;
   }).forEach(cid=>{
     const cat=porCat[cid];
+    const esCategoriaReal=cid!=="sin-categoria"&&categoriasCache&&categoriasCache[cid];
     cat.productos.sort((a,b)=>(a.ordenDentroDeCategoria||999)-(b.ordenDentroDeCategoria||999));
     html+='<div style="border:1px solid #E0E0E0;border-radius:10px;overflow:hidden">';
-    html+='<div style="background:#F5F5F5;padding:8px 14px;font-size:12.5px;font-weight:700;color:#424242">'+escapeHtml(cat.nombre)+' <span style="font-weight:400;color:#9E9E9E">('+cat.productos.length+')</span></div>';
+    // Header con acciones de categoría
+    html+='<div style="background:#F5F5F5;padding:8px 14px;font-size:12.5px;font-weight:700;color:#424242;display:flex;align-items:center;justify-content:space-between;gap:8px">';
+    html+='<div>'+escapeHtml(cat.nombre)+' <span style="font-weight:400;color:#9E9E9E">('+cat.productos.length+')</span></div>';
+    if(esCategoriaReal){
+      html+='<div style="display:flex;gap:4px">'+
+        '<button onclick="renombrarCategoria(\''+escapeHtml(cid)+'\')" title="Renombrar" style="background:none;border:1px solid #BDBDBD;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px;color:#424242">✏️ Renombrar</button>'+
+        '<button onclick="eliminarCategoria(\''+escapeHtml(cid)+'\')" title="Eliminar" style="background:none;border:1px solid #EF9A9A;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px;color:#C62828">🗑️ Eliminar</button>'+
+      '</div>';
+    }
+    html+='</div>';
+    // Productos
     html+='<div style="display:flex;flex-direction:column">';
     cat.productos.forEach(p=>{
       const tipoBadge=p.tipo==="compuesto"?
@@ -7899,9 +7916,31 @@ async function renderCatalogoProductos(){
       const recetaBadge=p.recetaKey?
         '<span style="font-size:11px;color:#1B5E20;margin-left:6px">→ '+escapeHtml(p.recetaKey)+(p.porciones>1?' ×1/'+p.porciones:'')+'</span>':
         (p.tipo==="atomico"?'<span style="font-size:11px;color:#9E7A00;margin-left:6px">sin receta</span>':'');
-      html+='<div style="padding:8px 14px;border-top:1px solid #F0F0F0;display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:12.5px">';
-      html+='<div><span style="font-weight:600;color:#1A1A1A">'+escapeHtml(p.nombre)+'</span>'+tipoBadge+recetaBadge+'</div>';
-      html+='<div style="font-size:11px;color:#757575;white-space:nowrap">'+(p.precio?fm(p.precio):'—')+' · '+escapeHtml(p.unidad||'')+'</div>';
+      const visible=p.visibleEnListaPrecios!==false;
+      const checked=visible?'checked':'';
+      // Dropdown para mover a otra categoría
+      let dropOpts='';
+      allCats.forEach(c=>{
+        if(c.categoriaId===p.categoriaId)return;
+        dropOpts+='<option value="'+escapeHtml(c.categoriaId)+'">'+escapeHtml(c.nombre)+'</option>';
+      });
+      html+='<div style="padding:8px 14px;border-top:1px solid #F0F0F0;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12.5px">';
+      // Izquierda: checkbox + nombre + badges
+      html+='<div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">';
+      html+='<label title="Visible en Lista de precios" style="display:flex;align-items:center;cursor:pointer;flex-shrink:0">'+
+        '<input type="checkbox" '+checked+' onchange="toggleVisibleEnListaPrecios(\''+escapeHtml(p.productId)+'\',this.checked)" style="cursor:pointer">'+
+      '</label>';
+      html+='<div style="flex:1;min-width:0;overflow:hidden"><span style="font-weight:600;color:'+(visible?'#1A1A1A':'#9E9E9E')+'">'+escapeHtml(p.nombre)+'</span>'+tipoBadge+recetaBadge+'</div>';
+      html+='</div>';
+      // Derecha: precio + unidad + dropdown mover
+      html+='<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">';
+      html+='<div style="font-size:11px;color:#757575;white-space:nowrap;text-align:right">'+(p.precio?fm(p.precio):'—')+'<br><span>'+escapeHtml(p.unidad||'')+'</span></div>';
+      if(dropOpts){
+        html+='<select onchange="moverProductoACategoria(\''+escapeHtml(p.productId)+'\',this.value)" title="Mover a otra categoría" style="font-size:11px;padding:2px 4px;border:1px solid #E0E0E0;border-radius:5px;background:#fff;cursor:pointer;max-width:140px">'+
+          '<option value="">→ Mover</option>'+dropOpts+
+        '</select>';
+      }
+      html+='</div>';
       html+='</div>';
     });
     html+='</div></div>';
@@ -7935,5 +7974,345 @@ async function ejecutarMigracionCatalogo(){
     const msg=e?.message||String(e)||"(sin detalle)";
     toast("Error en migración: "+msg,"error",10000);
     console.error("[ejecutarMigracionCatalogo] falló",e);
+  }
+}
+
+// ─── v7.9.0.1: VENTAS > LISTA DE PRECIOS ──────────────────────
+// Lee productosCache + categoriasCache. Muestra TODOS los productos activos.
+// Default visible = visibleEnListaPrecios !== false (lo configurado en Herramientas).
+// Override temporal: Luis puede marcar/desmarcar PARA ESTE PDF (no persiste).
+// El override vive en _lpOverrides hasta que se cambie de página o se resetee.
+
+let _lpOverrides={}; // {productId: boolean} — override temporal de la sesión
+
+async function renderListaPrecios(){
+  const summaryEl=$("lp-summary");
+  const listEl=$("lp-list");
+  if(!summaryEl||!listEl)return;
+
+  if(typeof productosCache!=="undefined"&&productosCache===null&&cloudOnline){
+    try{await loadProductosFromCloud()}catch{}
+  }
+  if(typeof categoriasCache!=="undefined"&&categoriasCache===null&&cloudOnline){
+    try{await loadCategoriasFromCloud()}catch{}
+  }
+
+  if(!productosCache||!Object.keys(productosCache).length){
+    summaryEl.textContent="";
+    listEl.innerHTML='<div style="padding:20px;background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;color:#9E7A00;font-size:13px;text-align:center">Catálogo no migrado a Firestore. Andá a Herramientas > Catálogo de productos y dispará la migración.</div>';
+    return;
+  }
+
+  // Productos activos (no archivados). Default visible viene de Firestore. Override temporal opcional.
+  const activos=Object.values(productosCache).filter(p=>p.activo!==false);
+  if(!activos.length){
+    listEl.innerHTML='<div style="padding:20px;background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;color:#9E7A00;font-size:13px;text-align:center">No hay productos activos en el catálogo.</div>';
+    return;
+  }
+
+  // Calcular visibles ahora considerando override
+  const _esVisible=(p)=>{
+    if(Object.prototype.hasOwnProperty.call(_lpOverrides,p.productId))return _lpOverrides[p.productId];
+    return p.visibleEnListaPrecios!==false;
+  };
+  const visiblesCount=activos.filter(_esVisible).length;
+  const ocultos=activos.length-visiblesCount;
+  const overrideCount=Object.keys(_lpOverrides).length;
+  summaryEl.innerHTML='Visibles en este PDF: <strong>'+visiblesCount+'</strong> de '+activos.length+
+    (overrideCount>0?' <span style="color:#E65100;font-weight:600">· '+overrideCount+' override'+(overrideCount!==1?'s':'')+' temporales</span> <a href="javascript:void(0)" onclick="_lpResetOverrides()" style="color:#0D47A1;font-size:11px;margin-left:6px">resetear</a>':'')+
+    '<br><span style="font-size:11px;color:#9E9E9E">El cambio acá NO persiste — para ocultar permanente, usar Herramientas > Catálogo de productos.</span>';
+
+  // Agrupar por categoría
+  const porCat={};
+  activos.forEach(p=>{
+    const cid=p.categoriaId||"sin-categoria";
+    if(!porCat[cid])porCat[cid]={nombre:(categoriasCache&&categoriasCache[cid]&&categoriasCache[cid].nombre)||cid,productos:[]};
+    porCat[cid].productos.push(p);
+  });
+
+  let html='<div style="display:flex;flex-direction:column;gap:12px">';
+  Object.keys(porCat).sort((a,b)=>{
+    const oa=(categoriasCache&&categoriasCache[a]&&categoriasCache[a].orden)||999;
+    const ob=(categoriasCache&&categoriasCache[b]&&categoriasCache[b].orden)||999;
+    return oa-ob;
+  }).forEach(cid=>{
+    const cat=porCat[cid];
+    cat.productos.sort((a,b)=>(a.ordenDentroDeCategoria||999)-(b.ordenDentroDeCategoria||999));
+    html+='<div style="border:1px solid #E0E0E0;border-radius:10px;overflow:hidden">';
+    html+='<div style="background:#F5F5F5;padding:8px 14px;font-size:12.5px;font-weight:700;color:#424242">'+escapeHtml(cat.nombre)+' <span style="font-weight:400;color:#9E9E9E">('+cat.productos.length+')</span></div>';
+    html+='<div style="display:flex;flex-direction:column">';
+    cat.productos.forEach(p=>{
+      const visible=_esVisible(p);
+      const checked=visible?'checked':'';
+      const isOverride=Object.prototype.hasOwnProperty.call(_lpOverrides,p.productId);
+      const overrideMark=isOverride?'<span title="Override temporal — no persiste" style="color:#E65100;font-size:10px;margin-left:4px">●</span>':'';
+      html+='<div style="padding:8px 14px;border-top:1px solid #F0F0F0;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12.5px">';
+      html+='<div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">';
+      html+='<label style="display:flex;align-items:center;cursor:pointer;flex-shrink:0"><input type="checkbox" '+checked+' onchange="_lpToggleOverride(\''+escapeHtml(p.productId)+'\',this.checked)" style="cursor:pointer"></label>';
+      html+='<div style="flex:1;min-width:0;overflow:hidden"><span style="font-weight:600;color:'+(visible?'#1A1A1A':'#9E9E9E')+'">'+escapeHtml(p.nombre)+'</span>'+overrideMark+
+            (p.descripcion?'<div style="font-size:11px;color:#757575;margin-top:1px">'+escapeHtml(p.descripcion)+'</div>':'')+'</div>';
+      html+='</div>';
+      html+='<div style="font-size:11px;color:#757575;white-space:nowrap;text-align:right">'+(p.precio?fm(p.precio):'—')+'<br><span style="color:#9E9E9E">'+escapeHtml(p.unidad||'')+'</span></div>';
+      html+='</div>';
+    });
+    html+='</div></div>';
+  });
+  html+='</div>';
+  listEl.innerHTML=html;
+}
+
+function _lpToggleOverride(productId,checked){
+  if(!productosCache||!productosCache[productId])return;
+  const persisted=productosCache[productId].visibleEnListaPrecios!==false;
+  // Si el toggle vuelve al valor persistido, eliminar el override (no es necesario)
+  if(checked===persisted){
+    delete _lpOverrides[productId];
+  }else{
+    _lpOverrides[productId]=!!checked;
+  }
+  renderListaPrecios();
+}
+
+function _lpResetOverrides(){
+  _lpOverrides={};
+  renderListaPrecios();
+}
+
+function generarPdfListaPrecios(){
+  if(!window.jspdf||!window.jspdf.jsPDF){toast("Error: jsPDF no cargado","error");return}
+  if(!productosCache||!Object.keys(productosCache).length){toast("Catálogo no migrado","warn");return}
+
+  const showPrices=$("lp-show-prices")?.checked!==false;
+  const showAlergenos=$("lp-show-alergenos")?.checked===true;
+  const cliente=($("lp-cliente")?.value||"").trim();
+
+  // Aplicar override temporal sobre visibilidad persistida
+  const _esVisible=(p)=>{
+    if(Object.prototype.hasOwnProperty.call(_lpOverrides,p.productId))return _lpOverrides[p.productId];
+    return p.visibleEnListaPrecios!==false;
+  };
+  const visibles=Object.values(productosCache).filter(p=>(p.activo!==false)&&_esVisible(p));
+  if(!visibles.length){toast("No hay productos visibles para exportar","warn");return}
+
+  const {jsPDF}=window.jspdf;
+  const pdf=new jsPDF("p","mm","a4");
+  const W=210,H=297,M=14;
+
+  const fechaIso=gbTodayIso();
+  let subtitle=fechaIso;
+  if(cliente)subtitle+="  -  Para: "+cliente;
+  subtitle+=showPrices?"  -  Con precios":"  -  Sin precios";
+  let y=_repPdfHeader(pdf,W,"LISTA DE PRECIOS",subtitle);
+
+  // Agrupar por categoría
+  const porCat={};
+  visibles.forEach(p=>{
+    const cid=p.categoriaId||"sin-categoria";
+    if(!porCat[cid])porCat[cid]={nombre:(categoriasCache&&categoriasCache[cid]&&categoriasCache[cid].nombre)||cid,orden:(categoriasCache&&categoriasCache[cid]&&categoriasCache[cid].orden)||999,productos:[]};
+    porCat[cid].productos.push(p);
+  });
+
+  // Construir filas: header de categoría + productos
+  const headRow=["Producto","Descripción","Unidad"];
+  if(showAlergenos)headRow.push("Alérgenos");
+  if(showPrices)headRow.push("Precio");
+
+  const cats=Object.keys(porCat).sort((a,b)=>porCat[a].orden-porCat[b].orden);
+  const body=[];
+  cats.forEach(cid=>{
+    const cat=porCat[cid];
+    cat.productos.sort((a,b)=>(a.ordenDentroDeCategoria||999)-(b.ordenDentroDeCategoria||999));
+    // Fila header de categoría con colSpan
+    body.push([{
+      content:cat.nombre.toUpperCase()+"   ("+cat.productos.length+")",
+      colSpan:headRow.length,
+      styles:{fillColor:[230,230,230],textColor:[26,26,26],fontStyle:"bold",fontSize:9,halign:"left",cellPadding:{top:3,bottom:3,left:6}}
+    }]);
+    cat.productos.forEach(p=>{
+      const row=[
+        p.nombre||"",
+        p.descripcion||"",
+        p.unidad||""
+      ];
+      if(showAlergenos){
+        const ale=Array.isArray(p.alergenos)?p.alergenos.join(", "):"";
+        row.push(ale);
+      }
+      if(showPrices){
+        row.push(p.precio?fm(p.precio):"");
+      }
+      body.push(row);
+    });
+  });
+
+  // Columnas con anchos según qué columnas hay
+  const colStyles={0:{cellWidth:55,fontStyle:"bold"},1:{cellWidth:"auto"},2:{cellWidth:24,halign:"center"}};
+  let colIdx=3;
+  if(showAlergenos){colStyles[colIdx]={cellWidth:32,halign:"left",fontSize:8};colIdx++}
+  if(showPrices){colStyles[colIdx]={cellWidth:24,halign:"right",fontStyle:"bold"}}
+
+  pdf.autoTable({
+    startY:y+1,
+    head:[headRow],
+    body:body,
+    theme:"grid",
+    headStyles:_REP_PDF_HEAD_STYLE,
+    alternateRowStyles:_REP_PDF_ZEBRA,
+    styles:{fontSize:8.5,cellPadding:2,valign:"middle"},
+    columnStyles:colStyles,
+    margin:{left:M,right:M}
+  });
+
+  _repPdfFooter(pdf,W,H);
+
+  const fname="ListaPrecios_"+fechaIso+(cliente?"_"+_slugify(cliente).slice(0,20):"")+(showPrices?"_con-precios":"_sin-precios")+".pdf";
+  pdf.save(fname);
+}
+
+// ─── v7.9.0.1: TOGGLE visibleEnListaPrecios + MOVER PRODUCTO + CRUD CATEGORÍAS ───
+async function toggleVisibleEnListaPrecios(productId,checked){
+  if(!productosCache||!productosCache[productId])return;
+  try{
+    const {db,doc,setDoc,serverTimestamp}=window.fb;
+    await setDoc(doc(db,"productos",productId),{visibleEnListaPrecios:!!checked,updatedAt:serverTimestamp(),...auditStamp()},{merge:true});
+    productosCache[productId].visibleEnListaPrecios=!!checked;
+    localStorage.setItem("gb_productos_cache",JSON.stringify(productosCache));
+  }catch(e){
+    toast("Error guardando: "+(e?.message||e),"error");
+    console.error("[toggleVisibleEnListaPrecios]",e);
+    renderCatalogoProductos(); // revertir UI
+  }
+}
+
+async function moverProductoACategoria(productId,nuevaCategoriaId){
+  if(!productosCache||!productosCache[productId])return;
+  if(!nuevaCategoriaId||!categoriasCache||!categoriasCache[nuevaCategoriaId])return;
+  showLoader("Moviendo...");
+  try{
+    const {db,doc,setDoc,serverTimestamp}=window.fb;
+    await setDoc(doc(db,"productos",productId),{categoriaId:nuevaCategoriaId,updatedAt:serverTimestamp(),...auditStamp()},{merge:true});
+    productosCache[productId].categoriaId=nuevaCategoriaId;
+    localStorage.setItem("gb_productos_cache",JSON.stringify(productosCache));
+    hideLoader();
+    toast("✅ Producto movido","success");
+    renderCatalogoProductos();
+  }catch(e){
+    hideLoader();
+    toast("Error: "+(e?.message||e),"error");
+    console.error("[moverProductoACategoria]",e);
+  }
+}
+
+async function renombrarCategoria(catId){
+  if(!categoriasCache||!categoriasCache[catId])return;
+  const nuevoNombre=prompt("Nuevo nombre de la categoría:",categoriasCache[catId].nombre);
+  if(!nuevoNombre||nuevoNombre.trim()===categoriasCache[catId].nombre)return;
+  showLoader("Guardando...");
+  try{
+    const {db,doc,setDoc,serverTimestamp}=window.fb;
+    await setDoc(doc(db,"categorias",catId),{nombre:nuevoNombre.trim(),updatedAt:serverTimestamp(),...auditStamp()},{merge:true});
+    categoriasCache[catId].nombre=nuevoNombre.trim();
+    localStorage.setItem("gb_categorias_cache",JSON.stringify(categoriasCache));
+    hideLoader();
+    toast("✅ Categoría renombrada","success");
+    renderCatalogoProductos();
+  }catch(e){
+    hideLoader();
+    toast("Error: "+(e?.message||e),"error");
+    console.error("[renombrarCategoria]",e);
+  }
+}
+
+async function eliminarCategoria(catId){
+  if(!categoriasCache||!categoriasCache[catId])return;
+  const cat=categoriasCache[catId];
+  // Buscar productos de esta categoría
+  const prodsEnCat=Object.values(productosCache||{}).filter(p=>p.categoriaId===catId);
+
+  if(prodsEnCat.length>0){
+    // Pedir destino
+    const otrasCats=Object.values(categoriasCache).filter(c=>c.categoriaId!==catId).sort((a,b)=>(a.orden||999)-(b.orden||999));
+    if(!otrasCats.length){toast("No hay otras categorías para reasignar","warn");return}
+    let opciones="¿A qué categoría mover los "+prodsEnCat.length+" productos antes de eliminar \""+cat.nombre+"\"?\n\n";
+    otrasCats.forEach((c,i)=>{opciones+=(i+1)+". "+c.nombre+"\n"});
+    opciones+="\n(número, o cancelar)";
+    const sel=prompt(opciones,"1");
+    if(!sel)return;
+    const idx=parseInt(sel,10)-1;
+    if(isNaN(idx)||idx<0||idx>=otrasCats.length){toast("Selección inválida","warn");return}
+    const destinoId=otrasCats[idx].categoriaId;
+    if(!confirm("Vas a mover "+prodsEnCat.length+" productos a \""+otrasCats[idx].nombre+"\" y eliminar \""+cat.nombre+"\". ¿Continuar?"))return;
+
+    showLoader("Reasignando productos...");
+    try{
+      const {db,doc,setDoc,deleteDoc,serverTimestamp}=window.fb;
+      for(const p of prodsEnCat){
+        await setDoc(doc(db,"productos",p.productId),{categoriaId:destinoId,updatedAt:serverTimestamp(),...auditStamp()},{merge:true});
+        productosCache[p.productId].categoriaId=destinoId;
+      }
+      await deleteDoc(doc(db,"categorias",catId));
+      delete categoriasCache[catId];
+      localStorage.setItem("gb_productos_cache",JSON.stringify(productosCache));
+      localStorage.setItem("gb_categorias_cache",JSON.stringify(categoriasCache));
+      hideLoader();
+      toast("✅ "+prodsEnCat.length+" productos movidos · categoría eliminada","success");
+      renderCatalogoProductos();
+    }catch(e){
+      hideLoader();
+      toast("Error: "+(e?.message||e),"error");
+      console.error("[eliminarCategoria con reasign]",e);
+    }
+  }else{
+    if(!confirm("Eliminar categoría \""+cat.nombre+"\" (sin productos)?"))return;
+    showLoader("Eliminando...");
+    try{
+      const {db,doc,deleteDoc}=window.fb;
+      await deleteDoc(doc(db,"categorias",catId));
+      delete categoriasCache[catId];
+      localStorage.setItem("gb_categorias_cache",JSON.stringify(categoriasCache));
+      hideLoader();
+      toast("✅ Categoría eliminada","success");
+      renderCatalogoProductos();
+    }catch(e){
+      hideLoader();
+      toast("Error: "+(e?.message||e),"error");
+      console.error("[eliminarCategoria]",e);
+    }
+  }
+}
+
+async function crearCategoria(){
+  const nombre=prompt("Nombre de la nueva categoría:");
+  if(!nombre||!nombre.trim())return;
+  const slug=_slugify(nombre);
+  if(!slug){toast("Nombre inválido","warn");return}
+  if(categoriasCache&&categoriasCache[slug]){toast("Ya existe una categoría con ese nombre","warn");return}
+  // Calcular orden = máximo + 1
+  const maxOrden=Object.values(categoriasCache||{}).reduce((mx,c)=>Math.max(mx,c.orden||0),0);
+  showLoader("Creando...");
+  try{
+    const {db,doc,setDoc,serverTimestamp}=window.fb;
+    await setDoc(doc(db,"categorias",slug),{
+      categoriaId:slug,
+      nombre:nombre.trim(),
+      orden:maxOrden+10,
+      visibleEnWeb:false,
+      descripcion:null,
+      activo:true,
+      createdAt:serverTimestamp(),
+      updatedAt:serverTimestamp(),
+      createdVia:"manual:editor",
+      ...auditStamp()
+    });
+    if(!categoriasCache)categoriasCache={};
+    categoriasCache[slug]={categoriaId:slug,nombre:nombre.trim(),orden:maxOrden+10,visibleEnWeb:false,activo:true};
+    localStorage.setItem("gb_categorias_cache",JSON.stringify(categoriasCache));
+    hideLoader();
+    toast("✅ Categoría creada","success");
+    renderCatalogoProductos();
+  }catch(e){
+    hideLoader();
+    toast("Error: "+(e?.message||e),"error");
+    console.error("[crearCategoria]",e);
   }
 }
