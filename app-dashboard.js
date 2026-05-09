@@ -7910,12 +7910,16 @@ async function renderCatalogoProductos(){
     // Productos
     html+='<div style="display:flex;flex-direction:column">';
     cat.productos.forEach(p=>{
+      const archivado=p.activo===false;
       const tipoBadge=p.tipo==="compuesto"?
         '<span style="background:#FFE0B2;color:#E65100;padding:1px 6px;border-radius:4px;font-size:10.5px;font-weight:700;margin-left:6px">COMPUESTO</span>':
         '';
-      const recetaBadge=p.recetaKey?
+      const archivadoBadge=archivado?
+        '<span style="background:#EEEEEE;color:#757575;padding:1px 6px;border-radius:4px;font-size:10.5px;font-weight:700;margin-left:6px">ARCHIVADO</span>':
+        '';
+      const recetaBadge=(!archivado&&p.recetaKey)?
         '<span style="font-size:11px;color:#1B5E20;margin-left:6px">→ '+escapeHtml(p.recetaKey)+(p.porciones>1?' ×1/'+p.porciones:'')+'</span>':
-        (p.tipo==="atomico"?'<span style="font-size:11px;color:#9E7A00;margin-left:6px">sin receta</span>':'');
+        (!archivado&&p.tipo==="atomico"?'<span style="font-size:11px;color:#9E7A00;margin-left:6px">sin receta</span>':'');
       const visible=p.visibleEnListaPrecios!==false;
       const checked=visible?'checked':'';
       // Dropdown para mover a otra categoría
@@ -7924,30 +7928,42 @@ async function renderCatalogoProductos(){
         if(c.categoriaId===p.categoriaId)return;
         dropOpts+='<option value="'+escapeHtml(c.categoriaId)+'">'+escapeHtml(c.nombre)+'</option>';
       });
-      html+='<div style="padding:8px 14px;border-top:1px solid #F0F0F0;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12.5px">';
+      const rowBg=archivado?'background:#FAFAFA;opacity:0.7':'';
+      html+='<div style="padding:8px 14px;border-top:1px solid #F0F0F0;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12.5px;'+rowBg+'">';
       // Izquierda: checkbox + foto + nombre + badges
       html+='<div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">';
-      html+='<label title="Visible en Lista de precios" style="display:flex;align-items:center;cursor:pointer;flex-shrink:0">'+
-        '<input type="checkbox" '+checked+' onchange="toggleVisibleEnListaPrecios(\''+escapeHtml(p.productId)+'\',this.checked)" style="cursor:pointer">'+
-      '</label>';
+      if(!archivado){
+        html+='<label title="Visible en Lista de precios" style="display:flex;align-items:center;cursor:pointer;flex-shrink:0">'+
+          '<input type="checkbox" '+checked+' onchange="toggleVisibleEnListaPrecios(\''+escapeHtml(p.productId)+'\',this.checked)" style="cursor:pointer">'+
+        '</label>';
+      }else{
+        html+='<div style="width:16px;flex-shrink:0"></div>';
+      }
       // v7.9.0.2: thumbnail de foto + botones subir/cambiar/borrar
       const tieneFoto=!!p.fotoUrl;
-      const thumbHtml=tieneFoto?
+      const thumbHtml=(!archivado&&tieneFoto)?
         '<img src="'+escapeHtml(p.fotoUrl)+'" alt="" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid #E0E0E0;flex-shrink:0;cursor:pointer" onclick="subirFotoProducto(\''+escapeHtml(p.productId)+'\')" title="Cambiar foto">':
-        '<button onclick="subirFotoProducto(\''+escapeHtml(p.productId)+'\')" title="Subir foto" style="width:36px;height:36px;border:1px dashed #BDBDBD;background:#FAFAFA;border-radius:6px;cursor:pointer;font-size:14px;color:#757575;flex-shrink:0;padding:0">📸</button>';
+        (!archivado?'<button onclick="subirFotoProducto(\''+escapeHtml(p.productId)+'\')" title="Subir foto" style="width:36px;height:36px;border:1px dashed #BDBDBD;background:#FAFAFA;border-radius:6px;cursor:pointer;font-size:14px;color:#757575;flex-shrink:0;padding:0">📸</button>':
+        '<div style="width:36px;height:36px;flex-shrink:0"></div>');
       html+=thumbHtml;
-      html+='<div style="flex:1;min-width:0;overflow:hidden"><span style="font-weight:600;color:'+(visible?'#1A1A1A':'#9E9E9E')+'">'+escapeHtml(p.nombre)+'</span>'+tipoBadge+recetaBadge+'</div>';
+      html+='<div style="flex:1;min-width:0;overflow:hidden"><span style="font-weight:600;color:'+(archivado?'#9E9E9E':(visible?'#1A1A1A':'#9E9E9E'))+'">'+escapeHtml(p.nombre)+'</span>'+tipoBadge+archivadoBadge+recetaBadge+'</div>';
       html+='</div>';
-      // Derecha: precio + unidad + dropdown mover + (si hay foto) botón borrar
-      html+='<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">';
-      html+='<div style="font-size:11px;color:#757575;white-space:nowrap;text-align:right">'+(p.precio?fm(p.precio):'—')+'<br><span>'+escapeHtml(p.unidad||'')+'</span></div>';
-      if(tieneFoto){
-        html+='<button onclick="borrarFotoProducto(\''+escapeHtml(p.productId)+'\')" title="Borrar foto" style="background:none;border:1px solid #EF9A9A;border-radius:5px;padding:2px 6px;cursor:pointer;font-size:11px;color:#C62828">🗑️ Foto</button>';
-      }
-      if(dropOpts){
-        html+='<select onchange="moverProductoACategoria(\''+escapeHtml(p.productId)+'\',this.value)" title="Mover a otra categoría" style="font-size:11px;padding:2px 4px;border:1px solid #E0E0E0;border-radius:5px;background:#fff;cursor:pointer;max-width:140px">'+
-          '<option value="">→ Mover</option>'+dropOpts+
-        '</select>';
+      // Derecha: precio + unidad + acciones
+      html+='<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">';
+      if(!archivado){
+        html+='<div style="font-size:11px;color:#757575;white-space:nowrap;text-align:right">'+(p.precio?fm(p.precio):'—')+'<br><span>'+escapeHtml(p.unidad||'')+'</span></div>';
+        if(tieneFoto){
+          html+='<button onclick="borrarFotoProducto(\''+escapeHtml(p.productId)+'\')" title="Borrar foto" style="background:none;border:1px solid #EF9A9A;border-radius:5px;padding:2px 6px;cursor:pointer;font-size:11px;color:#C62828">🗑️</button>';
+        }
+        if(dropOpts){
+          html+='<select onchange="moverProductoACategoria(\''+escapeHtml(p.productId)+'\',this.value)" title="Mover a otra categoría" style="font-size:11px;padding:2px 4px;border:1px solid #E0E0E0;border-radius:5px;background:#fff;cursor:pointer;max-width:120px">'+
+            '<option value="">→ Mover</option>'+dropOpts+
+          '</select>';
+        }
+        html+='<button onclick="editarProducto(\''+escapeHtml(p.productId)+'\')" title="Editar producto" style="background:#E3F2FD;color:#0D47A1;border:1px solid #90CAF9;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">✏️ Editar</button>';
+        html+='<button onclick="archivarProducto(\''+escapeHtml(p.productId)+'\')" title="Archivar producto" style="background:none;border:1px solid #BDBDBD;border-radius:5px;padding:2px 6px;cursor:pointer;font-size:11px;color:#757575;white-space:nowrap">🗄️</button>';
+      }else{
+        html+='<button onclick="restaurarProducto(\''+escapeHtml(p.productId)+'\')" title="Restaurar producto" style="background:#E8F5E9;color:#1B5E20;border:1px solid #A5D6A7;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">↩ Restaurar</button>';
       }
       html+='</div>';
       html+='</div>';
@@ -8061,6 +8077,147 @@ async function archivarCustomsNoCliente(){
   hideLoader();
   toast((fail>0?"⚠ ":"✅ ")+ok+" archivados"+(fail>0?", "+fail+" fallaron":""),fail>0?"warn":"success",6000);
   renderCatalogoProductos();
+}
+
+// ─── v7.9.1: EDITOR DE PRODUCTO INDIVIDUAL ───────────────────────────────────
+
+function editarProducto(productId){
+  if(!productosCache||!productosCache[productId])return;
+  const p=productosCache[productId];
+  const overlay=document.createElement("div");
+  overlay.id="edit-prod-overlay";
+  overlay.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto";
+  overlay.innerHTML=`
+<div style="background:#fff;border-radius:14px;max-width:480px;width:100%;padding:20px 22px;box-shadow:0 8px 32px rgba(0,0,0,.3);font-family:var(--gb-font-body);margin:auto">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid #E0E0E0">
+    <div style="font-size:16px;font-weight:700;color:#1A1A1A">✏️ Editar producto</div>
+    <button id="ep-close" style="background:transparent;border:none;font-size:22px;cursor:pointer;color:#9E9E9E;padding:0 4px;line-height:1">×</button>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div>
+      <label style="display:block;font-size:11.5px;font-weight:600;color:#424242;margin-bottom:4px">Nombre *</label>
+      <input id="ep-nombre" type="text" value="${escapeHtml(p.nombre||"")}" style="width:100%;box-sizing:border-box;border:1px solid #BDBDBD;border-radius:7px;padding:8px 10px;font-size:13px">
+    </div>
+    <div style="display:flex;gap:10px">
+      <div style="flex:1">
+        <label style="display:block;font-size:11.5px;font-weight:600;color:#424242;margin-bottom:4px">Precio ($)</label>
+        <input id="ep-precio" type="number" min="0" step="100" value="${p.precio||""}" style="width:100%;box-sizing:border-box;border:1px solid #BDBDBD;border-radius:7px;padding:8px 10px;font-size:13px">
+      </div>
+      <div style="flex:1">
+        <label style="display:block;font-size:11.5px;font-weight:600;color:#424242;margin-bottom:4px">Unidad</label>
+        <input id="ep-unidad" type="text" placeholder="porción, unidad, kg…" value="${escapeHtml(p.unidad||"")}" style="width:100%;box-sizing:border-box;border:1px solid #BDBDBD;border-radius:7px;padding:8px 10px;font-size:13px">
+      </div>
+    </div>
+    <div>
+      <label style="display:block;font-size:11.5px;font-weight:600;color:#424242;margin-bottom:4px">Descripción interna</label>
+      <textarea id="ep-desc" rows="2" style="width:100%;box-sizing:border-box;border:1px solid #BDBDBD;border-radius:7px;padding:8px 10px;font-size:12.5px;resize:vertical">${escapeHtml(p.descripcion||"")}</textarea>
+    </div>
+    <div>
+      <label style="display:block;font-size:11.5px;font-weight:600;color:#424242;margin-bottom:4px">Descripción pública <span style="font-weight:400;color:#9E9E9E">(catálogo web)</span></label>
+      <textarea id="ep-descweb" rows="2" style="width:100%;box-sizing:border-box;border:1px solid #BDBDBD;border-radius:7px;padding:8px 10px;font-size:12.5px;resize:vertical">${escapeHtml(p.descripcionWeb||"")}</textarea>
+    </div>
+    <div>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12.5px;color:#424242">
+        <input id="ep-visibleweb" type="checkbox" ${p.visibleEnWeb!==false?"checked":""} style="width:16px;height:16px;cursor:pointer;accent-color:#1B5E20">
+        Visible en catálogo.html (web pública / Linktree)
+      </label>
+    </div>
+  </div>
+  <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;padding-top:14px;border-top:1px solid #E0E0E0">
+    <button id="ep-cancel" style="background:#fff;color:#5D4037;border:1px solid #BDBDBD;padding:9px 16px;border-radius:8px;font-size:13px;cursor:pointer">Cancelar</button>
+    <button id="ep-save" style="background:#0D47A1;color:#fff;border:none;padding:9px 20px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Guardar</button>
+  </div>
+  <div style="font-size:10.5px;color:#9E9E9E;margin-top:8px;text-align:right">ID: ${escapeHtml(productId)}</div>
+</div>`;
+  document.body.appendChild(overlay);
+
+  const close=()=>{try{document.body.removeChild(overlay)}catch{}};
+  document.getElementById("ep-close").onclick=close;
+  document.getElementById("ep-cancel").onclick=close;
+  document.getElementById("ep-save").onclick=async()=>{
+    const nombre=(document.getElementById("ep-nombre").value||"").trim();
+    if(!nombre){toast("El nombre no puede quedar vacío","warn");return}
+    const precio=parseFloat(document.getElementById("ep-precio").value)||null;
+    const unidad=(document.getElementById("ep-unidad").value||"").trim()||null;
+    const descripcion=(document.getElementById("ep-desc").value||"").trim()||null;
+    const descripcionWeb=(document.getElementById("ep-descweb").value||"").trim()||null;
+    const visibleEnWeb=document.getElementById("ep-visibleweb").checked;
+    close();
+    await _guardarEdicionProducto(productId,{nombre,precio,unidad,descripcion,descripcionWeb,visibleEnWeb});
+  };
+  overlay.addEventListener("click",e=>{if(e.target===overlay)close()});
+}
+
+async function _guardarEdicionProducto(productId,data){
+  if(!productosCache||!productosCache[productId])return;
+  showLoader("Guardando…");
+  try{
+    const{db,doc,setDoc,serverTimestamp}=window.fb;
+    const patch={...data,updatedAt:serverTimestamp(),...auditStamp()};
+    Object.keys(patch).forEach(k=>{if(patch[k]===null)delete patch[k]});
+    if(data.precio===null)patch.precio=null;
+    await setDoc(doc(db,"productos",productId),patch,{merge:true});
+    Object.assign(productosCache[productId],data);
+    localStorage.setItem("gb_productos_cache",JSON.stringify(productosCache));
+    hideLoader();
+    toast("✅ Producto actualizado","success");
+    renderCatalogoProductos();
+  }catch(e){
+    hideLoader();
+    toast("Error guardando: "+(e?.message||e),"error");
+    console.error("[_guardarEdicionProducto]",e);
+  }
+}
+
+async function archivarProducto(productId){
+  if(!productosCache||!productosCache[productId])return;
+  const p=productosCache[productId];
+  if(!confirm("¿Archivar \""+p.nombre+"\"?\n\nEl producto quedará inactivo. Podés restaurarlo desde esta misma pantalla."))return;
+  showLoader("Archivando…");
+  try{
+    const{db,doc,setDoc,serverTimestamp}=window.fb;
+    await setDoc(doc(db,"productos",productId),{
+      activo:false,
+      updatedAt:serverTimestamp(),
+      archivedAt:new Date().toISOString(),
+      archivedReason:"manual",
+      ...auditStamp(),
+    },{merge:true});
+    productosCache[productId].activo=false;
+    localStorage.setItem("gb_productos_cache",JSON.stringify(productosCache));
+    hideLoader();
+    toast("✅ \""+p.nombre+"\" archivado","success");
+    renderCatalogoProductos();
+  }catch(e){
+    hideLoader();
+    toast("Error: "+(e?.message||e),"error");
+    console.error("[archivarProducto]",e);
+  }
+}
+
+async function restaurarProducto(productId){
+  if(!productosCache||!productosCache[productId])return;
+  const p=productosCache[productId];
+  showLoader("Restaurando…");
+  try{
+    const{db,doc,setDoc,serverTimestamp}=window.fb;
+    await setDoc(doc(db,"productos",productId),{
+      activo:true,
+      updatedAt:serverTimestamp(),
+      archivedAt:null,
+      archivedReason:null,
+      ...auditStamp(),
+    },{merge:true});
+    productosCache[productId].activo=true;
+    localStorage.setItem("gb_productos_cache",JSON.stringify(productosCache));
+    hideLoader();
+    toast("✅ \""+p.nombre+"\" restaurado","success");
+    renderCatalogoProductos();
+  }catch(e){
+    hideLoader();
+    toast("Error: "+(e?.message||e),"error");
+    console.error("[restaurarProducto]",e);
+  }
 }
 
 async function ejecutarMigracionCatalogo(){
