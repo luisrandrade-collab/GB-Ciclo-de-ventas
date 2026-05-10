@@ -170,6 +170,15 @@ service cloud.firestore {
     //  - update: SOLO transición de 'intento' → 'exito'/'error' del mismo
     //    usuario que creó el log. Logs ya finalizados (exito/error) NO se
     //    pueden volver a modificar.
+    //  - update (v7.9.4.1 hardening): además, solo puede modificar los campos del
+    //    whitelist {resultado, completedAt, errorMsg, errorStack, duracionMs,
+    //    payloadExtra}. Cualquier intento de tocar docId, payload, operacion,
+    //    usuarioUid, timestamp, clientId, etc. → PERMISSION_DENIED. Esto
+    //    protege la integridad del log original (lo que se reportó al iniciar
+    //    la operación no puede reescribirse al cerrarla).
+    //    payloadExtra existe para info que SOLO se conoce al cerrar (ej.
+    //    submitPago reporta totalPagosDespues). No es parte del payload
+    //    original, es metadata post-cierre.
     //  - delete: NUNCA. La auditoría es inmutable.
     match /operacionesLog/{logId} {
       allow read: if isHumanAuthorized();
@@ -179,7 +188,9 @@ service cloud.firestore {
       allow update: if isHumanAuthorized()
                     && resource.data.resultado == 'intento'
                     && request.resource.data.resultado in ['exito','error']
-                    && resource.data.usuarioUid == request.auth.uid;
+                    && resource.data.usuarioUid == request.auth.uid
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                       .hasOnly(['resultado','completedAt','errorMsg','errorStack','duracionMs','payloadExtra']);
       allow delete: if false;
     }
   }
