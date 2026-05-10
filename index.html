@@ -1860,6 +1860,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <div class="sb-submenu">
         <a href="javascript:void(0)" data-sub="herr/catalogo-productos">Catálogo de productos</a>
         <a href="javascript:void(0)" data-sub="herr/recetas">Recetas internas</a>
+        <a href="javascript:void(0)" data-sub="herr/auditoria">Auditoría</a>
         <a href="javascript:void(0)" data-sub="herr/backup">Mantenimiento y backups</a>
         <a href="javascript:void(0)" class="is-soon" data-sub="herr/configuracion">Configuración<span class="sub-soon">Pronto</span></a>
       </div>
@@ -1920,7 +1921,8 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'archivo/convertidas':  'archivo-convertidas',
     'herr/backup':          'backup',
     'herr/recetas':         'herr-recetas',
-    'herr/catalogo-productos': 'herr-catalogo'
+    'herr/catalogo-productos': 'herr-catalogo',
+    'herr/auditoria':       'herr-auditoria'
     // Pipeline, ops/despacho, ops/historico-hojas, compras/*, clientes/*, herr/* → undefined → SOON
   };
 
@@ -1960,6 +1962,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'backup':               'herr/backup',
     'herr-recetas':         'herr/recetas',
     'herr-catalogo':        'herr/catalogo-productos',
+    'herr-auditoria':       'herr/auditoria',
     'search':               'ventas/cotizar'
   };
 
@@ -1995,6 +1998,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'herr/backup':          ['Herramientas', 'Mantenimiento y backups'],
     'herr/recetas':         ['Herramientas', 'Recetas internas'],
     'herr/catalogo-productos': ['Herramientas', 'Catálogo de productos'],
+    'herr/auditoria':       ['Herramientas', 'Auditoría'],
     'ventas/lista-precios':    ['Ventas', 'Lista de precios']
   };
 
@@ -2489,6 +2493,48 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       Se usan en la hoja de producción para calcular cantidades totales. La cantidad (q) es por unidad del producto.
     </div>
     <div id="recetas-int-list"><div style="text-align:center;padding:30px;color:#9E9E9E;font-size:13px">Cargando...</div></div>
+  </div>
+</div>
+
+<!-- ======== HERRAMIENTAS > AUDITORÍA (v7.9.4) ======== -->
+<div id="mode-herr-auditoria" class="hidden">
+  <div class="sec">
+    <div class="stit" style="color:#5E35B1;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span>📋 Auditoría de operaciones</span>
+      <span style="font-size:11px;font-weight:400;color:#757575;margin-left:8px">v7.9.4 — log de pagos, pedidos, aprobaciones, anulaciones</span>
+    </div>
+    <div style="background:#EDE7F6;border-left:3px solid #5E35B1;padding:10px 14px;margin-bottom:14px;border-radius:6px;font-size:12.5px;color:#4527A0;line-height:1.5">
+      <div style="font-weight:700;margin-bottom:4px">Sistema log-first de auditoría</div>
+      Cada operación crítica registra un log <strong>antes</strong> de ejecutarse (<code>resultado: intento</code>) y se actualiza después según éxito/error.
+      Sirve para detectar fallas silenciosas (pagos perdidos, etc.) y reconstruir incidentes.
+      Logs <strong>'intento'</strong> con más de 5 minutos son sospechosos — la operación pudo colgarse.
+    </div>
+    <div id="auditoria-summary" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px"></div>
+    <div style="background:#F5F5F5;border-radius:10px;padding:10px 14px;margin-bottom:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <label style="font-size:11.5px;color:#424242;font-weight:600">Filtros:</label>
+      <select id="aud-filtro-resultado" onchange="renderAuditoria()" style="font-size:12px;padding:4px 8px;border:1px solid #BDBDBD;border-radius:5px;background:#fff">
+        <option value="todos">Todos los resultados</option>
+        <option value="exito">Solo éxito</option>
+        <option value="error">Solo errores</option>
+        <option value="intento">Solo intentos colgados</option>
+      </select>
+      <select id="aud-filtro-operacion" onchange="renderAuditoria()" style="font-size:12px;padding:4px 8px;border:1px solid #BDBDBD;border-radius:5px;background:#fff">
+        <option value="todas">Todas las operaciones</option>
+        <option value="registrarPago">Registrar pago</option>
+        <option value="marcarPedido">Marcar pedido</option>
+        <option value="aprobarPropuesta">Aprobar propuesta</option>
+        <option value="anularDoc">Anular</option>
+        <option value="regresarAViva">Regresar a viva</option>
+      </select>
+      <select id="aud-filtro-rango" onchange="renderAuditoria()" style="font-size:12px;padding:4px 8px;border:1px solid #BDBDBD;border-radius:5px;background:#fff">
+        <option value="7">Últimos 7 días</option>
+        <option value="30" selected>Últimos 30 días</option>
+        <option value="90">Últimos 90 días</option>
+        <option value="todo">Todo</option>
+      </select>
+      <button onclick="loadAuditoria()" style="background:#5E35B1;color:#fff;border:none;border-radius:5px;padding:5px 12px;font-size:12px;cursor:pointer;font-weight:600;margin-left:auto">↻ Recargar</button>
+    </div>
+    <div id="auditoria-list"><div style="text-align:center;padding:30px;color:#9E9E9E;font-size:13px">Click ↻ Recargar para cargar el log</div></div>
   </div>
 </div>
 
@@ -4579,12 +4625,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.9.4-rc1"></script>
-<script src="app-core.js?v=7.9.4-rc1"></script>
-<script src="app-cotizar.js?v=7.9.4-rc1"></script>
-<script src="app-propuesta.js?v=7.9.4-rc1"></script>
-<script src="app-historial.js?v=7.9.4-rc1"></script>
-<script src="app-seguimiento.js?v=7.9.4-rc1"></script>
-<script src="app-dashboard.js?v=7.9.4-rc1"></script>
+<script src="app-assets.js?v=7.9.4"></script>
+<script src="app-core.js?v=7.9.4"></script>
+<script src="app-cotizar.js?v=7.9.4"></script>
+<script src="app-propuesta.js?v=7.9.4"></script>
+<script src="app-historial.js?v=7.9.4"></script>
+<script src="app-seguimiento.js?v=7.9.4"></script>
+<script src="app-dashboard.js?v=7.9.4"></script>
 </body>
 </html>

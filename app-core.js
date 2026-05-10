@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.4-rc1";
+const BUILD_VERSION="v7.9.4";
 const BUILD_DATE="2026-05-09";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
@@ -2589,6 +2589,7 @@ function setMode(m){
   if(m==="backup"&&typeof renderSyncAgendaPanel==="function")renderSyncAgendaPanel();
   if(m==="herr-recetas"&&typeof renderRecetasInternas==="function")renderRecetasInternas();
   if(m==="herr-catalogo"&&typeof renderCatalogoProductos==="function")renderCatalogoProductos();
+  if(m==="herr-auditoria"&&typeof loadAuditoria==="function")loadAuditoria();
   if(m==="lista-precios"&&typeof renderListaPrecios==="function")renderListaPrecios();
   if(m==="reportes"&&typeof renderReportes==="function")renderReportes();
   if(m==="cotizaciones"&&typeof renderCotizaciones==="function")renderCotizaciones();

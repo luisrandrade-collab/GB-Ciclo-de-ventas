@@ -759,35 +759,53 @@ async function submitMarkAsOrder(){
   const initialStatus="pedido";
   const _prevStatusOM=(quotesCache.find(x=>x.id===quoteId&&x.kind==="quote")||{}).status||"enviada";
   if(typeof auditTransition==="function"&&!auditTransition(_prevStatusOM,initialStatus,"submitMarkAsOrder "+quoteId))return;
+  // v7.9.4: audit log
   try{
-    showLoader("Actualizando estado...");
-    const {db,doc,updateDoc,serverTimestamp}=window.fb;
-    const patch={
-      status:initialStatus,orderData:orderData,
-      eventDate:fechaEntrega,horaEntrega:horaEntrega,
-      productionDate:productionDate,produced:produced,
-      producedAt:produced?new Date().toISOString():null,
-      updatedAt:serverTimestamp()
-    };
-    if(pagos.length)patch.pagos=pagos;
-    // v5.0.2: al confirmar un pedido con fecha futura, queda needsSync=true automáticamente.
-    const hoyIso=gbTodayIso();
-    if(fechaEntrega&&fechaEntrega>=hoyIso)patch.needsSync=true;
-    await updateDoc(doc(db,"quotes",quoteId),patch);
-    const local=quotesCache.find(x=>x.id===quoteId&&x.kind==="quote");
-    if(local){
-      local.status=initialStatus;local.orderData=orderData;
-      local.eventDate=fechaEntrega;local.horaEntrega=horaEntrega;
-      local.productionDate=productionDate;local.produced=produced;
-      local.producedAt=patch.producedAt;
-      if(pagos.length)local.pagos=pagos;
-      if(patch.needsSync)local.needsSync=true;
-    }
+    await logOperacion({
+      operacion:"marcarPedido",
+      docId:quoteId,
+      docKind:"quote",
+      payload:{
+        statusAnterior:_prevStatusOM,
+        statusNuevo:initialStatus,
+        fechaEntrega,
+        horaEntrega,
+        productionDate,
+        produced,
+        anticipo,
+        metodoPago:metodo
+      },
+      runner:async()=>{
+        showLoader("Actualizando estado...");
+        const {db,doc,updateDoc,serverTimestamp}=window.fb;
+        const patch={
+          status:initialStatus,orderData:orderData,
+          eventDate:fechaEntrega,horaEntrega:horaEntrega,
+          productionDate:productionDate,produced:produced,
+          producedAt:produced?new Date().toISOString():null,
+          updatedAt:serverTimestamp()
+        };
+        if(pagos.length)patch.pagos=pagos;
+        // v5.0.2: al confirmar un pedido con fecha futura, queda needsSync=true automáticamente.
+        const hoyIso=gbTodayIso();
+        if(fechaEntrega&&fechaEntrega>=hoyIso)patch.needsSync=true;
+        await updateDoc(doc(db,"quotes",quoteId),patch);
+        const local=quotesCache.find(x=>x.id===quoteId&&x.kind==="quote");
+        if(local){
+          local.status=initialStatus;local.orderData=orderData;
+          local.eventDate=fechaEntrega;local.horaEntrega=horaEntrega;
+          local.productionDate=productionDate;local.produced=produced;
+          local.producedAt=patch.producedAt;
+          if(pagos.length)local.pagos=pagos;
+          if(patch.needsSync)local.needsSync=true;
+        }
+      }
+    });
     hideLoader();closeOrderModal();
     toast("✅ Pedido "+($("om-num").value)+" · Entrega "+fechaEntrega+" "+horaEntrega+" · Producción "+productionDate+(produced?" (✓ ya producido)":""),"success");
     renderHist();
     if(curMode==="dash")renderDashboard();
-  }catch(e){hideLoader();toast("Error al actualizar: "+e.message,"error");console.error(e)}
+  }catch(e){hideLoader();toast("Error al actualizar: "+e.message,"error");console.error("[submitMarkAsOrder]",e)}
 }
 
 // ─── ASIGNAR FECHA DE ENTREGA ──────────────────────────────
@@ -884,24 +902,41 @@ async function submitApproveProposal(){
   // v7.0-α FIX-05: audit FSM (no bloquea en audit, sí en enforce)
   const _prevStatusAP=(quotesCache.find(x=>x.id===propId&&x.kind===kind)||{}).status||"enviada";
   if(typeof auditTransition==="function"&&!auditTransition(_prevStatusAP,"aprobada","submitApproveProposal "+propId))return;
+  // v7.9.4: audit log
   try{
-    showLoader("Actualizando estado...");
-    const {db,doc,updateDoc,serverTimestamp}=window.fb;
-    const coll=getCollectionName(propId,kind);
-    const patch={status:"aprobada",approvalData:approvalData,updatedAt:serverTimestamp()};
-    if(fechaEntrega)patch.eventDate=fechaEntrega;
-    if(horaEntrega)patch.horaEntrega=horaEntrega;
-    if(pagos.length)patch.pagos=pagos;
-    const hoyIso=gbTodayIso();
-    const effectiveEventDate=fechaEntrega||(quotesCache.find(x=>x.id===propId&&x.kind===kind)||{}).eventDate;
-    if(effectiveEventDate&&effectiveEventDate>=hoyIso)patch.needsSync=true;
-    await updateDoc(doc(db,coll,propId),patch);
-    const local=quotesCache.find(x=>x.id===propId&&x.kind===kind);
-    if(local){local.status="aprobada";local.approvalData=approvalData;if(fechaEntrega)local.eventDate=fechaEntrega;if(horaEntrega)local.horaEntrega=horaEntrega;if(pagos.length)local.pagos=pagos;if(patch.needsSync)local.needsSync=true}
+    await logOperacion({
+      operacion:"aprobarPropuesta",
+      docId:propId,
+      docKind:kind,
+      payload:{
+        statusAnterior:_prevStatusAP,
+        statusNuevo:"aprobada",
+        fechaAprobacion:fecha,
+        anticipo,
+        metodoPago:metodo,
+        fechaEntrega,
+        horaEntrega
+      },
+      runner:async()=>{
+        showLoader("Actualizando estado...");
+        const {db,doc,updateDoc,serverTimestamp}=window.fb;
+        const coll=getCollectionName(propId,kind);
+        const patch={status:"aprobada",approvalData:approvalData,updatedAt:serverTimestamp()};
+        if(fechaEntrega)patch.eventDate=fechaEntrega;
+        if(horaEntrega)patch.horaEntrega=horaEntrega;
+        if(pagos.length)patch.pagos=pagos;
+        const hoyIso=gbTodayIso();
+        const effectiveEventDate=fechaEntrega||(quotesCache.find(x=>x.id===propId&&x.kind===kind)||{}).eventDate;
+        if(effectiveEventDate&&effectiveEventDate>=hoyIso)patch.needsSync=true;
+        await updateDoc(doc(db,coll,propId),patch);
+        const local=quotesCache.find(x=>x.id===propId&&x.kind===kind);
+        if(local){local.status="aprobada";local.approvalData=approvalData;if(fechaEntrega)local.eventDate=fechaEntrega;if(horaEntrega)local.horaEntrega=horaEntrega;if(pagos.length)local.pagos=pagos;if(patch.needsSync)local.needsSync=true}
+      }
+    });
     hideLoader();closeApproveModal();
     toast("✓ Propuesta aprobada: "+($("am-num").value),"success");
     renderHist();
-  }catch(e){hideLoader();toast("Error al actualizar: "+e.message,"error");console.error(e)}
+  }catch(e){hideLoader();toast("Error al actualizar: "+e.message,"error");console.error("[submitApproveProposal]",e)}
 }
 
 // ─── DUPLICAR ──────────────────────────────────────────────
@@ -2297,70 +2332,84 @@ async function submitAnular(){
   }
 
   try{
-    showLoader("Anulando...");
-    const {db,doc,updateDoc,serverTimestamp}=window.fb;
-    const coll=getCollectionName(docId,kind);
+    // v7.9.4: audit log
+    await logOperacion({
+      operacion:accion==="anular"?"anularDoc":"regresarAViva",
+      docId:docId,
+      docKind:kind,
+      payload:{
+        accion,
+        motivo,
+        motivoLabel,
+        statusAnterior:q.status,
+        totalCobradoAlAnular:cobrado,
+        devolucionMonto:devPago?Math.abs(devPago.monto):0,
+        devolucionMetodo:devPago?devPago.metodo:null
+      },
+      runner:async()=>{
+        showLoader("Anulando...");
+        const {db,doc,updateDoc,serverTimestamp}=window.fb;
+        const coll=getCollectionName(docId,kind);
 
-    const anuladaData={
-      fecha:new Date().toISOString(),
-      motivo:motivo,
-      motivoLabel:motivoLabel,
-      notas:notas,
-      accion:accion, // "anular" o "regresar"
-      estadoAnterior:q.status,
-      totalCobradoAlAnular:cobrado
-    };
+        const anuladaData={
+          fecha:new Date().toISOString(),
+          motivo:motivo,
+          motivoLabel:motivoLabel,
+          notas:notas,
+          accion:accion,
+          estadoAnterior:q.status,
+          totalCobradoAlAnular:cobrado
+        };
 
-    const patch={updatedAt:serverTimestamp()};
-    if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
+        const patch={updatedAt:serverTimestamp()};
+        if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
 
-    const expectsRepl=$("an-reemplazo")&&$("an-reemplazo").checked;
-    if(accion==="anular"){
-      patch.status="anulada";
-      patch.anuladaData=anuladaData;
-      patch.needsSync=false;
-      if(expectsRepl){patch.expectsReplacement=true;patch.replacementClient=q.client||""}
-    }else{
-      // Regresar a cotización viva
-      patch.status="enviada";
-      patch.anuladaData=anuladaData; // se guarda el histórico del regreso igual
-      patch.orderData=null;
-      patch.approvalData=null;
-      patch.eventDate=null;
-      patch.horaEntrega=null;
-      patch.productionDate=null;
-      patch.produced=false;
-      patch.producedAt=null;
-      patch.needsSync=false;
-      patch.lastSyncAt=null;
-    }
+        const expectsRepl=$("an-reemplazo")&&$("an-reemplazo").checked;
+        if(accion==="anular"){
+          patch.status="anulada";
+          patch.anuladaData=anuladaData;
+          patch.needsSync=false;
+          if(expectsRepl){patch.expectsReplacement=true;patch.replacementClient=q.client||""}
+        }else{
+          patch.status="enviada";
+          patch.anuladaData=anuladaData;
+          patch.orderData=null;
+          patch.approvalData=null;
+          patch.eventDate=null;
+          patch.horaEntrega=null;
+          patch.productionDate=null;
+          patch.produced=false;
+          patch.producedAt=null;
+          patch.needsSync=false;
+          patch.lastSyncAt=null;
+        }
 
-    // Agregar devolución a pagos[] si aplica
-    if(devPago){
-      const pagosExistentes=getPagos(q)||[];
-      const pagosNuevos=[...pagosExistentes,devPago];
-      patch.pagos=pagosNuevos;
-    }
+        if(devPago){
+          const pagosExistentes=getPagos(q)||[];
+          const pagosNuevos=[...pagosExistentes,devPago];
+          patch.pagos=pagosNuevos;
+        }
 
-    await updateDoc(doc(db,coll,docId),patch);
-    // Actualizar cache local
-    const local=quotesCache.find(x=>x.id===docId&&x.kind===kind);
-    if(local){
-      local.status=patch.status;
-      local.anuladaData=anuladaData;
-      if(expectsRepl){local.expectsReplacement=true;local.replacementClient=q.client||""}
-      if(accion==="regresar"){
-        local.orderData=null;
-        local.approvalData=null;
-        local.eventDate=null;
-        local.horaEntrega=null;
-        local.productionDate=null;
-        local.produced=false;
-        local.producedAt=null;
+        await updateDoc(doc(db,coll,docId),patch);
+        const local=quotesCache.find(x=>x.id===docId&&x.kind===kind);
+        if(local){
+          local.status=patch.status;
+          local.anuladaData=anuladaData;
+          if(expectsRepl){local.expectsReplacement=true;local.replacementClient=q.client||""}
+          if(accion==="regresar"){
+            local.orderData=null;
+            local.approvalData=null;
+            local.eventDate=null;
+            local.horaEntrega=null;
+            local.productionDate=null;
+            local.produced=false;
+            local.producedAt=null;
+          }
+          if(devPago)local.pagos=patch.pagos;
+          local.needsSync=false;
+        }
       }
-      if(devPago)local.pagos=patch.pagos;
-      local.needsSync=false;
-    }
+    });
     hideLoader();
     closeAnularModal();
     const msg=accion==="anular"
@@ -2373,7 +2422,7 @@ async function submitAnular(){
   }catch(e){
     hideLoader();
     toast("Error al anular: "+(e.message||e),"error");
-    console.error(e);
+    console.error("[submitAnular]",e);
   }
 }
 
@@ -3549,3 +3598,147 @@ async function renderArchivoBusqueda(){
 window.renderArchivoAnuladas=renderArchivoAnuladas;
 window.renderArchivoConvertidas=renderArchivoConvertidas;
 window.renderArchivoBusqueda=renderArchivoBusqueda;
+
+// ─── v7.9.4: AUDITORÍA — vista de operacionesLog ─────────────────
+let _auditoriaCache=null; // {fetchedAt, logs}
+
+async function loadAuditoria(){
+  const listEl=$("auditoria-list");
+  const summEl=$("auditoria-summary");
+  if(!listEl)return;
+  if(!cloudOnline){
+    listEl.innerHTML='<div style="padding:20px;background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;color:#9E7A00;font-size:13px;text-align:center">Sin conexión.</div>';
+    return;
+  }
+  listEl.innerHTML='<div style="text-align:center;padding:30px;color:#9E9E9E;font-size:13px">Cargando logs...</div>';
+  try{
+    await fbReady();
+    const{db,collection,getDocs,query,orderBy,limit}=window.fb;
+    // Últimos 200 logs ordenados desc por timestamp
+    const q=query(collection(db,"operacionesLog"),orderBy("timestamp","desc"),limit(200));
+    const snap=await getDocs(q);
+    const logs=[];
+    snap.forEach(d=>{logs.push({id:d.id,...d.data()})});
+    _auditoriaCache={fetchedAt:Date.now(),logs};
+    renderAuditoria();
+  }catch(e){
+    console.error("[loadAuditoria]",e);
+    listEl.innerHTML='<div style="padding:20px;background:#FFEBEE;border:1px solid #EF9A9A;border-radius:8px;color:#C62828;font-size:13px">Error cargando logs: '+(e.message||e)+'</div>';
+  }
+}
+
+function renderAuditoria(){
+  const listEl=$("auditoria-list");
+  const summEl=$("auditoria-summary");
+  if(!listEl||!_auditoriaCache)return;
+  const filtroResultado=($("aud-filtro-resultado")||{}).value||"todos";
+  const filtroOp=($("aud-filtro-operacion")||{}).value||"todas";
+  const filtroRango=($("aud-filtro-rango")||{}).value||"30";
+
+  const ahora=Date.now();
+  const cutoffMs=filtroRango==="todo"?0:(parseInt(filtroRango)||30)*24*60*60*1000;
+
+  // Filtrar
+  let logs=_auditoriaCache.logs.filter(L=>{
+    if(filtroOp!=="todas"&&L.operacion!==filtroOp)return false;
+    if(filtroResultado!=="todos"){
+      if(filtroResultado==="intento"){
+        // intento sospechoso = >5min sin transicionar
+        if(L.resultado!=="intento")return false;
+        const ts=L.timestamp&&L.timestamp.seconds?L.timestamp.seconds*1000:0;
+        if(ts&&ahora-ts<5*60*1000)return false; // <5min, no es sospechoso aún
+      }else if(L.resultado!==filtroResultado)return false;
+    }
+    if(cutoffMs>0){
+      const ts=L.timestamp&&L.timestamp.seconds?L.timestamp.seconds*1000:0;
+      if(ts&&ahora-ts>cutoffMs)return false;
+    }
+    return true;
+  });
+
+  // Resumen
+  const total=_auditoriaCache.logs.length;
+  const errores=_auditoriaCache.logs.filter(L=>L.resultado==="error").length;
+  const intentosViejos=_auditoriaCache.logs.filter(L=>{
+    if(L.resultado!=="intento")return false;
+    const ts=L.timestamp&&L.timestamp.seconds?L.timestamp.seconds*1000:0;
+    return ts&&ahora-ts>5*60*1000;
+  }).length;
+  const exitos=_auditoriaCache.logs.filter(L=>L.resultado==="exito").length;
+  if(summEl){
+    summEl.innerHTML=
+      '<div style="background:#E8F5E9;border:1px solid #A5D6A7;border-radius:8px;padding:8px 14px;font-size:12px;color:#1B5E20"><strong>'+exitos+'</strong> exitosas</div>'+
+      '<div style="background:'+(errores>0?'#FFEBEE':'#F5F5F5')+';border:1px solid '+(errores>0?'#EF9A9A':'#E0E0E0')+';border-radius:8px;padding:8px 14px;font-size:12px;color:'+(errores>0?'#C62828':'#757575')+'"><strong>'+errores+'</strong> errores</div>'+
+      '<div style="background:'+(intentosViejos>0?'#FFF3E0':'#F5F5F5')+';border:1px solid '+(intentosViejos>0?'#FFCC80':'#E0E0E0')+';border-radius:8px;padding:8px 14px;font-size:12px;color:'+(intentosViejos>0?'#E65100':'#757575')+'"><strong>'+intentosViejos+'</strong> intentos colgados (>5min)</div>'+
+      '<div style="background:#F5F5F5;border:1px solid #E0E0E0;border-radius:8px;padding:8px 14px;font-size:12px;color:#5D4037">Total: <strong>'+total+'</strong> logs (últimos 200)</div>';
+  }
+
+  if(!logs.length){
+    listEl.innerHTML='<div style="padding:30px;text-align:center;color:#9E9E9E;font-size:13px">Sin logs que cumplan los filtros.</div>';
+    return;
+  }
+
+  // Tabla
+  let html='<div style="overflow-x:auto;border:1px solid #E0E0E0;border-radius:10px"><table style="width:100%;border-collapse:collapse;font-size:12px">'+
+    '<thead><tr style="background:#F5F5F5;color:#424242;text-align:left">'+
+      '<th style="padding:8px 12px;font-weight:700">Fecha</th>'+
+      '<th style="padding:8px 12px;font-weight:700">Usuario</th>'+
+      '<th style="padding:8px 12px;font-weight:700">Operación</th>'+
+      '<th style="padding:8px 12px;font-weight:700">Doc</th>'+
+      '<th style="padding:8px 12px;font-weight:700">Resultado</th>'+
+      '<th style="padding:8px 12px;font-weight:700;text-align:right">Duración</th>'+
+    '</tr></thead><tbody>';
+  logs.forEach(L=>{
+    const ts=L.timestamp&&L.timestamp.seconds?new Date(L.timestamp.seconds*1000):null;
+    const fecha=ts?ts.toLocaleString("es-CO",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"—";
+    const usuario=(L.usuarioDisplay||L.usuarioEmail||"—").split("@")[0];
+    const monto=L.payload&&L.payload.monto?fm(L.payload.monto):"";
+    const opLabel=L.operacion+(monto?" "+monto:"");
+    const dur=L.duracionMs?(L.duracionMs<1000?L.duracionMs+"ms":(L.duracionMs/1000).toFixed(1)+"s"):"—";
+    const isViejo=L.resultado==="intento"&&ts&&Date.now()-ts.getTime()>5*60*1000;
+    const bgColor=L.resultado==="error"?"#FFEBEE":(isViejo?"#FFF3E0":(L.resultado==="exito"?"":""));
+    const resColor=L.resultado==="error"?"#C62828":(isViejo?"#E65100":(L.resultado==="exito"?"#1B5E20":"#5D4037"));
+    const resLabel=L.resultado==="error"?"❌ error":(isViejo?"⚠ colgado":(L.resultado==="exito"?"✓ éxito":"○ intento"));
+    html+='<tr style="border-top:1px solid #F0F0F0;background:'+bgColor+';cursor:pointer" onclick="_showLogDetalle(\''+L.id+'\')" title="Click para ver detalle">'+
+      '<td style="padding:8px 12px;color:#424242">'+escapeHtml(fecha)+'</td>'+
+      '<td style="padding:8px 12px;color:#5D4037">'+escapeHtml(usuario)+'</td>'+
+      '<td style="padding:8px 12px;color:#1A1A1A">'+escapeHtml(opLabel)+'</td>'+
+      '<td style="padding:8px 12px;color:#0D47A1;font-family:monospace;font-size:11px">'+escapeHtml(L.docId||"—")+'</td>'+
+      '<td style="padding:8px 12px;font-weight:700;color:'+resColor+'">'+resLabel+'</td>'+
+      '<td style="padding:8px 12px;text-align:right;color:#757575;font-size:11px">'+dur+'</td>'+
+    '</tr>';
+    if(L.resultado==="error"&&L.errorMsg){
+      html+='<tr style="background:#FFEBEE"><td colspan="6" style="padding:4px 14px 8px 28px;color:#C62828;font-family:monospace;font-size:11px;word-break:break-word">↳ '+escapeHtml(L.errorMsg)+'</td></tr>';
+    }
+  });
+  html+='</tbody></table></div>';
+  listEl.innerHTML=html;
+}
+
+function _showLogDetalle(logId){
+  if(!_auditoriaCache)return;
+  const L=_auditoriaCache.logs.find(x=>x.id===logId);
+  if(!L)return;
+  const overlay=document.createElement("div");
+  overlay.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto";
+  const json=JSON.stringify(L,(k,v)=>{
+    if(v&&typeof v==="object"&&v.seconds!==undefined&&v.nanoseconds!==undefined){
+      return new Date(v.seconds*1000).toISOString();
+    }
+    return v;
+  },2);
+  overlay.innerHTML='<div style="background:#fff;border-radius:14px;max-width:700px;width:100%;padding:18px 22px;box-shadow:0 8px 32px rgba(0,0,0,.3);margin:auto;font-family:var(--gb-font-body)">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #E0E0E0">'+
+      '<div style="font-size:15px;font-weight:700;color:#1A1A1A">📋 Detalle del log</div>'+
+      '<button id="_logCloseBtn" style="background:transparent;border:none;font-size:22px;cursor:pointer;color:#9E9E9E">×</button>'+
+    '</div>'+
+    '<pre style="background:#FAFAFA;border:1px solid #E0E0E0;border-radius:6px;padding:12px;font-size:11.5px;color:#1A1A1A;overflow-x:auto;max-height:60vh;overflow-y:auto;white-space:pre-wrap">'+escapeHtml(json)+'</pre>'+
+  '</div>';
+  document.body.appendChild(overlay);
+  document.getElementById("_logCloseBtn").onclick=()=>{try{document.body.removeChild(overlay)}catch{}};
+  overlay.addEventListener("click",e=>{if(e.target===overlay)try{document.body.removeChild(overlay)}catch{}});
+}
+
+window.loadAuditoria=loadAuditoria;
+window.renderAuditoria=renderAuditoria;
+window._showLogDetalle=_showLogDetalle;

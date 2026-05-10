@@ -3297,6 +3297,9 @@ async function renderCartera(){
   const listEl=$("cartera-list");
   if(!listEl)return;
 
+  // v7.9.4: banner de alerta si hay operaciones con error o intentos colgados en últimos 7d
+  _checkAuditAlertBanner(listEl);
+
   // F2: filtrar docs con saldo > 0 en estados validos
   const docs=quotesCache.filter(q=>{
     if(q._wrongCollection)return false;
@@ -8757,3 +8760,52 @@ async function crearCategoria(){
     console.error("[crearCategoria]",e);
   }
 }
+
+// ─── v7.9.4: banner de alerta si hay operaciones con error/colgadas ────
+let _auditAlertCheckedAt=0;
+async function _checkAuditAlertBanner(carteraListEl){
+  if(!cloudOnline)return;
+  // Cache 5 min para no consultar Firestore en cada renderCartera
+  if(Date.now()-_auditAlertCheckedAt<5*60*1000)return;
+  _auditAlertCheckedAt=Date.now();
+  try{
+    await fbReady();
+    const{db,collection,getDocs,query,orderBy,limit}=window.fb;
+    const q=query(collection(db,"operacionesLog"),orderBy("timestamp","desc"),limit(100));
+    const snap=await getDocs(q);
+    const cutoff=Date.now()-7*24*60*60*1000;
+    const ahora=Date.now();
+    let errores=0,colgados=0;
+    snap.forEach(d=>{
+      const L=d.data();
+      const ts=L.timestamp&&L.timestamp.seconds?L.timestamp.seconds*1000:0;
+      if(!ts||ts<cutoff)return;
+      if(L.resultado==="error")errores++;
+      else if(L.resultado==="intento"&&ahora-ts>5*60*1000)colgados++;
+    });
+    const total=errores+colgados;
+    // Buscar/crear banner
+    let banner=document.getElementById("cartera-audit-banner");
+    if(total===0){
+      if(banner)banner.remove();
+      return;
+    }
+    if(!banner){
+      banner=document.createElement("div");
+      banner.id="cartera-audit-banner";
+      banner.style.cssText="background:#FFF3E0;border:1px solid #FFCC80;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13px;color:#E65100;display:flex;align-items:center;gap:10px;cursor:pointer";
+      banner.onclick=()=>{if(typeof setMode==="function")setMode("herr-auditoria")};
+      // Insertar al inicio del contenedor de cartera
+      if(carteraListEl&&carteraListEl.parentNode){
+        carteraListEl.parentNode.insertBefore(banner,carteraListEl);
+      }
+    }
+    banner.innerHTML='⚠ <strong>'+total+' operación'+(total!==1?"es":"")+' sin completar</strong> en los últimos 7 días'+
+      (errores>0?' · '+errores+' error'+(errores!==1?"es":""):"")+
+      (colgados>0?' · '+colgados+' colgada'+(colgados!==1?"s":""):"")+
+      '<span style="margin-left:auto;font-size:11px;color:#5D4037;text-decoration:underline">Ver auditoría →</span>';
+  }catch(e){
+    console.warn("[_checkAuditAlertBanner] no se pudo consultar:",e&&e.message);
+  }
+}
+window._checkAuditAlertBanner=_checkAuditAlertBanner;
