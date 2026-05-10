@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.4.4";
+const BUILD_VERSION="v7.9.4.5";
 const BUILD_DATE="2026-05-10";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
@@ -1019,27 +1019,53 @@ async function signInWithGoogle(){
   }
 }
 
-// v5.0.1: Menú de cuenta del usuario (cambiar contraseña / cerrar sesión)
+// v7.9.4.5: Menú de cuenta como modal con botones reales (antes era prompt()
+// nativo que iOS Safari bloquea o muestra de forma rarísima con números 1/2/3).
 function openUserMenu(){
   if(!currentUser){logoutSession();return}
   const email=currentUser.email||"(sin email)";
-  // Detectar provider: Google no tiene password, email/password sí
   const providerIds=(currentUser.providerData||[]).map(p=>p.providerId);
   const isGoogleOnly=providerIds.length===1&&providerIds[0]==="google.com";
-  const opts=[
-    "1 → Cambiar contraseña"+(isGoogleOnly?" (no disponible — cuenta Google)":""),
-    "2 → Cerrar sesión",
-    "3 → Cancelar"
-  ].join("\n");
-  const choice=prompt("👤 "+email+"\n\n"+opts+"\n\nEscribe 1, 2 o 3:");
-  if(!choice)return;
-  const c=choice.trim();
-  if(c==="1"){
-    if(isGoogleOnly){toast("Tu cuenta entra con Google. La contraseña se gestiona allá, no aquí.","info",5000);return}
-    openChangePassword();
-  }else if(c==="2"){
-    logoutSession();
+  const providerLabel=isGoogleOnly?"Google":(providerIds.includes("password")?"Email/contraseña":"Otro");
+
+  // Si ya hay overlay abierto, no duplicar
+  if(document.getElementById("user-menu-overlay"))return;
+
+  const overlay=document.createElement("div");
+  overlay.id="user-menu-overlay";
+  overlay.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px";
+
+  const cambiarPwdBtn=isGoogleOnly
+    ?'<button id="um-pwd-disabled" style="width:100%;padding:14px;border:1px solid #E0E0E0;border-radius:10px;background:#FAFAFA;color:#9E9E9E;font-size:14px;font-weight:600;cursor:not-allowed;text-align:left">🔐 Cambiar contraseña<div style="font-size:11px;font-weight:400;margin-top:3px">No disponible — entra con Google</div></button>'
+    :'<button id="um-pwd-btn" style="width:100%;padding:14px;border:1px solid #BDBDBD;border-radius:10px;background:#fff;color:#1A1A1A;font-size:14px;font-weight:600;cursor:pointer;text-align:left">🔐 Cambiar contraseña</button>';
+
+  overlay.innerHTML='<div style="background:#fff;border-radius:14px;max-width:380px;width:100%;padding:22px 24px;box-shadow:0 8px 32px rgba(0,0,0,.3);font-family:var(--gb-font-body)">'+
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">'+
+      '<div>'+
+        '<div style="font-size:11px;color:#9E9E9E;text-transform:uppercase;letter-spacing:.5px">Cuenta</div>'+
+        '<div style="font-size:14px;font-weight:700;color:#1A1A1A;margin-top:2px;word-break:break-all">'+email.replace(/</g,"&lt;")+'</div>'+
+        '<div style="font-size:11px;color:#5D4037;margin-top:4px">Tipo: '+providerLabel+'</div>'+
+      '</div>'+
+      '<button id="um-close" style="background:transparent;border:none;font-size:22px;cursor:pointer;color:#9E9E9E;padding:0 4px;line-height:1">×</button>'+
+    '</div>'+
+    '<div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">'+
+      cambiarPwdBtn+
+      '<button id="um-logout-btn" style="width:100%;padding:14px;border:1px solid #EF9A9A;border-radius:10px;background:#fff;color:#C62828;font-size:14px;font-weight:700;cursor:pointer;text-align:left">🚪 Cerrar sesión</button>'+
+      '<button id="um-cancel" style="width:100%;padding:11px;border:none;border-radius:10px;background:transparent;color:#5D4037;font-size:13px;cursor:pointer;margin-top:4px">Cancelar</button>'+
+    '</div>'+
+  '</div>';
+  document.body.appendChild(overlay);
+
+  const close=()=>{try{document.body.removeChild(overlay)}catch{}};
+  document.getElementById("um-close").onclick=close;
+  document.getElementById("um-cancel").onclick=close;
+  overlay.addEventListener("click",e=>{if(e.target===overlay)close()});
+
+  const pwdBtn=document.getElementById("um-pwd-btn");
+  if(pwdBtn){
+    pwdBtn.onclick=()=>{close();openChangePassword()};
   }
+  document.getElementById("um-logout-btn").onclick=()=>{close();logoutSession()};
 }
 
 // v5.0.1: Cambiar contraseña (requiere re-autenticación con la actual)
