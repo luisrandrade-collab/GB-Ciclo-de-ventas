@@ -49,9 +49,25 @@ function totalAjustes(q){
 }
 // v4.12.1: usar getDocTotal — para propuestas viejas sin q.total recalcula igual que el PDF
 // v7.8.3: descontar también los ajustes (perdones, descuentos) del saldo pendiente.
+// v7.9.3.2: saldoPendiente devuelve solo lo positivo (Math.max conserva la semántica de "deuda del cliente").
+// Para detectar sobrepagos (crédito a favor del cliente), usar saldoNeto() o creditoAFavor().
 function saldoPendiente(q){
   const t=(typeof getDocTotal==="function"?getDocTotal(q):(q.total||q.totalReal||0));
   return Math.max(0,t-totalCobrado(q)-totalAjustes(q));
+}
+
+// v7.9.3.2: saldo neto SIN clamp — útil para detectar sobrepagos.
+// Negativo = sobrepago (crédito a favor cliente). Positivo = deuda. Cero = exacto.
+function saldoNeto(q){
+  const t=(typeof getDocTotal==="function"?getDocTotal(q):(q.total||q.totalReal||0));
+  return t-totalCobrado(q)-totalAjustes(q);
+}
+
+// v7.9.3.2: monto de crédito a favor del cliente (siempre positivo).
+// 0 si no hay sobrepago. Caso típico: pedido editado a la baja después de cobrar.
+function creditoAFavor(q){
+  const neto=saldoNeto(q);
+  return neto<0?-neto:0;
 }
 
 // ─── HISTORIAL render ──────────────────────────────────────
@@ -1219,7 +1235,22 @@ function previewPagoFoto(ev){
   });
 }
 
+// v7.9.3.2: refactor crítico post-incidente 2026-05-09 (pagos perdidos por updateDoc colgado).
+// Cambios:
+// - Anti-double-click: flag global + disable del botón. Antes: 9 fotos huérfanas en Storage por click repetido.
+// - getDoc fresh antes de escribir: anti race condition contra cache local desactualizado.
+// - Modal persistente de éxito (en vez de toast efímero): el usuario debe clickear "Listo" para confirmar.
+// - Modal persistente de error con opción de reintentar: si el updateDoc falla, no se pierde silenciosamente.
+// - clientId UUID por intento: trazabilidad forense + idempotency.
+// - Console.log estructurado: timing, doc, monto, error stack.
+// - Validación monto vs saldo: confirma si difiere significativamente del saldo pendiente.
+
 async function submitPago(){
+  // GUARD anti-double-click. El _submitPagoBusy global bloquea entradas concurrentes.
+  if(window._submitPagoBusy){
+    console.warn("[submitPago] ya hay un submit en curso, ignorando click duplicado");
+    return;
+  }
   if(!pagoSrc)return;
   if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión","error");else alert("Sin conexión");return}
   const fecha=$("pm-fecha").value;if(!fecha){alert("Fecha");return}
@@ -1227,32 +1258,174 @@ async function submitPago(){
   const metodo=$("pm-metodo").value;if(!metodo){alert("Método");return}
   const tipo=$("pm-tipo").value||"parcial";
   const notas=$("pm-notas").value.trim();
-  const nuevo={fecha,monto,metodo,tipo,notas,registradoEn:new Date().toISOString()};
-  // v5.0: foto va a Firebase Storage (no base64 inline)
+
+  // VALIDATION: monto vs saldo pendiente
+  const totalDoc=(typeof getDocTotal==="function"?getDocTotal(pagoSrc.doc):(pagoSrc.doc.total||0));
+  const cobradoLocal=totalCobrado(pagoSrc.doc);
+  const saldoLocal=Math.max(0,totalDoc-cobradoLocal);
+  if(saldoLocal>0&&Math.abs(monto-saldoLocal)>=100){
+    const diff=Math.abs(monto-saldoLocal);
+    const direccion=monto<saldoLocal?"<strong style='color:#C62828'>Quedará saldo pendiente</strong>":"<strong style='color:#E65100'>Sobrepago (crédito a favor cliente)</strong>";
+    const ok=await confirmModal({
+      title:"⚠ Monto distinto al saldo",
+      body:"<div style='font-size:13px;line-height:1.6'>Vas a registrar: <strong>"+fm(monto)+"</strong><br>Saldo actual: <strong>"+fm(saldoLocal)+"</strong><br>Diferencia: <strong>"+fm(diff)+"</strong> · "+direccion+"<br><br>¿Continuar de todos modos?</div>",
+      okLabel:"Sí, registrar",
+      cancelLabel:"Cancelar",
+      tone:"warn"
+    });
+    if(!ok)return;
+  }
+
+  // SETUP: lock UI
+  window._submitPagoBusy=true;
+  const submitBtn=$("pm-submit-btn");
+  const _btnOrigText=submitBtn?submitBtn.textContent:"Registrar pago";
+  if(submitBtn){
+    submitBtn.disabled=true;
+    submitBtn.textContent="Guardando...";
+    submitBtn.style.opacity="0.6";
+    submitBtn.style.cursor="not-allowed";
+  }
+
+  // CLIENT ID para forensics + idempotency
+  const clientId="pago_"+Date.now()+"_"+Math.random().toString(36).slice(2,9);
+  const t0=Date.now();
+  console.log("[submitPago] start",{clientId,docId:pagoSrc.id,kind:pagoSrc.kind,monto,metodo,fecha});
+
+  const nuevo={fecha,monto,metodo,tipo,notas,registradoEn:new Date().toISOString(),clientId};
+
+  // Foto upload (best-effort, foto es opcional)
   if(pagoFotoBase64){
     try{
       const {url}=await uploadFotoFromBase64(pagoFotoBase64,"pago",pagoSrc.id,"pagos");
       nuevo.fotoUrl=url;
+      console.log("[submitPago] foto upload OK",{clientId,url:url.slice(0,80)+"..."});
     }catch(e){
-      console.warn("Upload foto falló, guardo base64 como fallback:",e);
+      console.warn("[submitPago] foto upload falló, fallback base64:",e);
       nuevo.foto=pagoFotoBase64; // compat legacy
     }
   }
+
+  let exito=false;
   try{
     showLoader("Registrando pago...");
-    const {db,doc,updateDoc,serverTimestamp}=window.fb;
+    const {db,doc,getDoc,updateDoc,serverTimestamp}=window.fb;
     const coll=getCollectionName(pagoSrc.id,pagoSrc.kind);
-    const pagosActuales=getPagos(pagoSrc.doc).map(p=>({...p}));
-    pagosActuales.push(nuevo);
-    await updateDoc(doc(db,coll,pagoSrc.id),{pagos:pagosActuales,updatedAt:serverTimestamp(),...auditStamp()});
-    pagoSrc.doc.pagos=pagosActuales;
-    hideLoader();closePagoModal();
-    toast("💵 Pago registrado: "+fm(monto)+" via "+metodo,"success");
+
+    // CRITICAL: re-leer pagos[] desde Firestore antes de hacer push.
+    // Evita race condition: si el cache local está desactualizado, no sobrescribimos
+    // pagos que se hayan registrado desde otra sesión/dispositivo.
+    const snap=await getDoc(doc(db,coll,pagoSrc.id));
+    if(!snap.exists()){
+      throw new Error("Documento "+pagoSrc.id+" no existe en Firestore (collection "+coll+")");
+    }
+    const fresh=snap.data();
+    const pagosFresh=Array.isArray(fresh.pagos)?fresh.pagos.slice():[];
+
+    // IDEMPOTENCY: si por alguna razón el clientId ya está, no duplicar
+    if(pagosFresh.some(p=>p.clientId===clientId)){
+      console.warn("[submitPago] clientId ya existe en Firestore (intento idempotente)",clientId);
+    }else{
+      pagosFresh.push(nuevo);
+    }
+
+    await updateDoc(doc(db,coll,pagoSrc.id),{
+      pagos:pagosFresh,
+      updatedAt:serverTimestamp(),
+      ...auditStamp()
+    });
+
+    // Update local cache
+    pagoSrc.doc.pagos=pagosFresh;
+
+    console.log("[submitPago] success",{clientId,durationMs:Date.now()-t0,totalPagos:pagosFresh.length});
+    exito=true;
+
+    hideLoader();
+    closePagoModal();
+
+    // PERSISTENT SUCCESS MODAL (en vez de toast efímero)
+    const cobradoNuevo=pagosFresh.reduce((s,p)=>s+(parseInt(p.monto)||0),0);
+    const saldoNuevo=totalDoc-cobradoNuevo;
+    const cliente=fresh.client||"(sin cliente)";
+    const num=fresh.quoteNumber||fresh.id||pagoSrc.id;
+    const saldoLabel=saldoNuevo>0
+      ?'Saldo pendiente: <strong style="color:#C62828">'+fm(saldoNuevo)+'</strong>'
+      :saldoNuevo<0
+        ?'<strong style="color:#1B5E20">Crédito a favor: '+fm(-saldoNuevo)+'</strong>'
+        :'<strong style="color:#1B5E20">Saldo: $0 (cancelado)</strong>';
+    await _showPagoSuccessModal({
+      monto:fm(monto),
+      metodo:metodo,
+      cliente:cliente,
+      num:num,
+      cobradoTotal:fm(cobradoNuevo),
+      saldoLabel:saldoLabel
+    });
+
     renderHist();
     if(curMode==="dash")renderDashboard();
-    // v7.2 F5: auto-refresh Cartera tras registrar pago.
     if(typeof renderCartera==="function")renderCartera();
-  }catch(e){hideLoader();toast("Error: "+e.message,"error");console.error(e)}
+  }catch(e){
+    console.error("[submitPago] ERROR",{clientId,durationMs:Date.now()-t0,error:e&&e.message,stack:e&&e.stack});
+    hideLoader();
+
+    // Re-enable button (modal sigue abierto)
+    if(submitBtn){
+      submitBtn.disabled=false;
+      submitBtn.textContent=_btnOrigText;
+      submitBtn.style.opacity="";
+      submitBtn.style.cursor="";
+    }
+    window._submitPagoBusy=false;
+
+    // PERSISTENT ERROR MODAL — con Reintentar
+    const reintentar=await confirmModal({
+      title:"❌ Error al registrar pago",
+      body:'<div style="font-size:13px;line-height:1.6">'+
+        '<p>El pago <strong>NO</strong> quedó guardado en el sistema.</p>'+
+        '<div style="background:#FFEBEE;border-left:3px solid #C62828;padding:8px 12px;margin:10px 0;font-size:11.5px;color:#C62828;font-family:monospace;word-break:break-word">'+
+          (e&&e.message?e.message.replace(/</g,"&lt;"):"(sin detalle)")+
+        '</div>'+
+        (nuevo.fotoUrl?'<p style="font-size:11.5px;color:#5D4037">✓ Tu comprobante fue subido a Storage. Si decides cancelar, puedes registrar el pago manualmente más tarde sin volver a subir la foto.</p>':'')+
+        '<p><strong>¿Reintentar ahora?</strong> (si la conexión titubeó, reintentar suele funcionar)</p>'+
+      '</div>',
+      okLabel:"Reintentar",
+      cancelLabel:"Cancelar — revisar después",
+      tone:"danger"
+    });
+    if(reintentar){
+      // Mantener pagoFotoBase64 para no re-subir foto. Llamar de nuevo.
+      setTimeout(()=>submitPago(),100);
+      return;
+    }
+  }finally{
+    if(exito){window._submitPagoBusy=false}
+  }
+}
+
+// v7.9.3.2: modal persistente de éxito (replaces toast efímero)
+function _showPagoSuccessModal(opts){
+  return new Promise(resolve=>{
+    const overlay=document.createElement("div");
+    overlay.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px";
+    overlay.innerHTML='<div style="background:#fff;border-radius:14px;max-width:420px;width:100%;padding:22px 24px;box-shadow:0 8px 32px rgba(0,0,0,.3);font-family:var(--gb-font-body)">'+
+      '<div style="font-size:18px;font-weight:700;color:#1B5E20;margin-bottom:14px">✅ Pago registrado</div>'+
+      '<div style="font-size:14px;line-height:1.6;color:#1A1A1A">'+
+        '<div style="font-size:20px;font-weight:700;color:#1B5E20">'+opts.monto+'</div>'+
+        '<div style="color:#5D4037;margin-top:2px;font-size:13px">'+opts.metodo+'</div>'+
+        '<div style="color:#5D4037;margin-top:8px;font-size:12.5px;border-top:1px solid #E0E0E0;padding-top:8px">'+opts.num+' · '+opts.cliente+'</div>'+
+        '<div style="margin-top:8px;font-size:13px">Total cobrado: <strong>'+opts.cobradoTotal+'</strong></div>'+
+        '<div style="margin-top:4px;font-size:13px">'+opts.saldoLabel+'</div>'+
+      '</div>'+
+      '<button id="_pagoOkBtn" style="margin-top:18px;background:#1B5E20;color:#fff;border:none;border-radius:8px;padding:11px 20px;font-size:14px;font-weight:700;cursor:pointer;width:100%">Listo</button>'+
+    '</div>';
+    document.body.appendChild(overlay);
+    document.getElementById("_pagoOkBtn").onclick=()=>{
+      try{document.body.removeChild(overlay)}catch{}
+      resolve();
+    };
+  });
 }
 
 function openVerPagosModal(docId,kindOrEv,evMaybe){
