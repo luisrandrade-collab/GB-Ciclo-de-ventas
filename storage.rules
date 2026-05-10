@@ -130,13 +130,19 @@ service firebase.storage {
       allow update, delete: if false;
     }
 
-    // ─── productos/ — MUTABLE (editor del catálogo v7.9.1) ──
-    // Read PÚBLICO sin auth — para que catalogo.html liste fotos sin login.
-    // Write/delete solo admin (editor de catálogo es función operativa).
+    // ─── productos/ — read público + create/update admin, DELETE BLOQUEADO ──
+    // v7.9.4.2: decisión Luis 10/05 — NINGÚN delete desde SDK, ni admin.
+    // Para reemplazar foto: subir nueva con mismo path/nombre (Object Versioning
+    // guarda la anterior como noncurrent, recuperable). Para borrar real: solo
+    // desde Firebase Console manualmente. Esto previene que el editor del
+    // catálogo (botón 🗑️ Foto) destruya evidencia accidentalmente.
+    // CONSECUENCIA UI: el botón borrarFotoProducto() en el editor va a fallar
+    //   con permission-denied. Si quieres mantener UX, cámbialo a "Reemplazar foto"
+    //   que dispara upload de imagen vacía o sobrescribe con upload nuevo.
     match /productos/{file} {
       allow read: if true;
       allow create, update: if isHumanAdmin() && isImageUnder(5 * 1024 * 1024);
-      allow delete: if isHumanAdmin();
+      allow delete: if false;
     }
   }
 }
