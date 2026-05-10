@@ -26,15 +26,30 @@ service firebase.storage {
   match /b/{bucket}/o {
 
     // ─── Whitelist humano (mismo patrón que firestore.rules) ───
-    function isHumanAuthorized() {
+    // v7.9.4.2: roles separados.
+    // Admin: Luis, JP, Kathy → CRUD evidencia (subir comprobantes, fotos catálogo).
+    // Comercial (read-only): Emilio → solo ve evidencia. PDFs/Excel se generan
+    //   client-side (no requieren upload), así que descarga reportes sin write.
+    function isHumanAdmin() {
       return request.auth != null
           && request.auth.token.email_verified == true
           && request.auth.token.email in [
                'luisrandrade@gmail.com',
                'juanpandrade2005@gmail.com',
-               'kathy.matuk@gmail.com',
+               'kathy.matuk@gmail.com'
+             ];
+    }
+
+    function isHumanReadOnly() {
+      return request.auth != null
+          && request.auth.token.email_verified == true
+          && request.auth.token.email in [
                'eammv1997@gmail.com'
              ];
+    }
+
+    function isHumanAuthorized() {
+      return isHumanAdmin() || isHumanReadOnly();
     }
 
     function isAuthorized() {
@@ -65,37 +80,41 @@ service firebase.storage {
     // No se puede borrar ni reemplazar desde la app — protege contra
     // bugs (uploads duplicados se quedan, hay que limpiar manualmente
     // con script auditable) y contra credenciales comprometidas.
+    // v7.9.4.2: read = todos los humanos autorizados (Emilio puede ver
+    //                 comprobantes para descargar/auditar reportes).
+    //          create = solo admin (Emilio no sube evidencia).
+    //          update/delete = false universal (evidencia inmutable).
     match /pagos/{file} {
       allow read: if isHumanAuthorized();
-      allow create: if isHumanAuthorized() && isImageUnder(10 * 1024 * 1024);
+      allow create: if isHumanAdmin() && isImageUnder(10 * 1024 * 1024);
       allow update, delete: if false;
     }
 
     // ─── entregas/ — INMUTABLE (evidencia de entrega) ────────
     match /entregas/{file} {
       allow read: if isHumanAuthorized();
-      allow create: if isHumanAuthorized() && isImageUnder(10 * 1024 * 1024);
+      allow create: if isHumanAdmin() && isImageUnder(10 * 1024 * 1024);
       allow update, delete: if false;
     }
 
     // ─── facturas/ — INMUTABLE (evidencia tributaria) ────────
     match /facturas/{file} {
       allow read: if isHumanAuthorized();
-      allow create: if isHumanAuthorized() && isImageUnder(10 * 1024 * 1024);
+      allow create: if isHumanAdmin() && isImageUnder(10 * 1024 * 1024);
       allow update, delete: if false;
     }
 
     // ─── comprobantes-compras/ — INMUTABLE (evidencia compras) ──
     match /comprobantes-compras/{file} {
       allow read: if isHumanAuthorized();
-      allow create: if isHumanAuthorized() && isImageUnder(10 * 1024 * 1024);
+      allow create: if isHumanAdmin() && isImageUnder(10 * 1024 * 1024);
       allow update, delete: if false;
     }
 
     // ─── comentarios/ — INMUTABLE (anotaciones operativas) ──
     match /comentarios/{file} {
       allow read: if isHumanAuthorized();
-      allow create: if isHumanAuthorized() && isImageUnder(10 * 1024 * 1024);
+      allow create: if isHumanAdmin() && isImageUnder(10 * 1024 * 1024);
       allow update, delete: if false;
     }
 
@@ -103,21 +122,21 @@ service firebase.storage {
     // Cotizaciones, propuestas y propuestas finales generadas.
     // Cada nueva versión sube como vNN_timestamp.pdf, las anteriores
     // quedan como historial inmodificable.
+    // Emilio puede descargar PDFs históricos (read), pero no genera
+    // nuevas cotizaciones que disparen upload (create solo admin).
     match /pdfs/{kind}/{docId}/{file} {
       allow read: if isHumanAuthorized();
-      allow create: if isHumanAuthorized() && isPdfUnder(20 * 1024 * 1024);
+      allow create: if isHumanAdmin() && isPdfUnder(20 * 1024 * 1024);
       allow update, delete: if false;
     }
 
     // ─── productos/ — MUTABLE (editor del catálogo v7.9.1) ──
     // Read PÚBLICO sin auth — para que catalogo.html liste fotos sin login.
-    // Write/delete solo humanos autorizados (la skill-bot no toca fotos).
-    // Es el ÚNICO path con delete habilitado desde SDK, por necesidad
-    // del editor (botón "🗑️ Foto" para reemplazar imagen).
+    // Write/delete solo admin (editor de catálogo es función operativa).
     match /productos/{file} {
       allow read: if true;
-      allow create, update: if isHumanAuthorized() && isImageUnder(5 * 1024 * 1024);
-      allow delete: if isHumanAuthorized();
+      allow create, update: if isHumanAdmin() && isImageUnder(5 * 1024 * 1024);
+      allow delete: if isHumanAdmin();
     }
   }
 }

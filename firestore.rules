@@ -26,15 +26,32 @@ service cloud.firestore {
       return isHumanAuthorized() || isSkillBot();
     }
 
-    function isHumanAuthorized() {
+    // v7.9.4.2: roles separados por nivel
+    // - Admin: Luis, JP, Kathy → CRUD completo
+    // - Comercial (read-only): Emilio → solo lectura. Descarga reportes
+    //   (PDFs y Excel se generan client-side, son funciones de lectura).
+    //   NO puede crear cotizaciones, registrar pagos, anular, editar catálogo.
+    function isHumanAdmin() {
       return request.auth != null
           && request.auth.token.email_verified == true
           && request.auth.token.email in [
                'luisrandrade@gmail.com',
                'juanpandrade2005@gmail.com',
-               'kathy.matuk@gmail.com',
+               'kathy.matuk@gmail.com'
+             ];
+    }
+
+    function isHumanReadOnly() {
+      return request.auth != null
+          && request.auth.token.email_verified == true
+          && request.auth.token.email in [
                'eammv1997@gmail.com'
              ];
+    }
+
+    // Lectura: cualquier humano autorizado (admin o read-only).
+    function isHumanAuthorized() {
+      return isHumanAdmin() || isHumanReadOnly();
     }
 
     function isSkillBot() {
@@ -52,112 +69,105 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // ─── Collections operativas (CRUD completo solo humanos) ───
-    // El skill-bot NO tiene acceso a estas — defensa en profundidad por si
-    // se filtra el password del bot, el daño está acotado a recetasInternas.
+    // ─── Collections operativas ────────────────────────────────
+    // v7.9.4.2: read = cualquier humano autorizado (admin + read-only).
+    //           write = solo admin (Luis, JP, Kathy).
 
     // Cotizaciones GB-COT-*
     match /quotes/{docId} {
-      allow read, write: if isHumanAuthorized();
+      allow read: if isHumanAuthorized();
+      allow write: if isHumanAdmin();
     }
 
     // Propuestas iniciales GB-PROP-*
     match /proposals/{docId} {
-      allow read, write: if isHumanAuthorized();
+      allow read: if isHumanAuthorized();
+      allow write: if isHumanAdmin();
     }
 
     // Propuestas finales GB-PF-*
     match /propfinals/{docId} {
-      allow read, write: if isHumanAuthorized();
+      allow read: if isHumanAuthorized();
+      allow write: if isHumanAdmin();
     }
 
     // Directorio de clientes
     match /clients/{docId} {
-      allow read, write: if isHumanAuthorized();
+      allow read: if isHumanAuthorized();
+      allow write: if isHumanAdmin();
     }
 
     // Directorio de proveedores
     match /proveedores/{docId} {
-      allow read, write: if isHumanAuthorized();
+      allow read: if isHumanAuthorized();
+      allow write: if isHumanAdmin();
     }
 
     // Compras registradas
     match /compras/{docId} {
-      allow read, write: if isHumanAuthorized();
+      allow read: if isHumanAuthorized();
+      allow write: if isHumanAdmin();
     }
 
     // Catálogo de productos de compra frecuente
     match /preciosCatalogo/{docId} {
-      allow read, write: if isHumanAuthorized();
+      allow read: if isHumanAuthorized();
+      allow write: if isHumanAdmin();
     }
 
     // Productos custom registrados desde cotizaciones
-    // skill-bot puede leer (para skills que migran custom → catálogo principal).
-    // Write sigue solo para humanos.
+    // Read: humanos autorizados + skill-bot. Write: solo admin.
     match /custom_products/{docId} {
       allow read: if isAuthorized();
-      allow write: if isHumanAuthorized();
+      allow write: if isHumanAdmin();
     }
 
     // Configuración del sistema (ej. price_memory)
     match /config/{docId} {
-      allow read, write: if isHumanAuthorized();
+      allow read: if isHumanAuthorized();
+      allow write: if isHumanAdmin();
     }
 
-    // Contadores transaccionales para consecutivos (quotes-YYYY, proposals-YYYY, propfinals-YYYY).
-    // getNextNumber() en app-core.js usa runTransaction para get + set atómicos.
+    // Contadores transaccionales para consecutivos.
     // ⚠ Sin esta rule, NO SE PUEDEN CREAR cotizaciones/propuestas nuevas.
+    // Solo admin escribe (read-only no crea cotizaciones).
     match /counters/{docId} {
-      allow read, write: if isHumanAuthorized();
+      allow read: if isHumanAuthorized();
+      allow write: if isHumanAdmin();
     }
 
     // ─── Catálogo (v7.9 BOM) ────────────────────────────────────
-    // Productos como entidad de primera clase, con metadata para BOM y web.
-    // Read: humanos + skill-bot (skill-bot necesita leer para skills tipo
-    //       match-fotos-instagram que cruzan datos externos contra el catálogo).
-    // Create: humanos + skill-bot (skill-bot crea productos nuevos durante
-    //         migraciones, ej. importar custom_products al catálogo).
-    // Update/Delete: solo humanos. skill-bot NO modifica productos existentes —
-    //                defensa en profundidad: si se filtra el password del bot,
-    //                el daño está limitado a agregar productos nuevos (visibles
-    //                y revertibles desde el editor).
     match /productos/{docId} {
-      // Read PÚBLICO TOTAL sin auth — para que la página catalogo.html
-      // (Linktree, web propia) pueda listar el catálogo sin login.
-      // El frontend filtra por activo!=false y visibleEnWeb!=false.
-      // Trade-off aceptado: usuario malicioso ve todos los productos
-      // incluso archivados/ocultos, pero NO puede modificar nada.
-      // No info ultra-sensible (nombres, precios, descripciones).
+      // Read PÚBLICO sin auth — catalogo.html lista catálogo sin login.
       allow read: if true;
-      allow create: if isAuthorized();
-      allow update, delete: if isHumanAuthorized();
+      // Create: admin + skill-bot (este último para migraciones).
+      allow create: if isHumanAdmin() || isSkillBot();
+      // Update/Delete: solo admin (skill-bot NO modifica existentes).
+      allow update, delete: if isHumanAdmin();
     }
 
     // Categorías editables del catálogo. Mismo modelo que productos.
     match /categorias/{docId} {
       allow read: if true;
-      allow create: if isAuthorized();
-      allow update, delete: if isHumanAuthorized();
+      allow create: if isHumanAdmin() || isSkillBot();
+      allow update, delete: if isHumanAdmin();
     }
 
     // ─── Collections con acceso del skill-bot ───────────────────
 
     // Recetas internas (ingredientes + costos por producto).
-    // La skill capture-receta escribe acá. Acceso para humanos y skill-bot.
+    // Read: humanos autorizados + skill-bot. Write: admin + skill-bot.
     match /recetasInternas/{docId} {
-      allow read, write: if isAuthorized();
+      allow read: if isAuthorized();
+      allow write: if isHumanAdmin() || isSkillBot();
     }
 
     // ─── Collections con restricciones especiales ───────────────
 
-    // ajustesLog — log auditable de descuentos/perdones (v7.8.3).
-    // Append-only: se puede leer y crear, pero NO modificar ni borrar
-    // entradas existentes. Esto preserva la auditoría histórica.
-    // Si se necesita "anular" una entrada, agregar otra entrada nueva
-    // que la referencie (no editar la original).
-    // Solo humanos (el bot no tiene razón para escribir aquí).
+    // ajustesLog — append-only. Solo admin crea, nadie modifica/borra.
     match /ajustesLog/{docId} {
-      allow read, create: if isHumanAuthorized();
+      allow read: if isHumanAuthorized();
+      allow create: if isHumanAdmin();
       allow update, delete: if false;
     }
 
@@ -184,11 +194,14 @@ service cloud.firestore {
     //    original, es metadata post-cierre.
     //  - delete: NUNCA. La auditoría es inmutable.
     match /operacionesLog/{logId} {
+      // v7.9.4.2: read = todos los humanos autorizados (Emilio ve auditoría).
+      //           create/update = solo admin (read-only no genera logs porque
+      //                            no ejecuta operaciones de escritura).
       allow read: if isHumanAuthorized();
-      allow create: if isHumanAuthorized()
+      allow create: if isHumanAdmin()
                     && request.resource.data.resultado == 'intento'
                     && request.resource.data.usuarioUid == request.auth.uid;
-      allow update: if isHumanAuthorized()
+      allow update: if isHumanAdmin()
                     && resource.data.resultado == 'intento'
                     && request.resource.data.resultado in ['exito','error']
                     && resource.data.usuarioUid == request.auth.uid
