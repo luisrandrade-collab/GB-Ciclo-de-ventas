@@ -157,5 +157,30 @@ service cloud.firestore {
       allow read, create: if isHumanAuthorized();
       allow update, delete: if false;
     }
+
+    // operacionesLog (v7.9.4) — audit log de operaciones críticas (pagos,
+    // pedidos, aprobaciones, anulaciones). Patrón log-first: el cliente
+    // crea con resultado='intento' antes de la operación, luego transiciona
+    // a 'exito' o 'error'.
+    //
+    // Reglas:
+    //  - create: humanos. resultado debe arrancar como 'intento' y
+    //    usuarioUid debe ser el del auth (no impersonación).
+    //  - read: humanos (vista Auditoría).
+    //  - update: SOLO transición de 'intento' → 'exito'/'error' del mismo
+    //    usuario que creó el log. Logs ya finalizados (exito/error) NO se
+    //    pueden volver a modificar.
+    //  - delete: NUNCA. La auditoría es inmutable.
+    match /operacionesLog/{logId} {
+      allow read: if isHumanAuthorized();
+      allow create: if isHumanAuthorized()
+                    && request.resource.data.resultado == 'intento'
+                    && request.resource.data.usuarioUid == request.auth.uid;
+      allow update: if isHumanAuthorized()
+                    && resource.data.resultado == 'intento'
+                    && request.resource.data.resultado in ['exito','error']
+                    && resource.data.usuarioUid == request.auth.uid;
+      allow delete: if false;
+    }
   }
 }

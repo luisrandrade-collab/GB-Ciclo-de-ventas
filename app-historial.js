@@ -1307,48 +1307,73 @@ async function submitPago(){
   }
 
   let exito=false;
+  let totalPagosFinal=null,saldoNuevo=null,cobradoNuevo=null,pagosFreshFinal=null,fresh=null;
   try{
     showLoader("Registrando pago...");
-    const {db,doc,getDoc,updateDoc,serverTimestamp}=window.fb;
-    const coll=getCollectionName(pagoSrc.id,pagoSrc.kind);
+    // v7.9.4: envolver con logOperacion para audit trail.
+    const opResult=await logOperacion({
+      operacion:"registrarPago",
+      docId:pagoSrc.id,
+      docKind:pagoSrc.kind,
+      payload:{
+        clientId,
+        monto,
+        metodo,
+        tipo,
+        fecha,
+        notas:notas?notas.slice(0,200):"",
+        tieneFoto:!!nuevo.fotoUrl||!!nuevo.foto
+      },
+      runner:async(logId)=>{
+        const {db,doc,getDoc,updateDoc,serverTimestamp}=window.fb;
+        const coll=getCollectionName(pagoSrc.id,pagoSrc.kind);
 
-    // CRITICAL: re-leer pagos[] desde Firestore antes de hacer push.
-    // Evita race condition: si el cache local está desactualizado, no sobrescribimos
-    // pagos que se hayan registrado desde otra sesión/dispositivo.
-    const snap=await getDoc(doc(db,coll,pagoSrc.id));
-    if(!snap.exists()){
-      throw new Error("Documento "+pagoSrc.id+" no existe en Firestore (collection "+coll+")");
-    }
-    const fresh=snap.data();
-    const pagosFresh=Array.isArray(fresh.pagos)?fresh.pagos.slice():[];
+        // CRITICAL: re-leer pagos[] desde Firestore antes de hacer push.
+        // Evita race condition: si el cache local está desactualizado, no sobrescribimos
+        // pagos que se hayan registrado desde otra sesión/dispositivo.
+        const snap=await getDoc(doc(db,coll,pagoSrc.id));
+        if(!snap.exists()){
+          throw new Error("Documento "+pagoSrc.id+" no existe en Firestore (collection "+coll+")");
+        }
+        fresh=snap.data();
+        const pagosFresh=Array.isArray(fresh.pagos)?fresh.pagos.slice():[];
 
-    // IDEMPOTENCY: si por alguna razón el clientId ya está, no duplicar
-    if(pagosFresh.some(p=>p.clientId===clientId)){
-      console.warn("[submitPago] clientId ya existe en Firestore (intento idempotente)",clientId);
-    }else{
-      pagosFresh.push(nuevo);
-    }
+        // Vincula este pago con el log para trazabilidad cruzada
+        nuevo.logId=logId;
 
-    await updateDoc(doc(db,coll,pagoSrc.id),{
-      pagos:pagosFresh,
-      updatedAt:serverTimestamp(),
-      ...auditStamp()
+        // IDEMPOTENCY: si por alguna razón el clientId ya está, no duplicar
+        if(pagosFresh.some(p=>p.clientId===clientId)){
+          console.warn("[submitPago] clientId ya existe en Firestore (intento idempotente)",clientId);
+        }else{
+          pagosFresh.push(nuevo);
+        }
+
+        await updateDoc(doc(db,coll,pagoSrc.id),{
+          pagos:pagosFresh,
+          updatedAt:serverTimestamp(),
+          ...auditStamp()
+        });
+
+        // Update local cache
+        pagoSrc.doc.pagos=pagosFresh;
+        pagosFreshFinal=pagosFresh;
+        totalPagosFinal=pagosFresh.length;
+
+        return {payloadExtra:{totalPagosDespues:pagosFresh.length}};
+      }
     });
 
-    // Update local cache
-    pagoSrc.doc.pagos=pagosFresh;
-
-    console.log("[submitPago] success",{clientId,durationMs:Date.now()-t0,totalPagos:pagosFresh.length});
+    console.log("[submitPago] success",{clientId,logId:opResult.logId,durationMs:Date.now()-t0,totalPagos:totalPagosFinal});
     exito=true;
 
     hideLoader();
     closePagoModal();
 
     // PERSISTENT SUCCESS MODAL (en vez de toast efímero)
-    const cobradoNuevo=pagosFresh.reduce((s,p)=>s+(parseInt(p.monto)||0),0);
-    const saldoNuevo=totalDoc-cobradoNuevo;
-    const cliente=fresh.client||"(sin cliente)";
-    const num=fresh.quoteNumber||fresh.id||pagoSrc.id;
+    cobradoNuevo=(pagosFreshFinal||[]).reduce((s,p)=>s+(parseInt(p.monto)||0),0);
+    saldoNuevo=totalDoc-cobradoNuevo;
+    const cliente=(fresh&&fresh.client)||"(sin cliente)";
+    const num=(fresh&&(fresh.quoteNumber||fresh.id))||pagoSrc.id;
     const saldoLabel=saldoNuevo>0
       ?'Saldo pendiente: <strong style="color:#C62828">'+fm(saldoNuevo)+'</strong>'
       :saldoNuevo<0

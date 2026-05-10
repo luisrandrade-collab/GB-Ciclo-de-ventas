@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.3.2";
+const BUILD_VERSION="v7.9.4-rc1";
 const BUILD_DATE="2026-05-09";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
@@ -1151,6 +1151,112 @@ function auditStamp(){
     updatedByEmail:currentUser.email||"(sin email)",
     updatedAtLocal:new Date().toISOString()
   };
+}
+
+// v7.9.4: logOperacion — patrón log-first para operaciones críticas.
+// Crea un doc en collection 'operacionesLog' ANTES de la operación (resultado='intento'),
+// luego la actualiza a 'exito' o 'error' según el resultado del runner().
+//
+// Diseño:
+// - Si el pre-log falla (offline al inicio), continúa con la operación principal pero
+//   advierte por consola. Mejor perder el log que bloquear la operación.
+// - Si la operación falla, el log queda en 'error' con errorMsg/errorStack legibles.
+// - Si la operación tiene éxito, el log queda en 'exito' con duracionMs.
+// - Si el post-log falla pero la operación tuvo éxito, el log queda en 'intento' eternamente
+//   — la vista Auditoría detecta intentos viejos como sospechosos.
+//
+// Uso:
+//   const {result, logId} = await logOperacion({
+//     operacion: 'registrarPago',
+//     docId: 'GB-2026-0148',
+//     docKind: 'quote',
+//     payload: {monto: 440000, metodo: 'Daviplata'},
+//     runner: async (logId) => {
+//       // logId disponible para guardar en el doc principal (ej. pago.logId = logId)
+//       await updateDoc(...);
+//       return {pagosCount: ...};
+//     }
+//   });
+async function logOperacion(opts){
+  opts=opts||{};
+  const operacion=opts.operacion||"unknown";
+  const docId=opts.docId||null;
+  const docKind=opts.docKind||null;
+  const docCollection=opts.docCollection||(typeof getCollectionName==="function"&&docId&&docKind?getCollectionName(docId,docKind):null);
+  const payload=opts.payload||{};
+  const runner=opts.runner;
+  if(typeof runner!=="function")throw new Error("logOperacion: runner es requerido y debe ser una función async");
+
+  // Generar logId UUID-ish (suficiente para identificar único)
+  const logId="op_"+Date.now()+"_"+Math.random().toString(36).slice(2,11);
+  const t0=Date.now();
+
+  const audit=auditStamp();
+  const usuarioEmail=audit.updatedByEmail||"(sin email)";
+  const usuarioUid=audit.updatedBy||"(sin uid)";
+  const usuarioDisplay=(currentUser&&(currentUser.displayName||currentUser.email))||usuarioEmail;
+
+  // PRE-LOG: best-effort. Si falla, continuamos con la operación principal.
+  let preLogOk=false;
+  try{
+    await fbReady();
+    const {db,doc,setDoc,serverTimestamp}=window.fb;
+    await setDoc(doc(db,"operacionesLog",logId),{
+      logId,
+      timestamp:serverTimestamp(),
+      clientId:logId,
+      usuarioEmail,
+      usuarioUid,
+      usuarioDisplay,
+      operacion,
+      docId,
+      docKind,
+      docCollection,
+      payload,
+      resultado:"intento",
+      buildVersion:(typeof BUILD_VERSION!=="undefined"?BUILD_VERSION:"?")
+    });
+    preLogOk=true;
+    console.log("[logOperacion] pre-log OK",{logId,operacion,docId});
+  }catch(e){
+    console.warn("[logOperacion] pre-log FALLÓ (continuando con la operación principal):",e&&e.message);
+  }
+
+  // OPERACIÓN PRINCIPAL
+  let result=null,error=null;
+  try{
+    result=await runner(logId);
+  }catch(e){
+    error=e;
+  }
+
+  // POST-LOG: marca exito o error
+  if(preLogOk){
+    try{
+      const {db,doc,updateDoc,serverTimestamp}=window.fb;
+      const patch={
+        completedAt:serverTimestamp(),
+        duracionMs:Date.now()-t0
+      };
+      if(error){
+        patch.resultado="error";
+        patch.errorMsg=(error&&error.message?String(error.message).slice(0,500):"(sin mensaje)");
+        patch.errorStack=(error&&error.stack?String(error.stack).slice(0,2000):null);
+      }else{
+        patch.resultado="exito";
+        // payload extra que el runner pueda haber generado
+        if(result&&typeof result==="object"&&result.payloadExtra){
+          patch.payloadExtra=result.payloadExtra;
+        }
+      }
+      await updateDoc(doc(db,"operacionesLog",logId),patch);
+    }catch(e){
+      console.warn("[logOperacion] post-log FALLÓ (log queda en estado 'intento'):",e&&e.message);
+    }
+  }
+
+  if(error)throw error;  // re-raise para que el caller maneje el fallo
+  return {result,logId,duracionMs:Date.now()-t0};
 }
 
 // ─── CLOUD INDICATOR ───────────────────────────────────────
