@@ -2051,29 +2051,111 @@ function closeEntregaWhatsAppModal(){
   const modal=$("entrega-wa-modal");
   if(modal){modal.classList.add("hidden");modal._info=null}
 }
+// v7.9.4.3: extrae timestamp ms del nombre de archivo de Firebase Storage.
+// Patrón: ".../entregas%2F{docId}-{tsMs}.jpeg" → tsMs.
+function _extractTimestampFromFotoUrl(url){
+  if(!url)return null;
+  const m=String(url).match(/-(\d{13})\.(jpe?g|png|webp)/i);
+  return m?parseInt(m[1],10):null;
+}
+function _formatFechaHoraFromTs(ts){
+  if(!ts)return null;
+  const d=new Date(ts);
+  const pad=n=>String(n).padStart(2,"0");
+  return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+" "+pad(d.getHours())+":"+pad(d.getMinutes());
+}
+
 function _buildEntregaWaText(info){
   const li=[];
   li.push("✅ *Entrega completada — Gourmet Bites*");
   li.push("");
   li.push("👤 Cliente: "+info.cliente);
   if(info.direccion)li.push("📍 Dirección: "+info.direccion);
-  li.push("📅 Fecha: "+info.fecha+(info.hora?" "+info.hora:""));
+  // v7.9.4.3: hora de entrega = timestamp de la última foto subida (más reciente).
+  // Esto evita que la hora reportada sea la del momento de marcar entrega (que
+  // puede ser distinto al momento real de entrega física si el WhatsApp se
+  // envía después). Fallback a la fecha/hora del modal si no hay fotos.
+  const ts1=_extractTimestampFromFotoUrl(info.foto1);
+  const ts2=_extractTimestampFromFotoUrl(info.foto2);
+  const tsMax=Math.max(ts1||0,ts2||0);
+  const fechaStr=tsMax>0
+    ? _formatFechaHoraFromTs(tsMax)
+    : (info.fecha+(info.hora?" "+info.hora:""));
+  li.push("📅 Entregado: "+fechaStr);
   if(info.receptor)li.push("✍️ Recibió: "+info.receptor);
-  li.push("");
-  if(info.foto1||info.foto2){
-    li.push("📸 Fotos:");
-    if(info.foto1)li.push(info.foto1);
-    if(info.foto2)li.push(info.foto2);
-    li.push("");
-    li.push("(Descarga las fotos del link y reenvíalas al cliente desde el WhatsApp Business)");
-  }
+  // v7.9.4.3: NO incluimos URLs de fotos en el texto. Las fotos se envían
+  // como archivos adjuntos vía Web Share API (móvil) o descarga local + arrastre (desktop).
   return li.join("\n");
 }
-function sendEntregaWhatsApp(){
+
+async function sendEntregaWhatsApp(){
   const modal=$("entrega-wa-modal");
   const info=modal&&modal._info;
   if(!info)return;
   const customTxt=$("ewm-texto")?.value||_buildEntregaWaText(info);
+  const fotosUrls=[info.foto1,info.foto2].filter(Boolean);
+
+  // v7.9.4.3: intento 1 — Web Share API con archivos (móvil iOS/Android).
+  // Funciona en Chrome 89+, Safari iOS 16+. En desktop, depende del SO.
+  if(fotosUrls.length>0&&typeof navigator!=="undefined"&&navigator.canShare&&navigator.share){
+    try{
+      if(typeof toast==="function")toast("📦 Preparando fotos…","info",2500);
+      const files=[];
+      for(let i=0;i<fotosUrls.length;i++){
+        const r=await fetch(fotosUrls[i]);
+        const blob=await r.blob();
+        files.push(new File([blob],"entrega-"+(i+1)+".jpg",{type:blob.type||"image/jpeg"}));
+      }
+      const shareData={files,text:customTxt};
+      if(navigator.canShare(shareData)){
+        await navigator.share(shareData);
+        closeEntregaWhatsAppModal();
+        return;
+      }
+    }catch(e){
+      // AbortError = usuario canceló el share sheet → no caer al fallback (ya decidió no enviar)
+      if(e&&e.name==="AbortError"){
+        console.log("[sendEntregaWhatsApp] usuario canceló share");
+        return;
+      }
+      console.warn("[sendEntregaWhatsApp] Web Share falló, fallback a descarga:",e&&e.message);
+    }
+  }
+
+  // v7.9.4.3: intento 2 (fallback desktop) — descargar fotos al dispositivo
+  // y abrir wa.me con el texto. Usuario arrastra fotos al chat manualmente.
+  if(fotosUrls.length>0){
+    if(typeof toast==="function")toast("📥 Descargando fotos…","info",3000);
+    const safeCli=String(info.cliente||"cliente").replace(/[^a-zA-Z0-9_-]/g,"_").slice(0,30);
+    for(let i=0;i<fotosUrls.length;i++){
+      try{
+        const r=await fetch(fotosUrls[i]);
+        const blob=await r.blob();
+        const objUrl=URL.createObjectURL(blob);
+        const a=document.createElement("a");
+        a.href=objUrl;
+        a.download="entrega-"+safeCli+"-"+(i+1)+".jpg";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(()=>URL.revokeObjectURL(objUrl),5000);
+      }catch(e){
+        console.error("[sendEntregaWhatsApp] error descargando foto "+(i+1),e);
+      }
+    }
+    // Abrir wa.me después del download para que el browser haya iniciado las descargas
+    setTimeout(()=>{
+      const url="https://wa.me/"+KATHY_WA_TEL+"?text="+encodeURIComponent(customTxt);
+      window.open(url,"_blank");
+      closeEntregaWhatsAppModal();
+      if(typeof toast==="function"){
+        toast("💡 Fotos descargadas. Arrastrálas al chat de WhatsApp.","info",8000);
+      }
+    },800);
+    return;
+  }
+
+  // Sin fotos: solo abrir wa.me con texto
   const url="https://wa.me/"+KATHY_WA_TEL+"?text="+encodeURIComponent(customTxt);
   window.open(url,"_blank");
   closeEntregaWhatsAppModal();

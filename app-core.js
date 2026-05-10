@@ -109,8 +109,8 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.4.1";
-const BUILD_DATE="2026-05-09";
+const BUILD_VERSION="v7.9.4.3";
+const BUILD_DATE="2026-05-10";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
 // Helper único para resolver la colección Firestore de un documento por kind+id.
