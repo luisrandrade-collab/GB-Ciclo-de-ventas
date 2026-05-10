@@ -409,10 +409,12 @@ function renderDashHead(){
   if(h>=12&&h<19)saludo="Buenas tardes";
   else if(h>=19||h<5)saludo="Buenas noches";
   // Nombre del usuario: override por email del equipo, fallback displayName, fallback email split
+  // v7.9.4.4: fix typo en email de JP ("panadrade" → "pandrade") + agregado Emilio.
   const NOMBRE_POR_EMAIL={
-    "juanpanadrade2005@gmail.com":"Juan Pablo",
+    "juanpandrade2005@gmail.com":"Juan Pablo",
     "kathy.matuk@gmail.com":"Kathy",
-    "luisrandrade@gmail.com":"Luis R"
+    "luisrandrade@gmail.com":"Luis R",
+    "eammv1997@gmail.com":"Emilio"
   };
   let nombre="";
   try{
