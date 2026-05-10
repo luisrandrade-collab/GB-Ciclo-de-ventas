@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.4";
+const BUILD_VERSION="v7.9.4.1";
 const BUILD_DATE="2026-05-09";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
@@ -2564,7 +2564,7 @@ function setMode(m){
   // v7.8.5: agregado 'herr-recetas' (Herramientas > Recetas internas — CRUD Firestore)
   // v7.9.0: agregado 'herr-catalogo' (Herramientas > Catálogo de productos)
   // v7.9.0.1: agregado 'lista-precios' (Ventas > Lista de precios)
-  ["dash","cot","prop","search","hist","seg","cal","ventas","cartera","cartera-historico","cartera-ajustes-log","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","pedidos-hojas","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup","clientes-directorio","clientes-ficha","clientes-comentarios","proveedores-directorio","compras-pendientes","compras-historico","compras-catalogo","herr-recetas","herr-catalogo","lista-precios"].forEach(x=>{
+  ["dash","cot","prop","search","hist","seg","cal","ventas","cartera","cartera-historico","cartera-ajustes-log","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","pedidos-hojas","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup","clientes-directorio","clientes-ficha","clientes-comentarios","proveedores-directorio","compras-pendientes","compras-historico","compras-catalogo","herr-recetas","herr-catalogo","herr-auditoria","lista-precios"].forEach(x=>{
     const el=$("mode-"+x);
     if(el)el.classList.toggle("hidden",x!==m);
     document.querySelectorAll(".mode-btn.m-"+x).forEach(b=>b.classList.toggle("act",x===m));
