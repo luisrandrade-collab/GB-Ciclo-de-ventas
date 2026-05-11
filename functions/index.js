@@ -104,90 +104,144 @@ function buildVeventsForDoc(q) {
   const totalStr = total ? `$${total.toLocaleString("es-CO")}` : "";
   const dtstamp = nowIcsTimestamp();
 
-  // Evento producción (todo el día anterior a la entrega)
-  if (q.eventDate) {
-    const prodDate = q.productionDate || isoMinusOne(q.eventDate);
-    if (prodDate) {
-      const dStart = isoToIcsDate(prodDate);
-      // DTEND es exclusivo en VEVENT all-day → sumar 1 día sería el siguiente.
-      // Para evento de 1 día, DTEND = DTSTART + 1 día, pero formato ALL-DAY pide solo fecha.
-      const [y, m, d] = prodDate.split("-").map(Number);
-      const dt2 = new Date(Date.UTC(y, m - 1, d));
-      dt2.setUTCDate(dt2.getUTCDate() + 1);
-      const dEnd = `${dt2.getUTCFullYear()}${String(dt2.getUTCMonth()+1).padStart(2,"0")}${String(dt2.getUTCDate()).padStart(2,"0")}`;
-
-      const summary = `🔥 Producir ${cliente} (${numero})`;
-      const descParts = [`Producción para ${tipoLbl} ${numero}`];
-      if (totalStr) descParts.push(`Total: ${totalStr}`);
-      if (q.eventDate) descParts.push(`Entrega: ${q.eventDate}${q.horaEntrega ? ' a las ' + q.horaEntrega : ''}`);
-      if (q.notasInternas) descParts.push(`Notas internas: ${q.notasInternas}`);
-
-      out.push([
-        "BEGIN:VEVENT",
-        `UID:${uid(q.id, "prod")}`,
-        `DTSTAMP:${dtstamp}`,
-        `DTSTART;VALUE=DATE:${dStart}`,
-        `DTEND;VALUE=DATE:${dEnd}`,
-        `SUMMARY:${icsEscape(summary)}`,
-        `DESCRIPTION:${icsEscape(descParts.join("\n"))}`,
-        `CATEGORIES:Gourmet Bites,Producción`,
-        "END:VEVENT"
-      ].join("\r\n"));
-    }
+  // v7.9.7 F5: lista unificada de entregas (1 por despacho o 1 legacy).
+  // Cada entrega: {key, dateIso, hora, dir, city, notas, idx}
+  const entregas = [];
+  if (Array.isArray(q.despachos) && q.despachos.length) {
+    q.despachos.forEach((d, idx) => {
+      const fh = (d.fechaHora || "").split("T");
+      const dateIso = fh[0] || q.eventDate || "";
+      if (!dateIso) return;
+      const horaRaw = fh[1] ? fh[1].slice(0, 5) : "";
+      const dir = (d.direccion && d.direccion.dir) || q.dir || "";
+      const city = (d.direccion && d.direccion.city) || q.city || "";
+      entregas.push({
+        key: `desp${idx + 1}`,
+        dateIso,
+        hora: horaRaw,
+        dir,
+        city,
+        notas: d.notas || "",
+        idx: idx + 1,
+        totalDesp: q.despachos.length
+      });
+    });
+  } else if (q.eventDate) {
+    entregas.push({
+      key: "ent",
+      dateIso: q.eventDate,
+      hora: q.horaEntrega || "",
+      dir: q.dir || "",
+      city: q.city || "",
+      notas: "",
+      idx: null,
+      totalDesp: 1
+    });
   }
 
-  // Evento entrega (con hora si está)
-  if (q.eventDate) {
-    const summary = `🚚 Entrega ${cliente} (${numero})`;
-    const descParts = [`Entrega de ${tipoLbl} ${numero}`];
+  if (!entregas.length) return out;
+
+  // Eventos de producción: agrupar por fecha única de entrega.
+  // Cada día único genera 1 VEVENT de producción (día anterior).
+  const fechasProduccionSet = new Set();
+  entregas.forEach(e => {
+    const prodDate = q.productionDate || isoMinusOne(e.dateIso);
+    if (prodDate) fechasProduccionSet.add(prodDate);
+  });
+  Array.from(fechasProduccionSet).sort().forEach((prodDate, prodIdx) => {
+    const dStart = isoToIcsDate(prodDate);
+    const [y, m, d] = prodDate.split("-").map(Number);
+    const dt2 = new Date(Date.UTC(y, m - 1, d));
+    dt2.setUTCDate(dt2.getUTCDate() + 1);
+    const dEnd = `${dt2.getUTCFullYear()}${String(dt2.getUTCMonth()+1).padStart(2,"0")}${String(dt2.getUTCDate()).padStart(2,"0")}`;
+
+    // Entregas del día siguiente a esta fecha de producción
+    const [py, pm, pd] = prodDate.split("-").map(Number);
+    const prodPlusOne = new Date(Date.UTC(py, pm - 1, pd));
+    prodPlusOne.setUTCDate(prodPlusOne.getUTCDate() + 1);
+    const targetDate = `${prodPlusOne.getUTCFullYear()}-${String(prodPlusOne.getUTCMonth()+1).padStart(2,"0")}-${String(prodPlusOne.getUTCDate()).padStart(2,"0")}`;
+    const entregasDia = entregas.filter(e => e.dateIso === targetDate);
+
+    const sufijo = fechasProduccionSet.size > 1 ? ` (día ${prodIdx + 1}/${fechasProduccionSet.size})` : "";
+    const summary = `🔥 Producir ${cliente} (${numero})${sufijo}`;
+    const descParts = [`Producción para ${tipoLbl} ${numero}`];
     if (totalStr) descParts.push(`Total: ${totalStr}`);
-    if (q.dir) descParts.push(`Dirección: ${q.dir}${q.city ? ', ' + q.city : ''}`);
+    if (entregasDia.length > 1) {
+      descParts.push(`${entregasDia.length} despachos este día:`);
+      entregasDia.forEach(e => {
+        descParts.push(`  • ${e.dateIso}${e.hora ? ' ' + e.hora : ''} — ${e.notas || 'Despacho ' + e.idx}`);
+      });
+    } else if (entregasDia.length === 1) {
+      const e = entregasDia[0];
+      descParts.push(`Entrega: ${e.dateIso}${e.hora ? ' a las ' + e.hora : ''}${e.notas ? ' — ' + e.notas : ''}`);
+    }
+    if (q.notasInternas) descParts.push(`Notas internas: ${q.notasInternas}`);
+
+    out.push([
+      "BEGIN:VEVENT",
+      `UID:${uid(q.id, "prod" + prodIdx)}`,
+      `DTSTAMP:${dtstamp}`,
+      `DTSTART;VALUE=DATE:${dStart}`,
+      `DTEND;VALUE=DATE:${dEnd}`,
+      `SUMMARY:${icsEscape(summary)}`,
+      `DESCRIPTION:${icsEscape(descParts.join("\n"))}`,
+      `CATEGORIES:Gourmet Bites,Producción`,
+      "END:VEVENT"
+    ].join("\r\n"));
+  });
+
+  // Eventos de entrega: 1 VEVENT por entrega/despacho
+  entregas.forEach(e => {
+    const sufijo = e.idx ? ` · D${e.idx}/${e.totalDesp}${e.notas ? ' · ' + e.notas : ''}` : "";
+    const summary = `🚚 Entrega ${cliente} (${numero})${sufijo}`;
+    const descParts = [`Entrega de ${tipoLbl} ${numero}`];
+    if (e.idx) descParts.push(`Despacho ${e.idx} de ${e.totalDesp}${e.notas ? ' — ' + e.notas : ''}`);
+    if (totalStr) descParts.push(`Total propuesta: ${totalStr}`);
+    if (e.dir) descParts.push(`Dirección: ${e.dir}${e.city ? ', ' + e.city : ''}`);
     if (q.tel) descParts.push(`Tel: ${q.tel}`);
     if (q.att) descParts.push(`Atención: ${q.att}`);
     if (q.notasInternas) descParts.push(`Notas: ${q.notasInternas}`);
 
-    if (q.horaEntrega && /^\d{1,2}:\d{2}$/.test(q.horaEntrega)) {
-      // Evento con hora: 1 hora de duración por defecto
-      const dtStart = isoToIcsDatetime(q.eventDate, q.horaEntrega);
-      const [y, m, d] = q.eventDate.split("-").map(Number);
-      const [h, mi] = q.horaEntrega.split(":").map(Number);
+    if (e.hora && /^\d{1,2}:\d{2}$/.test(e.hora)) {
+      const dtStart = isoToIcsDatetime(e.dateIso, e.hora);
+      const [y, m, d] = e.dateIso.split("-").map(Number);
+      const [h, mi] = e.hora.split(":").map(Number);
       const endLocal = new Date(Date.UTC(y, m - 1, d, h + 5 + 1, mi, 0));
       const dtEnd = endLocal.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 
       out.push([
         "BEGIN:VEVENT",
-        `UID:${uid(q.id, "ent")}`,
+        `UID:${uid(q.id, e.key)}`,
         `DTSTAMP:${dtstamp}`,
         `DTSTART:${dtStart}`,
         `DTEND:${dtEnd}`,
         `SUMMARY:${icsEscape(summary)}`,
         `DESCRIPTION:${icsEscape(descParts.join("\n"))}`,
-        `LOCATION:${icsEscape((q.dir || "") + (q.city ? ", " + q.city : ""))}`,
+        `LOCATION:${icsEscape((e.dir || "") + (e.city ? ", " + e.city : ""))}`,
         `CATEGORIES:Gourmet Bites,Entrega`,
         "END:VEVENT"
       ].join("\r\n"));
     } else {
-      // Sin hora: evento all-day
-      const dStart = isoToIcsDate(q.eventDate);
-      const [y, m, d] = q.eventDate.split("-").map(Number);
+      const dStart = isoToIcsDate(e.dateIso);
+      const [y, m, d] = e.dateIso.split("-").map(Number);
       const dt2 = new Date(Date.UTC(y, m - 1, d));
       dt2.setUTCDate(dt2.getUTCDate() + 1);
       const dEnd = `${dt2.getUTCFullYear()}${String(dt2.getUTCMonth()+1).padStart(2,"0")}${String(dt2.getUTCDate()).padStart(2,"0")}`;
 
       out.push([
         "BEGIN:VEVENT",
-        `UID:${uid(q.id, "ent")}`,
+        `UID:${uid(q.id, e.key)}`,
         `DTSTAMP:${dtstamp}`,
         `DTSTART;VALUE=DATE:${dStart}`,
         `DTEND;VALUE=DATE:${dEnd}`,
         `SUMMARY:${icsEscape(summary)}`,
         `DESCRIPTION:${icsEscape(descParts.join("\n"))}`,
-        `LOCATION:${icsEscape((q.dir || "") + (q.city ? ", " + q.city : ""))}`,
+        `LOCATION:${icsEscape((e.dir || "") + (e.city ? ", " + e.city : ""))}`,
         `CATEGORIES:Gourmet Bites,Entrega`,
         "END:VEVENT"
       ].join("\r\n"));
     }
-  }
+  });
 
   return out;
 }
