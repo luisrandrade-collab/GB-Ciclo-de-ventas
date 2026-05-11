@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.4.5";
+const BUILD_VERSION="v7.9.5";
 const BUILD_DATE="2026-05-10";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
@@ -1550,153 +1550,6 @@ async function loadCategoriasFromCloud(){
   }
 }
 
-// ─── v7.9.0 MIGRACIÓN: catálogo C[] hardcoded → Firestore ───
-// Idempotente: re-ejecutar no duplica docs. Para productos/categorias
-// existentes, hace updateDoc preservando createdAt y campos web editables
-// (visibleEnWeb, fotoUrl, alergenos, descripcionWeb, ordenDentroDeCategoria,
-// activo). Solo sobrescribe campos derivados de C[] (nombre, precio, etc).
-async function migrarCatalogoAFirestore(progressCb){
-  if(!cloudOnline){throw new Error("Sin conexión a Firestore")}
-  if(!Array.isArray(C)||!C.length){throw new Error("C[] vacío o no disponible")}
-  const {db,doc,setDoc,getDoc,serverTimestamp}=window.fb;
-
-  // 1. Generar categorías desde C[].c distinct, con orden = primer legacyId
-  const catsByName={};
-  C.forEach(p=>{
-    if(!p.c)return;
-    if(!catsByName[p.c]){
-      catsByName[p.c]={nombre:p.c,orden:p.id};
-    }
-  });
-
-  // 2. Subir/upsert categorías
-  let catsCreadas=0,catsActualizadas=0;
-  for(const cat of Object.values(catsByName)){
-    const catId=_slugify(cat.nombre);
-    if(!catId)continue;
-    const ref=doc(db,"categorias",catId);
-    const existing=await getDoc(ref);
-    if(existing.exists()){
-      // Update solo campos derivados (preserva visibleEnWeb, descripcion, etc.)
-      await setDoc(ref,{
-        categoriaId:catId,
-        nombre:cat.nombre,
-        orden:cat.orden,
-        updatedAt:serverTimestamp(),
-        ...auditStamp(),
-      },{merge:true});
-      catsActualizadas++;
-    }else{
-      await setDoc(ref,{
-        categoriaId:catId,
-        nombre:cat.nombre,
-        orden:cat.orden,
-        visibleEnWeb:false,
-        descripcion:null,
-        activo:true,
-        createdAt:serverTimestamp(),
-        updatedAt:serverTimestamp(),
-        createdVia:"migration:v7.9.0",
-        ...auditStamp(),
-      });
-      catsCreadas++;
-    }
-  }
-
-  // 3. Detectar productos compuestos (nombre lowercase está en RECETAS_INTERNAS_HARDCODED)
-  const HARDCODED=(typeof RECETAS_INTERNAS_HARDCODED!=="undefined")?RECETAS_INTERNAS_HARDCODED:{};
-
-  // 4. Subir/upsert productos
-  let prodsCreados=0,prodsActualizados=0,errores=[];
-  const usedSlugs=new Set();
-  for(let i=0;i<C.length;i++){
-    const p=C[i];
-    if(progressCb)progressCb(i+1,C.length,p.n);
-    try{
-      // Slug con detección de colisión
-      let slug=_slugify(p.n);
-      if(usedSlugs.has(slug)){
-        let n=2;while(usedSlugs.has(slug+"-"+n))n++;
-        console.warn("[migracion] colisión slug para \""+p.n+"\", usando "+slug+"-"+n);
-        slug=slug+"-"+n;
-      }
-      usedSlugs.add(slug);
-
-      const nombreLower=p.n.toLowerCase().trim();
-      const esCompuesto=Object.prototype.hasOwnProperty.call(HARDCODED,nombreLower);
-      const tipo=esCompuesto?"compuesto":"atomico";
-      const componentes=esCompuesto?HARDCODED[nombreLower].map(c=>({
-        nombreLegacy:c.n,
-        q:c.q||1,
-        unidad:c.unidad||"porcion",
-        productIdHijo:null,  // se resolverá en v7.9.2
-      })):null;
-      const recetaKey=esCompuesto?null:_detectarRecetaKey(p.n);
-      const porciones=esCompuesto?1:_detectarPorciones(p.n,p.u);
-      const categoriaId=p.c?_slugify(p.c):null;
-
-      const ref=doc(db,"productos",slug);
-      const existing=await getDoc(ref);
-      if(existing.exists()){
-        // Update solo campos derivados (preserva campos web + activo si fueron editados)
-        await setDoc(ref,{
-          productId:slug,
-          legacyId:p.id,
-          nombre:p.n,
-          categoriaId:categoriaId,
-          descripcion:p.d||"",
-          precio:p.p||0,
-          unidad:p.u||"",
-          tipo:tipo,
-          recetaKey:recetaKey,
-          porciones:porciones,
-          componentes:componentes,
-          updatedAt:serverTimestamp(),
-          ...auditStamp(),
-        },{merge:true});
-        prodsActualizados++;
-      }else{
-        await setDoc(ref,{
-          productId:slug,
-          legacyId:p.id,
-          nombre:p.n,
-          categoriaId:categoriaId,
-          descripcion:p.d||"",
-          precio:p.p||0,
-          unidad:p.u||"",
-          tipo:tipo,
-          recetaKey:recetaKey,
-          porciones:porciones,
-          componentes:componentes,
-          visibleEnWeb:false,
-          fotoUrl:null,
-          alergenos:[],
-          descripcionWeb:null,
-          ordenDentroDeCategoria:p.id,
-          activo:true,
-          createdAt:serverTimestamp(),
-          updatedAt:serverTimestamp(),
-          createdVia:"migration:v7.9.0",
-          ...auditStamp(),
-        });
-        prodsCreados++;
-      }
-    }catch(e){
-      console.error("[migracion] producto "+p.id+" \""+p.n+"\" falló",e);
-      errores.push({legacyId:p.id,nombre:p.n,error:e?.message||String(e)});
-    }
-  }
-
-  // Refrescar caches locales
-  await loadCategoriasFromCloud();
-  await loadProductosFromCloud();
-
-  return {
-    catsCreadas,catsActualizadas,catsTotal:Object.keys(catsByName).length,
-    prodsCreados,prodsActualizados,prodsTotal:C.length,
-    errores
-  };
-}
 
 // ─── v7.9.0.2: FOTOS DE PRODUCTOS (Firebase Storage) ───
 // Path: productos/{productId}.jpg
@@ -2703,7 +2556,13 @@ async function doSearch(){
       if(q2.exists())results.push({type:"prop",id:upper,data:q2.data()});
     }catch(e){console.warn("direct fetch fail",e)}
   }
-  C.forEach(p=>{if(p.n.toLowerCase().includes(qStr)||(p.d||"").toLowerCase().includes(qStr))results.push({type:"prod",id:p.id,data:p})});
+  // v7.9.5: usar productosCache (Firestore) con fallback a C[] si cache vacío.
+  // _getCatProdsFromFirestore() ya filtra activo!==false && visibleEnListaPrecios!==false
+  // y mapea al schema viejo {id, productId, n, d, p, u, c} compatible con el render.
+  const _catalogProds=(typeof productosCache!=="undefined"&&productosCache&&Object.keys(productosCache).length)
+    ? _getCatProdsFromFirestore()
+    : C;
+  _catalogProds.forEach(p=>{if((p.n||"").toLowerCase().includes(qStr)||(p.d||"").toLowerCase().includes(qStr))results.push({type:"prod",id:p.id,data:p})});
   customProductsCache.forEach(cp=>{if(cp.n.toLowerCase().includes(qStr)||(cp.d||"").toLowerCase().includes(qStr))results.push({type:"cprod",id:cp.id,data:cp})});
   clientsCache.forEach(c=>{if(c.name.toLowerCase().includes(qStr)||(c.idnum||"").includes(qStr)||(c.tel||"").includes(qStr))results.push({type:"cli",id:c.id,data:c})});
   // v7.8 F1: incluir proveedores en búsqueda global

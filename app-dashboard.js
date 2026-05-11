@@ -7898,13 +7898,12 @@ async function deleteRecetaEditor(){
   }
 }
 
-// ─── v7.9.0: CATÁLOGO DE PRODUCTOS (UI mínima — migración + lectura) ───
+// ─── v7.9.0: CATÁLOGO DE PRODUCTOS (UI mínima — lectura) ───
+// v7.9.5: removida toda lógica de migración. productosCache es source of truth.
 async function renderCatalogoProductos(){
-  const statusEl=$("catalogo-migracion-status");
   const listEl=$("catalogo-list");
-  if(!statusEl||!listEl)return;
+  if(!listEl)return;
 
-  statusEl.textContent="Consultando estado…";
   listEl.innerHTML='<div style="text-align:center;padding:30px;color:#9E9E9E;font-size:13px">Cargando…</div>';
 
   if(typeof productosCache!=="undefined"&&productosCache===null&&cloudOnline){
@@ -7915,19 +7914,9 @@ async function renderCatalogoProductos(){
   }
 
   const prodsCount=(typeof productosCache!=="undefined"&&productosCache)?Object.keys(productosCache).length:0;
-  const catsCount=(typeof categoriasCache!=="undefined"&&categoriasCache)?Object.keys(categoriasCache).length:0;
-  const codeCount=Array.isArray(C)?C.length:0;
 
   if(prodsCount===0){
-    statusEl.innerHTML='<span style="color:#E65100;font-weight:600">⚠ Catálogo aún no migrado</span> · <span>Hardcoded en código tiene '+codeCount+' productos. Firestore: 0.</span>';
-  }else if(prodsCount<codeCount){
-    statusEl.innerHTML='<span style="color:#E65100;font-weight:600">⚠ Migración parcial</span> · Hardcoded: '+codeCount+' · Firestore: '+prodsCount+' · Categorías: '+catsCount+'. Re-ejecutá para completar.';
-  }else{
-    statusEl.innerHTML='<span style="color:#1B5E20;font-weight:600">✓ Catálogo migrado</span> · Productos: '+prodsCount+' · Categorías: '+catsCount+'. Re-ejecutar es seguro (idempotente).';
-  }
-
-  if(prodsCount===0){
-    listEl.innerHTML='<div style="padding:20px;background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;color:#9E7A00;font-size:13px;text-align:center">Sin productos en Firestore. Ejecutá la migración para poblar la collection.</div>';
+    listEl.innerHTML='<div style="padding:20px;background:#FFEBEE;border:1px solid #EF9A9A;border-radius:8px;color:#C62828;font-size:13px;text-align:center">Sin productos en Firestore. Verificar conexión o cargar productos desde Herramientas > Catálogo.</div>';
     return;
   }
 
@@ -8278,33 +8267,6 @@ async function restaurarProducto(productId){
   }
 }
 
-async function ejecutarMigracionCatalogo(){
-  if(!confirm("Vas a migrar los "+(C?.length||0)+" productos del catálogo hardcoded a Firestore.\n\nLa operación es idempotente — re-ejecutar no duplica.\n\n¿Continuar?"))return;
-  const btn=$("catalogo-migracion-btn");
-  const statusEl=$("catalogo-migracion-status");
-  if(btn)btn.disabled=true;
-  showLoader("Migrando catálogo…");
-  try{
-    const result=await migrarCatalogoAFirestore((idx,total,nombre)=>{
-      if(statusEl)statusEl.innerHTML='<span style="color:#0D47A1">Migrando '+idx+'/'+total+'</span> · '+escapeHtml(nombre);
-    });
-    hideLoader();
-    if(btn)btn.disabled=false;
-    if(result.errores.length){
-      toast("Migración completa con "+result.errores.length+" errores — ver consola","warn",8000);
-      console.error("[migrarCatalogoAFirestore] errores:",result.errores);
-    }else{
-      toast("✅ Migración completa: "+result.prodsCreados+"+"+result.prodsActualizados+"="+result.prodsTotal+" productos · "+result.catsTotal+" categorías","success",6000);
-    }
-    renderCatalogoProductos();
-  }catch(e){
-    hideLoader();
-    if(btn)btn.disabled=false;
-    const msg=e?.message||String(e)||"(sin detalle)";
-    toast("Error en migración: "+msg,"error",10000);
-    console.error("[ejecutarMigracionCatalogo] falló",e);
-  }
-}
 
 // ─── v7.9.0.1: VENTAS > LISTA DE PRECIOS ──────────────────────
 // Lee productosCache + categoriasCache. Muestra TODOS los productos activos.
