@@ -1061,6 +1061,62 @@ async function genPropPDF(){
     if(aperturaTxt){y+=7;doc.setFont("helvetica","italic");doc.setFontSize(9.5);doc.setTextColor(80,80,80);const wrapped=doc.splitTextToSize(aperturaTxt,W-mg*2-10);wrapped.forEach((line,idx)=>{doc.text(line,W/2,y+idx*4.5,{align:"center"})});y+=wrapped.length*4.5;doc.setTextColor(26,26,26)}
     y+=5;
     function estH(nItems){return 10+nItems*9+9}
+    // v7.9.7 F4: bloque cronograma de despachos (solo si >=2 despachos)
+    const _despachosArr=(typeof currentDespachos!=="undefined"&&Array.isArray(currentDespachos))?currentDespachos:[];
+    if(_despachosArr.length>=2){
+      const dtd=[];
+      dtd.push([{content:"CRONOGRAMA DE DESPACHOS — "+_despachosArr.length+" MOMENTOS",colSpan:4,styles:{fillColor:[230,81,0],textColor:[255,255,255],fontStyle:"bold",fontSize:9,halign:"left"}}]);
+      dtd.push([
+        {content:"#",styles:{fontStyle:"bold",fontSize:8,halign:"center",fillColor:[255,243,224]}},
+        {content:"Fecha y hora",styles:{fontStyle:"bold",fontSize:8,halign:"left",fillColor:[255,243,224]}},
+        {content:"Detalle",styles:{fontStyle:"bold",fontSize:8,halign:"left",fillColor:[255,243,224]}},
+        {content:"Transporte",styles:{fontStyle:"bold",fontSize:8,halign:"right",fillColor:[255,243,224]}}
+      ]);
+      _despachosArr.forEach((d,di)=>{
+        const fh=d.fechaHora||"";
+        let fhFmt="—";
+        if(fh){
+          const parts=fh.split("T");
+          if(parts[0]){
+            const ps=parts[0].split("-");
+            const ms=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+            const dias=["dom","lun","mar","mié","jue","vie","sáb"];
+            try{
+              const dObj=new Date(ps[0]+"-"+ps[1]+"-"+ps[2]+"T00:00:00");
+              const diaSemana=dias[dObj.getDay()]||"";
+              fhFmt=diaSemana+" "+parseInt(ps[2])+"-"+ms[parseInt(ps[1])-1]+" "+(parts[1]||"");
+            }catch(e){fhFmt=fh}
+          }
+        }
+        const dirTxt=(d.direccion&&d.direccion.dir)?d.direccion.dir:"Dirección del evento";
+        const detalle=(d.notas||"Despacho "+(di+1))+"\n"+dirTxt;
+        dtd.push([
+          {content:String(di+1),styles:{halign:"center",fontStyle:"bold"}},
+          fhFmt,
+          detalle,
+          fm(d.transporteCosto||0)
+        ]);
+      });
+      const sumTranspDesp=_despachosArr.reduce((s,d)=>s+(parseFloat(d.transporteCosto)||0),0);
+      dtd.push([
+        {content:"",colSpan:2},
+        {content:"Total transporte despachos",styles:{fontStyle:"bold",halign:"right",fontSize:8}},
+        {content:fm(sumTranspDesp),styles:{fontStyle:"bold",halign:"right",fontSize:8,textColor:[230,81,0]}}
+      ]);
+      const estD=estH(_despachosArr.length+2);
+      if(y+estD>H-footerH){doc.addPage();y=20}
+      doc.autoTable({startY:y,margin:{left:mg,right:mg,bottom:footerH},body:dtd,theme:"grid",columnStyles:{0:{cellWidth:tw*.06},1:{cellWidth:tw*.28},2:{cellWidth:tw*.46},3:{cellWidth:tw*.20}},bodyStyles:{fontSize:8,cellPadding:{top:3.5,bottom:3.5,left:6,right:6},textColor:[60,60,60]},alternateRowStyles:{fillColor:[255,249,235]},styles:{cellPadding:{top:3.5,bottom:3.5,left:6,right:6}}});
+      y=doc.lastAutoTable.finalY+5;
+    }
+    // v7.9.7 F4: helper para etiquetar items con su despacho asignado
+    function _despachoLabel(assignedTo){
+      if(!assignedTo||assignedTo==="all"||!_despachosArr.length)return "";
+      const di=_despachosArr.findIndex(d=>d.id===assignedTo);
+      if(di<0)return "";
+      const d=_despachosArr[di];
+      const lblExtra=d.notas?(" · "+d.notas):"";
+      return "→ Despacho "+(di+1)+lblExtra;
+    }
     propSections.forEach(sec=>{
       // v7.8.4.2: marca visual ALTERNATIVA si la sección no está incluida en el TOTAL
       const esAlternativa=(sec.incluirEnTotal===false);
@@ -1071,7 +1127,9 @@ async function genPropPDF(){
         td.push([{content:sec.name.toUpperCase()+" — "+opt.label+altSuffix,colSpan:4,styles:{fillColor:headerColor,textColor:[255,255,255],fontStyle:"bold",fontSize:8.5,halign:"left"}}]);
         opt.items.forEach(it=>{
           const qStr=it.qty%1===0?String(it.qty):it.qty.toFixed(1);
-          const nameCol=it.name+(it.desc?"\n"+it.desc:"")+(it.unit?"\n("+it.unit+")":"");
+          // v7.9.7 F4: agregar etiqueta de despacho asignado al final del nameCol
+          const dLbl=_despachoLabel(it.assignedTo);
+          const nameCol=it.name+(it.desc?"\n"+it.desc:"")+(it.unit?"\n("+it.unit+")":"")+(dLbl?"\n"+dLbl:"");
           td.push([nameCol,qStr,fm(it.price||0),fm((it.price||0)*(it.qty||0))]);
         });
         const optSub=opt.items.reduce((s,it)=>s+(it.price||0)*(it.qty||0),0);
@@ -1138,7 +1196,11 @@ async function genPropPDF(){
     let totMenajeVal=0;
     menajeItems.forEach(m=>{const q=parseFloat(m.qty)||0,p=parseFloat(m.price)||0;totMenajeVal+=q*p});
     const totPersonal=persTotal;
-    const trP=getTrP();const totTransp=trP?trP.p:0;
+    // v7.9.7 F4: si hay despachos múltiples, sumar transportes de cada uno (en vez de legacy único).
+    const trP=getTrP();
+    const _totTranspDespachos=_despachosArr.length>=2?_despachosArr.reduce((s,d)=>s+(parseFloat(d.transporteCosto)||0),0):0;
+    const totTransp=_totTranspDespachos>0?_totTranspDespachos:(trP?trP.p:0);
+    const _transpLabel=_totTranspDespachos>0?("Transporte ("+_despachosArr.length+" despachos)"):("Transporte "+(trP?trP.n.replace("Transporte ",""):""));
     // Total global: suma de min y suma de max
     const totalServicioMin=totMenuMin+totCateringMin+totMenajeVal+totPersonal+totTransp;
     const totalServicioMax=totMenuMax+totCateringMax+totMenajeVal+totPersonal+totTransp;
@@ -1152,7 +1214,7 @@ async function genPropPDF(){
     if(totCateringMax>0)rtd.push(["Servicio de Catering",fmRange(totCateringMin,totCateringMax)]);
     if(totMenajeVal>0)rtd.push(["Menaje",fm(totMenajeVal)]);
     if(totPersonal>0)rtd.push(["Personal de Servicio",fm(totPersonal)]);
-    if(totTransp>0)rtd.push(["Transporte "+(trP?trP.n.replace("Transporte ",""):""),fm(totTransp)]);
+    if(totTransp>0)rtd.push([_transpLabel,fm(totTransp)]);
     rtd.push([{content:"TOTAL",styles:{fontStyle:"bold",fontSize:10,fillColor:[244,243,241]}},{content:fmRange(totalServicioMin,totalServicioMax),styles:{fontStyle:"bold",halign:"right",fontSize:11,textColor:[201,169,110],fillColor:[244,243,241]}}]);
     doc.autoTable({startY:y,margin:{left:mg,right:mg,bottom:footerH},body:rtd,theme:"grid",columnStyles:{0:{halign:"left",cellWidth:tw*.60},1:{halign:"right",cellWidth:tw*.40}},bodyStyles:{fontSize:9,cellPadding:{top:4,bottom:4,left:8,right:8},textColor:[40,40,40]},styles:{cellPadding:{top:4,bottom:4,left:8,right:8}}});
     y=doc.lastAutoTable.finalY+3;
