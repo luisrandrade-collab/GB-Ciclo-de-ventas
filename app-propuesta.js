@@ -41,6 +41,8 @@ function computePropTotal(q){
 
 const PROP_SECTION_NAMES=["Entradas","Plato Fuerte","Acompañamientos","Postres","Bebidas","Logística"];
 let propSections=[];
+// v7.9.7 F2: lista de despachos del evento (vacía = modo legacy 1 entrega)
+let currentDespachos=[];
 const DEFAULT_MENAJE=["Platos","Cubiertos","Vasos","Copas / Cristalería","Mantelería","Servilletas","Bandejas","Charoles","Hielera","Jarras"];
 let menajeItems=[];
 let tipoServicio="";
@@ -283,7 +285,17 @@ function renderPropSections(){
       return'<div class="opt-card"><div class="opt-head"><span class="opt-label">'+opt.label+'</span><div><span class="opt-sub">'+fm(sub)+'</span><button class="del-btn" style="font-size:14px" onclick="delPropOpt('+si+','+oi+')">×</button></div></div>'+
       opt.items.map((it,ii)=>{
         const itSub=(it.price||0)*(it.qty||0);
-        return '<div class="opt-item" style="flex-wrap:wrap"><div style="flex:1;min-width:120px"><div style="font-weight:600;font-size:12px">'+it.name+'</div>'+(it.desc?'<div style="font-size:10px;color:var(--gb-neutral-400)">'+it.desc+'</div>':'')+(it.unit?'<div style="font-size:9px;color:var(--gb-neutral-500);font-style:italic">'+it.unit+'</div>':'')+'</div><input type="number" step="0.1" min="0" style="width:50px;padding:3px 6px;border:1px solid var(--gb-neutral-200);border-radius:4px;text-align:center;font-size:12px" value="'+(it.qty||"")+'" title="Cantidad" onchange="updPropItem('+si+','+oi+','+ii+',\'qty\',+this.value)"><input type="number" style="width:75px;padding:3px 6px;border:1px solid var(--gb-neutral-200);border-radius:4px;text-align:right;font-size:11px" value="'+(it.price||0)+'" title="Precio unitario" onchange="updPropItem('+si+','+oi+','+ii+',\'price\',+this.value)"><span style="width:80px;text-align:right;font-size:12px;font-weight:700">'+fm(itSub)+'</span><button class="del-btn" style="font-size:14px" onclick="delPropItem('+si+','+oi+','+ii+')">×</button></div>';
+        // v7.9.7 F3: dropdown de asignación a despacho (solo visible si hay >=2 despachos)
+        const despachosUI=(Array.isArray(currentDespachos)&&currentDespachos.length>=2)?(()=>{
+          const cur=it.assignedTo||"all";
+          let opts='<option value="all"'+(cur==="all"?" selected":"")+'>Todos</option>';
+          currentDespachos.forEach((d,di)=>{
+            const lbl=d.notas?("D"+(di+1)+" · "+d.notas.slice(0,18)):("Despacho "+(di+1));
+            opts+='<option value="'+d.id+'"'+(cur===d.id?" selected":"")+'>'+lbl.replace(/"/g,"&quot;")+'</option>';
+          });
+          return '<select title="Asignar a despacho" style="font-size:10.5px;padding:2px 4px;border:1px solid #FFB300;border-radius:4px;background:#FFF8E1;max-width:130px" onchange="updPropItem('+si+','+oi+','+ii+',\'assignedTo\',this.value)">'+opts+'</select>';
+        })():"";
+        return '<div class="opt-item" style="flex-wrap:wrap"><div style="flex:1;min-width:120px"><div style="font-weight:600;font-size:12px">'+it.name+'</div>'+(it.desc?'<div style="font-size:10px;color:var(--gb-neutral-400)">'+it.desc+'</div>':'')+(it.unit?'<div style="font-size:9px;color:var(--gb-neutral-500);font-style:italic">'+it.unit+'</div>':'')+'</div><input type="number" step="0.1" min="0" style="width:50px;padding:3px 6px;border:1px solid var(--gb-neutral-200);border-radius:4px;text-align:center;font-size:12px" value="'+(it.qty||"")+'" title="Cantidad" onchange="updPropItem('+si+','+oi+','+ii+',\'qty\',+this.value)"><input type="number" style="width:75px;padding:3px 6px;border:1px solid var(--gb-neutral-200);border-radius:4px;text-align:right;font-size:11px" value="'+(it.price||0)+'" title="Precio unitario" onchange="updPropItem('+si+','+oi+','+ii+',\'price\',+this.value)"><span style="width:80px;text-align:right;font-size:12px;font-weight:700">'+fm(itSub)+'</span>'+despachosUI+'<button class="del-btn" style="font-size:14px" onclick="delPropItem('+si+','+oi+','+ii+')">×</button></div>';
       }).join("")+
       '<div style="display:flex;gap:6px;margin-top:8px"><button class="btn bo" style="font-size:10px;padding:4px 10px" onclick="openPicker('+si+','+oi+')">+ Catálogo</button><button class="btn bo" style="font-size:10px;padding:4px 10px" onclick="addPropItemCustom('+si+','+oi+')">+ Custom</button></div></div>'
     }).join("")+
@@ -303,6 +315,152 @@ function delPropSec(si){
 }
 function addPropOpt(si){const letters="ABCDEFGH";const sec=propSections[si];sec.options.push({id:"po"+Date.now(),label:"Opción "+(letters[sec.options.length]||sec.options.length+1),items:[]});renderPropSections()}
 function delPropOpt(si,oi){propSections[si].options.splice(oi,1);renderPropSections()}
+
+// ─── v7.9.7 F2: DESPACHOS MÚLTIPLES ────────────────────────
+// Cada despacho es un objeto {id, fechaHora, direccion?, transporteCosto, notas, status}.
+// Si currentDespachos vacío → modo legacy (1 entrega derivada de fp-date + fp-hora-entrega).
+
+function addDespacho(){
+  // Default: hereda fecha+hora de "Datos del Evento" si están, sino vacío.
+  const fechaBase=$("fp-date")?.value||"";
+  const horaBase=$("fp-hora-entrega")?.value||"09:00";
+  const fechaHora=fechaBase?(fechaBase+"T"+(horaBase||"09:00")):"";
+  // Transporte: hereda del campo personalizado si existe
+  const trBase=parseFloat($("fp-tr-custom")?.value||0)||0;
+  currentDespachos.push({
+    id:"desp_"+Date.now()+"_"+Math.random().toString(36).slice(2,7),
+    fechaHora,
+    direccion:null, // null = hereda del evento (fp-dir)
+    transporteCosto:trBase,
+    notas:"",
+    status:"pendiente"
+  });
+  renderDespachos();
+  // v7.9.7 F3: refrescar dropdowns de asignación en items
+  if(typeof renderPropSections==="function"&&propSections.length)renderPropSections();
+}
+
+function removeDespacho(id){
+  const idx=currentDespachos.findIndex(d=>d.id===id);
+  if(idx<0)return;
+  if(currentDespachos[idx].status&&currentDespachos[idx].status!=="pendiente"){
+    if(!confirm("Este despacho ya está en estado '"+currentDespachos[idx].status+"'. ¿Eliminar igual?"))return;
+  }
+  const removedId=currentDespachos[idx].id;
+  currentDespachos.splice(idx,1);
+  // v7.9.7 F3: si algún item estaba asignado a este despacho, reset a "all"
+  if(propSections.length){
+    propSections.forEach(sec=>sec.options.forEach(opt=>opt.items.forEach(it=>{
+      if(it.assignedTo===removedId)it.assignedTo="all";
+    })));
+  }
+  renderDespachos();
+  if(typeof renderPropSections==="function"&&propSections.length)renderPropSections();
+}
+
+function updateDespachoField(id,field,value){
+  const d=currentDespachos.find(x=>x.id===id);
+  if(!d)return;
+  if(field==="transporteCosto")d[field]=parseFloat(value)||0;
+  else d[field]=value;
+}
+
+function toggleDespachoDireccion(id){
+  const d=currentDespachos.find(x=>x.id===id);
+  if(!d)return;
+  if(d.direccion){
+    d.direccion=null;
+  }else{
+    d.direccion={dir:"",city:"",cityType:"",trCustom:""};
+  }
+  renderDespachos();
+}
+
+function updateDespachoDireccionField(id,field,value){
+  const d=currentDespachos.find(x=>x.id===id);
+  if(!d||!d.direccion)return;
+  d.direccion[field]=value;
+}
+
+function renderDespachos(){
+  const listEl=$("fp-despachos-list");
+  const emptyEl=$("fp-despachos-empty");
+  if(!listEl)return;
+  if(!currentDespachos.length){
+    listEl.innerHTML="";
+    if(emptyEl)emptyEl.style.display="block";
+    return;
+  }
+  if(emptyEl)emptyEl.style.display="none";
+  listEl.innerHTML=currentDespachos.map((d,i)=>{
+    const num=i+1;
+    const fhVal=d.fechaHora||"";
+    const tieneDirPropia=!!d.direccion;
+    return ''+
+      '<div style="background:#fff;border:1px solid #FFB300;border-radius:8px;padding:10px 12px;margin-bottom:8px">'+
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap">'+
+          '<div style="font-weight:700;font-size:12.5px;color:#E65100">Despacho '+num+'</div>'+
+          '<button type="button" onclick="removeDespacho(\''+d.id+'\')" style="background:transparent;border:1px solid #EF9A9A;color:#C62828;padding:3px 9px;font-size:11px;border-radius:5px;cursor:pointer;font-family:var(--gb-font-body)">🗑️ Eliminar</button>'+
+        '</div>'+
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">'+
+          '<div style="flex:1;min-width:180px">'+
+            '<label class="flbl">Fecha y hora</label>'+
+            '<input class="fin" type="datetime-local" value="'+h(fhVal)+'" onchange="updateDespachoField(\''+d.id+'\',\'fechaHora\',this.value)">'+
+          '</div>'+
+          '<div style="flex:0 0 130px">'+
+            '<label class="flbl">Transporte $</label>'+
+            '<input class="fin" type="number" min="0" value="'+(d.transporteCosto||0)+'" onchange="updateDespachoField(\''+d.id+'\',\'transporteCosto\',this.value)">'+
+          '</div>'+
+        '</div>'+
+        '<div style="margin-bottom:8px">'+
+          '<label class="flbl">Notas del despacho (opcional)</label>'+
+          '<input class="fin" type="text" placeholder="Ej: Refrigerio AM · Día 1" value="'+h(d.notas||"")+'" onchange="updateDespachoField(\''+d.id+'\',\'notas\',this.value)">'+
+        '</div>'+
+        '<div style="margin-bottom:0">'+
+          '<label style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:#5D4037;cursor:pointer">'+
+            '<input type="checkbox" '+(tieneDirPropia?"checked":"")+' onchange="toggleDespachoDireccion(\''+d.id+'\')" style="accent-color:#FB8C00"> Dirección distinta a la del evento'+
+          '</label>'+
+          (tieneDirPropia?(
+            '<div style="margin-top:8px;padding:8px;background:#FFF8E1;border-radius:6px">'+
+              '<input class="fin" type="text" placeholder="Dirección de este despacho" value="'+h(d.direccion.dir||"")+'" onchange="updateDespachoDireccionField(\''+d.id+'\',\'dir\',this.value)">'+
+            '</div>'
+          ):"")+
+        '</div>'+
+      '</div>';
+  }).join("");
+}
+
+// Llamada por savePropQuote (hook ya existente en F1).
+// Devuelve currentDespachos si hay ≥1, sino undefined → modo legacy.
+function readDespachosFromForm(){
+  if(!Array.isArray(currentDespachos)||!currentDespachos.length)return undefined;
+  // Validación mínima: cada despacho debe tener fechaHora
+  return currentDespachos
+    .filter(d=>d&&d.fechaHora)
+    .map(d=>({
+      id:d.id,
+      fechaHora:d.fechaHora,
+      direccion:d.direccion||null,
+      transporteCosto:parseFloat(d.transporteCosto)||0,
+      notas:(d.notas||"").slice(0,200),
+      status:d.status||"pendiente"
+    }));
+}
+
+// Cargar despachos al editar una propuesta existente.
+function loadDespachosFromDoc(q){
+  if(q&&Array.isArray(q.despachos)&&q.despachos.length){
+    currentDespachos=q.despachos.map(d=>({...d}));
+  }else{
+    currentDespachos=[];
+  }
+  renderDespachos();
+}
+
+function resetDespachos(){
+  currentDespachos=[];
+  renderDespachos();
+}
 
 // ─── PRODUCT PICKER ────────────────────────────────────────
 let pickerTarget=null;let pkCat="Todas";
@@ -631,6 +789,8 @@ function loadPropQuote(q){
   propSections=q.sections||[];
   menajeItems=q.menaje||[];
   tipoServicio=q.tipoServicio||"";
+  // v7.9.7 F2: cargar despachos al editar propuesta existente
+  if(typeof loadDespachosFromDoc==="function")loadDespachosFromDoc(q);
   if(q.personalData){
     personalData={
       meseros:q.personalData.meseros||{cantidad:"",valor4h:"",horasExtra:"",valorHoraExtra:""},

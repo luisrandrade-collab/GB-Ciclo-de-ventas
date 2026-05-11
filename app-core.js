@@ -2579,6 +2579,8 @@ async function newProp(){
   });
   if(!ok)return;
   propSections=[];menajeItems=[];currentPropNumber=null;
+  // v7.9.7 F2: reset de despachos al crear nueva propuesta
+  if(typeof resetDespachos==="function")resetDespachos();
   ["fp-cli","fp-idnum","fp-att","fp-mail","fp-tel","fp-dir","fp-pers","fp-momento","fp-date","fp-city-custom","fp-tr-custom"].forEach(id=>{const el=$(id);if(el)el.value=""});
   $("fp-idtype").value="";$("fp-city").value="";$("sel-cli-p").value="";
   updTrP();
