@@ -1871,6 +1871,13 @@ function renderCustomRangeInfo(){
 // https://agendaics-zeuz3hinla-uc.a.run.app y requiere ?token=XXX.
 // El TOKEN no se hardcodea acá (repo público) — Luis lo introduce
 // una vez y queda en localStorage de su PC.
+//
+// v7.9.6 F3 (2026-05-11): trade-off Codex 6.4 documentado y aceptado.
+// Token viaja en query string + localStorage. Filtración limitada por
+// uso interno (3 personas). Proceso de rotación documentado en
+// functions/index.js y _internos/Onboarding_infraestructura.json.
+// Cambio a Bearer descartado: clientes .ics (Apple/Google Cal) no
+// soportan Authorization headers en suscripciones.
 
 const SYNC_AGENDA_URL_BASE = "https://agendaics-zeuz3hinla-uc.a.run.app";
 const SYNC_AGENDA_TOKEN_KEY = "gb_sync_agenda_token";

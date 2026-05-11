@@ -211,6 +211,37 @@ function isAgendable(q) {
 
 // ─── HTTP handler ─────────────────────────────────────────────────
 
+// v7.9.6 F3 (2026-05-11): trade-off de seguridad documentado.
+//
+// HALLAZGO Codex (Auditoria_v2_codex_2026-05-09.md 6.4):
+//   El endpoint usa ?token= query param. El token vive en localStorage de cada
+//   usuario y se filtra en historial del navegador / proxies / capturas.
+//
+// DECISION (v7.9.6): aceptar el trade-off.
+//   Razon tecnica: clientes de calendario (Apple Calendar, Google Calendar,
+//   Outlook) NO soportan headers Authorization personalizados en suscripciones
+//   .ics. Solo aceptan URL simple (o Basic Auth en URL). Cambiar a Bearer
+//   romperia las suscripciones activas sin via de re-conexion automatica.
+//
+//   Razon operacional: uso interno de 3 personas (Luis, Kathy, JP). Token
+//   actual rotable manualmente desde Firebase Console (secret AGENDA_TOKEN).
+//
+// PROCESO DE ROTACION (cuando se requiera):
+//   1. Anunciar a los 3 usuarios que se rota el token.
+//   2. Firebase Console > Functions > Secrets > AGENDA_TOKEN > update.
+//   3. Re-deploy de la funcion para que tome el nuevo valor.
+//   4. Cada usuario: Herramientas > Sync Agenda > "Borrar token guardado",
+//      pegar nuevo token, re-suscribir en Apple/Google Calendar.
+//
+// MEJORA FUTURA (v8.x si la auditoria sigue marcandolo):
+//   Opcion B': multiples tokens nombrados (token_luis, token_kathy, token_jp)
+//   para revocacion granular. Misma debilidad URL filtrable.
+//   Opcion C: Firebase Auth + Bearer en endpoint REST separado al .ics
+//   (requiere puente: ej. App propia que renderiza el calendario, no
+//   suscripcion .ics nativa).
+//
+// Ver tambien: _internos/Onboarding_infraestructura.json > agenda_ics_token
+
 exports.agendaIcs = onRequest(
   {
     region: "us-central1",
