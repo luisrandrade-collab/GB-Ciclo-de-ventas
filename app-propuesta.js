@@ -450,6 +450,13 @@ async function savePropQuote(silent){
     }else if(creatingChild){
       prevStatus="enviada"; // hija siempre arranca limpia pre-confirmación
     }
+    // v7.9.7 F1: leer despachos del form si existe el contenedor.
+    // Defensivo: si el DOM aún no tiene UI de despachos (F2 pendiente), no setea el campo
+    // → propuesta queda legacy (1 entrega derivada de eventDate/trCustom).
+    let despachosForm=undefined;
+    if(typeof readDespachosFromForm==="function"){
+      try{despachosForm=readDespachosFromForm()}catch(e){console.warn("[savePropQuote] readDespachosFromForm error:",e)}
+    }
     const pObj={
       quoteNumber:pNum,type:"prop",year:APP_YEAR,
       dateISO:new Date().toISOString(),
@@ -469,6 +476,17 @@ async function savePropQuote(silent){
       // v7.7.4: notas internas para producción (no aparecen en PDF al cliente)
       notasInternas:($("fp-notas-internas")?.value||"").trim()
     };
+    // v7.9.7 F1: si form devolvió despachos, persistirlos. Sincronizar eventDate
+    // del doc con primer despacho para consistencia con KPIs/agenda legacy.
+    if(Array.isArray(despachosForm)&&despachosForm.length){
+      pObj.despachos=despachosForm;
+      if(despachosForm[0]&&despachosForm[0].fechaHora){
+        const isoDate=despachosForm[0].fechaHora.slice(0,10);
+        const horaPart=despachosForm[0].fechaHora.slice(11,16);
+        if(isoDate)pObj.eventDate=isoDate;
+        if(horaPart)pObj.horaEntrega=horaPart;
+      }
+    }
     if(prevApprovalData)pObj.approvalData=prevApprovalData;
     if(prevPropFinalRef)pObj.propFinalRef=prevPropFinalRef;
     if(prevPagos)pObj.pagos=prevPagos;

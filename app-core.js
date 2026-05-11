@@ -125,6 +125,70 @@ function getCollectionName(docId, kind){
   if(typeof docId==="string"&&docId.startsWith("GB-PF-"))return "propfinals";
   return "proposals";
 }
+
+// v7.9.7: HELPERS DE DESPACHOS (evento con N despachos).
+// Modelo: propuestas pueden tener q.despachos = [{id,fechaHora,direccion?,transporteCosto,items,notas,status,producedAt,entregadoEn,entregaData}, ...]
+// Retrocompat: si q.despachos vacío/undefined → derivar 1 despacho implícito desde eventDate + dir + trCustom legacy.
+// Cotizaciones (quotes) NO usan despachos — siempre legacy 1 entrega.
+
+// Devuelve array de despachos. Si legacy o vacío, devuelve [1 despacho derivado] usando campos del doc.
+function getDespachos(q){
+  if(!q)return [];
+  if(Array.isArray(q.despachos)&&q.despachos.length){
+    return q.despachos;
+  }
+  // Legacy: 1 despacho implícito desde campos del doc
+  const fechaHora=q.eventDate?(q.eventDate+(q.horaEntrega?"T"+q.horaEntrega:"T09:00")):"";
+  return [{
+    id:"desp_legacy",
+    fechaHora,
+    direccion:null, // hereda
+    transporteCosto:parseFloat(q.trCustom||q.transporte||0)||0,
+    items:[],
+    notas:"",
+    status:q.status==="entregado"?"entregado":(q.produced?"producido":"pendiente"),
+    producedAt:q.producedAt||null,
+    entregadoEn:q.entregaData?.fechaReal||null,
+    _legacy:true
+  }];
+}
+
+// Suma transporteCosto de despachos. Para legacy usa trCustom único del doc.
+function getTransporteTotal(q){
+  if(!q)return 0;
+  if(Array.isArray(q.despachos)&&q.despachos.length){
+    return q.despachos.reduce((s,d)=>s+(parseFloat(d.transporteCosto)||0),0);
+  }
+  return parseFloat(q.trCustom||q.transporte||0)||0;
+}
+
+// Devuelve dirección efectiva del despacho. Si null/undefined, hereda del doc (cliente/evento).
+function getDespachoDireccion(despacho, q){
+  if(despacho&&despacho.direccion&&despacho.direccion.dir)return despacho.direccion;
+  // Hereda del doc
+  return {
+    dir:q?.dir||"",
+    city:q?.city||"",
+    cityType:q?.cityType||"",
+    trCustom:q?.trCustom||""
+  };
+}
+
+// Status agregado del doc según despachos: 'pendiente'|'parcial'|'completo'
+function getDespachoStatusAgregado(q){
+  const ds=getDespachos(q);
+  if(!ds.length)return "pendiente";
+  const entregados=ds.filter(d=>d.status==="entregado").length;
+  if(entregados===0)return "pendiente";
+  if(entregados===ds.length)return "completo";
+  return "parcial";
+}
+
+// True si el doc usa modelo nuevo de N despachos (al menos 1 explícito).
+function tieneDespachosExplicitos(q){
+  return Array.isArray(q?.despachos)&&q.despachos.length>0;
+}
+
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
 const APP_YEAR=new Date().getFullYear();
