@@ -1765,6 +1765,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
         <a href="javascript:void(0)" data-sub="inicio/dashboard">Dashboard</a>
         <a href="javascript:void(0)" data-sub="inicio/tareas">Tareas y follow-ups</a>
         <a href="javascript:void(0)" data-sub="inicio/agenda">Agenda</a>
+        <a href="javascript:void(0)" data-sub="inicio/buscar">🔍 Buscar</a>
       </div>
     </div>
 
@@ -1893,6 +1894,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'inicio/dashboard':  'dash',
     'inicio/tareas':     'seg',
     'inicio/agenda':     'cal',
+    'inicio/buscar':     'search',
     'ventas/crear':      'ventas',
     'ventas/cotizar':    'cot',
     'ventas/propuesta':  'prop',
@@ -1927,11 +1929,12 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   };
 
   // Modo legacy → submódulo nuevo (para sincronizar item activo cuando setMode se llama directo)
-  // 'search' redirige a 'ventas/cotizar' (decisión Q2: Buscar eliminado del sidebar)
+  // v7.9.5.1: Buscar restaurado al sidebar bajo Inicio > 🔍 Buscar (revierte decisión Q2)
   var LEGACY_TO_SUB = {
     'dash':   'inicio/dashboard',
     'seg':    'inicio/tareas',
     'cal':    'inicio/agenda',
+    'search': 'inicio/buscar',
     'ventas': 'ventas/crear',
     'cot':    'ventas/cotizar',
     'prop':   'ventas/propuesta',
@@ -4617,12 +4620,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.9.5"></script>
-<script src="app-core.js?v=7.9.5"></script>
-<script src="app-cotizar.js?v=7.9.5"></script>
-<script src="app-propuesta.js?v=7.9.5"></script>
-<script src="app-historial.js?v=7.9.5"></script>
-<script src="app-seguimiento.js?v=7.9.5"></script>
-<script src="app-dashboard.js?v=7.9.5"></script>
+<script src="app-assets.js?v=7.9.5.1"></script>
+<script src="app-core.js?v=7.9.5.1"></script>
+<script src="app-cotizar.js?v=7.9.5.1"></script>
+<script src="app-propuesta.js?v=7.9.5.1"></script>
+<script src="app-historial.js?v=7.9.5.1"></script>
+<script src="app-seguimiento.js?v=7.9.5.1"></script>
+<script src="app-dashboard.js?v=7.9.5.1"></script>
 </body>
 </html>
