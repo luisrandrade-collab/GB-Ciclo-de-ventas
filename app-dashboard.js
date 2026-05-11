@@ -6994,6 +6994,31 @@ function getStatsCliente(docs){
   return stats;
 }
 
+// v7.9.6 F2: detecta sobrepagos NO aplicados (gap UX). Pago confirmado > total del doc
+// en docs con status vendido = excedente que el cliente debe ver reflejado.
+// Cálculo por doc (no agregado a nivel cliente) para no marcar como sobrepago lo que
+// en realidad es anticipo de otra cotización.
+function getSobrepagosCliente(docs){
+  const statusFacturable=["pedido","aprobada","en_produccion","entregado"];
+  const detalle=[];
+  let total=0;
+  (docs||[]).forEach(q=>{
+    const s=q.status||"";
+    if(!statusFacturable.includes(s))return;
+    const dt=getDocTotal(q);
+    const cob=typeof totalCobrado==="function"?totalCobrado(q):0;
+    const ajustes=typeof totalAjustes==="function"?totalAjustes(q):0;
+    // saldo "real" del doc = total - ajustes ya aplicados al saldo (perdón/descuento)
+    const facturable=Math.max(0,dt-ajustes);
+    const sobrepago=cob-facturable;
+    if(sobrepago>=100){ // ignoramos centavos/redondeos < $100
+      detalle.push({q,total:dt,cobrado:cob,sobrepago});
+      total+=sobrepago;
+    }
+  });
+  return {total,detalle};
+}
+
 // Construye lista cronológica de entries (cotización + pedido + entrega + pagos + comentario por doc)
 function buildHistorialEntries(docs){
   const out=[];
@@ -7127,6 +7152,9 @@ async function renderClienteFicha(){
   const docs=getDocsByCliente(c.name);
   const stats=getStatsCliente(docs);
   const entries=buildHistorialEntries(docs);
+  // v7.9.6 F2: combinar saldo a favor formal (nota crédito) + sobrepago virtual
+  const sobreCli=typeof getSobrepagosCliente==="function"?getSobrepagosCliente(docs):{total:0,detalle:[]};
+  const saldoFavTotal=(Number(c.saldoAFavor)||0)+sobreCli.total;
 
   // Header
   const tipoIco=c.tipo==="empresa"?"🏢":"👤";
@@ -7150,6 +7178,8 @@ async function renderClienteFicha(){
     '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px">'+
       (idStr?'<span style="font-size:12px;color:#5D4037">'+h(idStr)+'</span>':'')+
       '<span style="background:'+catBg+';color:'+catCls+';font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:10px;text-transform:uppercase;letter-spacing:.3px">'+cat+'</span>'+
+      // v7.9.6 F2: chip saldo a favor en cabecera (visible siempre que haya excedente o nota crédito)
+      (saldoFavTotal>0?'<span title="Saldo a favor del cliente (notas crédito + sobrepagos)" style="background:#E8F5E9;color:#1B5E20;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:10px;border:1px solid #66BB6A">💰 Saldo a favor '+fm(saldoFavTotal)+'</span>':'')+
     '</div>'+
     (contacto?'<div style="font-size:12.5px;color:#607D8B">'+h(contacto)+'</div>':'')+
     (c.att?'<div style="font-size:11.5px;color:#9E9E9E;margin-top:2px">Atención: '+h(c.att)+'</div>':'')+
@@ -7290,13 +7320,16 @@ function _renderSeguimientosCliente(docs){
 }
 
 // v7.8.3: helper para sección ajustes + saldo a favor en ficha cliente
+// v7.9.6 F2: agregado detección de sobrepagos virtuales (gap UX caso Gloria GB-2026-0150)
 function _renderClienteAjustesSection(c){
   if(!c||!c.name)return "";
   const k=(c.name||"").toLowerCase().trim();
   const ajustes=(typeof ajustesLogCache!=="undefined"?ajustesLogCache:[])
     .filter(a=>!a.deletedAt&&(a.clienteName||"").toLowerCase().trim()===k);
   const saldoFav=Number(c.saldoAFavor)||0;
-  if(!ajustes.length&&saldoFav<=0)return "";
+  const docs=typeof getDocsByCliente==="function"?getDocsByCliente(c.name):[];
+  const sobre=typeof getSobrepagosCliente==="function"?getSobrepagosCliente(docs):{total:0,detalle:[]};
+  if(!ajustes.length&&saldoFav<=0&&sobre.total<=0)return "";
   // Acumulados por tipo
   const totByTipo=new Map();
   let totalAjustes=0;
@@ -7314,7 +7347,30 @@ function _renderClienteAjustesSection(c){
   if(totalAjustes>0){
     html+='<div style="flex:1;min-width:160px;background:#FFF3E0;border:1px solid #FB8C00;border-radius:10px;padding:10px 12px"><div style="font-size:10.5px;color:#E65100;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Ajustes acumulados</div><div style="font-size:18px;font-weight:800;color:#E65100">'+fm(totalAjustes)+'</div><div style="font-size:10.5px;color:#E65100;margin-top:2px">'+ajustes.length+' operación'+(ajustes.length===1?"":"es")+'</div></div>';
   }
+  // v7.9.6 F2: card de sobrepago virtual (no es nota crédito formal — es excedente detectado)
+  if(sobre.total>0){
+    html+='<div style="flex:1;min-width:200px;background:#FFFDE7;border:1px solid #F9A825;border-radius:10px;padding:10px 12px">'+
+      '<div style="font-size:10.5px;color:#F57F17;font-weight:700;text-transform:uppercase;letter-spacing:.04em">⚠ Sobrepago detectado</div>'+
+      '<div style="font-size:18px;font-weight:800;color:#F57F17">'+fm(sobre.total)+'</div>'+
+      '<div style="font-size:10.5px;color:#F57F17;margin-top:2px">'+sobre.detalle.length+' doc'+(sobre.detalle.length===1?"":"s")+' con pago &gt; total. Revisar y convertir en nota crédito si corresponde.</div>'+
+    '</div>';
+  }
   html+='</div>';
+  // v7.9.6 F2: detalle de sobrepagos (qué doc, cuánto)
+  if(sobre.total>0){
+    html+='<div style="background:#FFFDE7;border:1px solid #F9A825;border-radius:10px;padding:8px 12px;margin-bottom:10px">'+
+      '<div style="font-size:12px;font-weight:700;color:#F57F17;margin-bottom:6px">Documentos con sobrepago</div>';
+    sobre.detalle.forEach(d=>{
+      const q=d.q;
+      const num=q.quoteNumber||q.id;
+      html+='<div onclick="openDocument(\''+q.kind+'\',\''+q.id+'\')" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid #FFF59D;cursor:pointer;font-size:12px">'+
+        '<div><strong>'+h(num)+'</strong> <span style="color:#9E9E9E;font-size:10.5px">'+(q.status||"")+'</span></div>'+
+        '<div style="font-size:11px;color:#5D4037;font-variant-numeric:tabular-nums">Total '+fm(d.total)+' · Cobrado '+fm(d.cobrado)+'</div>'+
+        '<div style="font-weight:700;color:#F57F17;font-variant-numeric:tabular-nums">+'+fm(d.sobrepago)+'</div>'+
+      '</div>';
+    });
+    html+='</div>';
+  }
   // Lista de ajustes (últimos 5)
   if(ajustes.length){
     const sorted=ajustes.slice().sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||"")).slice(0,5);
