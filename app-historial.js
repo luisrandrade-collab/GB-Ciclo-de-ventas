@@ -1155,32 +1155,49 @@ async function submitAjuste(){
   showLoader("Guardando ajuste...");
   try{
     const fecha=$("aj-fecha").value||gbTodayIso();
-    // 1. Guardar entrada en collection ajustesLog (audit trail)
-    const logEntry=await saveAjusteToCloud({
+    // v7.9.6 F1: envolver con logOperacion para audit trail (faltaba en v7.9.4)
+    await logOperacion({
+      operacion:tipo==="nota_credito"?"notaCredito":"ajusteSaldo",
       docId:q.id,
       docKind:q.kind||"quote",
-      clienteName:q.client||"(sin cliente)",
-      clienteId:q.clientId||null,
-      monto:monto,  // siempre positivo en log; el tipo determina cómo se aplica
-      motivo:motivo,
-      tipoMotivo:tipoMotivo,
-      tipo:tipo,
-      fecha:fecha
+      payload:{
+        tipo,
+        monto,
+        tipoMotivo,
+        motivo:motivo.slice(0,200),
+        fecha,
+        cliente:(q.client||"").slice(0,80)
+      },
+      runner:async()=>{
+        // 1. Guardar entrada en collection ajustesLog (audit trail)
+        const logEntry=await saveAjusteToCloud({
+          docId:q.id,
+          docKind:q.kind||"quote",
+          clienteName:q.client||"(sin cliente)",
+          clienteId:q.clientId||null,
+          monto:monto,  // siempre positivo en log; el tipo determina cómo se aplica
+          motivo:motivo,
+          tipoMotivo:tipoMotivo,
+          tipo:tipo,
+          fecha:fecha
+        });
+        // 2. Aplicación según tipo
+        if(tipo==="ajuste_saldo"){
+          // Push al q.ajustes[] del doc → saldoPendiente() lo descuenta
+          await applyAjusteToDoc(q,q.kind||"quote",{
+            id:logEntry.id,
+            monto:monto,
+            motivo:motivo,
+            tipo:tipo,
+            fecha:fecha
+          });
+        }else if(tipo==="nota_credito"){
+          // NO toca el doc original. Crea/incrementa cliente.saldoAFavor.
+          await _addSaldoAFavor(q.client||"(sin cliente)",monto,motivo,logEntry.id);
+        }
+        return {payloadExtra:{ajusteLogId:logEntry.id}};
+      }
     });
-    // 2. Aplicación según tipo
-    if(tipo==="ajuste_saldo"){
-      // Push al q.ajustes[] del doc → saldoPendiente() lo descuenta
-      await applyAjusteToDoc(q,q.kind||"quote",{
-        id:logEntry.id,
-        monto:monto,
-        motivo:motivo,
-        tipo:tipo,
-        fecha:fecha
-      });
-    }else if(tipo==="nota_credito"){
-      // NO toca el doc original. Crea/incrementa cliente.saldoAFavor.
-      await _addSaldoAFavor(q.client||"(sin cliente)",monto,motivo,logEntry.id);
-    }
     hideLoader();
     toast(tipo==="ajuste_saldo"?"✅ Ajuste aplicado · saldo descontado":"✅ Nota crédito · saldo a favor del cliente","success",5000);
     closeAjusteModal();
@@ -1596,13 +1613,27 @@ async function savePagoEdit(idx){
   if(!changes.length){openVerPagosModal(docId,kind);return}
   try{
     showLoader("Guardando cambio...");
-    const {db,doc,updateDoc,serverTimestamp}=window.fb;
-    const coll=getCollectionName(docId,kind);
-    const changelog=Array.isArray(q.pago_changelog)?[...q.pago_changelog]:[];
-    changelog.push({pagoIdx:idx,timestamp:new Date().toISOString(),changes});
-    await updateDoc(doc(db,coll,docId),{pagos,pago_changelog:changelog,updatedAt:serverTimestamp()});
-    q.pagos=pagos;
-    q.pago_changelog=changelog;
+    // v7.9.6 F1: envolver con logOperacion para audit trail (faltaba en v7.9.4).
+    // Crítico porque toca pagos confirmados (caso Gloria GB-2026-0150 sobrepago $25k depende de esta UX).
+    await logOperacion({
+      operacion:"editarPago",
+      docId:docId,
+      docKind:kind,
+      payload:{
+        pagoIdx:idx,
+        changes:changes.map(c=>({campo:c.campo,antes:typeof c.antes==="string"?c.antes.slice(0,80):c.antes,despues:typeof c.despues==="string"?c.despues.slice(0,80):c.despues}))
+      },
+      runner:async()=>{
+        const {db,doc,updateDoc,serverTimestamp}=window.fb;
+        const coll=getCollectionName(docId,kind);
+        const changelog=Array.isArray(q.pago_changelog)?[...q.pago_changelog]:[];
+        changelog.push({pagoIdx:idx,timestamp:new Date().toISOString(),changes});
+        await updateDoc(doc(db,coll,docId),{pagos,pago_changelog:changelog,updatedAt:serverTimestamp(),...auditStamp()});
+        q.pagos=pagos;
+        q.pago_changelog=changelog;
+        return {payloadExtra:{cambios:changes.length}};
+      }
+    });
     hideLoader();
     toast("✏️ Pago actualizado","success");
     openVerPagosModal(docId,kind);
@@ -2998,10 +3029,25 @@ async function submitFe(docId,kind){
 
   try{
     if(typeof showLoader==="function")showLoader("Guardando...");
-    const {db,doc,updateDoc,serverTimestamp}=window.fb;
-    await updateDoc(doc(db,coll,docId),patch);
-    q.requiereFE=requiereFE;
-    if(patch.feData!==undefined)q.feData=patch.feData;
+    // v7.9.6 F1: envolver con logOperacion para audit trail (faltaba en v7.9.4)
+    await logOperacion({
+      operacion:"marcarFacturaElectronica",
+      docId:docId,
+      docKind:kind,
+      payload:{
+        requiereFE,
+        tieneNumero:!!numero,
+        tieneFoto:!!_feBase64,
+        numeroPrefix:numero?numero.slice(0,40):""
+      },
+      runner:async()=>{
+        const {db,doc,updateDoc,serverTimestamp}=window.fb;
+        await updateDoc(doc(db,coll,docId),patch);
+        q.requiereFE=requiereFE;
+        if(patch.feData!==undefined)q.feData=patch.feData;
+        return {payloadExtra:{tieneNumero:!!numero}};
+      }
+    });
     if(typeof hideLoader==="function")hideLoader();
     toast("🧾 Factura electrónica actualizada","success");
     if(typeof closeConfirmModal==="function")closeConfirmModal();
