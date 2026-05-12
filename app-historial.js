@@ -1349,7 +1349,14 @@ async function submitPago(){
   // Foto upload (best-effort, foto es opcional)
   if(pagoFotoBase64){
     try{
-      const {url}=await uploadFotoFromBase64(pagoFotoBase64,"pago",pagoSrc.id,"pagos");
+      // v7.9.7.2: timeout 30s al upload. Si Storage cuelga (red inestable, CORS roto,
+      // SDK que no resuelve), evita que el await espere infinito y bloquee el flag
+      // _submitPagoBusy. Caso original 12/05/2026: Andrea Barrera y Emilia Aguilera
+      // quedaron stuck "Guardando..." → flag heredado entre intentos.
+      const UPLOAD_TIMEOUT_MS=30000;
+      const uploadPromise=uploadFotoFromBase64(pagoFotoBase64,"pago",pagoSrc.id,"pagos");
+      const timeoutPromise=new Promise((_,reject)=>setTimeout(()=>reject(new Error("Timeout: upload de foto > 30s. Reintenta sin foto y adjunta despues con Ver pagos > Adjuntar.")),UPLOAD_TIMEOUT_MS));
+      const {url}=await Promise.race([uploadPromise,timeoutPromise]);
       nuevo.fotoUrl=url;
       console.log("[submitPago] foto upload OK",{clientId,url:url.slice(0,80)+"..."});
     }catch(e){
@@ -1477,7 +1484,18 @@ async function submitPago(){
       return;
     }
   }finally{
-    if(exito){window._submitPagoBusy=false}
+    // v7.9.7.2: liberar el flag SIEMPRE, no solo en exito. Antes: si try y catch
+    // nunca se ejecutaban (await colgado infinito), el flag quedaba en true forever
+    // y bloqueaba todos los pagos siguientes. Caso original Andrea+Emilia 12/05/2026.
+    window._submitPagoBusy=false;
+    // Restaurar boton si quedo en estado "Guardando..." (defensa adicional al catch
+    // que ya lo hace en path normal de error).
+    if(submitBtn&&submitBtn.disabled){
+      submitBtn.disabled=false;
+      submitBtn.textContent=_btnOrigText;
+      submitBtn.style.opacity="";
+      submitBtn.style.cursor="";
+    }
   }
 }
 
