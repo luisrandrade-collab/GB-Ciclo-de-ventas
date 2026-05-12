@@ -5025,7 +5025,9 @@ function _heRenderTablaPdf(pdf,docs,state,W,M,startY,esRecogida){
     const itemsRes=_buildItemsResumenHE(q);
     if(itemsRes){
       const colSpan=fila.length;
-      rows.push([{content:"▸ "+itemsRes,colSpan:colSpan,styles:{fontSize:7,fontStyle:"italic",textColor:[80,80,80],halign:"left",cellPadding:{top:1.5,bottom:2,left:6,right:4},fillColor:[252,252,248]}}]);
+      // v7.9.7.1: usar ASCII ">" en lugar de "▸" (U+25B8). jsPDF helvetica no soporta
+      // Unicode multi-byte → el triángulo se renderizaba como "%¸" en el PDF.
+      rows.push([{content:"> "+itemsRes,colSpan:colSpan,styles:{fontSize:7,fontStyle:"italic",textColor:[80,80,80],halign:"left",cellPadding:{top:1.5,bottom:2,left:6,right:4},fillColor:[252,252,248]}}]);
     }
   });
   // Heads y columnStyles dinámicos
