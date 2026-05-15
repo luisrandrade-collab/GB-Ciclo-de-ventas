@@ -1780,6 +1780,74 @@ async function toggleProducedDespacho(docId,despachoId,kind,ev){
   }catch(e){hideLoader();if(typeof toast==="function")toast("Error: "+e.message,"error");else console.error(e)}
 }
 
+// v7.9.7.1 F7: marca ENTREGADO un despacho individual.
+// Captura mínima (sin modal/foto). Si Kathy/JP necesitan foto por despacho,
+// se extiende en F8 o iteración posterior.
+// Opción B (decidida con Codex v3): q.status pasa a 'entregado' SOLO cuando
+// TODOS los despachos están entregado. Mientras tanto, q.status sigue como esté.
+async function toggleEntregadoDespacho(docId,despachoId,kind,ev){
+  if(ev){ev.stopPropagation();ev.preventDefault()}
+  const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
+  if(!q||!Array.isArray(q.despachos)){if(typeof toast==="function")toast("Sin despachos para entregar","warn");return}
+  const idx=q.despachos.findIndex(d=>d.id===despachoId);
+  if(idx<0){if(typeof toast==="function")toast("Despacho no encontrado","error");return}
+  const despAct=q.despachos[idx];
+  if(despAct.status!=="producido"){
+    if(typeof toast==="function")toast("Marcá producido el despacho antes de entregarlo","warn",4000);
+    return;
+  }
+  if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión","error");else alert("Sin conexión");return}
+  const totalDesp=q.despachos.length;
+  const numDesp=idx+1;
+  const fhStr=despAct.fechaHora||"";
+  // Confirmación simple. Captura sin foto por ahora.
+  const okConfirm=confirm("¿Marcar como entregado el Despacho "+numDesp+"/"+totalDesp+"?\n\n"+
+    (fhStr?"Programado: "+fhStr+"\n":"")+
+    "Cliente: "+(q.client||"—")+"\n\n"+
+    "Esto registra la entrega del despacho sin foto. La foto por despacho llega en una versión posterior.");
+  if(!okConfirm)return;
+  try{
+    showLoader("Registrando entrega despacho "+numDesp+"...");
+    const nowIso=new Date().toISOString();
+    const userEmail=(typeof currentUser!=="undefined"&&currentUser&&currentUser.email)||"";
+    const entregaDataDesp={
+      fechaReal:nowIso.slice(0,10),
+      horaReal:nowIso.slice(11,16),
+      entregadoPor:userEmail||"(sin email)",
+      marcadoEn:nowIso,
+      modo:"despacho-minimal-v7.9.7.1"
+    };
+    const nuevoArr=q.despachos.map((d,i)=>{
+      if(i!==idx)return d;
+      return {...d,status:"entregado",entregadoEn:nowIso,entregaData:entregaDataDesp};
+    });
+    const todosEntregados=nuevoArr.every(d=>d.status==="entregado");
+    const {db,doc,updateDoc,serverTimestamp}=window.fb;
+    const coll=getCollectionName(docId,kind);
+    const patch={despachos:nuevoArr,updatedAt:serverTimestamp()};
+    if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
+    if(todosEntregados&&q.status!=="entregado"){
+      // Opción B: solo cuando todos los despachos están entregado, el doc pasa a entregado.
+      patch.status="entregado";
+      patch.fechaEntrega=nowIso.slice(0,10);
+      patch.produced=true;
+      if(!q.producedAt)patch.producedAt=nowIso;
+    }
+    await updateDoc(doc(db,coll,docId),patch);
+    q.despachos=nuevoArr;
+    if(patch.status){q.status=patch.status;q.fechaEntrega=patch.fechaEntrega;q.produced=true;if(patch.producedAt)q.producedAt=patch.producedAt}
+    hideLoader();
+    if(curMode==="dash"&&typeof renderDashboard==="function")renderDashboard();
+    if(curMode==="hist"&&typeof renderHist==="function")renderHist();
+    if(typeof toast==="function"){
+      const msg=todosEntregados
+        ?"📦 Despacho "+numDesp+"/"+totalDesp+" entregado · DOC COMPLETO"
+        :"📦 Despacho "+numDesp+"/"+totalDesp+" entregado · faltan "+nuevoArr.filter(d=>d.status!=="entregado").length;
+      toast(msg,"success",4000);
+    }
+  }catch(e){hideLoader();if(typeof toast==="function")toast("Error: "+e.message,"error");else console.error(e)}
+}
+
 // v7.0-α FIX-02c: setea estado del toggle "Recibido conforme" en el delivery-modal.
 // Sincroniza el checkbox hidden (para que submitDelivery siga leyendo .checked) +
 // pinta los dos botones pill (activo verde sólido, inactivo outline) +

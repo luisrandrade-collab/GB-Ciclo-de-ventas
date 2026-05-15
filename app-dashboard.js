@@ -2468,22 +2468,27 @@ function urgentItemHtml(entrada){
   const despachoLabel=(despacho&&entrada.total>1&&!despacho._legacy)
     ?'<span class="urgent-despacho-tag" style="display:inline-block;background:#FFF3E0;color:#E65100;font-size:11px;font-weight:600;padding:1px 6px;border-radius:8px;margin-right:6px">🚚 '+(entrada.idx+1)+'/'+entrada.total+'</span>'
     :"";
-  // Chip "Producido": granular si hay despacho explícito, legacy si no.
-  // Estado del chip:
-  //   - despacho.status === 'producido'/'entregado' → ✓ Producido (granular)
-  //   - q.produced && legacy → ✓ Producido (legacy)
-  //   - resto → botón Marcar producido
+  // Chip estado: lógica progresiva por estado del despacho.
+  //   - despacho.status === 'entregado' → ✓ Entregado (no hay action)
+  //   - despacho.status === 'producido' (granular) → botón "📦 Entregar" → toggleEntregadoDespacho
+  //   - q.produced && legacy → ✓ Producido (legacy, sin path granular a entregar acá)
+  //   - default → botón "🔪 Marcar producido"
   const dStatus=despacho?despacho.status:null;
-  const yaProducido=(dStatus==="producido"||dStatus==="entregado")||(!!q.produced&&(!despacho||despacho._legacy));
   let prodChip;
-  if(yaProducido){
-    const ts=(despacho&&despacho.producedAt)||q.producedAt||"";
-    prodChip='<span class="urgent-prod-done" title="Producido '+(ts||"").slice(0,10)+'">✓ Producido</span>';
+  if(dStatus==="entregado"){
+    const ts=(despacho.entregadoEn||"")+"";
+    prodChip='<span class="urgent-prod-done" title="Entregado '+ts.slice(0,10)+'">✓ Entregado</span>';
+  }else if(dStatus==="producido"&&despacho&&!despacho._legacy){
+    // v7.9.7.1 F7: despacho producido pero no entregado → botón entregar granular.
+    prodChip='<button class="urgent-prod-chip" onclick="event.stopPropagation();toggleEntregadoDespacho(\''+q.id+'\',\''+despacho.id+'\',\''+q.kind+'\',event)" style="background:#1B5E20;color:#fff;border:none">📦 Marcar entregado</button>';
+  }else if(!!q.produced&&(!despacho||despacho._legacy)){
+    // Legacy producido sin granular: el flujo de entrega va por el doc, no acá.
+    prodChip='<span class="urgent-prod-done" title="Producido '+((q.producedAt||"")+"").slice(0,10)+'">✓ Producido</span>';
   }else if(despacho&&!despacho._legacy){
-    // Granular: toggleProducedDespacho
+    // Despacho explícito aún pendiente → marcar producido granular.
     prodChip='<button class="urgent-prod-chip" onclick="event.stopPropagation();toggleProducedDespacho(\''+q.id+'\',\''+despacho.id+'\',\''+q.kind+'\',event)">🔪 Marcar producido</button>';
   }else{
-    // Legacy: toggleProduced del doc entero
+    // Legacy pendiente → marcar producido del doc entero.
     prodChip='<button class="urgent-prod-chip" onclick="event.stopPropagation();toggleProduced(\''+q.id+'\',\''+q.kind+'\',event)">🔪 Marcar producido</button>';
   }
   return '<div class="urgent-item" onclick="openDocument(\''+q.kind+'\',\''+q.id+'\')">'+
