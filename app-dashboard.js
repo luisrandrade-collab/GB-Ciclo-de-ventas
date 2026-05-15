@@ -8086,8 +8086,9 @@ async function renderCatalogoProductos(){
   listEl.innerHTML=html;
 }
 
-// v7.9.0.4: marcar todos los productos + categorías activos como visibleEnWeb=true
-// para que aparezcan en catalogo.html público. La migración los puso en false por default.
+// v7.9.0.4: marcar todos los productos + categorías activos como visibleEnWeb=true.
+// v7.9.7.3: catalogo.html público eliminado; flag queda como pre-requisito para la
+// landing pública futura. No tiene efecto visible hoy.
 async function hacerVisiblesEnWeb(){
   if(!productosCache||!Object.keys(productosCache).length){
     toast("Catálogo no migrado","warn");return;
@@ -8098,7 +8099,7 @@ async function hacerVisiblesEnWeb(){
     toast("Todo el catálogo ya es visible en web","success");
     return;
   }
-  if(!confirm("Vas a marcar "+prodsCandidatos.length+" productos + "+catsCandidatas.length+" categorías como visibleEnWeb=true.\n\nDespués de aplicar, aparecen en catalogo.html público (Linktree).\n\n¿Continuar?"))return;
+  if(!confirm("Vas a marcar "+prodsCandidatos.length+" productos + "+catsCandidatas.length+" categorías como visibleEnWeb=true.\n\nFlag para la landing pública futura. Hoy no tiene efecto visible (catalogo.html está deshabilitado).\n\n¿Continuar?"))return;
 
   showLoader("Actualizando…");
   const {db,doc,setDoc,serverTimestamp}=window.fb;

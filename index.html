@@ -2461,7 +2461,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button onclick="iniciarBatchUploadFotos()" title="Subir varias fotos a la vez. Cada archivo debe llamarse productId.jpg (ej. arroz-reina-10-pers.jpg)" style="background:#1B5E20;color:#fff;border:none;border-radius:8px;font-size:13px;padding:8px 16px;cursor:pointer">📤 Importar fotos masivamente</button>
         <button onclick="archivarCustomsNoCliente()" title="Marca como activo=false los productos que no se venden a clientes (servicios, bebidas, regalos, basura)" style="background:#C62828;color:#fff;border:none;border-radius:8px;font-size:13px;padding:8px 16px;cursor:pointer">🗄️ Archivar customs no-cliente</button>
-        <button onclick="hacerVisiblesEnWeb()" title="Marca todos los productos activos como visibleEnWeb=true (para que aparezcan en catalogo.html público)" style="background:#5E35B1;color:#fff;border:none;border-radius:8px;font-size:13px;padding:8px 16px;cursor:pointer">🌐 Mostrar todos en web</button>
+        <button onclick="hacerVisiblesEnWeb()" title="Marca todos los productos activos como visibleEnWeb=true (flag para la landing pública futura — catalogo.html actual está deshabilitado)" style="background:#5E35B1;color:#fff;border:none;border-radius:8px;font-size:13px;padding:8px 16px;cursor:pointer">🌐 Mostrar todos en web</button>
       </div>
       <div style="font-size:11px;color:#9E9E9E;margin-top:8px;line-height:1.4">El batch upload espera archivos con nombre <code>productId.jpg</code> (ej. <code>arroz-reina-10-pers.jpg</code>). Los archivos cuyo productId no exista se saltan con warning.</div>
     </div>
@@ -4631,12 +4631,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.9.7.2"></script>
-<script src="app-core.js?v=7.9.7.2"></script>
-<script src="app-cotizar.js?v=7.9.7.2"></script>
-<script src="app-propuesta.js?v=7.9.7.2"></script>
-<script src="app-historial.js?v=7.9.7.2"></script>
-<script src="app-seguimiento.js?v=7.9.7.2"></script>
-<script src="app-dashboard.js?v=7.9.7.2"></script>
+<script src="app-assets.js?v=7.9.7.3"></script>
+<script src="app-core.js?v=7.9.7.3"></script>
+<script src="app-cotizar.js?v=7.9.7.3"></script>
+<script src="app-propuesta.js?v=7.9.7.3"></script>
+<script src="app-historial.js?v=7.9.7.3"></script>
+<script src="app-seguimiento.js?v=7.9.7.3"></script>
+<script src="app-dashboard.js?v=7.9.7.3"></script>
 </body>
 </html>

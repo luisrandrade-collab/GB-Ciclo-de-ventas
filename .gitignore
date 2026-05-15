@@ -25,8 +25,11 @@ _legacy/
 
 # Wireframes y scripts internos
 wireframes/
-scripts/
+scripts/*
 check.sh
+
+# Excepción: el CI versionable de pre-deploy SÍ va a GitHub (REQ-6 Codex 2026-05-15)
+!scripts/check.sh
 
 # Sistema operativo
 .DS_Store
