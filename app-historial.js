@@ -1808,11 +1808,15 @@ async function toggleEntregadoDespacho(docId,despachoId,kind,ev){
   if(!okConfirm)return;
   try{
     showLoader("Registrando entrega despacho "+numDesp+"...");
-    const nowIso=new Date().toISOString();
+    const now=new Date();
+    const nowIso=now.toISOString();
+    const nowLocalDate=(typeof gbDateToIso==="function")?gbDateToIso(now):nowIso.slice(0,10);
+    const padLocal=n=>String(n).padStart(2,"0");
+    const nowLocalTime=padLocal(now.getHours())+":"+padLocal(now.getMinutes());
     const userEmail=(typeof currentUser!=="undefined"&&currentUser&&currentUser.email)||"";
     const entregaDataDesp={
-      fechaReal:nowIso.slice(0,10),
-      horaReal:nowIso.slice(11,16),
+      fechaReal:nowLocalDate,
+      horaReal:nowLocalTime,
       entregadoPor:userEmail||"(sin email)",
       marcadoEn:nowIso,
       modo:"despacho-minimal-v7.9.7.1"
@@ -1829,7 +1833,7 @@ async function toggleEntregadoDespacho(docId,despachoId,kind,ev){
     if(todosEntregados&&q.status!=="entregado"){
       // Opción B: solo cuando todos los despachos están entregado, el doc pasa a entregado.
       patch.status="entregado";
-      patch.fechaEntrega=nowIso.slice(0,10);
+      patch.fechaEntrega=nowLocalDate;
       patch.produced=true;
       if(!q.producedAt)patch.producedAt=nowIso;
     }
@@ -2259,7 +2263,18 @@ function _buildEntregaWaTextDespacho(q, despacho, idx, totalDesp){
   if(dir)li.push("📍 Dirección: "+dir);
   if(despacho.entregadoEn){
     const ts=String(despacho.entregadoEn);
-    const fechaReal=ts.slice(0,10)+(ts.length>=16?" "+ts.slice(11,16):"");
+    let fechaReal="";
+    if(despacho.entregaData&&despacho.entregaData.fechaReal){
+      fechaReal=despacho.entregaData.fechaReal+(despacho.entregaData.horaReal?" "+despacho.entregaData.horaReal:"");
+    }else if(ts){
+      const d=new Date(ts);
+      if(!Number.isNaN(d.getTime())){
+        const pad=n=>String(n).padStart(2,"0");
+        fechaReal=d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+" "+pad(d.getHours())+":"+pad(d.getMinutes());
+      }else{
+        fechaReal=ts.slice(0,10)+(ts.length>=16?" "+ts.slice(11,16):"");
+      }
+    }
     li.push("✅ Entregado: "+fechaReal);
   }
   // Estado del evento agregado
