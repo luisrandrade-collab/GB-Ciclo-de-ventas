@@ -5196,9 +5196,11 @@ function _buildItemsResumenHE(q){
       if(it.name)parts.push(_mark(it.name)+(it.qty||0)+" "+it.name);
     })));
   }
-  let str=parts.join(" · ");
-  if(str.length>220)str=str.substring(0,217)+"...";
-  return str;
+  // v7.9.7.1 F8.5: quitar truncate de 220 chars. autoTable de jsPDF wrapea
+  // nativamente texto largo en celdas colSpan. Antes Diana León GB-P-2026-0102
+  // (13 items) perdía los últimos 5 en la hoja de reparto. Detalle:
+  // _internos/Pendientes_hoja_reparto_truncate.md.
+  return parts.join(" · ");
 }
 
 async function generarPdfEntregas(){
