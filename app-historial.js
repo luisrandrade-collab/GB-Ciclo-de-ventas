@@ -1731,6 +1731,55 @@ async function toggleProduced(docId,kind,ev){
   }catch(e){hideLoader();toast("Error: "+e.message,"error")}
 }
 
+// v7.9.7.1 F6: marca producido un DESPACHO individual de una propuesta con despachos[] explícitos.
+// Si tras el cambio TODOS los despachos quedan producido/entregado, también marca q.produced=true
+// (retrocompat con vistas que dependen del flag agregado). Si vuelve a haber pendientes,
+// q.produced regresa a false.
+async function toggleProducedDespacho(docId,despachoId,kind,ev){
+  if(ev){ev.stopPropagation();ev.preventDefault()}
+  const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
+  if(!q||!Array.isArray(q.despachos)){if(typeof toast==="function")toast("Sin despachos para marcar","warn");return}
+  const idx=q.despachos.findIndex(d=>d.id===despachoId);
+  if(idx<0){if(typeof toast==="function")toast("Despacho no encontrado","error");return}
+  const despAct=q.despachos[idx];
+  const yaProd=despAct.status==="producido"||despAct.status==="entregado";
+  const nuevoStatus=yaProd?"pendiente":"producido";
+  if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión","error");else alert("Sin conexión");return}
+  try{
+    showLoader("Actualizando despacho...");
+    const nuevoArr=q.despachos.map((d,i)=>{
+      if(i!==idx)return d;
+      const next={...d,status:nuevoStatus};
+      if(nuevoStatus==="producido"&&!d.producedAt)next.producedAt=new Date().toISOString();
+      if(nuevoStatus==="pendiente")next.producedAt=null;
+      return next;
+    });
+    const todosListos=nuevoArr.every(d=>d.status==="producido"||d.status==="entregado");
+    const nuevoProduced=todosListos;
+    const {db,doc,updateDoc,serverTimestamp}=window.fb;
+    const coll=getCollectionName(docId,kind);
+    const patch={despachos:nuevoArr,updatedAt:serverTimestamp()};
+    if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
+    if(nuevoProduced!==!!q.produced){
+      patch.produced=nuevoProduced;
+      patch.producedAt=nuevoProduced?new Date().toISOString():null;
+    }
+    await updateDoc(doc(db,coll,docId),patch);
+    q.despachos=nuevoArr;
+    if(nuevoProduced!==!!q.produced){q.produced=nuevoProduced;q.producedAt=patch.producedAt||null}
+    hideLoader();
+    if(curMode==="dash"&&typeof renderDashboard==="function")renderDashboard();
+    if(curMode==="hist"&&typeof renderHist==="function")renderHist();
+    if(typeof toast==="function"){
+      const numDesp=idx+1,totalDesp=nuevoArr.length;
+      const msg=nuevoStatus==="producido"
+        ?"🔪 Despacho "+numDesp+"/"+totalDesp+" marcado producido"+(todosListos?" · doc completo":"")
+        :"↩️ Despacho "+numDesp+"/"+totalDesp+" vuelto a pendiente";
+      toast(msg,nuevoStatus==="producido"?"success":"info",3000);
+    }
+  }catch(e){hideLoader();if(typeof toast==="function")toast("Error: "+e.message,"error");else console.error(e)}
+}
+
 // v7.0-α FIX-02c: setea estado del toggle "Recibido conforme" en el delivery-modal.
 // Sincroniza el checkbox hidden (para que submitDelivery siga leyendo .checked) +
 // pinta los dos botones pill (activo verde sólido, inactivo outline) +

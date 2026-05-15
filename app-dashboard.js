@@ -2341,6 +2341,37 @@ async function normalizarDocsSinStatus(){
 //                       en los próximos 3 días
 // Cada item es tappable → abre el doc. Ordenados por fecha más cercana.
 // Muestra "HOY", "MAÑANA", "PASADO" para las 3 fechas más urgentes.
+// v7.9.7.1 F6: expansión doc → despachos. Cada entrada es {q, despacho, idx, total, fechaIso, hora}.
+// Para docs legacy (sin despachos[]), getDespachos devuelve 1 despacho derivado del eventDate.
+// Para docs con N despachos explícitos, la propuesta aparece N veces ordenada por fechaHora.
+function _expandirParaUrgent3d(qDocs){
+  const out=[];
+  qDocs.forEach(q=>{
+    const ds=(typeof getDespachos==="function")?getDespachos(q):[];
+    if(!ds.length){
+      // Fallback ultra-defensivo: no debería ocurrir porque getDespachos devuelve al menos 1
+      const fecha=q.eventDate||q.fechaEntrega||"";
+      out.push({q,despacho:null,idx:0,total:1,fechaIso:fecha,hora:q.horaEntrega||""});
+      return;
+    }
+    ds.forEach((d,i)=>{
+      // fechaHora es "YYYY-MM-DDTHH:mm" en local Bogotá. Separar.
+      const fh=(d.fechaHora||"").trim();
+      let fechaIso="",hora="";
+      if(fh){
+        const t=fh.indexOf("T");
+        if(t>0){fechaIso=fh.slice(0,t);hora=fh.slice(t+1,t+6)}
+        else{fechaIso=fh.slice(0,10);hora=""}
+      }else{
+        fechaIso=q.eventDate||q.fechaEntrega||"";
+        hora=q.horaEntrega||"";
+      }
+      out.push({q,despacho:d,idx:i,total:ds.length,fechaIso,hora});
+    });
+  });
+  return out;
+}
+
 function renderUrgent3d(){
   const prodBody=$("dash-urgent-prod-body");
   const entBody=$("dash-urgent-ent-body");
@@ -2352,29 +2383,47 @@ function renderUrgent3d(){
   const t3=new Date();t3.setDate(t3.getDate()+3);
   const t3Iso=gbDateToIso(t3);
 
-  const porProducir=[],porEntregar=[];
-  (quotesCache||[]).forEach(q=>{
-    if(q._wrongCollection)return;
+  // 1. Filtrar docs candidatos (mismo criterio que antes, sin la condición de fecha — esa
+  //    pasa al nivel de despacho).
+  const docsCandidatos=(quotesCache||[]).filter(q=>{
+    if(q._wrongCollection)return false;
     const s=q.status||"enviada";
-    if(["anulada","superseded","convertida","entregado"].includes(s))return;
-    const fecha=q.eventDate||q.fechaEntrega;
-    if(!fecha)return;
-    if(fecha<todayIso||fecha>t3Iso)return; // fuera de ventana 3 días
-    // v7.7.5.2 fix: usar también q.produced (flag independiente del status).
-    // Antes solo miraba status → si Luis marcaba producido un pedido (q.produced=true)
-    // el status seguía siendo "pedido" y caía mal en "Por producir" cuando debería
-    // estar en "Por entregar".
-    if(q.produced){
-      porEntregar.push(q);
+    if(["anulada","superseded","convertida","entregado"].includes(s))return false;
+    return true;
+  });
+
+  // 2. Expandir a (doc, despacho) y filtrar por ventana 3 días sobre fechaHora del despacho.
+  const entradas=_expandirParaUrgent3d(docsCandidatos)
+    .filter(e=>e.fechaIso&&e.fechaIso>=todayIso&&e.fechaIso<=t3Iso);
+
+  // 3. Clasificar en porProducir / porEntregar a nivel de DESPACHO.
+  //    Lógica:
+  //    - Si el despacho tiene status propio ('producido' o 'entregado') → porEntregar.
+  //    - Si el doc completo está produced (legacy o agregado) → porEntregar.
+  //    - Si status del doc es 'en_produccion' → porEntregar.
+  //    - Si status del doc es 'pedido' o 'aprobada' y el despacho está pendiente → porProducir.
+  const porProducir=[],porEntregar=[];
+  entradas.forEach(e=>{
+    const q=e.q;
+    const s=q.status||"enviada";
+    const dStatus=e.despacho?e.despacho.status:null;
+    if(dStatus==="producido"||dStatus==="entregado"){
+      porEntregar.push(e);
+    }else if(q.produced){
+      porEntregar.push(e);
     }else if(["pedido","aprobada"].includes(s)){
-      porProducir.push(q);
+      porProducir.push(e);
     }else if(s==="en_produccion"){
-      porEntregar.push(q);
+      porEntregar.push(e);
     }
   });
 
-  // Ordenar por fecha ascendente (más cercano primero)
-  const sortFn=(a,b)=>(a.eventDate||a.fechaEntrega||"").localeCompare(b.eventDate||b.fechaEntrega||"");
+  // 4. Ordenar por fechaHora del despacho ascendente.
+  const sortFn=(a,b)=>{
+    const ka=(a.fechaIso||"")+"T"+(a.hora||"99:99");
+    const kb=(b.fechaIso||"")+"T"+(b.hora||"99:99");
+    return ka.localeCompare(kb);
+  };
   porProducir.sort(sortFn);
   porEntregar.sort(sortFn);
 
@@ -2392,8 +2441,16 @@ function renderUrgent3d(){
 // abrir el doc solo para marcarlo. Solo se muestra si !q.produced.
 // toggleProduced ya existe en app-historial.js:989 y llama a
 // renderDashboard() al terminar, así que el refresh es automático.
-function urgentItemHtml(q){
-  const fecha=q.eventDate||q.fechaEntrega;
+// v7.9.7.1 F6: acepta entrada {q, despacho, idx, total, fechaIso, hora} en lugar de q directo.
+// Retrocompat: si se llama con un q "viejo" (sin envoltorio), lo envuelve en una entrada legacy.
+function urgentItemHtml(entrada){
+  // Compat: si llega un doc directo (forma antigua), envolver
+  if(entrada&&!entrada.q&&entrada.id){
+    entrada={q:entrada,despacho:null,idx:0,total:1,fechaIso:(entrada.eventDate||entrada.fechaEntrega||""),hora:entrada.horaEntrega||""};
+  }
+  const q=entrada.q;
+  const despacho=entrada.despacho;
+  const fecha=entrada.fechaIso||(q.eventDate||q.fechaEntrega||"");
   const today=gbTodayIso();
   const tomorrow=new Date();tomorrow.setDate(tomorrow.getDate()+1);
   const tomorrowIso=gbDateToIso(tomorrow);
@@ -2404,18 +2461,35 @@ function urgentItemHtml(q){
   if(fecha===today){fechaLabel="HOY "+fecha;fechaCls="urgent-d-today"}
   else if(fecha===tomorrowIso){fechaLabel="MAÑANA "+fecha;fechaCls="urgent-d-tomorrow"}
   else if(fecha===pasadoIso){fechaLabel="PASADO "+fecha}
-  const hora=q.horaEntrega?' · ⏰ '+q.horaEntrega:'';
+  const hora=entrada.hora?' · ⏰ '+entrada.hora:(q.horaEntrega?' · ⏰ '+q.horaEntrega:'');
   const cli=(q.client||"—").replace(/[<>]/g,"");
   const total=fm(getDocTotal(q));
-  // Chip "Producido" solo si aún no está producido. stopPropagation en el
-  // onclick del chip para que NO dispare el loadQuote del contenedor.
-  const prodChip=q.produced?
-    '<span class="urgent-prod-done" title="Producido '+(q.producedAt||"").slice(0,10)+'">✓ Producido</span>':
-    '<button class="urgent-prod-chip" onclick="event.stopPropagation();toggleProduced(\''+q.id+'\',\''+q.kind+'\',event)">🔪 Marcar producido</button>';
+  // Etiqueta de despacho: solo si hay >1 despacho explícito
+  const despachoLabel=(despacho&&entrada.total>1&&!despacho._legacy)
+    ?'<span class="urgent-despacho-tag" style="display:inline-block;background:#FFF3E0;color:#E65100;font-size:11px;font-weight:600;padding:1px 6px;border-radius:8px;margin-right:6px">🚚 '+(entrada.idx+1)+'/'+entrada.total+'</span>'
+    :"";
+  // Chip "Producido": granular si hay despacho explícito, legacy si no.
+  // Estado del chip:
+  //   - despacho.status === 'producido'/'entregado' → ✓ Producido (granular)
+  //   - q.produced && legacy → ✓ Producido (legacy)
+  //   - resto → botón Marcar producido
+  const dStatus=despacho?despacho.status:null;
+  const yaProducido=(dStatus==="producido"||dStatus==="entregado")||(!!q.produced&&(!despacho||despacho._legacy));
+  let prodChip;
+  if(yaProducido){
+    const ts=(despacho&&despacho.producedAt)||q.producedAt||"";
+    prodChip='<span class="urgent-prod-done" title="Producido '+(ts||"").slice(0,10)+'">✓ Producido</span>';
+  }else if(despacho&&!despacho._legacy){
+    // Granular: toggleProducedDespacho
+    prodChip='<button class="urgent-prod-chip" onclick="event.stopPropagation();toggleProducedDespacho(\''+q.id+'\',\''+despacho.id+'\',\''+q.kind+'\',event)">🔪 Marcar producido</button>';
+  }else{
+    // Legacy: toggleProduced del doc entero
+    prodChip='<button class="urgent-prod-chip" onclick="event.stopPropagation();toggleProduced(\''+q.id+'\',\''+q.kind+'\',event)">🔪 Marcar producido</button>';
+  }
   return '<div class="urgent-item" onclick="openDocument(\''+q.kind+'\',\''+q.id+'\')">'+
     '<div class="urgent-item-top">'+
       '<div class="urgent-item-txt">'+
-        '<div class="urgent-cli">'+cli+'</div>'+
+        '<div class="urgent-cli">'+despachoLabel+cli+'</div>'+
         '<div class="urgent-meta"><span class="'+fechaCls+'">'+fechaLabel+'</span>'+hora+'</div>'+
         '<div class="urgent-val">'+total+'</div>'+
       '</div>'+
