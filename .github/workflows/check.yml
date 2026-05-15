@@ -16,4 +16,6 @@ jobs:
         with:
           node-version: '20'
       - name: Run pre-deploy check
-        run: bash scripts/check.sh
+        run: node scripts/check.mjs
+      - name: Run despachos unit tests
+        run: node scripts/test_despachos.mjs

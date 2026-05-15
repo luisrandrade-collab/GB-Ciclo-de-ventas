@@ -29,7 +29,9 @@ scripts/*
 check.sh
 
 # Excepción: el CI versionable de pre-deploy SÍ va a GitHub (REQ-6 Codex 2026-05-15)
-!scripts/check.sh
+# v7.9.7.4: migrado de Bash a Node (portable Win/Linux/macOS). check.sh eliminado.
+!scripts/check.mjs
+!scripts/test_despachos.mjs
 
 # Sistema operativo
 .DS_Store
