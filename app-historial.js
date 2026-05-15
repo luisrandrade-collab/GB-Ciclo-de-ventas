@@ -1845,6 +1845,16 @@ async function toggleEntregadoDespacho(docId,despachoId,kind,ev){
         :"📦 Despacho "+numDesp+"/"+totalDesp+" entregado · faltan "+nuevoArr.filter(d=>d.status!=="entregado").length;
       toast(msg,"success",4000);
     }
+    // v7.9.7.1 F8: ofrecer WhatsApp con texto específico del despacho.
+    // Pregunta antes de abrir para no interrumpir si Kathy/JP marcan varios seguidos.
+    setTimeout(()=>{
+      const despachoActualizado=nuevoArr[idx];
+      const texto=_buildEntregaWaTextDespacho(q,despachoActualizado,idx,totalDesp);
+      const enviar=confirm("📲 ¿Avisar a Kathy por WhatsApp?\n\nMensaje preparado:\n\n"+texto+"\n\n(Cancelar = solo registrar la entrega sin avisar)");
+      if(!enviar)return;
+      const tel=(typeof KATHY_WA_TEL!=="undefined"&&KATHY_WA_TEL)||"573104441588";
+      window.open("https://wa.me/"+tel+"?text="+encodeURIComponent(texto),"_blank");
+    },400);
   }catch(e){hideLoader();if(typeof toast==="function")toast("Error: "+e.message,"error");else console.error(e)}
 }
 
@@ -2229,6 +2239,40 @@ function _formatFechaHoraFromTs(ts){
   const d=new Date(ts);
   const pad=n=>String(n).padStart(2,"0");
   return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+" "+pad(d.getHours())+":"+pad(d.getMinutes());
+}
+
+// v7.9.7.1 F8: texto de WhatsApp específico por despacho.
+// A diferencia de _buildEntregaWaText (que asume entrega del doc entero),
+// este menciona el despacho N/M y deja explícito qué falta del evento.
+function _buildEntregaWaTextDespacho(q, despacho, idx, totalDesp){
+  const li=[];
+  li.push("✅ *Entrega despacho — Gourmet Bites*");
+  li.push("");
+  li.push("👤 Cliente: "+(q.client||"—"));
+  li.push("🚚 Despacho "+(idx+1)+"/"+totalDesp);
+  if(despacho.notas)li.push("📝 "+despacho.notas);
+  if(despacho.fechaHora)li.push("📅 Programado: "+despacho.fechaHora.replace("T"," "));
+  // Dirección efectiva: la del despacho si tiene, sino la del doc
+  let dir="";
+  if(despacho.direccion&&despacho.direccion.dir)dir=despacho.direccion.dir;
+  else if(q.dir)dir=q.dir;
+  if(dir)li.push("📍 Dirección: "+dir);
+  if(despacho.entregadoEn){
+    const ts=String(despacho.entregadoEn);
+    const fechaReal=ts.slice(0,10)+(ts.length>=16?" "+ts.slice(11,16):"");
+    li.push("✅ Entregado: "+fechaReal);
+  }
+  // Estado del evento agregado
+  const ds=Array.isArray(q.despachos)?q.despachos:[];
+  const entregados=ds.filter(d=>d.status==="entregado").length;
+  if(entregados<ds.length){
+    li.push("");
+    li.push("⏳ Faltan "+(ds.length-entregados)+" despacho(s) de este evento");
+  }else{
+    li.push("");
+    li.push("🎉 Evento completo · "+ds.length+"/"+ds.length+" despachos entregados");
+  }
+  return li.join("\n");
 }
 
 function _buildEntregaWaText(info){
