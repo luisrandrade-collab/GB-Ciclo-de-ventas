@@ -137,9 +137,12 @@ service cloud.firestore {
     }
 
     // ─── Catálogo (v7.9 BOM) ────────────────────────────────────
+    // v7.9.7.3: lectura PRIVADA. catalogo.html público eliminado;
+    // los emails del equipo viajaban en auditStamp.updatedByEmail y eran
+    // legibles sin login mientras read=true. La landing pública futura
+    // expondrá un subset saneado via Cloud Function o colección aparte.
     match /productos/{docId} {
-      // Read PÚBLICO sin auth — catalogo.html lista catálogo sin login.
-      allow read: if true;
+      allow read: if isAuthorized();
       // Create: admin + skill-bot (este último para migraciones).
       allow create: if isHumanAdmin() || isSkillBot();
       // Update/Delete: solo admin (skill-bot NO modifica existentes).
@@ -148,7 +151,7 @@ service cloud.firestore {
 
     // Categorías editables del catálogo. Mismo modelo que productos.
     match /categorias/{docId} {
-      allow read: if true;
+      allow read: if isAuthorized();
       allow create: if isHumanAdmin() || isSkillBot();
       allow update, delete: if isHumanAdmin();
     }

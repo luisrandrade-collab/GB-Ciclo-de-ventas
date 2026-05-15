@@ -10,7 +10,7 @@ Procedimiento operativo para deploy de la app, las rules de Firebase, y los roll
 
 | Componente | Ruta | Mecanismo de deploy | Tiempo de propagación |
 |---|---|---|---|
-| **Frontend (HTML/JS/CSS)** | `index.html`, `catalogo.html`, `app-*.js` | GitHub Pages auto-deploy desde `origin/main` | 1-2 min |
+| **Frontend (HTML/JS/CSS)** | `index.html`, `app-*.js` | GitHub Pages auto-deploy desde `origin/main` | 1-2 min |
 | **Firestore rules** | `firestore.rules` | `firebase deploy --only firestore:rules` | <30 s |
 | **Storage rules** | `storage.rules` | `firebase deploy --only storage:rules` | <30 s |
 | **Cloud Functions** | `functions/index.js` | `firebase deploy --only functions` | 2-5 min |
