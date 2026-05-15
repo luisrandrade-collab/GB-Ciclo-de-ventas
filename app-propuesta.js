@@ -1325,7 +1325,12 @@ async function genPropPDF(){
     // v5.4.1 (Bloque B): versionado + copia Storage. kind se infiere del prefijo:
     // "GB-PF-" → propfinal (colección propfinals), resto → proposal (colección proposals).
     // currentPropNumber es el docId en Firestore (mismo patrón que cotizaciones).
-    const baseNameP=currentPropNumber+"_"+cl.replace(/\s+/g,"_");
+    // v7.9.7.1 F8.6: normalizar tildes/ñ a ASCII para evitar mojibake en filenames.
+    // Storage / Content-Disposition / WhatsApp interpretaban UTF-8 como Latin-1
+    // y "León" salía como "LeÃ³n". NFD descompone, regex quita diacríticos,
+    // final reemplaza cualquier no-alfanumérico por "_".
+    const clSafe=(cl||"sin").normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-zA-Z0-9]/g,"_");
+    const baseNameP=currentPropNumber+"_"+clSafe;
     const kindP=(currentPropNumber||"").startsWith("GB-PF-")?"propfinal":"proposal";
     await savePdfConCopiaStorage(doc,baseNameP,kindP,currentPropNumber);
   }catch(err){alert("Error generando PDF: "+err.message);console.error(err)}

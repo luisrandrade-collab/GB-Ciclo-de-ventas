@@ -544,7 +544,9 @@ async function genPDF(){
     // v5.4.1 (Bloque B): usar savePdfConCopiaStorage para versionar + copia en Storage.
     // currentQuoteNumber es a la vez el docId en Firestore (confirmado: los
     // getDoc(doc(db,"quotes",currentQuoteNumber)) de saveCurrentQuote lo usan así).
-    const baseName=currentQuoteNumber+"_"+cl.replace(/\s+/g,"_");
+    // v7.9.7.1 F8.6: ver app-propuesta.js — mismo fix de mojibake en filename.
+    const clSafe=(cl||"sin").normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-zA-Z0-9]/g,"_");
+    const baseName=currentQuoteNumber+"_"+clSafe;
     await savePdfConCopiaStorage(doc,baseName,"quote",currentQuoteNumber);
   }catch(err){alert("Error generando PDF: "+err.message);console.error(err)}
 }

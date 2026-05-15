@@ -1269,7 +1269,9 @@ async function exportPedidoIcs(docId,kind,ev){
   if(!q){alert("No encontrado");return}
   if(!q.eventDate&&!q.productionDate){alert("Este pedido no tiene fechas de entrega ni producción asignadas.");return}
   const lines=[..._icsHeader(),..._buildVeventsForDoc(q),..._icsFooter()];
-  const fname=(q.quoteNumber||q.id)+"_"+(q.client||"sin").replace(/\s+/g,"_")+".ics";
+  // v7.9.7.1 F8.6: normalizar acentos en filename .ics (mismo bug que PDFs).
+  const cliSafe=(q.client||"sin").normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-zA-Z0-9]/g,"_");
+  const fname=(q.quoteNumber||q.id)+"_"+cliSafe+".ics";
   await shareOrDownloadIcs(fname,lines);
 }
 
