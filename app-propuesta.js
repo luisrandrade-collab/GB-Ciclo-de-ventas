@@ -563,8 +563,9 @@ async function savePropQuote(silent){
     }catch(e){console.warn("No se pudo verificar status previo:",e)}
   }
   try{
-    if(!silent)showLoader("Generando consecutivo...");
-    // v5.5.0: versionado hijo para propuestas en enviada/propfinal
+    // v7.9.7.6: showLoader movido DESPUÉS del modal de versionado.
+    // Antes aparecía "Generando consecutivo..." superpuesto con el modal
+    // "¿Guardar como versión nueva?" mientras el usuario decidía. Bug visual.
     let pNum=currentPropNumber;
     let creatingChild=false;
     if(pNum&&oldDoc&&shouldVersionWithSuffix(oldDoc,"proposal")){
@@ -583,6 +584,7 @@ async function savePropQuote(silent){
         }
       }
     }
+    if(!silent)showLoader("Generando consecutivo...");
     if(!pNum)pNum=await getNextNumber("proposal");
     await autoSaveClientFromProp();
     propSections.forEach(sec=>sec.options.forEach(opt=>opt.items.forEach(it=>{if(!it.catId&&it.name){try{registerCustomProduct(it.name,it.desc||"",it.price||0,"")}catch(e){console.warn("[registerCustomProduct propuesta]",it.name,e)}}})));

@@ -210,9 +210,9 @@ async function saveCurrentQuote(silent){
     }catch(e){console.warn("No se pudo verificar status previo:",e)}
   }
   try{
-    if(!silent)showLoader("Generando consecutivo...");
-    // v5.5.0: decidir si se genera versión hija con sufijo -1, -2
-    // Solo aplica pre-confirmación: status "enviada" en cotizaciones.
+    // v7.9.7.6: showLoader movido DESPUÉS del modal de versionado.
+    // Antes aparecía "Generando consecutivo..." superpuesto con el modal
+    // "¿Guardar como versión nueva?" mientras el usuario decidía. Bug visual.
     let qNum=currentQuoteNumber;
     let creatingChild=false;
     if(qNum&&oldDoc&&shouldVersionWithSuffix(oldDoc,"quote")){
@@ -231,6 +231,7 @@ async function saveCurrentQuote(silent){
         }
       }
     }
+    if(!silent)showLoader("Generando consecutivo...");
     if(!qNum)qNum=await getNextNumber("quote");
     await autoSaveClientFromCot();
     for(const cu of cust){try{await registerCustomProduct(cu.n,cu.d,cu.p,cu.u,cu.inCatalog)}catch(e){console.warn("custom register skipped:",e)}}
