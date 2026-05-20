@@ -19,3 +19,5 @@ jobs:
         run: node scripts/check.mjs
       - name: Run despachos unit tests
         run: node scripts/test_despachos.mjs
+      - name: Run menaje unit tests
+        run: node scripts/test_menaje.mjs

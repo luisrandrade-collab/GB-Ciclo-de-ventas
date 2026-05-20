@@ -32,6 +32,7 @@ check.sh
 # v7.9.7.4: migrado de Bash a Node (portable Win/Linux/macOS). check.sh eliminado.
 !scripts/check.mjs
 !scripts/test_despachos.mjs
+!scripts/test_menaje.mjs
 
 # Sistema operativo
 .DS_Store
