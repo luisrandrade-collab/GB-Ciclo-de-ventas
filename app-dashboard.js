@@ -2399,19 +2399,35 @@ function renderUrgent3d(){
     .filter(e=>e.fechaIso&&e.fechaIso>=todayIso&&e.fechaIso<=t3Iso);
 
   // 3. Clasificar en porProducir / porEntregar a nivel de DESPACHO.
-  //    Lógica:
-  //    - Si el despacho tiene status propio ('producido' o 'entregado') → porEntregar.
-  //    - Si el doc completo está produced (legacy o agregado) → porEntregar.
-  //    - Si status del doc es 'en_produccion' → porEntregar.
-  //    - Si status del doc es 'pedido' o 'aprobada' y el despacho está pendiente → porProducir.
+  //    v7.9.7.8 (Codex v5 P1.1 + P1.2): en docs con despachos[] explícitos,
+  //    despacho.status MANDA sobre q.status/q.produced. Los entregados salen
+  //    de la cola pendiente.
+  //    Reglas:
+  //      explícito:
+  //        - entregado  → FUERA de cola (no porProducir ni porEntregar)
+  //        - producido  → porEntregar
+  //        - pendiente  → porProducir
+  //      legacy (sin despachos[], 1 derivado con _legacy=true):
+  //        - q.produced                       → porEntregar
+  //        - q.status pedido/aprobada         → porProducir
+  //        - q.status en_produccion           → porEntregar
+  //        - q.status entregado               → ya filtrado en docsCandidatos
   const porProducir=[],porEntregar=[];
   entradas.forEach(e=>{
     const q=e.q;
-    const s=q.status||"enviada";
     const dStatus=e.despacho?e.despacho.status:null;
-    if(dStatus==="producido"||dStatus==="entregado"){
-      porEntregar.push(e);
-    }else if(q.produced){
+    const esExplicito=e.despacho&&!e.despacho._legacy;
+    if(esExplicito){
+      // Modo nuevo: el despacho individual manda
+      if(dStatus==="entregado")return;          // P1.2: fuera de cola
+      if(dStatus==="producido"){porEntregar.push(e);return}
+      // pendiente (o ausente) → producir
+      porProducir.push(e);
+      return;
+    }
+    // Modo legacy: lógica basada en el doc completo
+    const s=q.status||"enviada";
+    if(q.produced){
       porEntregar.push(e);
     }else if(["pedido","aprobada"].includes(s)){
       porProducir.push(e);
