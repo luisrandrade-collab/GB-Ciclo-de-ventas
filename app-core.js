@@ -189,6 +189,81 @@ function tieneDespachosExplicitos(q){
   return Array.isArray(q?.despachos)&&q.despachos.length>0;
 }
 
+// ─── Modelo de menaje con opciones (v7.9.8) ────────────────
+// Modelo nuevo: proposal.menajeOptions = [{id, label, items:[{name,qty,price}]}]
+// Cada opción es una alternativa (ej. proveedor A vs proveedor B) que el cliente compara.
+// Cuando aprueba, PropFinal queda con propFinalSelection.menaje = <opcionId> y solo
+// esa opción es la "activa".
+//
+// Retrocompat: proposals históricas tienen q.menaje[] plano + q.reposicionData{} plano.
+// Helper getMenajeOpciones(q) las mapea como una única opción legacy transparente al resto del código.
+// Cotizaciones (quotes) NO usan opciones de menaje — siguen con cart/cust sin menaje.
+
+// Devuelve array de opciones de menaje. Si legacy o vacío, devuelve [1 opción derivada] usando q.menaje[].
+function getMenajeOpciones(q){
+  if(!q)return [];
+  if(Array.isArray(q.menajeOptions)&&q.menajeOptions.length){
+    return q.menajeOptions;
+  }
+  // Legacy: q.menaje[] plano se mapea como una única opción
+  if(Array.isArray(q.menaje)&&q.menaje.length){
+    return [{
+      id:"opcion_unica_legacy",
+      label:"Única",
+      items:q.menaje,
+      _legacy:true
+    }];
+  }
+  return [];
+}
+
+// Devuelve la opción activa (la que se va a vender/facturar/entregar).
+// Reglas:
+//  - Si q.propFinalSelection?.menaje existe y matchea una opción → esa.
+//  - Sino, primera del array.
+//  - Sino, null si no hay opciones.
+function getMenajeOpcionActiva(q){
+  const opciones=getMenajeOpciones(q);
+  if(!opciones.length)return null;
+  const seleccionada=q?.propFinalSelection?.menaje;
+  if(seleccionada){
+    const found=opciones.find(op=>op.id===seleccionada);
+    if(found)return found;
+  }
+  return opciones[0];
+}
+
+// Items de la opción activa. Array vacío si no hay menaje.
+function getMenajeItemsActivos(q){
+  const op=getMenajeOpcionActiva(q);
+  return op&&Array.isArray(op.items)?op.items:[];
+}
+
+// Precios de reposición de la opción activa.
+// Reglas:
+//  - Si q.reposicionData es objeto anidado {opcionId: {name: precio}}, devuelve q.reposicionData[opcionId] || {}
+//  - Si es plano {name: precio} (legacy), devuelve tal cual para CUALQUIER opción
+//    (asume mismos precios para todas las opciones, caso legacy).
+//  - Si no hay reposicionData, devuelve {}.
+function getReposicionActivos(q, opcionId){
+  if(!q||!q.reposicionData||typeof q.reposicionData!=="object")return {};
+  const opId=opcionId||(getMenajeOpcionActiva(q)?.id);
+  if(!opId)return q.reposicionData; // sin opción → asume plano
+  // Heurística: si reposicionData tiene una key que matchea un opcionId conocido y su valor es objeto, es anidado
+  const opciones=getMenajeOpciones(q);
+  const algunaOpcionMatch=opciones.some(op=>q.reposicionData[op.id]&&typeof q.reposicionData[op.id]==="object");
+  if(algunaOpcionMatch){
+    return q.reposicionData[opId]||{};
+  }
+  // Caso legacy o plano: devolver tal cual
+  return q.reposicionData;
+}
+
+// True si el doc tiene opciones de menaje explícitas (>=1 en menajeOptions).
+function tieneMenajeOpciones(q){
+  return Array.isArray(q?.menajeOptions)&&q.menajeOptions.length>0;
+}
+
 // v5.0: PIN reemplazado por Firebase Auth. Se deja referencia histórica para rollback.
 // const PIN_CODE_LEGACY="8421";
 const APP_YEAR=new Date().getFullYear();
