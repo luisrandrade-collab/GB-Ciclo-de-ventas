@@ -44,7 +44,16 @@ let propSections=[];
 // v7.9.7 F2: lista de despachos del evento (vacía = modo legacy 1 entrega)
 let currentDespachos=[];
 const DEFAULT_MENAJE=["Platos","Cubiertos","Vasos","Copas / Cristalería","Mantelería","Servilletas","Bandejas","Charoles","Hielera","Jarras"];
-let menajeItems=[];
+// v7.9.8: menaje con opciones. menajeOptions es el array de opciones (A/B/...).
+// menajeItems y reposicionData siguen siendo variables globales pero AHORA son
+// ESPEJO de la opción activa: cuando se cambia de opción, ambas se reasignan
+// con _syncActiveMenajeRefs() para que el resto del código (renderMenaje,
+// addMenajeItem, updReposicion, computePropTotal, genPropPDF, etc.) siga
+// funcionando sin tocar todos los sitios.
+let menajeOptions=[]; // [{id, label, items:[{id,name,qty,price}]}]
+let activeMenajeOptionId=null;
+let reposicionByOption={}; // {opcionId: {name: precio}}
+let menajeItems=[];     // espejo: items de la opción activa
 let tipoServicio="";
 let personalData={
   meseros:{cantidad:"",valor4h:"",horasExtra:"",valorHoraExtra:""},
@@ -102,13 +111,18 @@ function resetAllConditions(){
 }
 
 function renderReposicion(){
+  if(!$("repo-list"))return;
   const items=menajeItems.filter(m=>m.name&&(m.qty||m.price)).map(m=>m.name);
   const uniqueItems=[...new Set(items)];
+  const opLabel=(menajeOptions.find(o=>o.id===activeMenajeOptionId)||{}).label||"";
+  const header=menajeOptions.length>1
+    ?'<div style="font-size:11px;color:var(--gb-gold-500);font-weight:600;padding:4px 8px;margin-bottom:4px">📋 Reposición — '+opLabel+'</div>'
+    :"";
   if(!uniqueItems.length){
-    $("repo-list").innerHTML='<div style="font-size:11px;color:var(--gb-neutral-400);padding:8px;text-align:center;font-style:italic">Agrega items al menaje arriba para que aparezcan aquí con sus precios de reposición.</div>';
+    $("repo-list").innerHTML=header+'<div style="font-size:11px;color:var(--gb-neutral-400);padding:8px;text-align:center;font-style:italic">Agrega items al menaje arriba para que aparezcan aquí con sus precios de reposición.</div>';
     return;
   }
-  $("repo-list").innerHTML=uniqueItems.map(name=>{
+  $("repo-list").innerHTML=header+uniqueItems.map(name=>{
     const curVal=reposicionData[name]||"";
     const sugVal=priceMemoryCache.reposicion[name]||"";
     const isSugg=!curVal&&sugVal;
@@ -116,7 +130,85 @@ function renderReposicion(){
     return '<div class="repo-item"><span class="r-name">'+name+'</span><input type="number" class="r-input'+(isSugg?' sug':'')+'" placeholder="0" value="'+displayVal+'" onchange="updReposicion(\''+name.replace(/'/g,"\\'")+'\',this.value)">'+(isSugg?'<span class="repo-hint">↑ sugerido</span>':'')+'</div>';
   }).join("");
 }
-function updReposicion(name,val){reposicionData[name]=val;renderReposicion()}
+function updReposicion(name,val){
+  reposicionData[name]=val;
+  // v7.9.8: persistir también en reposicionByOption para la opción activa
+  if(activeMenajeOptionId){
+    if(!reposicionByOption[activeMenajeOptionId])reposicionByOption[activeMenajeOptionId]={};
+    reposicionByOption[activeMenajeOptionId][name]=val;
+  }
+  renderReposicion();
+}
+
+// v7.9.8 helpers de gestión de opciones de menaje
+function _syncActiveMenajeRefs(){
+  // Asigna menajeItems y reposicionData para que apunten a la opción activa.
+  // Las dos variables globales siguen siendo el "puntero corto" usado por
+  // renderMenaje, addMenajeItem, computePropTotal, etc.
+  const activeOp=menajeOptions.find(o=>o.id===activeMenajeOptionId);
+  menajeItems=activeOp?activeOp.items:[];
+  reposicionData=activeMenajeOptionId&&reposicionByOption[activeMenajeOptionId]
+    ?reposicionByOption[activeMenajeOptionId]
+    :{};
+}
+
+function addMenajeOption(){
+  const letters="ABCDEFGH";
+  const nextLabel="Opción "+(letters[menajeOptions.length]||menajeOptions.length+1);
+  const newId="op"+(letters[menajeOptions.length]||menajeOptions.length+1)+"_"+Date.now();
+  // Por defecto la nueva opción copia los nombres de items de la activa (sin cant/precio)
+  // para facilitar comparar. Si Luis quiere otra cosa, edita.
+  const baseItems=(menajeItems||[]).map((m,i)=>({id:"m"+i+"_"+Date.now(),name:m.name,qty:"",price:""}));
+  menajeOptions.push({id:newId,label:nextLabel,items:baseItems});
+  reposicionByOption[newId]={};
+  activeMenajeOptionId=newId;
+  _syncActiveMenajeRefs();
+  renderMenaje();
+}
+
+function duplicateMenajeOption(opId){
+  const op=menajeOptions.find(o=>o.id===opId);
+  if(!op)return;
+  const letters="ABCDEFGH";
+  const newLabel="Opción "+(letters[menajeOptions.length]||menajeOptions.length+1);
+  const newId="op"+(letters[menajeOptions.length]||menajeOptions.length+1)+"_"+Date.now();
+  // Copia profunda de items (incluye cant y precio)
+  const clonedItems=op.items.map((m,i)=>({id:"m"+i+"_"+Date.now(),name:m.name,qty:m.qty,price:m.price}));
+  menajeOptions.push({id:newId,label:newLabel,items:clonedItems});
+  // Copiar también los valores de reposición de la opción origen
+  reposicionByOption[newId]={...(reposicionByOption[opId]||{})};
+  activeMenajeOptionId=newId;
+  _syncActiveMenajeRefs();
+  renderMenaje();
+}
+
+function delMenajeOption(opId){
+  if(menajeOptions.length<=1){
+    if(typeof toast==="function")toast("Debe quedar al menos 1 opción de menaje","warn");
+    return;
+  }
+  if(!confirm("¿Eliminar esta opción de menaje y todos sus items? (No se puede deshacer)"))return;
+  menajeOptions=menajeOptions.filter(o=>o.id!==opId);
+  delete reposicionByOption[opId];
+  if(activeMenajeOptionId===opId){
+    activeMenajeOptionId=menajeOptions[0].id;
+  }
+  _syncActiveMenajeRefs();
+  renderMenaje();
+}
+
+function setActiveMenajeOption(opId){
+  if(!menajeOptions.find(o=>o.id===opId))return;
+  activeMenajeOptionId=opId;
+  _syncActiveMenajeRefs();
+  renderMenaje();
+}
+
+function updMenajeOptionLabel(opId,label){
+  const op=menajeOptions.find(o=>o.id===opId);
+  if(op)op.label=label;
+  // No re-render para no romper el foco del input
+}
 
 function onFechaVencChange(){fechaVencimiento=$("fp-fecha-venc").value}
 function setDefaultFechaVenc(){
@@ -231,8 +323,14 @@ function suggestQty(unit,pax){
 }
 
 function initProp(){
-  if(!propSections.length&&!menajeItems.length){
-    menajeItems=DEFAULT_MENAJE.map((n,i)=>({id:"m"+i,name:n,qty:"",price:""}));
+  if(!propSections.length&&!menajeOptions.length){
+    // v7.9.8: inicializa con una única opción "Opción A" con los defaults
+    const defaultItems=DEFAULT_MENAJE.map((n,i)=>({id:"m"+i,name:n,qty:"",price:""}));
+    menajeOptions=[{id:"opA_"+Date.now(),label:"Opción A",items:defaultItems}];
+    activeMenajeOptionId=menajeOptions[0].id;
+    reposicionByOption={};
+    reposicionByOption[activeMenajeOptionId]={};
+    _syncActiveMenajeRefs();
     renderMenaje();
   }
   loadLastPersonalRates();
@@ -512,14 +610,54 @@ function addPropItemCustom(si,oi){
 function updPropItem(si,oi,ii,field,val){propSections[si].options[oi].items[ii][field]=val;renderPropSections()}
 function delPropItem(si,oi,ii){propSections[si].options[oi].items.splice(ii,1);renderPropSections()}
 
-// ─── MENAJE ────────────────────────────────────────────────
+// ─── MENAJE (v7.9.8: con opciones A/B/...) ─────────────────
 function renderMenaje(){
-  $("menaje-list").innerHTML=menajeItems.map((m,i)=>{
+  if(!$("menaje-list"))return;
+  // Auto-bootstrap si está vacío (caso load propuesta legacy sin opciones)
+  if(!menajeOptions.length){
+    menajeOptions=[{id:"opA_"+Date.now(),label:"Opción A",items:[]}];
+    activeMenajeOptionId=menajeOptions[0].id;
+    if(!reposicionByOption[activeMenajeOptionId])reposicionByOption[activeMenajeOptionId]={};
+    _syncActiveMenajeRefs();
+  }
+  if(!activeMenajeOptionId||!menajeOptions.find(o=>o.id===activeMenajeOptionId)){
+    activeMenajeOptionId=menajeOptions[0].id;
+    _syncActiveMenajeRefs();
+  }
+  // Header: tabs de opciones + botones de gestión
+  let html="";
+  if(menajeOptions.length>1){
+    html+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;padding:6px;background:#FAF8F4;border-radius:6px;border:1px solid #E5DFD3">';
+    menajeOptions.forEach(op=>{
+      const isActive=op.id===activeMenajeOptionId;
+      const bg=isActive?"#1B5E20":"#fff";
+      const color=isActive?"#fff":"#1B5E20";
+      const border=isActive?"#1B5E20":"#A5D6A7";
+      html+='<button onclick="setActiveMenajeOption(\''+op.id+'\')" style="background:'+bg+';color:'+color+';border:1px solid '+border+';border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer">'+(op.label||"Opción")+'</button>';
+    });
+    html+='<button onclick="addMenajeOption()" style="background:#fff;color:#1B5E20;border:1px dashed #A5D6A7;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer" title="Agregar nueva opción de menaje">+ Opción</button>';
+    if(menajeOptions.length>1){
+      html+='<button onclick="duplicateMenajeOption(activeMenajeOptionId)" style="background:#fff;color:#5E35B1;border:1px solid #B39DDB;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer" title="Duplicar opción activa">⎘ Duplicar</button>';
+      html+='<button onclick="delMenajeOption(activeMenajeOptionId)" style="background:#fff;color:#C62828;border:1px solid #EF9A9A;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer" title="Eliminar opción activa">× Eliminar opción</button>';
+    }
+    html+='</div>';
+  }else{
+    // 1 sola opción: botón discreto para agregar segunda
+    html+='<div style="display:flex;gap:6px;margin-bottom:8px;align-items:center"><span style="font-size:11px;color:#888;font-style:italic">Una sola lista de menaje. </span><button onclick="addMenajeOption()" style="background:#fff;color:#1B5E20;border:1px dashed #A5D6A7;border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer" title="Ofrecer alternativa de menaje (Opción B de otro proveedor)">+ Agregar Opción B</button></div>';
+  }
+  // Label editable de la opción activa (solo si hay >1)
+  if(menajeOptions.length>1){
+    const activeOp=menajeOptions.find(o=>o.id===activeMenajeOptionId);
+    html+='<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><span style="font-size:11px;color:#888">Etiqueta:</span><input type="text" value="'+(activeOp?.label||"")+'" onchange="updMenajeOptionLabel(\''+activeMenajeOptionId+'\',this.value);renderMenaje()" style="flex:1;padding:3px 6px;border:1px solid var(--gb-neutral-200);border-radius:4px;font-size:12px"></div>';
+  }
+  // Items de la opción activa
+  html+=menajeItems.map((m,i)=>{
     const sugP=!m.price&&priceMemoryCache.menaje[m.name]?priceMemoryCache.menaje[m.name]:"";
     const priceClass=sugP?"mi-price sug":"mi-price";
     const priceTitle=sugP?'title="Sugerido de propuesta anterior"':"";
     return '<div class="menaje-item"><span style="flex:1;font-weight:600">'+m.name+'</span><input type="number" placeholder="Cant." style="width:55px;padding:4px 6px;border:1px solid var(--gb-neutral-200);border-radius:4px;text-align:center;font-size:12px" value="'+m.qty+'" onchange="menajeItems['+i+'].qty=this.value;renderMenaje();renderReposicion()"><input type="number" class="'+priceClass+'" placeholder="'+(sugP?sugP+" (sug)":"Precio")+'" value="'+m.price+'" '+priceTitle+' onchange="menajeItems['+i+'].price=this.value;renderMenaje();renderReposicion()"><button class="del-btn" style="font-size:14px" onclick="menajeItems.splice('+i+',1);renderMenaje();renderReposicion()">×</button></div>';
   }).join("");
+  $("menaje-list").innerHTML=html;
   if($("repo-list"))renderReposicion();
 }
 function addMenajeItem(){const name=prompt("Nombre del ítem de menaje:");if(!name)return;menajeItems.push({id:"m"+Date.now(),name,qty:"",price:""});renderMenaje()}
