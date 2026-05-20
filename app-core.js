@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.7.6";
+const BUILD_VERSION="v7.9.7.7";
 const BUILD_DATE="2026-05-16";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
@@ -3198,6 +3198,18 @@ function _docPreviewRender(q,kind,id){
     }
     // Generar PDF: siempre (si no hay PDF, primero; si hay, regenerar)
     btns.push('<button class="btn dp-btn-genpdf" onclick="docPreviewGenerarPdf()">📄 '+(hasPdf?"Regenerar":"Generar")+' PDF</button>');
+    // v7.9.7.2 F8.8: botón(es) de Remisión de entrega — 1 por despacho si hay >1.
+    // Para legacy (sin despachos[] explícitos), 1 solo botón.
+    if(typeof getDespachos==="function"&&typeof genRemisionDespachoPDF==="function"){
+      const dsRem=getDespachos(q);
+      if(dsRem.length>1){
+        dsRem.forEach((_,i)=>{
+          btns.push('<button class="btn dp-btn-remision" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" onclick="docPreviewRemision('+i+')">🖨️ Remisión d'+(i+1)+'</button>');
+        });
+      }else{
+        btns.push('<button class="btn dp-btn-remision" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" onclick="docPreviewRemision(0)">🖨️ Remisión entrega</button>');
+      }
+    }
     // v7.0-α FIX-03: Revertir entrega (solo si está entregado). Estilo destructivo inline
     // para no tocar CSS files. Confirma con sub-modal "escribe REVERTIR".
     if(st==="entregado"){
@@ -3228,6 +3240,19 @@ function docPreviewVerPdf(){
     return;
   }
   window.open(url,"_blank","noopener");
+}
+
+// v7.9.7.2 F8.8: handler del botón Remisión desde el modal de detalle.
+// Cierra el modal e invoca el generador con el índice de despacho elegido.
+function docPreviewRemision(despachoIdx){
+  if(!_docPreviewCtx)return;
+  const q=_docPreviewCtx.q;
+  if(typeof genRemisionDespachoPDF!=="function"){
+    if(typeof toast==="function")toast("Función de remisión no disponible","error");
+    return;
+  }
+  closeDocPreviewModal();
+  genRemisionDespachoPDF(q,despachoIdx||0);
 }
 
 function docPreviewWhatsApp(){

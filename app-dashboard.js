@@ -2493,6 +2493,13 @@ function urgentItemHtml(entrada){
     // Legacy pendiente → marcar producido del doc entero.
     prodChip='<button class="urgent-prod-chip" onclick="event.stopPropagation();toggleProduced(\''+q.id+'\',\''+q.kind+'\',event)">🔪 Marcar producido</button>';
   }
+  // v7.9.7.2 F8.8: botón "Remisión" disponible siempre que haya despacho granular
+  // o sea legacy con id. Útil para reimprimir desde el carro.
+  let remChip="";
+  if(typeof genRemisionDespachoPDF==="function"){
+    const ridx=despacho&&typeof entrada.idx==="number"?entrada.idx:0;
+    remChip='<button class="urgent-rem-chip" onclick="event.stopPropagation();(function(){const q=quotesCache.find(x=>x.id===\''+q.id+'\'&&x.kind===\''+q.kind+'\');if(q)genRemisionDespachoPDF(q,'+ridx+');})()" style="background:#E8F5E9;color:#1B5E20;border:1px solid #A5D6A7;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;margin-left:4px" title="Imprimir remisión de este despacho">🖨️</button>';
+  }
   return '<div class="urgent-item" onclick="openDocument(\''+q.kind+'\',\''+q.id+'\')">'+
     '<div class="urgent-item-top">'+
       '<div class="urgent-item-txt">'+
@@ -2500,7 +2507,7 @@ function urgentItemHtml(entrada){
         '<div class="urgent-meta"><span class="'+fechaCls+'">'+fechaLabel+'</span>'+hora+'</div>'+
         '<div class="urgent-val">'+total+'</div>'+
       '</div>'+
-      '<div class="urgent-item-act">'+prodChip+'</div>'+
+      '<div class="urgent-item-act">'+prodChip+remChip+'</div>'+
     '</div>'+
   '</div>';
 }

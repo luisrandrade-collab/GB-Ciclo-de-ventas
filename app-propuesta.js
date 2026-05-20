@@ -1237,17 +1237,42 @@ async function genPropPDF(){
       altWrap.forEach(line=>{doc.text(line,mg+2,y);y+=3.5});
       doc.setTextColor(26,26,26);y+=3;
     }
+    // v7.9.7.2 F8.7: incluir cantidad por item + etiqueta "valores unitarios" + caja firma cliente.
+    // Antes: 2 columnas [Item, Valor]. Ahora: 3 columnas [Cant, Item, Valor unitario].
+    // Cantidad sale de q.menaje[].qty matchando por name (menajeItems es global del editor).
     const repoItems=[];
-    menajeItems.filter(m=>m.name&&(m.qty||m.price)).forEach(m=>{if(reposicionData[m.name])repoItems.push({name:m.name,price:reposicionData[m.name]})});
+    menajeItems.filter(m=>m.name&&(m.qty||m.price)).forEach(m=>{
+      if(reposicionData[m.name])repoItems.push({name:m.name,qty:parseInt(m.qty)||0,price:reposicionData[m.name]});
+    });
     if(repoItems.length){
-      const estRep=estH(repoItems.length)+14;
+      const estRep=estH(repoItems.length)+30; // +30 por caja de firma cliente
       if(y+estRep>H-footerH){doc.addPage();y=20}
       const reptd=[];
-      reptd.push([{content:"VALORES DE REPOSICIÓN DE MENAJE",colSpan:2,styles:{fillColor:[211,47,47],textColor:[255,255,255],fontStyle:"bold",fontSize:8.5,halign:"left"}}]);
-      reptd.push([{content:"En caso de daño, rotura o pérdida del menaje durante el evento, los siguientes valores corresponden al costo de reposición:",colSpan:2,styles:{fontSize:7.5,fontStyle:"italic",textColor:[100,100,100],fillColor:[254,248,248]}}]);
-      repoItems.forEach(r=>{reptd.push([r.name,fm(parseInt(r.price)||0)])});
-      doc.autoTable({startY:y,margin:{left:mg,right:mg,bottom:footerH},body:reptd,theme:"grid",columnStyles:{0:{halign:"left",cellWidth:tw*.70},1:{halign:"right",cellWidth:tw*.30}},bodyStyles:{fontSize:8,cellPadding:{top:3,bottom:3,left:6,right:6},textColor:[60,60,60]},styles:{cellPadding:{top:3,bottom:3,left:6,right:6}}});
-      y=doc.lastAutoTable.finalY+6;
+      reptd.push([{content:"VALORES DE REPOSICIÓN DE MENAJE (valores unitarios)",colSpan:3,styles:{fillColor:[211,47,47],textColor:[255,255,255],fontStyle:"bold",fontSize:8.5,halign:"left"}}]);
+      reptd.push([{content:"En caso de daño, rotura o pérdida del menaje durante el evento, los siguientes valores corresponden al costo de reposición. El costo a cobrar será cantidad afectada × valor unitario indicado abajo.",colSpan:3,styles:{fontSize:7.5,fontStyle:"italic",textColor:[100,100,100],fillColor:[254,248,248]}}]);
+      reptd.push([{content:"Cant",styles:{fontStyle:"bold",fontSize:8,halign:"center",fillColor:[245,245,245]}},{content:"Item",styles:{fontStyle:"bold",fontSize:8,halign:"left",fillColor:[245,245,245]}},{content:"Valor unitario",styles:{fontStyle:"bold",fontSize:8,halign:"right",fillColor:[245,245,245]}}]);
+      repoItems.forEach(r=>{reptd.push([{content:String(r.qty||"—"),styles:{halign:"center"}},r.name,{content:fm(parseInt(r.price)||0),styles:{halign:"right"}}])});
+      doc.autoTable({startY:y,margin:{left:mg,right:mg,bottom:footerH},body:reptd,theme:"grid",columnStyles:{0:{cellWidth:tw*.12},1:{cellWidth:tw*.58},2:{cellWidth:tw*.30}},bodyStyles:{fontSize:8,cellPadding:{top:3,bottom:3,left:6,right:6},textColor:[60,60,60]},styles:{cellPadding:{top:3,bottom:3,left:6,right:6}}});
+      y=doc.lastAutoTable.finalY+4;
+      // Caja de aceptación del cliente
+      const cajaH=22;
+      if(y+cajaH>H-footerH){doc.addPage();y=20}
+      doc.setDrawColor(211,47,47);doc.setLineWidth(0.4);doc.roundedRect(mg,y,tw,cajaH,1.5,1.5,"S");
+      doc.setFontSize(8);doc.setFont("helvetica","bold");doc.setTextColor(60,60,60);
+      doc.text("Acepto los valores unitarios de reposición indicados.",mg+4,y+5);
+      doc.setFont("helvetica","normal");doc.setFontSize(7.5);doc.setTextColor(100,100,100);
+      // 4 campos en una fila: Nombre / C.C. / Firma / Fecha
+      const colW=tw/4;
+      const labelY=y+11;
+      const lineY=y+18;
+      ["Nombre:","C.C.:","Firma:","Fecha:"].forEach((lbl,i)=>{
+        const cx=mg+colW*i+3;
+        doc.text(lbl,cx,labelY);
+        doc.setDrawColor(150,150,150);doc.setLineWidth(0.2);
+        doc.line(cx+12,lineY,mg+colW*(i+1)-3,lineY);
+      });
+      doc.setTextColor(26,26,26);
+      y=y+cajaH+4;
     }
     const pw=tw,px=mg;
     doc.setFont("helvetica","normal");doc.setFontSize(8);
@@ -1410,4 +1435,285 @@ async function cancelEdicionProp(){
     hideLoader();
     if(typeof toast==="function")toast("Cambios descartados","success");
   }catch(e){hideLoader();toast("Error al recargar: "+e.message,"error")}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// v7.9.7.2 F8.8: REMISIÓN DE ENTREGA POR DESPACHO
+// ═══════════════════════════════════════════════════════════════════════════
+// Genera un PDF firmable que Kathy/JP lleva al evento.
+// Una remisión por despacho. Aplica con o sin menaje. El menaje (cuando lo
+// hay) aparece SOLO en la remisión del primer despacho cronológico, porque
+// operativamente el menaje se entrega una vez al setup, no por despacho.
+//
+// Items de comida por despacho (decisión D2 del plan):
+//   - assignedTo === despacho.id  → va en ese despacho
+//   - assignedTo === "all"/undefined → va en TODOS los despachos
+//   - assignedTo apunta a otro id → NO va
+//
+// Persistencia de foto firmada: ver despacho.entregaData.actaFotoUrl (queda
+// definido como convención; UI de subida es iteración futura).
+async function genRemisionDespachoPDF(q,despachoIdx){
+  if(!q){alert("Sin documento para remisión");return}
+  if(!window.jspdf||!window.jspdf.jsPDF){alert("jsPDF no cargado");return}
+  if(typeof getDespachos!=="function"){alert("getDespachos no disponible");return}
+  try{
+    if(typeof showLoader==="function")showLoader("Generando remisión...");
+    const despachos=getDespachos(q);
+    if(!despachos.length){if(typeof toast==="function")toast("Sin despachos","warn");if(typeof hideLoader==="function")hideLoader();return}
+    const idx=Math.max(0,Math.min(despachoIdx||0,despachos.length-1));
+    const despacho=despachos[idx];
+
+    // Ordenar despachos cronológicamente para determinar cuál es "primero"
+    const orden=despachos.map((d,i)=>({d,i,fh:d.fechaHora||""})).sort((a,b)=>(a.fh||"").localeCompare(b.fh||""));
+    const esPrimeroCronologico=orden.length>0&&orden[0].i===idx;
+    const totalDesp=despachos.length;
+
+    // Filtrar items de comida según D2
+    const itemsParaRemision=[];
+    if(q.kind==="quote"){
+      (q.cart||[]).forEach(it=>{
+        const tag=it.assignedTo;
+        const va=!tag||tag==="all"||tag===despacho.id;
+        if(va&&it.n)itemsParaRemision.push({qty:it.qty||0,name:it.n,desc:it.d||"",unidad:""});
+      });
+      (q.cust||[]).forEach(it=>{
+        const tag=it.assignedTo;
+        const va=!tag||tag==="all"||tag===despacho.id;
+        if(va&&it.n)itemsParaRemision.push({qty:it.qty||0,name:it.n+"*",desc:it.d||"",unidad:it.u||""});
+      });
+    }else{
+      (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>{
+        const tag=it.assignedTo;
+        const va=!tag||tag==="all"||tag===despacho.id;
+        if(va&&it.name)itemsParaRemision.push({qty:it.qty||0,name:it.name,desc:it.desc||"",unidad:it.unidad||""});
+      })));
+    }
+
+    // Dirección efectiva del despacho
+    let dirText="";
+    if(typeof getDespachoDireccion==="function"){
+      const dirObj=getDespachoDireccion(despacho,q);
+      if(dirObj&&dirObj.dir){dirText=dirObj.dir+(dirObj.city?", "+dirObj.city:"")}
+    }
+    if(!dirText)dirText=(q.dir||"")+(q.city?", "+q.city:"");
+
+    // Fecha y hora del despacho
+    let fechaStr="",horaStr="";
+    if(despacho.fechaHora){
+      const t=despacho.fechaHora.indexOf("T");
+      if(t>0){fechaStr=despacho.fechaHora.slice(0,t);horaStr=despacho.fechaHora.slice(t+1,t+6)}
+      else{fechaStr=despacho.fechaHora.slice(0,10)}
+    }
+    if(!fechaStr)fechaStr=q.eventDate||q.fechaEntrega||"";
+    if(!horaStr)horaStr=q.horaEntrega||"";
+
+    // Crear PDF
+    const {jsPDF}=window.jspdf;
+    const doc=new jsPDF("p","mm","letter");
+    const W=215.9,H=279.4,mg=14;
+    const tw=W-mg*2;
+    let y=mg;
+
+    // ── Header
+    doc.setFont("helvetica","bold");doc.setFontSize(16);doc.setTextColor(27,94,32);
+    doc.text("REMISIÓN DE ENTREGA",W/2,y+4,{align:"center"});
+    y+=8;
+    doc.setFont("helvetica","normal");doc.setFontSize(9);doc.setTextColor(100,100,100);
+    doc.text("Gourmet Bites by Andrade Matuk · "+(new Date().toISOString().slice(0,10)),W/2,y,{align:"center"});
+    y+=6;
+    doc.setDrawColor(201,169,110);doc.setLineWidth(0.4);doc.line(mg,y,W-mg,y);
+    y+=6;
+
+    // ── Bloque cliente
+    doc.setDrawColor(201,169,110);doc.setLineWidth(0.3);doc.roundedRect(mg,y,tw,28,1.5,1.5,"S");
+    doc.setFontSize(8.5);doc.setTextColor(60,60,60);
+    const labelX=mg+3,valueX=mg+3,colW2=tw/3;
+    doc.setFont("helvetica","bold");doc.text("Cliente",labelX,y+5);
+    doc.text("Doc",labelX+colW2,y+5);
+    doc.text("Teléfono",labelX+colW2*2,y+5);
+    doc.setFont("helvetica","normal");doc.setTextColor(26,26,26);
+    doc.text((q.client||"—").toString().substring(0,40),valueX,y+10);
+    doc.text((q.id||q.quoteNumber||"—").toString(),valueX+colW2,y+10);
+    doc.text((q.tel||"—").toString(),valueX+colW2*2,y+10);
+    doc.setFont("helvetica","bold");doc.setTextColor(60,60,60);
+    doc.text("Fecha entrega",labelX,y+17);
+    doc.text("Hora",labelX+colW2,y+17);
+    doc.text("Dirección",labelX+colW2*2,y+17);
+    doc.setFont("helvetica","normal");doc.setTextColor(26,26,26);
+    doc.text(fechaStr||"—",valueX,y+22);
+    doc.text(horaStr||"—",valueX+colW2,y+22);
+    const dirShort=doc.splitTextToSize(dirText||"—",colW2-2);
+    doc.text(dirShort.slice(0,2),valueX+colW2*2,y+22);
+    y+=32;
+
+    // ── Despacho N/M (solo si > 1 despacho)
+    if(totalDesp>1){
+      doc.setFillColor(255,243,224);doc.rect(mg,y,tw,8,"F");
+      doc.setFontSize(10);doc.setFont("helvetica","bold");doc.setTextColor(230,81,0);
+      const labelDesp="🚚 Despacho "+(idx+1)+" de "+totalDesp+(despacho.notas?" · "+despacho.notas:"");
+      doc.text(labelDesp.replace("🚚","►"),mg+3,y+5.5);
+      y+=10;
+      doc.setTextColor(26,26,26);
+    }
+
+    // ── Tabla items comida
+    if(itemsParaRemision.length){
+      const itemsRows=[
+        [{content:"ITEMS ENTREGADOS — COMIDA",colSpan:5,styles:{fillColor:[27,94,32],textColor:[255,255,255],fontStyle:"bold",fontSize:9,halign:"left"}}],
+        [
+          {content:"Cant",styles:{fontStyle:"bold",fillColor:[245,245,245],halign:"center"}},
+          {content:"Producto",styles:{fontStyle:"bold",fillColor:[245,245,245],halign:"left"}},
+          {content:"Descripción",styles:{fontStyle:"bold",fillColor:[245,245,245],halign:"left"}},
+          {content:"Unidad",styles:{fontStyle:"bold",fillColor:[245,245,245],halign:"center"}},
+          {content:"Recibido",styles:{fontStyle:"bold",fillColor:[245,245,245],halign:"center"}}
+        ]
+      ];
+      itemsParaRemision.forEach(it=>{
+        itemsRows.push([
+          {content:String(it.qty||"—"),styles:{halign:"center",fontStyle:"bold"}},
+          it.name||"—",
+          it.desc||"",
+          {content:it.unidad||"",styles:{halign:"center",fontSize:7}},
+          {content:"",styles:{halign:"center"}}
+        ]);
+      });
+      doc.autoTable({startY:y,margin:{left:mg,right:mg,bottom:14},body:itemsRows,theme:"grid",
+        columnStyles:{0:{cellWidth:tw*.10},1:{cellWidth:tw*.30},2:{cellWidth:tw*.34},3:{cellWidth:tw*.12},4:{cellWidth:tw*.14}},
+        bodyStyles:{fontSize:8,cellPadding:{top:2.5,bottom:2.5,left:4,right:4},textColor:[60,60,60],minCellHeight:8},
+        styles:{cellPadding:{top:2.5,bottom:2.5,left:4,right:4}}
+      });
+      y=doc.lastAutoTable.finalY+5;
+    }
+
+    // ── Tabla menaje (solo si primer despacho cronológico Y hay menaje cargado)
+    const menajeItemsLocal=Array.isArray(q.menaje)?q.menaje:(typeof menajeItems!=="undefined"?menajeItems:[]);
+    const repoLocal=(q.reposicionData&&typeof q.reposicionData==="object")?q.reposicionData:(typeof reposicionData!=="undefined"?reposicionData:{});
+    const tieneMenajeRender=esPrimeroCronologico&&menajeItemsLocal.length>0&&menajeItemsLocal.some(m=>m.name&&m.qty);
+    if(tieneMenajeRender){
+      // Saltar página si poco espacio
+      if(y>H-90){doc.addPage();y=mg}
+      const menajeRows=[
+        [{content:"MENAJE ENTREGADO (valores unitarios)",colSpan:4,styles:{fillColor:[211,47,47],textColor:[255,255,255],fontStyle:"bold",fontSize:9,halign:"left"}}],
+        [{content:"Los valores indicados son UNITARIOS. En caso de daño, rotura o pérdida: cantidad afectada × valor unitario indicado.",colSpan:4,styles:{fontSize:7.5,fontStyle:"italic",textColor:[100,100,100],fillColor:[254,248,248]}}],
+        [
+          {content:"Cant",styles:{fontStyle:"bold",fillColor:[245,245,245],halign:"center"}},
+          {content:"Item",styles:{fontStyle:"bold",fillColor:[245,245,245],halign:"left"}},
+          {content:"Valor unitario reposición",styles:{fontStyle:"bold",fillColor:[245,245,245],halign:"right"}},
+          {content:"Recibido",styles:{fontStyle:"bold",fillColor:[245,245,245],halign:"center"}}
+        ]
+      ];
+      menajeItemsLocal.filter(m=>m.name&&m.qty).forEach(m=>{
+        const repo=repoLocal[m.name];
+        menajeRows.push([
+          {content:String(m.qty||"—"),styles:{halign:"center",fontStyle:"bold"}},
+          m.name||"—",
+          {content:repo?fm(parseInt(repo)||0):"—",styles:{halign:"right"}},
+          {content:"",styles:{halign:"center"}}
+        ]);
+      });
+      doc.autoTable({startY:y,margin:{left:mg,right:mg,bottom:14},body:menajeRows,theme:"grid",
+        columnStyles:{0:{cellWidth:tw*.10},1:{cellWidth:tw*.50},2:{cellWidth:tw*.25},3:{cellWidth:tw*.15}},
+        bodyStyles:{fontSize:8,cellPadding:{top:2.5,bottom:2.5,left:4,right:4},textColor:[60,60,60],minCellHeight:8}
+      });
+      y=doc.lastAutoTable.finalY+5;
+    }
+
+    // ── Sección "Recibo del cliente"
+    if(y>H-55){doc.addPage();y=mg}
+    doc.setFillColor(245,245,245);doc.rect(mg,y,tw,7,"F");
+    doc.setFontSize(9.5);doc.setFont("helvetica","bold");doc.setTextColor(26,26,26);
+    doc.text("RECIBO DEL CLIENTE — al entregar",mg+3,y+5);
+    y+=10;
+    doc.setFontSize(8.5);doc.setFont("helvetica","normal");doc.setTextColor(60,60,60);
+    doc.setDrawColor(100,100,100);doc.setLineWidth(0.3);
+    // Checkbox 1
+    doc.rect(mg+2,y-3.5,4,4,"S");
+    doc.text("Recibí conforme los items indicados arriba.",mg+8,y);
+    y+=5;
+    if(tieneMenajeRender){
+      doc.rect(mg+2,y-3.5,4,4,"S");
+      doc.text("Acepto los valores unitarios de reposición del menaje.",mg+8,y);
+      y+=5;
+    }
+    y+=2;
+    // 2 columnas de firma (cliente / entrega)
+    const colF=tw/2;
+    ["Firma del cliente","Entregado por (Gourmet Bites)"].forEach((titulo,i)=>{
+      const cx=mg+colF*i;
+      doc.setFont("helvetica","bold");doc.setFontSize(8);doc.setTextColor(60,60,60);
+      doc.text(titulo,cx+2,y+4);
+      doc.setFont("helvetica","normal");doc.setFontSize(7.5);doc.setTextColor(100,100,100);
+      doc.setDrawColor(150,150,150);doc.setLineWidth(0.2);
+      doc.text("Nombre:",cx+2,y+12);doc.line(cx+18,y+12.4,cx+colF-3,y+12.4);
+      if(i===0){doc.text("C.C.:",cx+2,y+17);doc.line(cx+18,y+17.4,cx+colF-3,y+17.4)}
+      doc.text("Fecha y hora:",cx+2,y+22);doc.line(cx+22,y+22.4,cx+colF-3,y+22.4);
+    });
+    y+=28;
+
+    // ── Sección devolución del menaje (solo si tiene menaje en este despacho)
+    if(tieneMenajeRender){
+      if(y>H-60){doc.addPage();y=mg}
+      doc.setFillColor(245,245,245);doc.rect(mg,y,tw,7,"F");
+      doc.setFontSize(9.5);doc.setFont("helvetica","bold");doc.setTextColor(26,26,26);
+      doc.text("DEVOLUCIÓN DEL MENAJE — al recoger después del evento",mg+3,y+5);
+      y+=10;
+      doc.setFontSize(8.5);doc.setFont("helvetica","normal");doc.setTextColor(60,60,60);
+      doc.setDrawColor(100,100,100);doc.setLineWidth(0.3);
+      doc.rect(mg+2,y-3.5,4,4,"S");
+      doc.text("Devuelto conforme — sin daños ni pérdidas.",mg+8,y);
+      y+=5;
+      doc.rect(mg+2,y-3.5,4,4,"S");
+      doc.text("Con daños o pérdidas — detalle abajo:",mg+8,y);
+      y+=4;
+      // Tabla vacía para llenar a mano
+      const dañosRows=[
+        [
+          {content:"Item dañado/perdido",styles:{fontStyle:"bold",fillColor:[245,245,245],halign:"left"}},
+          {content:"Cant",styles:{fontStyle:"bold",fillColor:[245,245,245],halign:"center"}},
+          {content:"Valor unitario",styles:{fontStyle:"bold",fillColor:[245,245,245],halign:"right"}},
+          {content:"Total a cobrar",styles:{fontStyle:"bold",fillColor:[245,245,245],halign:"right"}}
+        ],
+        ["","","",""],["","","",""],["","","",""],
+        [{content:"TOTAL A COBRAR POR DAÑOS",colSpan:3,styles:{halign:"right",fontStyle:"bold"}},{content:"",styles:{halign:"right"}}]
+      ];
+      doc.autoTable({startY:y,margin:{left:mg,right:mg,bottom:14},body:dañosRows,theme:"grid",
+        columnStyles:{0:{cellWidth:tw*.50},1:{cellWidth:tw*.12},2:{cellWidth:tw*.18},3:{cellWidth:tw*.20}},
+        bodyStyles:{fontSize:8,cellPadding:{top:3,bottom:3,left:4,right:4},textColor:[60,60,60],minCellHeight:9}
+      });
+      y=doc.lastAutoTable.finalY+4;
+      // Firmas devolución
+      ["Firma del cliente (devolución)","Recogido por (Gourmet Bites)"].forEach((titulo,i)=>{
+        const cx=mg+colF*i;
+        doc.setFont("helvetica","bold");doc.setFontSize(8);doc.setTextColor(60,60,60);
+        doc.text(titulo,cx+2,y+4);
+        doc.setFont("helvetica","normal");doc.setFontSize(7.5);doc.setTextColor(100,100,100);
+        doc.setDrawColor(150,150,150);doc.setLineWidth(0.2);
+        doc.text("Nombre:",cx+2,y+12);doc.line(cx+18,y+12.4,cx+colF-3,y+12.4);
+        doc.text("Fecha y hora:",cx+2,y+18);doc.line(cx+22,y+18.4,cx+colF-3,y+18.4);
+      });
+      y+=24;
+    }
+
+    // ── Footer en cada página
+    const pg=doc.getNumberOfPages();
+    for(let i=1;i<=pg;i++){
+      doc.setPage(i);
+      doc.setDrawColor(201,169,110);doc.setLineWidth(0.3);doc.line(mg,H-10,W-mg,H-10);
+      doc.setFontSize(7.5);doc.setTextColor(100,100,100);doc.setFont("helvetica","normal");
+      doc.text("Gourmet Bites by Andrade Matuk · WhatsApp +57 310 444 1588 · @GourmetBitesbyAndradeMatuk",mg,H-6);
+      doc.text("Pág. "+i+" de "+pg,W-mg,H-6,{align:"right"});
+    }
+
+    // ── Guardar
+    const clSafe=(q.client||"sin").normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-zA-Z0-9]/g,"_");
+    const fname="Remision_"+clSafe+"_"+(q.id||q.quoteNumber||"doc")+(totalDesp>1?"_d"+(idx+1):"")+"_"+(fechaStr||"sinFecha")+".pdf";
+    doc.save(fname);
+    if(typeof hideLoader==="function")hideLoader();
+    if(typeof toast==="function")toast("📄 Remisión generada","success");
+  }catch(e){
+    if(typeof hideLoader==="function")hideLoader();
+    console.error("[genRemisionDespachoPDF]",e);
+    if(typeof toast==="function")toast("Error generando remisión: "+e.message,"error");
+    else alert("Error: "+e.message);
+  }
 }
