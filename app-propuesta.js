@@ -1811,8 +1811,27 @@ async function genRemisionDespachoPDF(q,despachoIdx){
     }
 
     // ── Tabla menaje (solo si primer despacho cronológico Y hay menaje cargado)
-    const menajeItemsLocal=Array.isArray(q.menaje)?q.menaje:(typeof menajeItems!=="undefined"?menajeItems:[]);
-    const repoLocal=(q.reposicionData&&typeof q.reposicionData==="object")?q.reposicionData:(typeof reposicionData!=="undefined"?reposicionData:{});
+    // v7.9.8: usa la opción activa via helpers (getMenajeItemsActivos + getReposicionActivos)
+    // con retrocompat al modelo legacy q.menaje[] plano.
+    let menajeItemsLocal=[];
+    let repoLocal={};
+    if(typeof getMenajeItemsActivos==="function"){
+      menajeItemsLocal=getMenajeItemsActivos(q);
+      if(!menajeItemsLocal.length&&typeof menajeItems!=="undefined"){
+        // Si q no tiene opciones cargadas (caso edición en memoria), cae a menajeItems global
+        menajeItemsLocal=menajeItems;
+      }
+      if(typeof getReposicionActivos==="function"){
+        repoLocal=getReposicionActivos(q);
+        if(!repoLocal||Object.keys(repoLocal).length===0){
+          repoLocal=(q.reposicionData&&typeof q.reposicionData==="object")?q.reposicionData:(typeof reposicionData!=="undefined"?reposicionData:{});
+        }
+      }
+    }else{
+      // Fallback ultra-defensivo (no debería ocurrir si app-core.js está cargado)
+      menajeItemsLocal=Array.isArray(q.menaje)?q.menaje:(typeof menajeItems!=="undefined"?menajeItems:[]);
+      repoLocal=(q.reposicionData&&typeof q.reposicionData==="object")?q.reposicionData:(typeof reposicionData!=="undefined"?reposicionData:{});
+    }
     const tieneMenajeRender=esPrimeroCronologico&&menajeItemsLocal.length>0&&menajeItemsLocal.some(m=>m.name&&m.qty);
     if(tieneMenajeRender){
       // Saltar página si poco espacio
