@@ -1358,10 +1358,18 @@ async function genPropPDF(){
       doc.autoTable({startY:y,margin:{left:mg,right:mg,bottom:footerH},body:ptd,theme:"grid",columnStyles:{0:{halign:"left",cellWidth:tw*.50},1:{halign:"center",cellWidth:tw*.10},2:{halign:"right",cellWidth:tw*.20},3:{halign:"right",cellWidth:tw*.20}},bodyStyles:{fontSize:8,cellPadding:{top:3.5,bottom:3.5,left:6,right:6},textColor:[60,60,60]},alternateRowStyles:{fillColor:[250,245,250]},styles:{cellPadding:{top:3.5,bottom:3.5,left:6,right:6}},didParseCell:function(data){if(data.row.index===ptd.length-1&&data.section==="body"){data.cell.styles.fillColor=[255,255,255]}}});
       y=doc.lastAutoTable.finalY+4;
     }
-    const usedMenaje=menajeItems.filter(m=>m.qty||m.price);
-    if(usedMenaje.length){
+    // v7.9.8: render MENAJE por opción (A/B/...) si hay >1; si solo 1, render tradicional.
+    const _menajeOpcionesRender=Array.isArray(menajeOptions)&&menajeOptions.length
+      ?menajeOptions
+      :[{id:"_active",label:"",items:menajeItems}];
+    const _multiOpciones=_menajeOpcionesRender.length>1;
+    _menajeOpcionesRender.forEach(_op=>{
+      const opItems=Array.isArray(_op.items)?_op.items:[];
+      const usedMenaje=opItems.filter(m=>m.qty||m.price);
+      if(!usedMenaje.length)return;
+      const headerTxt=_multiOpciones?("MENAJE — "+(_op.label||"Opción")):"MENAJE";
       const mtd=[];
-      mtd.push([{content:"MENAJE",colSpan:4,styles:{fillColor:[201,169,110],textColor:[255,255,255],fontStyle:"bold",fontSize:8.5,halign:"left"}}]);
+      mtd.push([{content:headerTxt,colSpan:4,styles:{fillColor:[201,169,110],textColor:[255,255,255],fontStyle:"bold",fontSize:8.5,halign:"left"}}]);
       usedMenaje.forEach(m=>{mtd.push([m.name,String(m.qty||""),m.price?fm(parseInt(m.price)):"—",m.qty&&m.price?fm(parseInt(m.qty)*parseInt(m.price)):"—"])});
       const mSub=usedMenaje.reduce((s,m)=>s+(parseInt(m.price)||0)*(parseInt(m.qty)||0),0);
       if(mSub)mtd.push([{content:"",colSpan:2},{content:"Subtotal",styles:{fontStyle:"bold",halign:"right",fontSize:8}},{content:fm(mSub),styles:{fontStyle:"bold",halign:"right",fontSize:8,textColor:[76,175,80]}}]);
@@ -1369,6 +1377,15 @@ async function genPropPDF(){
       if(y+est2>H-footerH){doc.addPage();y=20}
       doc.autoTable({startY:y,margin:{left:mg,right:mg,bottom:footerH},body:mtd,theme:"grid",columnStyles:{0:{halign:"left",cellWidth:tw*.50},1:{halign:"center",cellWidth:tw*.10},2:{halign:"right",cellWidth:tw*.20},3:{halign:"right",cellWidth:tw*.20}},bodyStyles:{fontSize:8,cellPadding:{top:3.5,bottom:3.5,left:6,right:6},textColor:[60,60,60]},alternateRowStyles:{fillColor:[250,250,248]},styles:{cellPadding:{top:3.5,bottom:3.5,left:6,right:6}},didParseCell:function(data){if(data.row.index===mtd.length-1&&data.section==="body"){data.cell.styles.fillColor=[255,255,255]}}});
       y=doc.lastAutoTable.finalY+5;
+    });
+    // Si hay multi-opciones, agregar nota explicativa del total
+    if(_multiOpciones){
+      doc.setFont("helvetica","italic");doc.setFontSize(7.5);doc.setTextColor(100,100,100);
+      const activaLabel=(menajeOptions.find(o=>o.id===activeMenajeOptionId)||{}).label||"primera opción";
+      const notaMulti="El TOTAL DEL SERVICIO considera el menaje de "+activaLabel+". Al elegir otra opción, el total se ajusta.";
+      const wrapNota=doc.splitTextToSize(notaMulti,tw-4);
+      wrapNota.forEach(line=>{doc.text(line,mg+2,y);y+=3.5});
+      doc.setTextColor(26,26,26);y+=2;
     }
     // v5.0: calcula MIN y MAX por sección (antes solo Opción A).
     // Así el cliente ve un RANGO realista, no un valor de Opción A que podría ser el más barato.
@@ -1431,26 +1448,43 @@ async function genPropPDF(){
     // v7.9.7.2 F8.7: incluir cantidad por item + etiqueta "valores unitarios" + caja firma cliente.
     // Antes: 2 columnas [Item, Valor]. Ahora: 3 columnas [Cant, Item, Valor unitario].
     // Cantidad sale de q.menaje[].qty matchando por name (menajeItems es global del editor).
-    const repoItems=[];
-    menajeItems.filter(m=>m.name&&(m.qty||m.price)).forEach(m=>{
-      if(reposicionData[m.name])repoItems.push({name:m.name,qty:parseInt(m.qty)||0,price:reposicionData[m.name]});
-    });
-    if(repoItems.length){
+    // v7.9.8: render valores de reposición por opción si hay >1; sino tradicional.
+    // F8.7 (firma cliente) también se renderiza por opción si >1, con texto específico.
+    const _opcionesParaRepo=Array.isArray(menajeOptions)&&menajeOptions.length
+      ?menajeOptions
+      :[{id:"_active",label:"",items:menajeItems}];
+    const _multiOpRepo=_opcionesParaRepo.length>1;
+    _opcionesParaRepo.forEach(_op=>{
+      const opItems=Array.isArray(_op.items)?_op.items:[];
+      const opReposicion=_multiOpRepo
+        ?(reposicionByOption[_op.id]||{})
+        :reposicionData;
+      const repoItems=[];
+      opItems.filter(m=>m.name&&(m.qty||m.price)).forEach(m=>{
+        if(opReposicion[m.name])repoItems.push({name:m.name,qty:parseInt(m.qty)||0,price:opReposicion[m.name]});
+      });
+      if(!repoItems.length)return;
       const estRep=estH(repoItems.length)+30; // +30 por caja de firma cliente
       if(y+estRep>H-footerH){doc.addPage();y=20}
       const reptd=[];
-      reptd.push([{content:"VALORES DE REPOSICIÓN DE MENAJE (valores unitarios)",colSpan:3,styles:{fillColor:[211,47,47],textColor:[255,255,255],fontStyle:"bold",fontSize:8.5,halign:"left"}}]);
+      const headerRepo=_multiOpRepo
+        ?"VALORES DE REPOSICIÓN DE MENAJE — "+(_op.label||"Opción")+" (valores unitarios)"
+        :"VALORES DE REPOSICIÓN DE MENAJE (valores unitarios)";
+      reptd.push([{content:headerRepo,colSpan:3,styles:{fillColor:[211,47,47],textColor:[255,255,255],fontStyle:"bold",fontSize:8.5,halign:"left"}}]);
       reptd.push([{content:"En caso de daño, rotura o pérdida del menaje durante el evento, los siguientes valores corresponden al costo de reposición. El costo a cobrar será cantidad afectada × valor unitario indicado abajo.",colSpan:3,styles:{fontSize:7.5,fontStyle:"italic",textColor:[100,100,100],fillColor:[254,248,248]}}]);
       reptd.push([{content:"Cant",styles:{fontStyle:"bold",fontSize:8,halign:"center",fillColor:[245,245,245]}},{content:"Item",styles:{fontStyle:"bold",fontSize:8,halign:"left",fillColor:[245,245,245]}},{content:"Valor unitario",styles:{fontStyle:"bold",fontSize:8,halign:"right",fillColor:[245,245,245]}}]);
       repoItems.forEach(r=>{reptd.push([{content:String(r.qty||"—"),styles:{halign:"center"}},r.name,{content:fm(parseInt(r.price)||0),styles:{halign:"right"}}])});
       doc.autoTable({startY:y,margin:{left:mg,right:mg,bottom:footerH},body:reptd,theme:"grid",columnStyles:{0:{cellWidth:tw*.12},1:{cellWidth:tw*.58},2:{cellWidth:tw*.30}},bodyStyles:{fontSize:8,cellPadding:{top:3,bottom:3,left:6,right:6},textColor:[60,60,60]},styles:{cellPadding:{top:3,bottom:3,left:6,right:6}}});
       y=doc.lastAutoTable.finalY+4;
-      // Caja de aceptación del cliente
+      // Caja de aceptación del cliente (F8.7) — adapta texto si hay opciones múltiples
       const cajaH=22;
       if(y+cajaH>H-footerH){doc.addPage();y=20}
       doc.setDrawColor(211,47,47);doc.setLineWidth(0.4);doc.roundedRect(mg,y,tw,cajaH,1.5,1.5,"S");
       doc.setFontSize(8);doc.setFont("helvetica","bold");doc.setTextColor(60,60,60);
-      doc.text("Acepto los valores unitarios de reposición indicados.",mg+4,y+5);
+      const txtFirma=_multiOpRepo
+        ?("Acepto la "+(_op.label||"Opción")+" y sus valores unitarios de reposición.")
+        :"Acepto los valores unitarios de reposición indicados.";
+      doc.text(txtFirma,mg+4,y+5);
       doc.setFont("helvetica","normal");doc.setFontSize(7.5);doc.setTextColor(100,100,100);
       // 4 campos en una fila: Nombre / C.C. / Firma / Fecha
       const colW=tw/4;
@@ -1464,7 +1498,7 @@ async function genPropPDF(){
       });
       doc.setTextColor(26,26,26);
       y=y+cajaH+4;
-    }
+    });
     const pw=tw,px=mg;
     doc.setFont("helvetica","normal");doc.setFontSize(8);
     const nt="Para reservar la fecha del evento, se requiere el pago de un anticipo del 50% del valor total. El 50% restante deberá ser cancelado a más tardar 24 horas después de finalizado el evento. Por favor envía el comprobante de pago por WhatsApp para procesar la confirmación.";
