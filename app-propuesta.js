@@ -765,9 +765,13 @@ async function savePropQuote(silent){
       tipoServicio:tipoServicio||"",
       personalData:JSON.parse(JSON.stringify(personalData)),
       sections:JSON.parse(JSON.stringify(propSections)),
+      // v7.9.8: persistir tanto menaje[] (legacy, items de la opción activa) como menajeOptions[] (nuevo, todas las opciones)
       menaje:JSON.parse(JSON.stringify(menajeItems)),
+      menajeOptions:JSON.parse(JSON.stringify(menajeOptions)),
       aperturaFrase:aperturaFrase,fechaVencimiento:fechaVencimiento,
       condicionesData:JSON.parse(JSON.stringify(condicionesData)),
+      // v7.9.8: persistir reposicionByOption (nuevo) además de reposicionData plano (legacy compat)
+      reposicionByOption:JSON.parse(JSON.stringify(reposicionByOption)),
       reposicionData:JSON.parse(JSON.stringify(reposicionData)),
       firma:firmaProp,status:prevStatus,
       requiereFE:!!($("fp-requiere-fe")&&$("fp-requiere-fe").checked),
@@ -927,7 +931,18 @@ function loadPropQuote(q){
     updTrP();
   }
   propSections=q.sections||[];
-  menajeItems=q.menaje||[];
+  // v7.9.8: hidratar menajeOptions desde q.menajeOptions (nuevo) o derivar de q.menaje[] legacy
+  if(Array.isArray(q.menajeOptions)&&q.menajeOptions.length){
+    menajeOptions=JSON.parse(JSON.stringify(q.menajeOptions));
+  }else{
+    const legacyItems=Array.isArray(q.menaje)?JSON.parse(JSON.stringify(q.menaje)):[];
+    menajeOptions=[{id:"opA_legacy_"+Date.now(),label:"Opción A",items:legacyItems}];
+  }
+  // Activa: respetar propFinalSelection.menaje si está, sino la primera
+  const selOpId=q?.propFinalSelection?.menaje;
+  activeMenajeOptionId=(selOpId&&menajeOptions.find(o=>o.id===selOpId))
+    ?selOpId
+    :menajeOptions[0].id;
   tipoServicio=q.tipoServicio||"";
   // v7.9.7 F2: cargar despachos al editar propuesta existente
   if(typeof loadDespachosFromDoc==="function")loadDespachosFromDoc(q);
@@ -941,7 +956,19 @@ function loadPropQuote(q){
   aperturaFrase=q.aperturaFrase||"Una experiencia culinaria diseñada a medida para su evento.";
   fechaVencimiento=q.fechaVencimiento||"";
   condicionesData=q.condicionesData?JSON.parse(JSON.stringify(q.condicionesData)):{};
-  reposicionData=q.reposicionData?JSON.parse(JSON.stringify(q.reposicionData)):{};
+  // v7.9.8: hidratar reposicionByOption (nuevo anidado) o derivar de reposicionData plano legacy
+  if(q.reposicionByOption&&typeof q.reposicionByOption==="object"&&!Array.isArray(q.reposicionByOption)){
+    reposicionByOption=JSON.parse(JSON.stringify(q.reposicionByOption));
+  }else{
+    reposicionByOption={};
+  }
+  // Si no había reposicionByOption pero sí reposicionData plano, asignarlo a la opción activa
+  if(Object.keys(reposicionByOption).length===0&&q.reposicionData&&typeof q.reposicionData==="object"){
+    reposicionByOption[activeMenajeOptionId]=JSON.parse(JSON.stringify(q.reposicionData));
+  }
+  // Asegurar que la opción activa tenga su objeto de reposición (vacío si nuevo)
+  if(!reposicionByOption[activeMenajeOptionId])reposicionByOption[activeMenajeOptionId]={};
+  _syncActiveMenajeRefs();
   initCondiciones();
   if($("fp-apertura"))$("fp-apertura").value=aperturaFrase;
   if($("fp-fecha-venc")){if(fechaVencimiento){$("fp-fecha-venc").value=fechaVencimiento}else{setDefaultFechaVenc()}}
@@ -1032,11 +1059,33 @@ async function generarPropuestaFinal(){
     const pfNum=await getNextNumber("propfinal");
     const src=propFinalSource;
     propSections=pfSections;
+    // v7.9.8: cargar menajeOptions desde src (PropFinal source) preservando opciones + selección
+    if(Array.isArray(src.menajeOptions)&&src.menajeOptions.length){
+      menajeOptions=JSON.parse(JSON.stringify(src.menajeOptions));
+    }else{
+      const legacyItems=Array.isArray(src.menaje)?JSON.parse(JSON.stringify(src.menaje)):[];
+      menajeOptions=[{id:"opA_legacy_"+Date.now(),label:"Opción A",items:legacyItems}];
+    }
+    const srcSelOpId=src?.propFinalSelection?.menaje;
+    activeMenajeOptionId=(srcSelOpId&&menajeOptions.find(o=>o.id===srcSelOpId))
+      ?srcSelOpId
+      :menajeOptions[0].id;
     menajeItems=JSON.parse(JSON.stringify(src.menaje||[]));
     personalData=JSON.parse(JSON.stringify(src.personalData||{meseros:{},auxiliares:{}}));
     tipoServicio=src.tipoServicio||"";
     condicionesData=JSON.parse(JSON.stringify(src.condicionesData||{}));
     reposicionData=JSON.parse(JSON.stringify(src.reposicionData||{}));
+    // v7.9.8: hidratar reposicionByOption del source o derivar legacy
+    if(src.reposicionByOption&&typeof src.reposicionByOption==="object"&&!Array.isArray(src.reposicionByOption)){
+      reposicionByOption=JSON.parse(JSON.stringify(src.reposicionByOption));
+    }else{
+      reposicionByOption={};
+      if(src.reposicionData&&typeof src.reposicionData==="object"){
+        reposicionByOption[activeMenajeOptionId]=JSON.parse(JSON.stringify(src.reposicionData));
+      }
+    }
+    if(!reposicionByOption[activeMenajeOptionId])reposicionByOption[activeMenajeOptionId]={};
+    _syncActiveMenajeRefs();
     firmaProp=src.firma||"jp";
     aperturaFrase="Confirmación final del servicio de catering acordado con las opciones seleccionadas por el cliente.";
     fechaVencimiento=src.fechaVencimiento||"";
@@ -1062,9 +1111,13 @@ async function generarPropuestaFinal(){
       city:src.city||"",cityType:src.cityType||"",trCustom:src.trCustom||"",
       pers:src.pers||"",momento:src.momento||"",eventDate:src.eventDate||"",
       tipoServicio:tipoServicio,personalData:personalData,
+      // v7.9.8: PropFinal incluye TODAS las opciones de menaje preservadas + propFinalSelection.menaje marca la activa
       sections:pfSections,menaje:menajeItems,
+      menajeOptions:JSON.parse(JSON.stringify(menajeOptions)),
+      propFinalSelection:{menaje:activeMenajeOptionId},
       aperturaFrase:aperturaFrase,fechaVencimiento:fechaVencimiento,
       condicionesData:condicionesData,reposicionData:reposicionData,
+      reposicionByOption:JSON.parse(JSON.stringify(reposicionByOption)),
       firma:firmaProp,status:"propfinal",sourceProposal:src.id
     };
     // v4.12.1: persistir el total real para que el dashboard sume bien
