@@ -1450,9 +1450,12 @@ async function genPropPDF(){
     // Cantidad sale de q.menaje[].qty matchando por name (menajeItems es global del editor).
     // v7.9.8: render valores de reposición por opción si hay >1; sino tradicional.
     // F8.7 (firma cliente) también se renderiza por opción si >1, con texto específico.
-    const _opcionesParaRepo=Array.isArray(menajeOptions)&&menajeOptions.length
+    // v7.9.8.1: la sección VALORES DE REPOSICIÓN (+ caja firma cliente) SOLO se renderiza
+    // en PropFinal (isFinal=true). En propuesta inicial NO se muestra — los valores de
+    // reposición se aceptan cuando el cliente aprueba y firma la PropFinal.
+    const _opcionesParaRepo=isFinal&&Array.isArray(menajeOptions)&&menajeOptions.length
       ?menajeOptions
-      :[{id:"_active",label:"",items:menajeItems}];
+      :(isFinal?[{id:"_active",label:"",items:menajeItems}]:[]);
     const _multiOpRepo=_opcionesParaRepo.length>1;
     _opcionesParaRepo.forEach(_op=>{
       const opItems=Array.isArray(_op.items)?_op.items:[];
