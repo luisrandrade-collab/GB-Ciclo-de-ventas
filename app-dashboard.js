@@ -4406,15 +4406,24 @@ function generarPdfEmpaque(){
   // v7.9.8.2: expandir cada doc a N hojas si tiene despachos[] explícitos.
   // Una hoja por despacho. Items con assignedTo === despacho.id van solo en su hoja.
   // Items sin assignedTo (o "all") = GLOBALES → se repiten en cada hoja con etiqueta.
-  // Docs legacy (sin despachos[] o 1 despacho derivado): 1 hoja como antes (sin cambio visual).
+  // v7.9.8.3: SEPARAR "multi-hoja" (¿expandir?) de "usar despacho" (¿usar fechaHora/dir
+  // efectivas del despacho?). Caso 1 despacho explícito único: NO expandir pero SÍ usar
+  // datos del despacho. Items huérfanos (assignedTo a despacho borrado) se incluyen en
+  // TODAS las hojas con etiqueta "[ASIGNACIÓN INVÁLIDA]" + console.warn.
+  // Docs legacy (sin despachos[] o solo derivado): 1 hoja como antes (sin cambio visual).
   const _entradas=[];
   docs.forEach(q=>{
     const despachos=(typeof getDespachos==="function")?getDespachos(q):[];
-    const multiDespacho=despachos.length>1&&despachos.some(d=>!d._legacy);
+    const hayExplicito=despachos.some(d=>!d._legacy);
+    const multiDespacho=despachos.length>1&&hayExplicito;
     if(multiDespacho){
-      despachos.forEach((d,di)=>_entradas.push({q,despacho:d,despachoIdx:di,totalDespachos:despachos.length,multi:true}));
+      despachos.forEach((d,di)=>_entradas.push({q,despacho:d,despachoIdx:di,totalDespachos:despachos.length,multi:true,_despachosArr:despachos}));
+    }else if(hayExplicito){
+      // 1 despacho explícito único: usa datos del despacho pero NO multi-hoja
+      _entradas.push({q,despacho:despachos[0],despachoIdx:0,totalDespachos:1,multi:false,_despachosArr:despachos});
     }else{
-      _entradas.push({q,despacho:null,despachoIdx:0,totalDespachos:1,multi:false});
+      // Legacy puro: sin despacho explícito
+      _entradas.push({q,despacho:null,despachoIdx:0,totalDespachos:1,multi:false,_despachosArr:[]});
     }
   });
   const _totalHojas=_entradas.length;
@@ -4460,18 +4469,31 @@ function generarPdfEmpaque(){
     }
     y+=3;
 
-    // Helper: ¿este item aplica a este despacho?
+    // v7.9.8.3: helpers de filtrado por despacho con manejo de huérfanos.
+    const _despachoIdsSet=new Set((entrada._despachosArr||[]).filter(d=>!d._legacy).map(d=>d.id));
+    // ¿este item aplica a este despacho? Huérfanos se incluyen en todas las hojas para no perderlos.
     const _itemAplica=(it)=>{
       if(!multi||!despacho)return true; // 1 hoja única, todos
       const a=it.assignedTo;
       if(!a||a==="all")return true; // global → repetir en cada hoja (Opción A)
+      if(!_despachoIdsSet.has(a)){
+        // Huérfano: assignedTo apunta a un despacho que ya no existe.
+        if(typeof console!=="undefined")console.warn("[v7.9.8.3] item huérfano assignedTo:",a,"en doc",q.id,"item:",it.name||it.n);
+        return true; // aplica a todas para evitar pérdida silenciosa
+      }
       return a===despacho.id; // específico del despacho actual
     };
-    // ¿Es global este item? Para mostrar etiqueta visual en multidespacho.
+    // ¿Es global este item? (sin assignedTo o "all"). Para etiqueta visual.
     const _itemEsGlobal=(it)=>{
       if(!multi)return false;
       const a=it.assignedTo;
       return !a||a==="all";
+    };
+    // ¿Es huérfano? Para etiqueta "[ASIGNACIÓN INVÁLIDA]"
+    const _itemEsHuerfano=(it)=>{
+      if(!multi)return false;
+      const a=it.assignedTo;
+      return a&&a!=="all"&&!_despachoIdsSet.has(a);
     };
 
     // Items con casilla en col 0
@@ -4480,10 +4502,12 @@ function generarPdfEmpaque(){
     const yaSet=new Set((q.itemsProducidos||[]).map(s=>(s||"").toLowerCase().trim()));
     const _gs={textColor:[160,160,160],fontStyle:"italic"};
     // v7.9.8.2: prefijo GLOBAL para items repetidos en cada hoja en multidespacho
+    // v7.9.8.3: prefijo HUERFANO para items con assignedTo a despacho borrado
     const _globalPrefix=multi?"[GLOBAL] ":"";
-    const _addItemC=(qty,nombre,desc,unidad,custom,nombreBase,esGlobal)=>{
+    const _huerfanoPrefix=multi?"[ASIGNACIÓN INVÁLIDA — despacho borrado] ":"";
+    const _addItemC=(qty,nombre,desc,unidad,custom,nombreBase,esGlobal,esHuerfano)=>{
       const matchKey=((nombreBase||nombre)||"").toLowerCase().trim();
-      const pfx=esGlobal?_globalPrefix:"";
+      const pfx=esHuerfano?_huerfanoPrefix:(esGlobal?_globalPrefix:"");
       if(yaSet.has(matchKey)){
         items.push([
           {content:"OK",styles:{..._gs,halign:"center",fontSize:7}},
@@ -4510,13 +4534,13 @@ function generarPdfEmpaque(){
       }
     };
     if(q.kind==="quote"){
-      (q.cart||[]).forEach(it=>{if(_itemAplica(it))_addItemC(it.qty,it.n,it.d,it.u,false,it.n,_itemEsGlobal(it))});
-      (q.cust||[]).forEach(it=>{if(_itemAplica(it))_addItemC(it.qty,it.n,it.d,it.u,true,it.n,_itemEsGlobal(it))});
+      (q.cart||[]).forEach(it=>{if(_itemAplica(it))_addItemC(it.qty,it.n,it.d,it.u,false,it.n,_itemEsGlobal(it),_itemEsHuerfano(it))});
+      (q.cust||[]).forEach(it=>{if(_itemAplica(it))_addItemC(it.qty,it.n,it.d,it.u,true,it.n,_itemEsGlobal(it),_itemEsHuerfano(it))});
     }else{
       (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>{
         if(!_itemAplica(it))return;
         const prefix=sec.name?"["+sec.name+(opt.label?" "+opt.label:"")+"] ":"";
-        _addItemC(it.qty,prefix+(it.name||""),it.desc||"",it.unit||"",false,it.name||"",_itemEsGlobal(it));
+        _addItemC(it.qty,prefix+(it.name||""),it.desc||"",it.unit||"",false,it.name||"",_itemEsGlobal(it),_itemEsHuerfano(it));
       })));
     }
 
@@ -4566,6 +4590,8 @@ function generarPdfEmpaque(){
     // Markers al pie (multi + custom)
     let footerNotes=[];
     if(multi)footerNotes.push("[GLOBAL] = se entrega en cada uno de los "+entrada.totalDespachos+" despachos del evento.");
+    // v7.9.8.3: nota explicativa si hay items huérfanos en esta hoja
+    if(multi&&items.some(r=>{const v=typeof r[2]==="string"?r[2]:(r[2]&&r[2].content)||"";return v.includes("ASIGNACIÓN INVÁLIDA")}))footerNotes.push("[ASIGNACIÓN INVÁLIDA] = item asignado a un despacho borrado. Revisar cotización original.");
     if(items.some(r=>{const v=typeof r[2]==="string"?r[2]:(r[2]&&r[2].content)||"";return v.endsWith(" *")}))footerNotes.push("* Producto custom (no del catálogo).");
     if(footerNotes.length){
       pdf.setFontSize(7);pdf.setTextColor(120);
@@ -5172,14 +5198,22 @@ function _heRenderTablaPdf(pdf,docs,state,W,M,startY,esRecogida){
   // v7.9.8.2: expandir cada doc a N entradas si tiene despachos[] explícitos.
   // 1 fila por despacho (en lugar de 1 por doc). Items globales se repiten en cada
   // sub-fila con prefijo "(G)" para que el conductor entienda.
+  // v7.9.8.3: separar multi de "usar despacho". 1 despacho explícito único usa sus datos
+  // (hora/dir) sin multi-fila. Items huérfanos (assignedTo a despacho borrado) se
+  // incluyen en todas las filas con marcador "(!)" para alertar al conductor.
   const entries=[];
   docs.forEach(q=>{
     const despachosArr=(typeof getDespachos==="function")?getDespachos(q):[];
-    const multi=despachosArr.length>1&&despachosArr.some(d=>!d._legacy);
+    const hayExplicito=despachosArr.some(d=>!d._legacy);
+    const multi=despachosArr.length>1&&hayExplicito;
     if(multi){
-      despachosArr.forEach((d,di)=>entries.push({q,despacho:d,idx:di,total:despachosArr.length,multi:true}));
+      despachosArr.forEach((d,di)=>entries.push({q,despacho:d,idx:di,total:despachosArr.length,multi:true,_despachosArr:despachosArr}));
+    }else if(hayExplicito){
+      // 1 despacho explícito único: usa datos del despacho sin multi-fila
+      entries.push({q,despacho:despachosArr[0],idx:0,total:1,multi:false,_despachosArr:despachosArr});
     }else{
-      entries.push({q,despacho:null,idx:0,total:1,multi:false});
+      // Legacy puro: sin despacho explícito
+      entries.push({q,despacho:null,idx:0,total:1,multi:false,_despachosArr:[]});
     }
   });
   // Construir filas
@@ -5221,7 +5255,7 @@ function _heRenderTablaPdf(pdf,docs,state,W,M,startY,esRecogida){
     fila.push("");  // QUIEN RECIBE
     fila.push("");  // FIRMA
     rows.push(fila);
-    const itemsRes=_buildItemsResumenHE(q,despacho);
+    const itemsRes=_buildItemsResumenHE(q,despacho,e._despachosArr);
     if(itemsRes){
       const colSpan=fila.length;
       // v7.9.7.1: usar ASCII ">" en lugar de "▸" (U+25B8). jsPDF helvetica no soporta
@@ -5304,16 +5338,27 @@ function _heRenderFooterPdf(pdf,docs,state,W,M,fmt,labelFirma,numCarro){
 // Helper: items compactos para sub-fila ("50 sándwich · 20 brownies · 30 jugos")
 // v7.8.8: items pre-producidos (q.itemsProducidos) van con prefijo "[YA PROD.] " para que el
 // conductor sepa que ese item no se cargó hoy desde cocina (ya estaba listo de antes).
-function _buildItemsResumenHE(q, despacho){
+function _buildItemsResumenHE(q, despacho, despachosArr){
   const yaSet=new Set((q.itemsProducidos||[]).map(s=>(s||"").toLowerCase().trim()));
   const _mark=(nombre)=>yaSet.has((nombre||"").toLowerCase().trim())?"[YA PROD.] ":"";
   // v7.9.8.2: si se pasa despacho, filtrar items asignados + globales (sin assignedTo)
   // marcando los globales con prefijo "(G)" para que el conductor sepa que también van en otros despachos.
-  const multi=!!despacho&&!despacho._legacy;
+  // v7.9.8.3: items huérfanos (assignedTo a despacho borrado) se incluyen con prefijo "(!)".
+  const multi=!!despacho&&!despacho._legacy&&Array.isArray(despachosArr)&&despachosArr.length>1;
+  const _despachoIdsSet=new Set((despachosArr||[]).filter(d=>!d._legacy).map(d=>d.id));
+  const _esHuerfano=(it)=>{
+    if(!multi)return false;
+    const a=it.assignedTo;
+    return a&&a!=="all"&&!_despachoIdsSet.has(a);
+  };
   const _aplica=(it)=>{
-    if(!multi)return true;
+    if(!despacho||despacho._legacy)return true;
     const a=it.assignedTo;
     if(!a||a==="all")return true; // global → va en todos
+    if(multi&&!_despachoIdsSet.has(a)){
+      if(typeof console!=="undefined")console.warn("[v7.9.8.3] item huérfano assignedTo:",a,"en doc",q.id,"item:",it.name||it.n);
+      return true; // huérfano → aplica a todos
+    }
     return a===despacho.id;
   };
   const _isGlobal=(it)=>{
@@ -5321,14 +5366,18 @@ function _buildItemsResumenHE(q, despacho){
     const a=it.assignedTo;
     return !a||a==="all";
   };
-  const _g=(it)=>_isGlobal(it)?"(G) ":"";
+  const _pfx=(it)=>{
+    if(_esHuerfano(it))return "(!) ";
+    if(_isGlobal(it))return "(G) ";
+    return "";
+  };
   const parts=[];
   if(q.kind==="quote"){
-    (q.cart||[]).forEach(it=>{if(it.n&&_aplica(it))parts.push(_g(it)+_mark(it.n)+(it.qty||0)+" "+it.n)});
-    (q.cust||[]).forEach(it=>{if(it.n&&_aplica(it))parts.push(_g(it)+_mark(it.n)+(it.qty||0)+" "+it.n+"*")});
+    (q.cart||[]).forEach(it=>{if(it.n&&_aplica(it))parts.push(_pfx(it)+_mark(it.n)+(it.qty||0)+" "+it.n)});
+    (q.cust||[]).forEach(it=>{if(it.n&&_aplica(it))parts.push(_pfx(it)+_mark(it.n)+(it.qty||0)+" "+it.n+"*")});
   }else{
     (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>{
-      if(it.name&&_aplica(it))parts.push(_g(it)+_mark(it.name)+(it.qty||0)+" "+it.name);
+      if(it.name&&_aplica(it))parts.push(_pfx(it)+_mark(it.name)+(it.qty||0)+" "+it.name);
     })));
   }
   // v7.9.7.1 F8.5: quitar truncate de 220 chars. autoTable de jsPDF wrapea
