@@ -4403,65 +4403,120 @@ function generarPdfEmpaque(){
   const pdf=new jsPDF("p","mm","a4");
   const W=210,H=297,M=14;
 
-  docs.forEach((q,idx)=>{
+  // v7.9.8.2: expandir cada doc a N hojas si tiene despachos[] explícitos.
+  // Una hoja por despacho. Items con assignedTo === despacho.id van solo en su hoja.
+  // Items sin assignedTo (o "all") = GLOBALES → se repiten en cada hoja con etiqueta.
+  // Docs legacy (sin despachos[] o 1 despacho derivado): 1 hoja como antes (sin cambio visual).
+  const _entradas=[];
+  docs.forEach(q=>{
+    const despachos=(typeof getDespachos==="function")?getDespachos(q):[];
+    const multiDespacho=despachos.length>1&&despachos.some(d=>!d._legacy);
+    if(multiDespacho){
+      despachos.forEach((d,di)=>_entradas.push({q,despacho:d,despachoIdx:di,totalDespachos:despachos.length,multi:true}));
+    }else{
+      _entradas.push({q,despacho:null,despachoIdx:0,totalDespachos:1,multi:false});
+    }
+  });
+  const _totalHojas=_entradas.length;
+  _entradas.forEach((entrada,idx)=>{
+    const q=entrada.q;
+    const despacho=entrada.despacho;
+    const multi=entrada.multi;
     if(idx>0)pdf.addPage();
 
-    const subtitle="Hoja "+(idx+1)+"/"+docs.length+"  ·  "+(q.kind==="quote"?"Cotización":"Propuesta")+" "+(q.id||"");
+    let subtitle="Hoja "+(idx+1)+"/"+_totalHojas+"  ·  "+(q.kind==="quote"?"Cotización":"Propuesta")+" "+(q.id||"");
+    if(multi)subtitle+="  ·  Despacho "+(entrada.despachoIdx+1)+" de "+entrada.totalDespachos;
     let y=_repPdfHeader(pdf,W,"EMPAQUE / DESPACHO",subtitle);
 
     // Cliente / pedido datos
     pdf.setFontSize(14);pdf.setFont("helvetica","bold");
     pdf.text((q.client||"(sin cliente)").toUpperCase(),M,y+2);y+=8;
     pdf.setFontSize(9.5);pdf.setFont("helvetica","normal");
-    const fecha=_reportesGetFecha(q);
-    const hora=q.horaEntrega||(q.orderData||{}).horaEntrega||"";
+
+    // Si hay despacho: fecha/hora/dirección efectivas del despacho. Sino: legacy del doc.
+    let fecha,hora,dirText;
+    if(despacho){
+      const fh=despacho.fechaHora||"";
+      const t=fh.indexOf("T");
+      if(t>0){fecha=fh.slice(0,t);hora=fh.slice(t+1,t+6)}
+      else{fecha=fh.slice(0,10)||_reportesGetFecha(q);hora=q.horaEntrega||""}
+      let dirObj=null;
+      if(typeof getDespachoDireccion==="function")dirObj=getDespachoDireccion(despacho,q);
+      const efDir=(dirObj&&dirObj.dir)||q.dir||"";
+      const efCity=(dirObj&&dirObj.city)||q.city||"";
+      dirText=efDir+(efCity?", "+efCity:"");
+    }else{
+      fecha=_reportesGetFecha(q);
+      hora=q.horaEntrega||(q.orderData||{}).horaEntrega||"";
+      dirText=(q.dir||"")+(q.city?", "+q.city:"");
+    }
     pdf.text("Entrega: "+fecha+(hora?"  "+hora:""),M,y);y+=4.5;
-    if(q.dir)pdf.text("Dirección: "+q.dir+(q.city?", "+q.city:""),M,y),y+=4.5;
+    if(dirText.trim())pdf.text("Dirección: "+dirText,M,y),y+=4.5;
     if(q.tel)pdf.text("Teléfono: "+q.tel,M,y),y+=4.5;
+    if(despacho&&despacho.notas){
+      pdf.setFont("helvetica","italic");pdf.setTextColor(100,100,100);
+      pdf.text("Notas despacho: "+despacho.notas,M,y);y+=4.5;
+      pdf.setFont("helvetica","normal");pdf.setTextColor(0,0,0);
+    }
     y+=3;
+
+    // Helper: ¿este item aplica a este despacho?
+    const _itemAplica=(it)=>{
+      if(!multi||!despacho)return true; // 1 hoja única, todos
+      const a=it.assignedTo;
+      if(!a||a==="all")return true; // global → repetir en cada hoja (Opción A)
+      return a===despacho.id; // específico del despacho actual
+    };
+    // ¿Es global este item? Para mostrar etiqueta visual en multidespacho.
+    const _itemEsGlobal=(it)=>{
+      if(!multi)return false;
+      const a=it.assignedTo;
+      return !a||a==="all";
+    };
 
     // Items con casilla en col 0
     // v7.8.8: items pre-producidos (q.itemsProducidos) → fila en gris con "[YA PROD.]", sin casilla.
-    // Coherente con PDF A (línea ~3787) — el empacador ve el item pero sabe que ya estaba listo.
     const items=[];
     const yaSet=new Set((q.itemsProducidos||[]).map(s=>(s||"").toLowerCase().trim()));
     const _gs={textColor:[160,160,160],fontStyle:"italic"};
-    const _addItemC=(qty,nombre,desc,unidad,custom,nombreBase)=>{
+    // v7.9.8.2: prefijo GLOBAL para items repetidos en cada hoja en multidespacho
+    const _globalPrefix=multi?"[GLOBAL] ":"";
+    const _addItemC=(qty,nombre,desc,unidad,custom,nombreBase,esGlobal)=>{
       const matchKey=((nombreBase||nombre)||"").toLowerCase().trim();
+      const pfx=esGlobal?_globalPrefix:"";
       if(yaSet.has(matchKey)){
         items.push([
           {content:"OK",styles:{..._gs,halign:"center",fontSize:7}},
           {content:String(qty||0),styles:{..._gs,halign:"center"}},
-          {content:"[YA PROD.] "+(nombre||"")+(custom?" *":""),styles:_gs},
+          {content:pfx+"[YA PROD.] "+(nombre||"")+(custom?" *":""),styles:_gs},
           {content:desc||"",styles:_gs},
           {content:unidad||"",styles:{..._gs,halign:"center"}}
         ]);
         return;
       }
-      // v7.9.2.2: explotar componentes en empaque — cada ítem físico tiene su propia fila y casilla.
-      // "9x Plato Mixto" → 9x Arroz Reina, 18x Hojas de parra, etc.
       try{
         const comps=_explodeComponentes(nombre,desc);
         if(comps&&comps.length){
           comps.forEach(comp=>{
             const qPorUnidad=Number(comp.q)||1;
             const qtyTotal=Math.round((qty||0)*qPorUnidad*1000)/1000;
-            items.push(["",String(qtyTotal),comp.n,"",comp.unidad||""]);
+            items.push(["",String(qtyTotal),pfx+comp.n,"",comp.unidad||""]);
           });
         }else{
-          items.push(["",String(qty||0),(nombre||"")+(custom?" *":""),desc||"",unidad||""]);
+          items.push(["",String(qty||0),pfx+(nombre||"")+(custom?" *":""),desc||"",unidad||""]);
         }
       }catch(e){
-        items.push(["",String(qty||0),(nombre||"")+(custom?" *":""),desc||"",unidad||""]);
+        items.push(["",String(qty||0),pfx+(nombre||"")+(custom?" *":""),desc||"",unidad||""]);
       }
     };
     if(q.kind==="quote"){
-      (q.cart||[]).forEach(it=>_addItemC(it.qty,it.n,it.d,it.u,false,it.n));
-      (q.cust||[]).forEach(it=>_addItemC(it.qty,it.n,it.d,it.u,true,it.n));
+      (q.cart||[]).forEach(it=>{if(_itemAplica(it))_addItemC(it.qty,it.n,it.d,it.u,false,it.n,_itemEsGlobal(it))});
+      (q.cust||[]).forEach(it=>{if(_itemAplica(it))_addItemC(it.qty,it.n,it.d,it.u,true,it.n,_itemEsGlobal(it))});
     }else{
       (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>{
+        if(!_itemAplica(it))return;
         const prefix=sec.name?"["+sec.name+(opt.label?" "+opt.label:"")+"] ":"";
-        _addItemC(it.qty,prefix+(it.name||""),it.desc||"",it.unit||"",false,it.name||"");
+        _addItemC(it.qty,prefix+(it.name||""),it.desc||"",it.unit||"",false,it.name||"",_itemEsGlobal(it));
       })));
     }
 
@@ -4485,7 +4540,6 @@ function generarPdfEmpaque(){
         },
         didDrawCell:function(data){
           if(data.section==="body"&&data.column.index===0){
-            // v7.8.8: filas pre-producidas tienen content "OK" en col 0 → no dibujar casilla.
             const raw=data.cell.raw;
             if(raw&&typeof raw==="object"&&raw.content==="OK")return;
             const cx=data.cell.x+data.cell.width/2-2.5;
@@ -4502,17 +4556,20 @@ function generarPdfEmpaque(){
     pdf.setDrawColor(80);pdf.setLineWidth(0.3);
     pdf.rect(M,y,5,5);
     pdf.setFontSize(11);pdf.setFont("helvetica","bold");
-    pdf.text("LISTO PARA DESPACHAR",M+8,y+4);
+    pdf.text("LISTO PARA DESPACHAR"+(multi?" — DESPACHO "+(entrada.despachoIdx+1):""),M+8,y+4);
     y+=12;
 
     pdf.setFontSize(10);pdf.setFont("helvetica","normal");
     pdf.text("Empacado por:",M,y+5);
     pdf.line(M+30,y+5,W-M,y+5);
 
-    // * Productos custom marker
-    if(items.some(r=>r[2].endsWith(" *"))){
+    // Markers al pie (multi + custom)
+    let footerNotes=[];
+    if(multi)footerNotes.push("[GLOBAL] = se entrega en cada uno de los "+entrada.totalDespachos+" despachos del evento.");
+    if(items.some(r=>{const v=typeof r[2]==="string"?r[2]:(r[2]&&r[2].content)||"";return v.endsWith(" *")}))footerNotes.push("* Producto custom (no del catálogo).");
+    if(footerNotes.length){
       pdf.setFontSize(7);pdf.setTextColor(120);
-      pdf.text("* Producto custom (no del catálogo).",M,H-12);
+      footerNotes.forEach((n,ni)=>pdf.text(n,M,H-12-ni*3.5));
       pdf.setTextColor(0);
     }
   });
