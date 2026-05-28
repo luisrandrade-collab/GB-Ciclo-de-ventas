@@ -5169,21 +5169,59 @@ function _heRenderTablaPdf(pdf,docs,state,W,M,startY,esRecogida){
   const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
   const incluirCobro=state.incluirCobros;
   const tw=W-M*2;
+  // v7.9.8.2: expandir cada doc a N entradas si tiene despachos[] explícitos.
+  // 1 fila por despacho (en lugar de 1 por doc). Items globales se repiten en cada
+  // sub-fila con prefijo "(G)" para que el conductor entienda.
+  const entries=[];
+  docs.forEach(q=>{
+    const despachosArr=(typeof getDespachos==="function")?getDespachos(q):[];
+    const multi=despachosArr.length>1&&despachosArr.some(d=>!d._legacy);
+    if(multi){
+      despachosArr.forEach((d,di)=>entries.push({q,despacho:d,idx:di,total:despachosArr.length,multi:true}));
+    }else{
+      entries.push({q,despacho:null,idx:0,total:1,multi:false});
+    }
+  });
   // Construir filas
   const rows=[];
-  docs.forEach(q=>{
+  entries.forEach(e=>{
+    const q=e.q;
+    const despacho=e.despacho;
     const saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
     const cobra=state.cobrosIncluidos.has(q.id);
-    const dirCorta=esRecogida?"":((q.dir||"").substring(0,40)+((q.dir||"").length>40?"...":""));
-    const hora=state.horaOverride.get(q.id)||q.horaEntrega||"—";
-    const fila=[hora,(q.client||"—").toString().toUpperCase(),q.id||""];
-    if(!esRecogida)fila.push(dirCorta+(q.city?"\n"+q.city:""));
+    // Hora: del despacho si aplica, sino del doc
+    let hora;
+    if(despacho&&despacho.fechaHora){
+      const t=despacho.fechaHora.indexOf("T");
+      hora=t>0?despacho.fechaHora.slice(t+1,t+6):(state.horaOverride.get(q.id)||q.horaEntrega||"—");
+    }else{
+      hora=state.horaOverride.get(q.id)||q.horaEntrega||"—";
+    }
+    // Cliente: agregar etiqueta D1/4 si multi
+    const clienteBase=(q.client||"—").toString().toUpperCase();
+    const cliente=e.multi?(clienteBase+" · D"+(e.idx+1)+"/"+e.total):clienteBase;
+    // Dirección: efectiva del despacho si aplica
+    let dirEf="",cityEf="";
+    if(despacho&&typeof getDespachoDireccion==="function"){
+      const dirObj=getDespachoDireccion(despacho,q);
+      dirEf=(dirObj&&dirObj.dir)||q.dir||"";
+      cityEf=(dirObj&&dirObj.city)||q.city||"";
+    }else{
+      dirEf=q.dir||"";cityEf=q.city||"";
+    }
+    const dirCorta=esRecogida?"":((dirEf||"").substring(0,40)+((dirEf||"").length>40?"...":""));
+    const fila=[hora,cliente,q.id||""];
+    if(!esRecogida)fila.push(dirCorta+(cityEf?"\n"+cityEf:""));
     fila.push(q.tel||"");
-    if(incluirCobro)fila.push((cobra&&saldo>0)?fmt(saldo):"—");
+    // Cobro: solo en la primera entrada del doc (no repetir cobro en cada despacho)
+    if(incluirCobro){
+      const mostrarCobro=!e.multi||e.idx===0;
+      fila.push((mostrarCobro&&cobra&&saldo>0)?fmt(saldo):"—");
+    }
     fila.push("");  // QUIEN RECIBE
     fila.push("");  // FIRMA
     rows.push(fila);
-    const itemsRes=_buildItemsResumenHE(q);
+    const itemsRes=_buildItemsResumenHE(q,despacho);
     if(itemsRes){
       const colSpan=fila.length;
       // v7.9.7.1: usar ASCII ">" en lugar de "▸" (U+25B8). jsPDF helvetica no soporta
@@ -5266,16 +5304,31 @@ function _heRenderFooterPdf(pdf,docs,state,W,M,fmt,labelFirma,numCarro){
 // Helper: items compactos para sub-fila ("50 sándwich · 20 brownies · 30 jugos")
 // v7.8.8: items pre-producidos (q.itemsProducidos) van con prefijo "[YA PROD.] " para que el
 // conductor sepa que ese item no se cargó hoy desde cocina (ya estaba listo de antes).
-function _buildItemsResumenHE(q){
+function _buildItemsResumenHE(q, despacho){
   const yaSet=new Set((q.itemsProducidos||[]).map(s=>(s||"").toLowerCase().trim()));
   const _mark=(nombre)=>yaSet.has((nombre||"").toLowerCase().trim())?"[YA PROD.] ":"";
+  // v7.9.8.2: si se pasa despacho, filtrar items asignados + globales (sin assignedTo)
+  // marcando los globales con prefijo "(G)" para que el conductor sepa que también van en otros despachos.
+  const multi=!!despacho&&!despacho._legacy;
+  const _aplica=(it)=>{
+    if(!multi)return true;
+    const a=it.assignedTo;
+    if(!a||a==="all")return true; // global → va en todos
+    return a===despacho.id;
+  };
+  const _isGlobal=(it)=>{
+    if(!multi)return false;
+    const a=it.assignedTo;
+    return !a||a==="all";
+  };
+  const _g=(it)=>_isGlobal(it)?"(G) ":"";
   const parts=[];
   if(q.kind==="quote"){
-    (q.cart||[]).forEach(it=>{if(it.n)parts.push(_mark(it.n)+(it.qty||0)+" "+it.n)});
-    (q.cust||[]).forEach(it=>{if(it.n)parts.push(_mark(it.n)+(it.qty||0)+" "+it.n+"*")});
+    (q.cart||[]).forEach(it=>{if(it.n&&_aplica(it))parts.push(_g(it)+_mark(it.n)+(it.qty||0)+" "+it.n)});
+    (q.cust||[]).forEach(it=>{if(it.n&&_aplica(it))parts.push(_g(it)+_mark(it.n)+(it.qty||0)+" "+it.n+"*")});
   }else{
     (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>{
-      if(it.name)parts.push(_mark(it.name)+(it.qty||0)+" "+it.name);
+      if(it.name&&_aplica(it))parts.push(_g(it)+_mark(it.name)+(it.qty||0)+" "+it.name);
     })));
   }
   // v7.9.7.1 F8.5: quitar truncate de 220 chars. autoTable de jsPDF wrapea
