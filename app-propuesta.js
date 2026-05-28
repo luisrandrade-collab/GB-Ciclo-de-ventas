@@ -377,7 +377,11 @@ function renderPropSections(){
     const toggleHTML='<label style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:500;color:'+(incluir?"var(--gb-neutral-500)":"#b91c1c")+';cursor:pointer;user-select:none;margin-right:10px" title="Si se desmarca, esta sección NO se sumará al TOTAL DEL SERVICIO (queda como alternativa)"><input type="checkbox" '+(incluir?"checked":"")+' onchange="togglePropSecIncluir('+si+')" style="cursor:pointer">'+(incluir?"Incluir en TOTAL":"⚠️ NO suma al total")+'</label>';
     const altBadge=incluir?"":'<span style="display:inline-block;background:#fee2e2;color:#b91c1c;font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px;letter-spacing:.5px;margin-left:8px">ALTERNATIVA</span>';
     const secStyle=incluir?"":'opacity:.75;border-left:3px solid #b91c1c';
+    // v7.9.8.4: nota/descripción por sección (opcional). Se muestra en el PDF debajo del título de sección.
+    const notaVal=(sec.nota||"");
+    const notaHTML='<textarea placeholder="Nota o descripción de la sección (opcional) — se muestra en la propuesta debajo del título" style="width:100%;box-sizing:border-box;margin:0 0 8px;padding:6px 8px;border:1px solid var(--gb-neutral-200);border-radius:6px;font-size:11px;font-family:inherit;resize:vertical;min-height:34px;color:var(--gb-neutral-600)" onchange="updPropSecNota('+si+',this.value)">'+h(notaVal)+'</textarea>';
     return'<div class="prop-sec" style="'+secStyle+'"><div class="sec-head"><span class="sec-title">'+sec.name+altBadge+'</span><div style="display:flex;align-items:center">'+toggleHTML+'<button class="del-btn" onclick="delPropSec('+si+')" title="Eliminar sección">×</button></div></div>'+
+    notaHTML+
     sec.options.map((opt,oi)=>{
       const sub=opt.items.reduce((s,it)=>s+(it.price||0)*(it.qty||0),0);
       return'<div class="opt-card"><div class="opt-head"><span class="opt-label">'+opt.label+'</span><div><span class="opt-sub">'+fm(sub)+'</span><button class="del-btn" style="font-size:14px" onclick="delPropOpt('+si+','+oi+')">×</button></div></div>'+
@@ -411,6 +415,8 @@ function delPropSec(si){
     onOk:()=>{propSections.splice(si,1);renderPropSections()}
   });
 }
+// v7.9.8.4: actualiza nota/descripción de la sección (sin re-render: onchange dispara al perder foco)
+function updPropSecNota(si,val){if(propSections[si])propSections[si].nota=val}
 function addPropOpt(si){const letters="ABCDEFGH";const sec=propSections[si];sec.options.push({id:"po"+Date.now(),label:"Opción "+(letters[sec.options.length]||sec.options.length+1),items:[]});renderPropSections()}
 function delPropOpt(si,oi){propSections[si].options.splice(oi,1);renderPropSections()}
 
@@ -1315,6 +1321,16 @@ async function genPropPDF(){
       const esAlternativa=(sec.incluirEnTotal===false);
       const altSuffix=esAlternativa?"  ·  ALTERNATIVA (no incluida en TOTAL)":"";
       const headerColor=esAlternativa?[185,28,28]:[26,26,26];
+      // v7.9.8.4: nota/descripción de la sección (si existe) — italic gris, una vez antes de las opciones
+      const _secNota=(sec.nota||"").trim();
+      if(_secNota){
+        doc.setFont("helvetica","italic");doc.setFontSize(8);doc.setTextColor(90,90,90);
+        const _wrapNota=doc.splitTextToSize(_secNota,tw-4);
+        const _notaH=_wrapNota.length*3.6+3;
+        if(y+_notaH>H-footerH){doc.addPage();y=20}
+        _wrapNota.forEach(line=>{doc.text(line,mg+2,y);y+=3.6});
+        y+=2;doc.setTextColor(26,26,26);doc.setFont("helvetica","normal");
+      }
       sec.options.forEach(opt=>{
         const td=[];
         td.push([{content:sec.name.toUpperCase()+" — "+opt.label+altSuffix,colSpan:4,styles:{fillColor:headerColor,textColor:[255,255,255],fontStyle:"bold",fontSize:8.5,halign:"left"}}]);
