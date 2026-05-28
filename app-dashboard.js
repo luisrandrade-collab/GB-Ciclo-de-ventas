@@ -4578,7 +4578,7 @@ function generarPdfEmpaque(){
 
   const fname="Empaque_"+reportesFiltrosImpr.desde+(reportesFiltrosImpr.desde===reportesFiltrosImpr.hasta?"":"_a_"+reportesFiltrosImpr.hasta)+".pdf";
   pdf.save(fname);
-  if(typeof toast==="function")toast("PDF generado: "+docs.length+" hoja(s) de empaque","success");
+  if(typeof toast==="function")toast("PDF generado: "+_totalHojas+" hoja(s) de empaque","success");
 }
 
 // ─── F8: PDF D — Entregas con chequeo + firma ───────────────
