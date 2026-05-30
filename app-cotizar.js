@@ -443,7 +443,7 @@ async function genPDF(){
     const{jsPDF}=window.jspdf;const doc=new jsPDF("p","mm","letter");const W=215.9,H=279.4,mg=16;
     const cl=$("f-cli").value||"—",idStr=getIdStr(),att=$("f-att").value||cl,mail=$("f-mail").value,tel=$("f-tel").value,dir=$("f-dir").value,city=getCityName()||"—",deliv=getDelivStr();
     const tr=getTr(),tot=getTotal();
-    try{const li=new Image();li.src=LOGO_IW;doc.addImage(li,"JPEG",(W-65)/2,4,65,65*(272/500))}catch(e){}
+    try{const li=new Image();li.src=LOGO_IW;doc.addImage(li,"JPEG",(W-65)/2,4,65,65*(272/500))}catch(e){console.warn("[PDF] logo no cargó:",e)}
     let y=4+65*(272/500)+2;
     doc.setDrawColor(201,169,110);doc.setLineWidth(0.4);doc.line(40,y,W-40,y);
     y+=5;doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(26,26,26);

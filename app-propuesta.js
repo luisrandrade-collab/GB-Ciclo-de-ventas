@@ -1228,7 +1228,7 @@ async function genPropPDF(){
     const{jsPDF}=window.jspdf;const doc=new jsPDF("p","mm","letter");const W=215.9,H=279.4,mg=16;
     const cl=$("fp-cli").value||"—",idStr=getPropIdStr(),att=$("fp-att").value||cl,mail=$("fp-mail").value,tel=$("fp-tel").value,dir=$("fp-dir").value,city=getCityNameP()||"",pers=$("fp-pers").value||"",momento=$("fp-momento").value||"",eventDate=$("fp-date").value;
     const tw=W-mg*2;const footerH=18;
-    try{const li=new Image();li.src=LOGO_IW;doc.addImage(li,"JPEG",(W-65)/2,4,65,65*(272/500))}catch(e){}
+    try{const li=new Image();li.src=LOGO_IW;doc.addImage(li,"JPEG",(W-65)/2,4,65,65*(272/500))}catch(e){console.warn("[PDF] logo no cargó:",e)}
     let y=4+65*(272/500)+2;
     doc.setDrawColor(201,169,110);doc.setLineWidth(0.4);doc.line(40,y,W-40,y);
     y+=5;doc.setFont("helvetica","bold");doc.setFontSize(13);doc.setTextColor(26,26,26);
@@ -1713,23 +1713,30 @@ async function genRemisionDespachoPDF(q,despachoIdx){
     const totalDesp=despachos.length;
 
     // Filtrar items de comida según D2
+    // v7.9.8.5: items con assignedTo a un despacho borrado (huérfanos) ya no se omiten en
+    // silencio; se incluyen marcados, solo en la hoja cronológicamente primera (no duplicar).
+    const _validDespIds=new Set(despachos.map(d=>d.id));
+    const _huerfPrefix="[ASIGNACIÓN INVÁLIDA] ";
     const itemsParaRemision=[];
     if(q.kind==="quote"){
       (q.cart||[]).forEach(it=>{
         const tag=it.assignedTo;
         const va=!tag||tag==="all"||tag===despacho.id;
-        if(va&&it.n)itemsParaRemision.push({qty:it.qty||0,name:it.n,desc:it.d||"",unidad:""});
+        const huerf=tag&&tag!=="all"&&!_validDespIds.has(tag);
+        if((va||(huerf&&esPrimeroCronologico))&&it.n)itemsParaRemision.push({qty:it.qty||0,name:(huerf?_huerfPrefix:"")+it.n,desc:it.d||"",unidad:""});
       });
       (q.cust||[]).forEach(it=>{
         const tag=it.assignedTo;
         const va=!tag||tag==="all"||tag===despacho.id;
-        if(va&&it.n)itemsParaRemision.push({qty:it.qty||0,name:it.n+"*",desc:it.d||"",unidad:it.u||""});
+        const huerf=tag&&tag!=="all"&&!_validDespIds.has(tag);
+        if((va||(huerf&&esPrimeroCronologico))&&it.n)itemsParaRemision.push({qty:it.qty||0,name:(huerf?_huerfPrefix:"")+it.n+"*",desc:it.d||"",unidad:it.u||""});
       });
     }else{
       (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>{
         const tag=it.assignedTo;
         const va=!tag||tag==="all"||tag===despacho.id;
-        if(va&&it.name)itemsParaRemision.push({qty:it.qty||0,name:it.name,desc:it.desc||"",unidad:it.unidad||""});
+        const huerf=tag&&tag!=="all"&&!_validDespIds.has(tag);
+        if((va||(huerf&&esPrimeroCronologico))&&it.name)itemsParaRemision.push({qty:it.qty||0,name:(huerf?_huerfPrefix:"")+it.name,desc:it.desc||"",unidad:it.unidad||""});
       })));
     }
 
@@ -1763,7 +1770,7 @@ async function genRemisionDespachoPDF(q,despachoIdx){
     doc.text("REMISIÓN DE ENTREGA",W/2,y+4,{align:"center"});
     y+=8;
     doc.setFont("helvetica","normal");doc.setFontSize(9);doc.setTextColor(100,100,100);
-    doc.text("Gourmet Bites by Andrade Matuk · "+(new Date().toISOString().slice(0,10)),W/2,y,{align:"center"});
+    doc.text("Gourmet Bites by Andrade Matuk · "+gbTodayIso(),W/2,y,{align:"center"});
     y+=6;
     doc.setDrawColor(201,169,110);doc.setLineWidth(0.4);doc.line(mg,y,W-mg,y);
     y+=6;

@@ -238,8 +238,8 @@ function openNotaSegModal(docId,kind){
       histEl.innerHTML='<div style="font-size:10.5px;font-weight:700;color:#666;margin-bottom:6px">Historial ('+list.length+')</div>'+
         list.map(n=>{
           const f=(n.fecha||"").slice(0,10);
-          const h=(n.fecha||"").slice(11,16);
-          return '<div style="padding:6px 8px;background:#F5F7FA;border-radius:6px;margin-bottom:4px;font-size:11px;line-height:1.3"><span style="font-size:9.5px;color:#999">'+f+' '+h+' · '+(n.usuario||"?")+'</span><br>'+(n.texto||"").replace(/[<>]/g,"")+'</div>';
+          const hr=(n.fecha||"").slice(11,16);
+          return '<div style="padding:6px 8px;background:#F5F7FA;border-radius:6px;margin-bottom:4px;font-size:11px;line-height:1.3"><span style="font-size:9.5px;color:#999">'+f+' '+hr+' · '+h(n.usuario||"?")+'</span><br>'+h(n.texto||"")+'</div>';
         }).join("");
     }else{
       histEl.innerHTML='<div style="font-size:11px;color:#999;font-style:italic">Aún no hay notas de seguimiento</div>';

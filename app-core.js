@@ -109,8 +109,8 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.8.4";
-const BUILD_DATE="2026-05-28";
+const BUILD_VERSION="v7.9.8.5";
+const BUILD_DATE="2026-05-30";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
 // Helper único para resolver la colección Firestore de un documento por kind+id.
@@ -2654,6 +2654,11 @@ async function newProp(){
   });
   if(!ok)return;
   propSections=[];menajeItems=[];currentPropNumber=null;
+  // v7.9.8.5: reset de menaje multi-opción (antes solo se reseteaba el espejo legacy menajeItems,
+  // dejando filtrar menajeOptions/reposicionByOption de la propuesta anterior a la nueva).
+  if(typeof menajeOptions!=="undefined")menajeOptions=[];
+  if(typeof activeMenajeOptionId!=="undefined")activeMenajeOptionId=null;
+  if(typeof reposicionByOption!=="undefined")reposicionByOption={};
   // v7.9.7 F2: reset de despachos al crear nueva propuesta
   if(typeof resetDespachos==="function")resetDespachos();
   ["fp-cli","fp-idnum","fp-att","fp-mail","fp-tel","fp-dir","fp-pers","fp-momento","fp-date","fp-city-custom","fp-tr-custom"].forEach(id=>{const el=$(id);if(el)el.value=""});

@@ -1565,7 +1565,7 @@ function openVerPagosModal(docId,kindOrEv,evMaybe){
       return '<div class="pago-item" id="pago-item-'+idx+'">'+
         '<div class="pago-item-top"><span class="pago-item-monto">'+fm(p.monto)+'</span><span class="pago-item-tipo">'+p.tipo+'</span>'+editBtn+'</div>'+
         '<div class="pago-item-meta">'+p.fecha+' · '+p.metodo+legBadge+'</div>'+
-        (p.notas?'<div class="pago-item-meta" style="margin-top:3px">📝 '+p.notas+'</div>':'')+fotoHtml+adjuntarHtml+
+        (p.notas?'<div class="pago-item-meta" style="margin-top:3px">📝 '+h(p.notas)+'</div>':'')+fotoHtml+adjuntarHtml+
       '</div>';
     }).join("");
   }
