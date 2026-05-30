@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.8.6";
+const BUILD_VERSION="v7.9.9";
 const BUILD_DATE="2026-05-30";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
@@ -2587,6 +2587,14 @@ function setMode(m){
     if(el)el.classList.toggle("hidden",x!==m);
     document.querySelectorAll(".mode-btn.m-"+x).forEach(b=>b.classList.toggle("act",x===m));
   });
+  renderMode(m);
+  if(m==="search"){$("gsearch").focus();$("search-results").innerHTML=""}
+  window.scrollTo(0,0);
+}
+
+// v7.9.9 F1: despacho de render por modo, extraido de setMode para poder
+// re-renderizar la vista activa tras una accion sin re-togglear visibilidad ni scroll.
+function renderMode(m){
   if(m==="hist")renderHist();
   if(m==="prop")initProp();
   if(m==="cal")renderCalendar();
@@ -2621,8 +2629,14 @@ function setMode(m){
   if(m==="archivo-busqueda"&&typeof renderArchivoBusqueda==="function")renderArchivoBusqueda();
   if(m==="archivo-anuladas"&&typeof renderArchivoAnuladas==="function")renderArchivoAnuladas();
   if(m==="archivo-convertidas"&&typeof renderArchivoConvertidas==="function")renderArchivoConvertidas();
-  if(m==="search"){$("gsearch").focus();$("search-results").innerHTML=""}
-  window.scrollTo(0,0);
+}
+
+// v7.9.9 F1: re-renderiza la vista actualmente visible. Lo llaman los handlers de
+// "mover adelante" (aprobar, producir, entregar, perder, pagar) en vez de elegir a
+// mano que renderX() invocar — antes el refresh dependia de desde que pantalla se
+// lanzara la accion (bug "a veces refresca, a veces no").
+function refreshActiveView(){
+  if(typeof renderMode==="function")renderMode(curMode);
 }
 
 async function newQuote(){

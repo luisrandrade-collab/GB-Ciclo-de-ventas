@@ -1965,8 +1965,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'backup':               'herr/backup',
     'herr-recetas':         'herr/recetas',
     'herr-catalogo':        'herr/catalogo-productos',
-    'herr-auditoria':       'herr/auditoria',
-    'search':               'ventas/cotizar'
+    'herr-auditoria':       'herr/auditoria'
   };
 
   // Labels para el crumb (D7 amplía esto a módulo+submódulo)
@@ -2283,15 +2282,10 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   <div class="hdr-build"><span>Cotizador</span><span class="hb-sep">·</span><span class="hb-prod" id="hdr-ver">v4.12</span><span class="hb-sep">·</span><span id="hdr-date">2026-04-19</span></div>
 </div>
 
-<div class="mode-bar">
-  <button class="mode-btn m-dash act" onclick="setMode('dash')">📊 Dashboard</button>
-  <button class="mode-btn m-cot" onclick="setMode('cot')">📋 Cotización</button>
-  <button class="mode-btn m-prop" onclick="setMode('prop')">🎪 Evento</button>
-  <button class="mode-btn m-search" onclick="setMode('search')">🔍 Buscar</button>
-  <button class="mode-btn m-hist" onclick="setMode('hist')">📁 Historial</button>
-  <button class="mode-btn m-seg" onclick="setMode('seg')">📞 Seguimiento</button>
-  <button class="mode-btn m-cal" onclick="setMode('cal')">📅 Agenda</button>
-</div>
+<!-- v7.9.9 F2: top-bar legacy (.mode-bar) eliminado. Estaba oculto via CSS
+     (display:none !important desde B2/UX-06) y duplicaba la navegación de la
+     sidebar por proceso. Único sistema de nav = sidebar. 'hist' queda cubierto
+     por el módulo Archivo (Buscar todo / Anuladas / Convertidas). -->
 
 <!-- ======== DASHBOARD MODE · v5.2.0 rediseñado ======== -->
 <div id="mode-dash">
@@ -4631,12 +4625,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="app-assets.js?v=7.9.8.6"></script>
-<script src="app-core.js?v=7.9.8.6"></script>
-<script src="app-cotizar.js?v=7.9.8.6"></script>
-<script src="app-propuesta.js?v=7.9.8.6"></script>
-<script src="app-historial.js?v=7.9.8.6"></script>
-<script src="app-seguimiento.js?v=7.9.8.6"></script>
-<script src="app-dashboard.js?v=7.9.8.6"></script>
+<script src="app-assets.js?v=7.9.9"></script>
+<script src="app-core.js?v=7.9.9"></script>
+<script src="app-cotizar.js?v=7.9.9"></script>
+<script src="app-propuesta.js?v=7.9.9"></script>
+<script src="app-historial.js?v=7.9.9"></script>
+<script src="app-seguimiento.js?v=7.9.9"></script>
+<script src="app-dashboard.js?v=7.9.9"></script>
 </body>
 </html>

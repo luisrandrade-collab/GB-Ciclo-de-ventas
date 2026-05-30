@@ -215,9 +215,7 @@ async function submitPerdida(){
   if(ok){
     if(typeof toast==="function")toast("❌ "+( _perdidaCtx.q.quoteNumber||_perdidaCtx.docId)+" marcada como perdida: "+motivoLabel,"success");
     closePerdidaModal();
-    renderSeguimiento();
-    if(typeof renderDashboard==="function")renderDashboard();
-    if(typeof renderHist==="function"&&curMode==="hist")renderHist();
+    if(typeof refreshActiveView==="function")refreshActiveView(); // v7.9.9 F1
   }
 }
 

@@ -935,7 +935,7 @@ async function submitApproveProposal(){
     });
     hideLoader();closeApproveModal();
     toast("✓ Propuesta aprobada: "+($("am-num").value),"success");
-    renderHist();
+    refreshActiveView(); // v7.9.9 F1: refresca cualquier pantalla origen (Hist/Dash/Seg/Pedidos)
   }catch(e){hideLoader();toast("Error al actualizar: "+e.message,"error");console.error("[submitApproveProposal]",e)}
 }
 
@@ -1722,8 +1722,7 @@ async function toggleProduced(docId,kind,ev){
     const coll=getCollectionName(docId,kind);
     await updateDoc(doc(db,coll,docId),{produced:newVal,producedAt:newVal?new Date().toISOString():null,updatedAt:serverTimestamp()});
     q.produced=newVal;q.producedAt=newVal?new Date().toISOString():null;
-    hideLoader();renderHist();
-    if(curMode==="dash")renderDashboard();
+    hideLoader();refreshActiveView(); // v7.9.9 F1
     // v7.0-α FIX-02b: toast de confirmación visible
     if(typeof toast==="function"){
       toast(newVal?"🔪 Marcado como producido":"↩️ Desmarcado producido — el pedido vuelve a 'pendiente de producir'",newVal?"success":"info",newVal?3000:5000);
@@ -1767,9 +1766,7 @@ async function toggleProducedDespacho(docId,despachoId,kind,ev){
     await updateDoc(doc(db,coll,docId),patch);
     q.despachos=nuevoArr;
     if(nuevoProduced!==!!q.produced){q.produced=nuevoProduced;q.producedAt=patch.producedAt||null}
-    hideLoader();
-    if(curMode==="dash"&&typeof renderDashboard==="function")renderDashboard();
-    if(curMode==="hist"&&typeof renderHist==="function")renderHist();
+    hideLoader();refreshActiveView(); // v7.9.9 F1
     if(typeof toast==="function"){
       const numDesp=idx+1,totalDesp=nuevoArr.length;
       const msg=nuevoStatus==="producido"
@@ -1840,9 +1837,7 @@ async function toggleEntregadoDespacho(docId,despachoId,kind,ev){
     await updateDoc(doc(db,coll,docId),patch);
     q.despachos=nuevoArr;
     if(patch.status){q.status=patch.status;q.fechaEntrega=patch.fechaEntrega;q.produced=true;if(patch.producedAt)q.producedAt=patch.producedAt}
-    hideLoader();
-    if(curMode==="dash"&&typeof renderDashboard==="function")renderDashboard();
-    if(curMode==="hist"&&typeof renderHist==="function")renderHist();
+    hideLoader();refreshActiveView(); // v7.9.9 F1
     if(typeof toast==="function"){
       const msg=todosEntregados
         ?"📦 Despacho "+numDesp+"/"+totalDesp+" entregado · DOC COMPLETO"
