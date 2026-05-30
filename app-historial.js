@@ -1550,7 +1550,7 @@ function openVerPagosModal(docId,kindOrEv,evMaybe){
     $("vp-list").innerHTML=pagos.map((p,idx)=>{
       // v5.0: soporta fotoUrl (Storage) o foto base64 legacy
       const fotoSrc=p.fotoUrl||p.foto;
-      const fotoHtml=fotoSrc?'<div class="pago-item-foto"><img src="'+fotoSrc+'"></div>':'';
+      const fotoHtml=fotoSrc?'<div class="pago-item-foto"><img src="'+h(fotoSrc)+'"></div>':'';
       const legBadge=p.legacy?' <span style="font-size:9px;color:#888">[migrado]</span>':'';
       // v5.1.0: botón "Adjuntar comprobante" si el pago NO tiene foto.
       // Se usa un input file oculto por pago, con data-idx para saber a cuál adjuntar.
@@ -1563,8 +1563,8 @@ function openVerPagosModal(docId,kindOrEv,evMaybe){
       );
       const editBtn='<button style="margin-left:auto;background:none;border:1px solid #ccc;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;color:#555" onclick="event.stopPropagation();editPago('+idx+')">✏️ Editar</button>';
       return '<div class="pago-item" id="pago-item-'+idx+'">'+
-        '<div class="pago-item-top"><span class="pago-item-monto">'+fm(p.monto)+'</span><span class="pago-item-tipo">'+p.tipo+'</span>'+editBtn+'</div>'+
-        '<div class="pago-item-meta">'+p.fecha+' · '+p.metodo+legBadge+'</div>'+
+        '<div class="pago-item-top"><span class="pago-item-monto">'+fm(p.monto)+'</span><span class="pago-item-tipo">'+h(p.tipo)+'</span>'+editBtn+'</div>'+
+        '<div class="pago-item-meta">'+h(p.fecha)+' · '+h(p.metodo)+legBadge+'</div>'+
         (p.notas?'<div class="pago-item-meta" style="margin-top:3px">📝 '+h(p.notas)+'</div>':'')+fotoHtml+adjuntarHtml+
       '</div>';
     }).join("");
