@@ -25,3 +25,5 @@ jobs:
         run: node scripts/test_merge_operational.mjs
       - name: Run ventas-anteriores unit tests
         run: node scripts/test_ventas_anteriores.mjs
+      - name: Run proptotal-transporte unit tests
+        run: node scripts/test_proptotal_transporte.mjs

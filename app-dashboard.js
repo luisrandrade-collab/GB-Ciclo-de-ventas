@@ -36,8 +36,13 @@
 // Si el doc tiene q.total persistido, lo usa directo (fast path).
 function getDocTotal(q){
   if(!q)return 0;
-  if(q.total)return q.total;
+  // v7.9.12 FIX: para propuestas SIEMPRE recalcular (no confiar en q.total guardado).
+  // q.total se persistió con la fórmula vieja que no sumaba el transporte de
+  // despachos múltiples; recalcular al leer corrige docs viejos (ej. Angela) sin
+  // tocar Firestore. Para propuestas normales el valor no cambia (q.total ya era
+  // == computePropTotal al guardar); solo corrige los eventos multi-despacho.
   if(q.kind==="proposal"&&typeof computePropTotal==="function")return computePropTotal(q);
+  if(q.total)return q.total;
   return q.totalReal||0;
 }
 

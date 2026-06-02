@@ -33,9 +33,21 @@ function computePropTotal(q){
   const mSub=(parseFloat(pm.cantidad)||0)*((parseFloat(pm.valor4h)||0)+(parseFloat(pm.horasExtra)||0)*(parseFloat(pm.valorHoraExtra)||0));
   const aSub=(parseFloat(pa.cantidad)||0)*((parseFloat(pa.valor4h)||0)+(parseFloat(pa.horasExtra)||0)*(parseFloat(pa.valorHoraExtra)||0));
   const totPersonal=mSub+aSub;
+  // v7.9.12 FIX: transporte de despachos múltiples. Mismo criterio que el PDF
+  // (genPropPDF): si hay 2+ despachos, el transporte es la suma de cada uno;
+  // si no, se usa el transporte legacy (cityType/trCustom) de la entrega única.
+  // Antes computePropTotal ignoraba q.despachos[] → el total guardado subestimaba
+  // eventos multi-domicilio (Cartera/saldo/stats quedaban cortos).
+  const despachos=Array.isArray(q.despachos)?q.despachos:[];
+  const totTranspDespachos=despachos.length>=2?despachos.reduce((s,d)=>s+(parseFloat(d.transporteCosto)||0),0):0;
   let totTransp=0;
-  if(q.cityType==="Otra")totTransp=parseInt(q.trCustom)||0;
-  else if(q.cityType&&TR[q.cityType])totTransp=TR[q.cityType].p;
+  if(totTranspDespachos>0){
+    totTransp=totTranspDespachos;
+  }else if(q.cityType==="Otra"){
+    totTransp=parseInt(q.trCustom)||0;
+  }else if(q.cityType&&TR[q.cityType]){
+    totTransp=TR[q.cityType].p;
+  }
   return totMenu+totCatering+totMenajeVal+totPersonal+totTransp;
 }
 
