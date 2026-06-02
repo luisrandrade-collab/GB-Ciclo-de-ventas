@@ -7236,6 +7236,86 @@ function getDocsByCliente(clienteName){
   });
 }
 
+// v7.9.11: Ventas anteriores — helper PURO. Normaliza un doc a sus líneas de
+// producto vendido [{nombre,desc,unidad,qty,precioUnit,subtotal}].
+// Quotes: cart + cust ({n,d,u,p,qty}). Propuestas: items de la opción ganadora
+// (Opción A o única) de cada sección incluida en el total (mismo criterio que
+// computePropTotal). Menaje/personal se excluyen del detalle item-por-item.
+function getItemsVendidos(q){
+  if(!q)return [];
+  const out=[];
+  const push=(nombre,desc,unidad,qty,precioUnit)=>{
+    const c=Number(qty)||0,p=Number(precioUnit)||0;
+    out.push({nombre:nombre||"—",desc:desc||"",unidad:unidad||"",qty:c,precioUnit:p,subtotal:c*p});
+  };
+  if(q.kind==="proposal"){
+    (q.sections||[]).forEach(sec=>{
+      if(sec.incluirEnTotal===false)return;
+      (sec.options||[]).forEach(opt=>{
+        if(opt.label==="Opción A"||(sec.options||[]).length===1){
+          (opt.items||[]).forEach(it=>push(it.name,it.desc,it.unit,it.qty,it.price));
+        }
+      });
+    });
+  }else{
+    (q.cart||[]).forEach(it=>push(it.n,it.d,it.u,it.qty,it.p));
+    (q.cust||[]).forEach(it=>push(it.n,it.d,it.u,it.qty,it.p));
+  }
+  return out;
+}
+
+// v7.9.11: render de la sección "Ventas anteriores" de la ficha del cliente.
+// Solo pedidos entregado+pagado (isCumplido), por pedido cronológico (reciente
+// primero), con detalle item-por-item y acceso al PDF si existe pdfHistorial.
+function _renderVentasAnteriores(docs){
+  const cumplidos=(docs||[]).filter(q=>typeof isCumplido==="function"&&isCumplido(q));
+  if(!cumplidos.length){
+    return '<div style="padding:16px;text-align:center;color:#9E9E9E;font-size:13px;background:#FAFAFA;border-radius:10px">Aún no hay ventas completadas (entregadas y pagadas) para este cliente.</div>';
+  }
+  const fechaDe=q=>q.eventDate||q.orderData?.fechaEntrega||"";
+  cumplidos.sort((a,b)=>(fechaDe(b)||"").localeCompare(fechaDe(a)||""));
+  let html="";
+  cumplidos.forEach(q=>{
+    const items=getItemsVendidos(q);
+    const num=q.quoteNumber||q.id||"—";
+    const fecha=fechaDe(q);
+    const fechaStr=fecha?_cliDirFmtDate(fecha):"sin fecha";
+    const total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||0);
+    const tieneePdf=Array.isArray(q.pdfHistorial)&&q.pdfHistorial.length>0;
+    html+='<div style="border:1px solid #E0E0E0;border-radius:10px;margin-bottom:12px;overflow:hidden">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;background:#F5F5F5;padding:9px 12px;border-bottom:1px solid #E0E0E0">'+
+        '<div style="font-weight:700;font-size:13px;color:#1A1A1A">'+h(num)+'<span style="font-weight:400;color:#757575;margin-left:8px">'+h(fechaStr)+'</span></div>'+
+        '<div style="display:flex;gap:8px;align-items:center">'+
+          '<span style="font-size:13px;font-weight:800;color:#1B5E20;font-variant-numeric:tabular-nums">'+fm(total)+'</span>'+
+          (tieneePdf?'<button onclick="openPdfHistorialModal(\''+h(q.id)+'\',\''+h(q.kind||"quote")+'\',event)" style="background:#fff;color:#01579B;border:1px solid #01579B;padding:4px 10px;border-radius:7px;font-size:11.5px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">📄 Ver PDF</button>':'')+
+        '</div>'+
+      '</div>';
+    if(items.length){
+      html+='<table style="width:100%;border-collapse:collapse;font-size:12.5px">'+
+        '<thead><tr style="color:#9E9E9E;text-align:left">'+
+          '<th style="padding:6px 12px;font-weight:700">Item</th>'+
+          '<th style="padding:6px 8px;font-weight:700;text-align:right">Cant</th>'+
+          '<th style="padding:6px 8px;font-weight:700;text-align:right">Unitario</th>'+
+          '<th style="padding:6px 12px;font-weight:700;text-align:right">Subtotal</th>'+
+        '</tr></thead><tbody>';
+      items.forEach(it=>{
+        const qStr=(it.qty%1===0)?String(it.qty):it.qty.toFixed(1);
+        html+='<tr style="border-top:1px solid #F0F0F0">'+
+          '<td style="padding:6px 12px;color:#1A1A1A">'+h(it.nombre)+(it.desc?'<span style="color:#9E9E9E;font-size:11px;margin-left:6px">'+h(it.desc)+'</span>':'')+'</td>'+
+          '<td style="padding:6px 8px;text-align:right;color:#5D4037;font-variant-numeric:tabular-nums">'+qStr+(it.unidad?' '+h(it.unidad):'')+'</td>'+
+          '<td style="padding:6px 8px;text-align:right;color:#5D4037;font-variant-numeric:tabular-nums">'+fm(it.precioUnit)+'</td>'+
+          '<td style="padding:6px 12px;text-align:right;font-weight:700;color:#1A1A1A;font-variant-numeric:tabular-nums">'+fm(it.subtotal)+'</td>'+
+        '</tr>';
+      });
+      html+='</tbody></table>';
+    }else{
+      html+='<div style="padding:10px 12px;font-size:12px;color:#9E9E9E">Este pedido no tiene productos de catálogo detallados.</div>';
+    }
+    html+='</div>';
+  });
+  return html;
+}
+
 // Calcula estadísticas agregadas del cliente
 function getStatsCliente(docs){
   const stats={
@@ -7492,6 +7572,12 @@ async function renderClienteFicha(){
     '<div style="font-weight:700;font-size:14px;color:#1A1A1A;margin-bottom:8px">📜 Historial</div>'+
     '<div id="cli-ficha-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">'+_chipsHistorial()+'</div>'+
     '<div id="cli-ficha-historial">'+_renderHistorialList(entries)+'</div>'+
+  '</div>';
+
+  // v7.9.11: Ventas anteriores — qué ha comprado, a qué precio, item por item
+  html+='<div style="margin-bottom:18px">'+
+    '<div style="font-weight:700;font-size:14px;color:#1A1A1A;margin-bottom:8px">🛒 Ventas anteriores</div>'+
+    '<div id="cli-ficha-ventas">'+_renderVentasAnteriores(docs)+'</div>'+
   '</div>';
 
   // Seguimientos consolidados
