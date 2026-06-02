@@ -386,8 +386,38 @@ async function saveCurrentQuote(silent){
       if(padre){padre.status="superseded";padre.supersededBy=qNum}
       if(usedFallback)console.info("[v6.3.0 E3-1] Guardado exitoso en modo compatibilidad (fallback).");
     }else{
-      // No es versión hija: guardado directo clásico
-      await saveQuoteToCloud(qObj);
+      // v7.9.10: guardado directo en transacción contra lost-update.
+      // Antes (≤v7.9.9): setDoc sobreescribía el doc completo con qObj armado desde
+      // el snapshot leído al abrir el editor → un pago/avance de estado registrado
+      // por otra sesión entre medias se perdía. Ahora re-leemos fresco dentro de la
+      // tx y los campos operativos del fresco ganan (DR-LU-1). Fallback legacy si
+      // la tx falla (mismo patrón que creatingChild desde v6.3.0).
+      const {db,doc,runTransaction,serverTimestamp}=window.fb;
+      const ref=doc(db,"quotes",qObj.quoteNumber);
+      try{
+        await runTransaction(db,async(tx)=>{
+          const snap=await tx.get(ref);
+          if(snap.exists()){
+            const fresh=snap.data();
+            // DR-LU-2: si otra sesión bloqueó el doc mientras editábamos, abortar.
+            if(["anulada","convertida","superseded"].includes(fresh.status)){
+              throw new Error("STATUS_BLOQUEADO_CONCURRENTE:"+fresh.status);
+            }
+            const finalObj=mergeOperationalFields(qObj,fresh);
+            tx.set(ref,{...finalObj,createdAt:serverTimestamp()});
+          }else{
+            // Doc nuevo: no hay nada que preservar.
+            tx.set(ref,{...qObj,createdAt:serverTimestamp()});
+          }
+        });
+      }catch(txErr){
+        if(typeof txErr.message==="string"&&txErr.message.startsWith("STATUS_BLOQUEADO_CONCURRENTE:")){
+          if(!silent){hideLoader();toast&&toast("⚠️ Otro usuario archivó/anuló esta cotización mientras editabas. Recarga (Archivo) y revisa antes de volver a guardar.","warn",7000);}
+          return;
+        }
+        console.warn("[v7.9.10] runTransaction falló en save directo (cotización); usando fallback legacy. Detalle:",txErr);
+        await saveQuoteToCloud(qObj);
+      }
     }
     // v5.5.0 FIX #3: sincronizar quotesCache local inmediatamente tras save exitoso
     // Esto es lo que hace que el botón 🕒 aparezca al instante tras la primera edición.

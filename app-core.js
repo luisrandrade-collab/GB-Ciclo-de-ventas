@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.9";
+const BUILD_VERSION="v7.9.10";
 const BUILD_DATE="2026-05-30";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
@@ -2044,6 +2044,50 @@ async function getNextNumber(kind){
   else if(kind==="proposal")prefix="GB-P-";
   else prefix="GB-PF-";
   return prefix+APP_YEAR+"-"+padded;
+}
+
+// v7.9.10: campos OPERATIVOS del ciclo que NO provienen del formulario de edición
+// y que otra sesión/dispositivo puede modificar de forma independiente (pagos,
+// avance de estado, producción, etc.). En un guardado concurrente estos deben
+// ganar desde el doc FRESCO leído dentro de la transacción, no desde el snapshot
+// que esta sesión leyó al abrir el editor. Ver DR-LU-1 en el plan v7.9.10.
+const OPERATIONAL_FIELDS=["status","supersededBy","pagos","orderData","entregaData","produced","productionDate","approvalData","propFinalRef","comentarioCliente","pdfHistorial","pdfRegenCount"];
+
+// v7.9.10: construye el objeto a persistir tomando el CONTENIDO desde el form
+// (formObj) y los CAMPOS OPERATIVOS desde el doc fresco (freshDoc). editHistory
+// se mergea append-only para no perder entradas de otra sesión. Función PURA
+// (sin Firestore) para poder testearla sin emulador.
+function mergeOperationalFields(formObj,freshDoc){
+  const out={...formObj};
+  if(!freshDoc)return out;
+  for(const f of OPERATIONAL_FIELDS){
+    if(typeof freshDoc[f]!=="undefined")out[f]=freshDoc[f];
+  }
+  // editHistory: append-only. Tanto el form como el fresco comparten un PREFIJO
+  // común (el historial que existía cuando esta sesión abrió el editor) y cada uno
+  // pudo añadir entradas distintas encima. Las "nuevas de esta sesión" son las del
+  // form que quedan DESPUÉS del prefijo común. Resultado = fresco + esas nuevas.
+  const freshHist=Array.isArray(freshDoc.editHistory)?freshDoc.editHistory:[];
+  const formHist=Array.isArray(formObj.editHistory)?formObj.editHistory:[];
+  let common=0;
+  while(common<freshHist.length&&common<formHist.length&&JSON.stringify(freshHist[common])===JSON.stringify(formHist[common]))common++;
+  const nuevasDeSesion=formHist.slice(common);
+  const merged=[...freshHist,...nuevasDeSesion];
+  if(merged.length>0)out.editHistory=merged; else delete out.editHistory;
+  // v7.9.10: orderData es operativo (viene del fresco) PERO sus fechas se reconcilian
+  // desde el contenido del form (eventDate/horaEntrega ganan; productionDate es
+  // operativo del fresco). Misma fórmula que FIX-01-Q9 en saveCurrentQuote, aplicada
+  // aquí para que orderData no quede desincronizado con las fechas top-level tras el
+  // merge. No-op para propuestas (no tienen orderData).
+  if(out.orderData&&typeof out.orderData==="object"){
+    out.orderData={
+      ...out.orderData,
+      fechaEntrega:out.eventDate||out.orderData.fechaEntrega||"",
+      horaEntrega:out.horaEntrega||out.orderData.horaEntrega||"",
+      productionDate:out.productionDate||out.orderData.productionDate||""
+    };
+  }
+  return out;
 }
 
 async function saveQuoteToCloud(qObj){

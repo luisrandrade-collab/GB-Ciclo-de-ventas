@@ -1384,41 +1384,49 @@ async function submitPago(){
         tieneFoto:!!nuevo.fotoUrl||!!nuevo.foto
       },
       runner:async(logId)=>{
-        const {db,doc,getDoc,updateDoc,serverTimestamp}=window.fb;
+        const {db,doc,runTransaction,serverTimestamp}=window.fb;
         const coll=getCollectionName(pagoSrc.id,pagoSrc.kind);
-
-        // CRITICAL: re-leer pagos[] desde Firestore antes de hacer push.
-        // Evita race condition: si el cache local está desactualizado, no sobrescribimos
-        // pagos que se hayan registrado desde otra sesión/dispositivo.
-        const snap=await getDoc(doc(db,coll,pagoSrc.id));
-        if(!snap.exists()){
-          throw new Error("Documento "+pagoSrc.id+" no existe en Firestore (collection "+coll+")");
-        }
-        fresh=snap.data();
-        const pagosFresh=Array.isArray(fresh.pagos)?fresh.pagos.slice():[];
+        const ref=doc(db,coll,pagoSrc.id);
 
         // Vincula este pago con el log para trazabilidad cruzada
         nuevo.logId=logId;
 
-        // IDEMPOTENCY: si por alguna razón el clientId ya está, no duplicar
-        if(pagosFresh.some(p=>p.clientId===clientId)){
-          console.warn("[submitPago] clientId ya existe en Firestore (intento idempotente)",clientId);
-        }else{
-          pagosFresh.push(nuevo);
-        }
-
-        await updateDoc(doc(db,coll,pagoSrc.id),{
-          pagos:pagosFresh,
-          updatedAt:serverTimestamp(),
-          ...auditStamp()
+        // v7.9.10: getDoc+updateDoc → runTransaction atómica. Antes quedaba una
+        // ventana de race entre la re-lectura de pagos[] y el updateDoc en la que
+        // otra sesión podía registrar un pago que esta escritura pisaba. La tx
+        // re-lee y escribe atómicamente. El callback es IDEMPOTENTE (reconstruye
+        // pagos desde el snapshot fresco en cada reintento) y no duplica por clientId.
+        let pagosCommit=null,freshCommit=null;
+        await runTransaction(db,async(tx)=>{
+          const snap=await tx.get(ref);
+          if(!snap.exists()){
+            throw new Error("Documento "+pagoSrc.id+" no existe en Firestore (collection "+coll+")");
+          }
+          const freshTx=snap.data();
+          const pagosTx=Array.isArray(freshTx.pagos)?freshTx.pagos.slice():[];
+          // IDEMPOTENCY: si por alguna razón el clientId ya está, no duplicar
+          if(pagosTx.some(p=>p.clientId===clientId)){
+            console.warn("[submitPago] clientId ya existe en Firestore (intento idempotente)",clientId);
+          }else{
+            pagosTx.push(nuevo);
+          }
+          tx.update(ref,{
+            pagos:pagosTx,
+            updatedAt:serverTimestamp(),
+            ...auditStamp()
+          });
+          pagosCommit=pagosTx;
+          freshCommit=freshTx;
         });
 
-        // Update local cache
-        pagoSrc.doc.pagos=pagosFresh;
-        pagosFreshFinal=pagosFresh;
-        totalPagosFinal=pagosFresh.length;
+        // Post-commit: sincronizar estado/cache FUERA del callback (no depender de
+        // valores de un reintento intermedio de la transacción).
+        fresh=freshCommit;
+        pagoSrc.doc.pagos=pagosCommit;
+        pagosFreshFinal=pagosCommit;
+        totalPagosFinal=pagosCommit.length;
 
-        return {payloadExtra:{totalPagosDespues:pagosFresh.length}};
+        return {payloadExtra:{totalPagosDespues:pagosCommit.length}};
       }
     });
 

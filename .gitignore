@@ -41,6 +41,7 @@ check.sh
 !scripts/check.mjs
 !scripts/test_despachos.mjs
 !scripts/test_menaje.mjs
+!scripts/test_merge_operational.mjs
 
 # Sistema operativo
 .DS_Store

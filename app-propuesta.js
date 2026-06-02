@@ -876,7 +876,33 @@ async function savePropQuote(silent){
       if(padre){padre.status="superseded";padre.supersededBy=pNum}
       if(usedFallback)console.info("[v6.3.0 E3-1] Guardado propuesta exitoso en modo compatibilidad (fallback).");
     }else{
-      await saveProposalToCloud(pObj);
+      // v7.9.10: guardado directo en transacción contra lost-update (ver DR-LU-1).
+      // Espejo de saveCurrentQuote: re-lee fresco dentro de la tx, los campos
+      // operativos del fresco ganan, fallback legacy si la tx falla.
+      const {db,doc,runTransaction,serverTimestamp}=window.fb;
+      const ref=doc(db,"proposals",pObj.quoteNumber);
+      try{
+        await runTransaction(db,async(tx)=>{
+          const snap=await tx.get(ref);
+          if(snap.exists()){
+            const fresh=snap.data();
+            if(["anulada","convertida","superseded"].includes(fresh.status)){
+              throw new Error("STATUS_BLOQUEADO_CONCURRENTE:"+fresh.status);
+            }
+            const finalObj=mergeOperationalFields(pObj,fresh);
+            tx.set(ref,{...finalObj,createdAt:serverTimestamp()});
+          }else{
+            tx.set(ref,{...pObj,createdAt:serverTimestamp()});
+          }
+        });
+      }catch(txErr){
+        if(typeof txErr.message==="string"&&txErr.message.startsWith("STATUS_BLOQUEADO_CONCURRENTE:")){
+          if(!silent){hideLoader();toast&&toast("⚠️ Otro usuario archivó/anuló esta propuesta mientras editabas. Recarga (Archivo) y revisa antes de volver a guardar.","warn",7000);}
+          return;
+        }
+        console.warn("[v7.9.10] runTransaction falló en save directo (propuesta); usando fallback legacy. Detalle:",txErr);
+        await saveProposalToCloud(pObj);
+      }
     }
     // v5.5.0 FIX #3: sincronizar quotesCache local
     try{

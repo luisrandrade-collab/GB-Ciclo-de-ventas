@@ -21,3 +21,5 @@ jobs:
         run: node scripts/test_despachos.mjs
       - name: Run menaje unit tests
         run: node scripts/test_menaje.mjs
+      - name: Run merge-operational unit tests
+        run: node scripts/test_merge_operational.mjs
