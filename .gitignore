@@ -9,6 +9,14 @@ gourmet-bites-backup-*.json
 Plan_de_accion_*.json
 Pendientes_*.md
 context_v*.json
+# Handoffs, auditorías y resúmenes internos (exponen deuda técnica / vectores)
+HANDOFF.md
+RESPUESTA_CODEX_A_CLAUDE_v1.json
+Resumen_Maestro_Desarrollo_y_Operacion_GourmetBites.md
+agent_bus/
+# Manuales y convenciones de documentación (internos)
+Manual_de_Usuario_GourmetBites.md
+CONVENCION_DOCUMENTACION.md
 
 # ─── ARCHIVOS DE TRABAJO LOCAL ───────────────────────────────
 # Carpeta interna unificada (planes, pendientes, wireframes, scripts, _legacy, .claude)
