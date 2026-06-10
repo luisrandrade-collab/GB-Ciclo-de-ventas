@@ -382,7 +382,7 @@ async function renderHist(){
     const origenPfBadge=(status==="convertida"&&q.propFinalRef)?'<span class="hc-origen-pf">→ origen de '+q.propFinalRef+'</span>':'';
     // v5.0.3: badge Anulada (motivo visible como tooltip)
     const motivoAnulacion=q.anuladaData?.motivoLabel||q.anuladaData?.motivo||"";
-    const anuladaBadge=(status==="anulada")?'<span class="hc-anulada-badge" title="'+motivoAnulacion+'">❌ Anulada</span>':'';
+    const anuladaBadge=(status==="anulada")?'<span class="hc-anulada-badge" title="'+h(motivoAnulacion)+'">❌ Anulada</span>':''; // v7.9.13 SEC-04: escapar motivo (input libre del usuario) en atributo title
     const replacedByBadge=(q.replacedBy)?'<span style="background:#E3F2FD;color:#1565C0;border:1px solid #90CAF9;border-radius:6px;padding:2px 8px;font-size:0.75em;cursor:pointer" onclick="event.stopPropagation();openPreview(\''+q.replacedBy+'\',\''+q.kind+'\')">♻️ Reemplazado por '+q.replacedBy+'</span>':'';
     const replacesBadge=(q.replaces)?'<span style="background:#FFF3E0;color:#E65100;border:1px solid #FFB74D;border-radius:6px;padding:2px 8px;font-size:0.75em">♻️ Reemplaza a '+q.replaces+'</span>':'';
     const _optInfo=typeof getOptionGroupInfo==="function"?getOptionGroupInfo(q,quotesCache):null;
@@ -777,7 +777,7 @@ async function submitMarkAsOrder(){
       },
       runner:async()=>{
         showLoader("Actualizando estado...");
-        const {db,doc,updateDoc,serverTimestamp}=window.fb;
+        const {db,doc,getDoc,updateDoc,serverTimestamp}=window.fb;
         const patch={
           status:initialStatus,orderData:orderData,
           eventDate:fechaEntrega,horaEntrega:horaEntrega,
@@ -785,7 +785,13 @@ async function submitMarkAsOrder(){
           producedAt:produced?new Date().toISOString():null,
           updatedAt:serverTimestamp()
         };
-        if(pagos.length)patch.pagos=pagos;
+        // v7.9.13 DAT-02: el anticipo se APPENDEA a los pagos frescos del doc.
+        // Antes patch.pagos=pagos PISABA pagos ya registrados (lost update).
+        if(pagos.length){
+          const freshSnap=await getDoc(doc(db,"quotes",quoteId));
+          const pagosFresh=(freshSnap.exists()&&Array.isArray(freshSnap.data().pagos))?freshSnap.data().pagos.slice():[];
+          patch.pagos=pagosFresh.concat(pagos);
+        }
         // v5.0.2: al confirmar un pedido con fecha futura, queda needsSync=true automáticamente.
         const hoyIso=gbTodayIso();
         if(fechaEntrega&&fechaEntrega>=hoyIso)patch.needsSync=true;
@@ -796,7 +802,7 @@ async function submitMarkAsOrder(){
           local.eventDate=fechaEntrega;local.horaEntrega=horaEntrega;
           local.productionDate=productionDate;local.produced=produced;
           local.producedAt=patch.producedAt;
-          if(pagos.length)local.pagos=pagos;
+          if(patch.pagos)local.pagos=patch.pagos; // v7.9.13 DAT-02: cache con el array completo (frescos + anticipo)
           if(patch.needsSync)local.needsSync=true;
         }
       }
@@ -919,18 +925,24 @@ async function submitApproveProposal(){
       },
       runner:async()=>{
         showLoader("Actualizando estado...");
-        const {db,doc,updateDoc,serverTimestamp}=window.fb;
+        const {db,doc,getDoc,updateDoc,serverTimestamp}=window.fb;
         const coll=getCollectionName(propId,kind);
         const patch={status:"aprobada",approvalData:approvalData,updatedAt:serverTimestamp()};
         if(fechaEntrega)patch.eventDate=fechaEntrega;
         if(horaEntrega)patch.horaEntrega=horaEntrega;
-        if(pagos.length)patch.pagos=pagos;
+        // v7.9.13 DAT-02: el anticipo se APPENDEA a los pagos frescos del doc.
+        // Antes patch.pagos=pagos PISABA pagos ya registrados (lost update).
+        if(pagos.length){
+          const freshSnap=await getDoc(doc(db,coll,propId));
+          const pagosFresh=(freshSnap.exists()&&Array.isArray(freshSnap.data().pagos))?freshSnap.data().pagos.slice():[];
+          patch.pagos=pagosFresh.concat(pagos);
+        }
         const hoyIso=gbTodayIso();
         const effectiveEventDate=fechaEntrega||(quotesCache.find(x=>x.id===propId&&x.kind===kind)||{}).eventDate;
         if(effectiveEventDate&&effectiveEventDate>=hoyIso)patch.needsSync=true;
         await updateDoc(doc(db,coll,propId),patch);
         const local=quotesCache.find(x=>x.id===propId&&x.kind===kind);
-        if(local){local.status="aprobada";local.approvalData=approvalData;if(fechaEntrega)local.eventDate=fechaEntrega;if(horaEntrega)local.horaEntrega=horaEntrega;if(pagos.length)local.pagos=pagos;if(patch.needsSync)local.needsSync=true}
+        if(local){local.status="aprobada";local.approvalData=approvalData;if(fechaEntrega)local.eventDate=fechaEntrega;if(horaEntrega)local.horaEntrega=horaEntrega;if(patch.pagos)local.pagos=patch.pagos;if(patch.needsSync)local.needsSync=true} // v7.9.13 DAT-02: cache con array completo
       }
     });
     hideLoader();closeApproveModal();
@@ -1028,51 +1040,7 @@ function duplicateQuote(preserveClient){
   toast("📋 Propuesta duplicada. Revisa fechas y datos del evento antes de guardar.","info",5000);
 }
 
-// ─── SALDO MODAL (legacy) ──────────────────────────────────
-let saldoSource=null;
-function openSaldoModal(propId,ev){
-  if(ev){ev.stopPropagation();ev.preventDefault()}
-  const p=quotesCache.find(x=>x.id===propId);
-  if(!p){if(typeof toast==="function")toast("No se encontró","error");else alert("No se encontró");return}
-  const anticipoProp=p.approvalData?.anticipo;
-  const anticipoOrder=p.orderData?.anticipo;
-  if(!anticipoProp&&!anticipoOrder){alert("Este documento no tiene anticipo registrado.");return}
-  const totalEstimado=p.total||p.totalReal||0;
-  const anticipo=anticipoProp||anticipoOrder||0;
-  const saldoEstimado=Math.max(0,totalEstimado-anticipo);
-  saldoSource={id:propId,kind:p.kind,doc:p};
-  $("sm-num").value=p.quoteNumber||p.id;
-  $("sm-cli").value=p.client||"";
-  $("sm-fecha").value=gbTodayIso();
-  $("sm-metodo").value="";
-  $("sm-notas").value="";
-  $("sm-monto").value=saldoEstimado||"";
-  $("saldo-monto-disp").textContent=saldoEstimado>0?fm(saldoEstimado)+" (estimado)":"Sin total. Ingresa monto manual.";
-  $("saldo-modal").classList.remove("hidden");
-}
-function closeSaldoModal(){$("saldo-modal").classList.add("hidden");saldoSource=null}
-
-async function submitSaldoCobrado(){
-  if(!saldoSource)return;
-  if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión","error");else alert("Sin conexión.");return}
-  const fecha=$("sm-fecha").value;if(!fecha){alert("Fecha");return}
-  const metodo=$("sm-metodo").value;if(!metodo){alert("Método");return}
-  const monto=parseInt($("sm-monto").value)||0;if(monto<=0){alert("Monto inválido");return}
-  const notas=$("sm-notas").value.trim();
-  const saldoData={fecha:fecha,monto:monto,metodoPago:metodo,notas:notas,marcadoEn:new Date().toISOString()};
-  try{
-    showLoader("Registrando cobro...");
-    const {db,doc,updateDoc,serverTimestamp}=window.fb;
-    const propId=saldoSource.id;
-    const coll=getCollectionName(propId,saldoSource.kind);
-    await updateDoc(doc(db,coll,propId),{saldoData:saldoData,updatedAt:serverTimestamp()});
-    saldoSource.doc.saldoData=saldoData;
-    hideLoader();closeSaldoModal();
-    toast("💰 Saldo cobrado registrado","success");
-    renderHist();
-    if(curMode==="cot")renderMiniDash();
-  }catch(e){hideLoader();toast("Error: "+e.message,"error");console.error(e)}
-}
+// v7.9.13 ARQ-08: eliminada cadena openSaldoModal/closeSaldoModal/submitSaldoCobrado (0 referencias, auditoría 2026-06-10)
 
 // ─── PAGOS modal ───────────────────────────────────────────
 let pagoSrc=null;
@@ -1517,7 +1485,7 @@ function _showPagoSuccessModal(opts){
       '<div style="font-size:14px;line-height:1.6;color:#1A1A1A">'+
         '<div style="font-size:20px;font-weight:700;color:#1B5E20">'+opts.monto+'</div>'+
         '<div style="color:#5D4037;margin-top:2px;font-size:13px">'+opts.metodo+'</div>'+
-        '<div style="color:#5D4037;margin-top:8px;font-size:12.5px;border-top:1px solid #E0E0E0;padding-top:8px">'+opts.num+' · '+opts.cliente+'</div>'+
+        '<div style="color:#5D4037;margin-top:8px;font-size:12.5px;border-top:1px solid #E0E0E0;padding-top:8px">'+opts.num+' · '+h(opts.cliente)+'</div>'+ // v7.9.13 SEC-08: escapar nombre de cliente (texto libre) en el modal
         '<div style="margin-top:8px;font-size:13px">Total cobrado: <strong>'+opts.cobradoTotal+'</strong></div>'+
         '<div style="margin-top:4px;font-size:13px">'+opts.saldoLabel+'</div>'+
       '</div>'+
@@ -1607,6 +1575,16 @@ function editPago(idx){
   $("pe-tipo-"+idx).value=p.tipo||"abono";
 }
 
+// v7.9.13 DAT-03: localiza un pago dentro del array FRESCO leído en la transacción
+// por identidad estable (clientId > registradoEn) y solo como último recurso por índice.
+// Necesario porque el idx de la UI proviene del caché y puede estar corrido si otra
+// sesión agregó/quitó pagos entre el render y el commit.
+function _findPagoIdxFresh(arr,ref,fallbackIdx){
+  if(ref&&ref.clientId){const i=arr.findIndex(p=>p.clientId===ref.clientId);if(i>=0)return i}
+  if(ref&&ref.registradoEn){const i=arr.findIndex(p=>p.registradoEn===ref.registradoEn);if(i>=0)return i}
+  return (typeof fallbackIdx==="number"&&fallbackIdx>=0&&fallbackIdx<arr.length)?fallbackIdx:-1;
+}
+
 async function savePagoEdit(idx){
   const docId=window.__verPagosId;
   const kind=window.__verPagosKind;
@@ -1650,13 +1628,29 @@ async function savePagoEdit(idx){
         changes:changes.map(c=>({campo:c.campo,antes:typeof c.antes==="string"?c.antes.slice(0,80):c.antes,despues:typeof c.despues==="string"?c.despues.slice(0,80):c.despues}))
       },
       runner:async()=>{
-        const {db,doc,updateDoc,serverTimestamp}=window.fb;
+        // v7.9.13 DAT-03: updateDoc ciego desde caché → runTransaction (patrón submitPago).
+        // Antes se escribía el array reconstruido desde quotesCache (stale): un pago
+        // registrado por otra sesión entre el render y el guardado se perdía.
+        const {db,doc,runTransaction,serverTimestamp}=window.fb;
         const coll=getCollectionName(docId,kind);
-        const changelog=Array.isArray(q.pago_changelog)?[...q.pago_changelog]:[];
-        changelog.push({pagoIdx:idx,timestamp:new Date().toISOString(),changes});
-        await updateDoc(doc(db,coll,docId),{pagos,pago_changelog:changelog,updatedAt:serverTimestamp(),...auditStamp()});
-        q.pagos=pagos;
-        q.pago_changelog=changelog;
+        const ref=doc(db,coll,docId);
+        let pagosCommit=null,changelogCommit=null;
+        await runTransaction(db,async(tx)=>{
+          const snap=await tx.get(ref);
+          if(!snap.exists())throw new Error("Documento "+docId+" no existe en Firestore (collection "+coll+")");
+          const freshTx=snap.data();
+          const pagosTx=Array.isArray(freshTx.pagos)?freshTx.pagos.map(p=>({...p})):[];
+          const idxTx=_findPagoIdxFresh(pagosTx,old,idx);
+          if(idxTx<0)throw new Error("No se encontró el pago a editar en el documento actual. Recarga (F1) y reintenta.");
+          pagosTx[idxTx]={...pagosTx[idxTx],monto:pagos[idx].monto,fecha:nuevoFecha,metodo:nuevoMetodo,tipo:nuevoTipo,notas:nuevoNotas,editadoEn:pagos[idx].editadoEn};
+          const changelogTx=Array.isArray(freshTx.pago_changelog)?freshTx.pago_changelog.slice():[];
+          changelogTx.push({pagoIdx:idxTx,timestamp:new Date().toISOString(),changes});
+          tx.update(ref,{pagos:pagosTx,pago_changelog:changelogTx,updatedAt:serverTimestamp(),...auditStamp()});
+          pagosCommit=pagosTx;
+          changelogCommit=changelogTx;
+        });
+        q.pagos=pagosCommit;
+        q.pago_changelog=changelogCommit;
         return {payloadExtra:{cambios:changes.length}};
       }
     });
@@ -1692,14 +1686,26 @@ async function onAdjuntarPagoFile(ev,idx){
     try{
       showLoader("Subiendo comprobante...");
       const {url}=await uploadFotoFromBase64(b64,"pago",docId,"pagos");
-      // Construir array de pagos actualizado (reemplazando el idx con la foto nueva)
-      const pagosActuales=pagos.map(p=>({...p}));
-      pagosActuales[idx].fotoUrl=url;
-      pagosActuales[idx].fotoAdjuntadaEn=new Date().toISOString();
-      const {db,doc,updateDoc,serverTimestamp}=window.fb;
+      // v7.9.13 DAT-03: updateDoc ciego desde caché → runTransaction (patrón submitPago).
+      // Se relee pagos[] fresco dentro de la tx y se localiza el pago por identidad
+      // estable (clientId/registradoEn), no por el array del caché.
+      const {db,doc,runTransaction,serverTimestamp}=window.fb;
       const coll=getCollectionName(docId,kind);
-      await updateDoc(doc(db,coll,docId),{pagos:pagosActuales,updatedAt:serverTimestamp(),...auditStamp()});
-      q.pagos=pagosActuales;
+      const ref=doc(db,coll,docId);
+      const pagoRef=pagos[idx];
+      const fotoAdjuntadaEn=new Date().toISOString();
+      let pagosCommit=null;
+      await runTransaction(db,async(tx)=>{
+        const snap=await tx.get(ref);
+        if(!snap.exists())throw new Error("Documento "+docId+" no existe en Firestore (collection "+coll+")");
+        const pagosTx=Array.isArray(snap.data().pagos)?snap.data().pagos.map(p=>({...p})):[];
+        const idxTx=_findPagoIdxFresh(pagosTx,pagoRef,idx);
+        if(idxTx<0)throw new Error("No se encontró el pago en el documento actual. Recarga (F1) y reintenta.");
+        pagosTx[idxTx]={...pagosTx[idxTx],fotoUrl:url,fotoAdjuntadaEn:fotoAdjuntadaEn};
+        tx.update(ref,{pagos:pagosTx,updatedAt:serverTimestamp(),...auditStamp()});
+        pagosCommit=pagosTx;
+      });
+      q.pagos=pagosCommit;
       hideLoader();
       toast("📎 Comprobante adjuntado","success");
       // Re-abrir el modal para que se vea actualizado
@@ -1754,29 +1760,44 @@ async function toggleProducedDespacho(docId,despachoId,kind,ev){
   if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión","error");else alert("Sin conexión");return}
   try{
     showLoader("Actualizando despacho...");
-    const nuevoArr=q.despachos.map((d,i)=>{
-      if(i!==idx)return d;
-      const next={...d,status:nuevoStatus};
-      if(nuevoStatus==="producido"&&!d.producedAt)next.producedAt=new Date().toISOString();
-      if(nuevoStatus==="pendiente")next.producedAt=null;
-      return next;
-    });
-    const todosListos=nuevoArr.every(d=>d.status==="producido"||d.status==="entregado");
-    const nuevoProduced=todosListos;
-    const {db,doc,updateDoc,serverTimestamp}=window.fb;
+    // v7.9.13 DAT-03: updateDoc ciego desde caché → runTransaction (patrón submitPago).
+    // El array despachos se reconstruye desde el snapshot FRESCO dentro de la tx,
+    // localizando el despacho por su id estable (no por índice/referencia del caché).
+    const {db,doc,runTransaction,serverTimestamp}=window.fb;
     const coll=getCollectionName(docId,kind);
-    const patch={despachos:nuevoArr,updatedAt:serverTimestamp()};
-    if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
-    if(nuevoProduced!==!!q.produced){
-      patch.produced=nuevoProduced;
-      patch.producedAt=nuevoProduced?new Date().toISOString():null;
-    }
-    await updateDoc(doc(db,coll,docId),patch);
+    const ref=doc(db,coll,docId);
+    let nuevoArr=null,todosListos=false,patchCommit=null,idxTx=-1;
+    await runTransaction(db,async(tx)=>{
+      const snap=await tx.get(ref);
+      if(!snap.exists())throw new Error("Documento "+docId+" no existe en Firestore (collection "+coll+")");
+      const freshTx=snap.data();
+      const despachosTx=Array.isArray(freshTx.despachos)?freshTx.despachos:null;
+      if(!despachosTx)throw new Error("El documento ya no tiene despachos. Recarga (F1) y reintenta.");
+      idxTx=despachosTx.findIndex(d=>d.id===despachoId);
+      if(idxTx<0)throw new Error("Despacho no encontrado en el documento actual. Recarga (F1) y reintenta.");
+      nuevoArr=despachosTx.map((d,i)=>{
+        if(i!==idxTx)return d;
+        const next={...d,status:nuevoStatus};
+        if(nuevoStatus==="producido"&&!d.producedAt)next.producedAt=new Date().toISOString();
+        if(nuevoStatus==="pendiente")next.producedAt=null;
+        return next;
+      });
+      todosListos=nuevoArr.every(d=>d.status==="producido"||d.status==="entregado");
+      const nuevoProduced=todosListos;
+      const patch={despachos:nuevoArr,updatedAt:serverTimestamp()};
+      if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
+      if(nuevoProduced!==!!freshTx.produced){
+        patch.produced=nuevoProduced;
+        patch.producedAt=nuevoProduced?new Date().toISOString():null;
+      }
+      tx.update(ref,patch);
+      patchCommit=patch;
+    });
     q.despachos=nuevoArr;
-    if(nuevoProduced!==!!q.produced){q.produced=nuevoProduced;q.producedAt=patch.producedAt||null}
+    if("produced" in patchCommit){q.produced=patchCommit.produced;q.producedAt=patchCommit.producedAt||null}
     hideLoader();refreshActiveView(); // v7.9.9 F1
     if(typeof toast==="function"){
-      const numDesp=idx+1,totalDesp=nuevoArr.length;
+      const numDesp=idxTx+1,totalDesp=nuevoArr.length;
       const msg=nuevoStatus==="producido"
         ?"🔪 Despacho "+numDesp+"/"+totalDesp+" marcado producido"+(todosListos?" · doc completo":"")
         :"↩️ Despacho "+numDesp+"/"+totalDesp+" vuelto a pendiente";
@@ -1826,25 +1847,40 @@ async function toggleEntregadoDespacho(docId,despachoId,kind,ev){
       marcadoEn:nowIso,
       modo:"despacho-minimal-v7.9.7.1"
     };
-    const nuevoArr=q.despachos.map((d,i)=>{
-      if(i!==idx)return d;
-      return {...d,status:"entregado",entregadoEn:nowIso,entregaData:entregaDataDesp};
-    });
-    const todosEntregados=nuevoArr.every(d=>d.status==="entregado");
-    const {db,doc,updateDoc,serverTimestamp}=window.fb;
+    // v7.9.13 DAT-03: updateDoc ciego desde caché → runTransaction (patrón submitPago).
+    // despachos[] se reconstruye desde el snapshot FRESCO dentro de la tx, localizando
+    // el despacho por su id estable (no por índice/referencia del caché).
+    const {db,doc,runTransaction,serverTimestamp}=window.fb;
     const coll=getCollectionName(docId,kind);
-    const patch={despachos:nuevoArr,updatedAt:serverTimestamp()};
-    if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
-    if(todosEntregados&&q.status!=="entregado"){
-      // Opción B: solo cuando todos los despachos están entregado, el doc pasa a entregado.
-      patch.status="entregado";
-      patch.fechaEntrega=nowLocalDate;
-      patch.produced=true;
-      if(!q.producedAt)patch.producedAt=nowIso;
-    }
-    await updateDoc(doc(db,coll,docId),patch);
+    const ref=doc(db,coll,docId);
+    let nuevoArr=null,todosEntregados=false,patchCommit=null,idxTx=-1;
+    await runTransaction(db,async(tx)=>{
+      const snap=await tx.get(ref);
+      if(!snap.exists())throw new Error("Documento "+docId+" no existe en Firestore (collection "+coll+")");
+      const freshTx=snap.data();
+      const despachosTx=Array.isArray(freshTx.despachos)?freshTx.despachos:null;
+      if(!despachosTx)throw new Error("El documento ya no tiene despachos. Recarga (F1) y reintenta.");
+      idxTx=despachosTx.findIndex(d=>d.id===despachoId);
+      if(idxTx<0)throw new Error("Despacho no encontrado en el documento actual. Recarga (F1) y reintenta.");
+      nuevoArr=despachosTx.map((d,i)=>{
+        if(i!==idxTx)return d;
+        return {...d,status:"entregado",entregadoEn:nowIso,entregaData:entregaDataDesp};
+      });
+      todosEntregados=nuevoArr.every(d=>d.status==="entregado");
+      const patch={despachos:nuevoArr,updatedAt:serverTimestamp()};
+      if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
+      if(todosEntregados&&freshTx.status!=="entregado"){
+        // Opción B: solo cuando todos los despachos están entregado, el doc pasa a entregado.
+        patch.status="entregado";
+        patch.fechaEntrega=nowLocalDate;
+        patch.produced=true;
+        if(!freshTx.producedAt)patch.producedAt=nowIso;
+      }
+      tx.update(ref,patch);
+      patchCommit=patch;
+    });
     q.despachos=nuevoArr;
-    if(patch.status){q.status=patch.status;q.fechaEntrega=patch.fechaEntrega;q.produced=true;if(patch.producedAt)q.producedAt=patch.producedAt}
+    if(patchCommit.status){q.status=patchCommit.status;q.fechaEntrega=patchCommit.fechaEntrega;q.produced=true;if(patchCommit.producedAt)q.producedAt=patchCommit.producedAt}
     hideLoader();refreshActiveView(); // v7.9.9 F1
     if(typeof toast==="function"){
       const msg=todosEntregados
@@ -1855,7 +1891,7 @@ async function toggleEntregadoDespacho(docId,despachoId,kind,ev){
     // v7.9.7.1 F8: ofrecer WhatsApp con texto específico del despacho.
     // Pregunta antes de abrir para no interrumpir si Kathy/JP marcan varios seguidos.
     setTimeout(()=>{
-      const despachoActualizado=nuevoArr[idx];
+      const despachoActualizado=nuevoArr[idxTx]; // v7.9.13 DAT-03: índice del snapshot fresco de la tx
       const texto=_buildEntregaWaTextDespacho(q,despachoActualizado,idx,totalDesp);
       const enviar=confirm("📲 ¿Avisar a Kathy por WhatsApp?\n\nMensaje preparado:\n\n"+texto+"\n\n(Cancelar = solo registrar la entrega sin avisar)");
       if(!enviar)return;
@@ -3314,10 +3350,10 @@ function getDocsPorEtapa(etapa,options){
         return q.produced&&st!=="entregado"&&st!=="anulada"&&st!=="superseded"&&st!=="convertida";
 
       case "entregar": {
-        // Producidos con fecha entrega cercana (hoy o mañana)
+        // Producidos con fecha entrega cercana (hoy o mañana), vencida o sin fecha
         if(!q.produced||st==="entregado"||st==="anulada")return false;
         const f=fechaEntrega(q);
-        if(!f)return false;
+        if(!f)return true; // v7.9.13 UX-03: sin fecha también entra (grupo destacado en renderEntregar) — antes se perdían de la vista
         const hoy=new Date();hoy.setHours(0,0,0,0);
         const manana=new Date(hoy);manana.setDate(manana.getDate()+1);
         const fd=new Date(f+"T00:00:00");
@@ -3791,11 +3827,23 @@ async function renderEntregar(){
     listEl.innerHTML='<div style="padding:48px 20px;text-align:center;color:#888;font-size:14px">'+
       '<div style="font-size:48px;margin-bottom:12px">🚚</div>'+
       '<div style="font-weight:700;color:#555;margin-bottom:6px">Sin entregas urgentes</div>'+
-      '<div style="font-size:12px">Acá ves los pedidos producidos con fecha entrega hoy o mañana.</div>'+
+      '<div style="font-size:12px">Acá ves los pedidos producidos con fecha entrega hoy o mañana, vencida o sin fecha.</div>'+ // v7.9.13 UX-03
       '</div>';
     return;
   }
-  listEl.innerHTML=docs.map(q=>renderDocCard(q,"entregar",{showStatus:true})).join("");
+  // v7.9.13 UX-03: separar en grupo destacado las entregas VENCIDAS (< hoy) o SIN fecha,
+  // para que no se pierdan entre las de hoy/mañana. Mantiene el orden del sort existente.
+  const hoyIso=gbTodayIso();
+  const _fechaEnt=q=>q.eventDate||(q.orderData||{}).fechaEntrega||(q.approvalData||{}).fechaEntrega||q.fechaEntrega||"";
+  const atrasadas=docs.filter(q=>{const f=_fechaEnt(q);return !f||f<hoyIso});
+  const proximas=docs.filter(q=>{const f=_fechaEnt(q);return f&&f>=hoyIso});
+  let html="";
+  if(atrasadas.length){
+    html+='<div style="background:#FFEBEE;border:1px solid #EF9A9A;border-radius:8px;padding:8px 14px;margin:6px 0;font-size:13px;font-weight:700;color:#C62828">⚠️ Vencidas o sin fecha ('+atrasadas.length+')</div>'+
+      atrasadas.map(q=>renderDocCard(q,"entregar",{showStatus:true})).join("");
+  }
+  html+=proximas.map(q=>renderDocCard(q,"entregar",{showStatus:true})).join("");
+  listEl.innerHTML=html;
 }
 
 async function renderEntregadas(){

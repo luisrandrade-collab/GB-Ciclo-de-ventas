@@ -6,50 +6,8 @@
 // v4.12.1: computePropTotal — total real (menú+catering+menaje+personal+transporte)
 // ═══════════════════════════════════════════════════════════
 
-// ─── COMPUTE TOTAL DE PROPUESTA (mismo cálculo que el PDF) ──
-// Reproduce la lógica de "TOTAL DEL SERVICIO" para que cualquier
-// vista (dashboard, historial) tenga el mismo número que el PDF.
-// Para propuestas con varias opciones, usa Opción A (igual que PDF).
-function computePropTotal(q){
-  if(!q)return 0;
-  let totMenu=0,totCatering=0;
-  (q.sections||[]).forEach(sec=>{
-    // v7.8.4.2: secciones marcadas como alternativas (incluirEnTotal===false) no se suman
-    if(sec.incluirEnTotal===false)return;
-    const isCateringSec=/servicio\s*de\s*catering|coordinaci[oó]n/i.test(sec.name||"");
-    (sec.options||[]).forEach(opt=>{
-      if(opt.label==="Opción A"||sec.options.length===1){
-        (opt.items||[]).forEach(it=>{
-          const val=(it.price||0)*(it.qty||0);
-          if(isCateringSec)totCatering+=val;else totMenu+=val;
-        });
-      }
-    });
-  });
-  let totMenajeVal=0;
-  (q.menaje||[]).forEach(m=>{const qty=parseFloat(m.qty)||0,p=parseFloat(m.price)||0;totMenajeVal+=qty*p});
-  const pd=q.personalData||{meseros:{},auxiliares:{}};
-  const pm=pd.meseros||{},pa=pd.auxiliares||{};
-  const mSub=(parseFloat(pm.cantidad)||0)*((parseFloat(pm.valor4h)||0)+(parseFloat(pm.horasExtra)||0)*(parseFloat(pm.valorHoraExtra)||0));
-  const aSub=(parseFloat(pa.cantidad)||0)*((parseFloat(pa.valor4h)||0)+(parseFloat(pa.horasExtra)||0)*(parseFloat(pa.valorHoraExtra)||0));
-  const totPersonal=mSub+aSub;
-  // v7.9.12 FIX: transporte de despachos múltiples. Mismo criterio que el PDF
-  // (genPropPDF): si hay 2+ despachos, el transporte es la suma de cada uno;
-  // si no, se usa el transporte legacy (cityType/trCustom) de la entrega única.
-  // Antes computePropTotal ignoraba q.despachos[] → el total guardado subestimaba
-  // eventos multi-domicilio (Cartera/saldo/stats quedaban cortos).
-  const despachos=Array.isArray(q.despachos)?q.despachos:[];
-  const totTranspDespachos=despachos.length>=2?despachos.reduce((s,d)=>s+(parseFloat(d.transporteCosto)||0),0):0;
-  let totTransp=0;
-  if(totTranspDespachos>0){
-    totTransp=totTranspDespachos;
-  }else if(q.cityType==="Otra"){
-    totTransp=parseInt(q.trCustom)||0;
-  }else if(q.cityType&&TR[q.cityType]){
-    totTransp=TR[q.cityType].p;
-  }
-  return totMenu+totCatering+totMenajeVal+totPersonal+totTransp;
-}
+// v7.9.13 ARQ-02: computePropTotal vivía acá — movida a app-core.js (cifra
+// canónica de dinero usada por core/dashboard/historial; core carga primero).
 
 const PROP_SECTION_NAMES=["Entradas","Plato Fuerte","Acompañamientos","Postres","Bebidas","Logística"];
 let propSections=[];
@@ -241,7 +199,9 @@ async function savePriceMemory(){
   if(!cloudOnline)return;
   try{
     const {db,doc,setDoc,serverTimestamp}=window.fb;
-    await setDoc(doc(db,"config","price_memory"),{...priceMemoryCache,updatedAt:serverTimestamp()});
+    // v7.9.13 DAT-07: merge:true — antes el setDoc pisaba el doc completo y borraba
+    // claves de memoria de precios escritas por otras sesiones que esta no tenía cargadas.
+    await setDoc(doc(db,"config","price_memory"),{...priceMemoryCache,updatedAt:serverTimestamp()},{merge:true});
   }catch(e){console.warn("savePriceMemory failed",e)}
 }
 function rememberPricesFromProposal(){
@@ -392,11 +352,12 @@ function renderPropSections(){
     // v7.9.8.4: nota/descripción por sección (opcional). Se muestra en el PDF debajo del título de sección.
     const notaVal=(sec.nota||"");
     const notaHTML='<textarea placeholder="Nota o descripción de la sección (opcional) — se muestra en la propuesta debajo del título" style="width:100%;box-sizing:border-box;margin:0 0 8px;padding:6px 8px;border:1px solid var(--gb-neutral-200);border-radius:6px;font-size:11px;font-family:inherit;resize:vertical;min-height:34px;color:var(--gb-neutral-600)" onchange="updPropSecNota('+si+',this.value)">'+h(notaVal)+'</textarea>';
-    return'<div class="prop-sec" style="'+secStyle+'"><div class="sec-head"><span class="sec-title">'+sec.name+altBadge+'</span><div style="display:flex;align-items:center">'+toggleHTML+'<button class="del-btn" onclick="delPropSec('+si+')" title="Eliminar sección">×</button></div></div>'+
+    // v7.9.13 SEC-05: sec.name/opt.label/it.* (datos persistidos) escapados con h() antes de innerHTML
+    return'<div class="prop-sec" style="'+secStyle+'"><div class="sec-head"><span class="sec-title">'+h(sec.name)+altBadge+'</span><div style="display:flex;align-items:center">'+toggleHTML+'<button class="del-btn" onclick="delPropSec('+si+')" title="Eliminar sección">×</button></div></div>'+
     notaHTML+
     sec.options.map((opt,oi)=>{
       const sub=opt.items.reduce((s,it)=>s+(it.price||0)*(it.qty||0),0);
-      return'<div class="opt-card"><div class="opt-head"><span class="opt-label">'+opt.label+'</span><div><span class="opt-sub">'+fm(sub)+'</span><button class="del-btn" style="font-size:14px" onclick="delPropOpt('+si+','+oi+')">×</button></div></div>'+
+      return'<div class="opt-card"><div class="opt-head"><span class="opt-label">'+h(opt.label)+'</span><div><span class="opt-sub">'+fm(sub)+'</span><button class="del-btn" style="font-size:14px" onclick="delPropOpt('+si+','+oi+')">×</button></div></div>'+
       opt.items.map((it,ii)=>{
         const itSub=(it.price||0)*(it.qty||0);
         // v7.9.7 F3: dropdown de asignación a despacho (solo visible si hay >=2 despachos)
@@ -409,7 +370,7 @@ function renderPropSections(){
           });
           return '<select title="Asignar a despacho" style="font-size:10.5px;padding:2px 4px;border:1px solid #FFB300;border-radius:4px;background:#FFF8E1;max-width:130px" onchange="updPropItem('+si+','+oi+','+ii+',\'assignedTo\',this.value)">'+opts+'</select>';
         })():"";
-        return '<div class="opt-item" style="flex-wrap:wrap"><div style="flex:1;min-width:120px"><div style="font-weight:600;font-size:12px">'+it.name+'</div>'+(it.desc?'<div style="font-size:10px;color:var(--gb-neutral-400)">'+it.desc+'</div>':'')+(it.unit?'<div style="font-size:9px;color:var(--gb-neutral-500);font-style:italic">'+it.unit+'</div>':'')+'</div><input type="number" step="0.1" min="0" style="width:50px;padding:3px 6px;border:1px solid var(--gb-neutral-200);border-radius:4px;text-align:center;font-size:12px" value="'+(it.qty||"")+'" title="Cantidad" onchange="updPropItem('+si+','+oi+','+ii+',\'qty\',+this.value)"><input type="number" style="width:75px;padding:3px 6px;border:1px solid var(--gb-neutral-200);border-radius:4px;text-align:right;font-size:11px" value="'+(it.price||0)+'" title="Precio unitario" onchange="updPropItem('+si+','+oi+','+ii+',\'price\',+this.value)"><span style="width:80px;text-align:right;font-size:12px;font-weight:700">'+fm(itSub)+'</span>'+despachosUI+'<button class="del-btn" style="font-size:14px" onclick="delPropItem('+si+','+oi+','+ii+')">×</button></div>';
+        return '<div class="opt-item" style="flex-wrap:wrap"><div style="flex:1;min-width:120px"><div style="font-weight:600;font-size:12px">'+h(it.name)+'</div>'+(it.desc?'<div style="font-size:10px;color:var(--gb-neutral-400)">'+h(it.desc)+'</div>':'')+(it.unit?'<div style="font-size:9px;color:var(--gb-neutral-500);font-style:italic">'+h(it.unit)+'</div>':'')+'</div><input type="number" step="0.1" min="0" style="width:50px;padding:3px 6px;border:1px solid var(--gb-neutral-200);border-radius:4px;text-align:center;font-size:12px" value="'+(it.qty||"")+'" title="Cantidad" onchange="updPropItem('+si+','+oi+','+ii+',\'qty\',+this.value)"><input type="number" style="width:75px;padding:3px 6px;border:1px solid var(--gb-neutral-200);border-radius:4px;text-align:right;font-size:11px" value="'+(it.price||0)+'" title="Precio unitario" onchange="updPropItem('+si+','+oi+','+ii+',\'price\',+this.value)"><span style="width:80px;text-align:right;font-size:12px;font-weight:700">'+fm(itSub)+'</span>'+despachosUI+'<button class="del-btn" style="font-size:14px" onclick="delPropItem('+si+','+oi+','+ii+')">×</button></div>';
       }).join("")+
       '<div style="display:flex;gap:6px;margin-top:8px"><button class="btn bo" style="font-size:10px;padding:4px 10px" onclick="openPicker('+si+','+oi+')">+ Catálogo</button><button class="btn bo" style="font-size:10px;padding:4px 10px" onclick="addPropItemCustom('+si+','+oi+')">+ Custom</button></div></div>'
     }).join("")+
@@ -461,6 +422,11 @@ function removeDespacho(id){
   if(idx<0)return;
   if(currentDespachos[idx].status&&currentDespachos[idx].status!=="pendiente"){
     if(!confirm("Este despacho ya está en estado '"+currentDespachos[idx].status+"'. ¿Eliminar igual?"))return;
+  }else{
+    // v7.9.13 UX-06: confirmar también despachos PENDIENTES con datos digitados (antes se borraban sin preguntar)
+    const _d=currentDespachos[idx];
+    const _tieneDatos=!!(_d.fechaHora||(_d.direccion&&_d.direccion.dir));
+    if(_tieneDatos&&!confirm("¿Eliminar el Despacho "+(idx+1)+"? Tiene fecha/hora o dirección digitadas y no se puede deshacer."))return;
   }
   const removedId=currentDespachos[idx].id;
   currentDespachos.splice(idx,1);
@@ -597,11 +563,12 @@ function renderPicker(){
   let html="";
   if(customMatches.length){
     html+='<div style="font-size:10px;font-weight:700;color:var(--gb-gold-500);text-transform:uppercase;letter-spacing:.5px;padding:6px 4px;margin-top:4px">Productos Custom Guardados</div>';
-    html+=customMatches.map(p=>'<div class="pcard" style="border-left:3px solid var(--gb-gold-500)" onclick="pickCustomProduct(\''+p.id+'\')"><div class="pinfo"><div class="pname">'+p.n+' <span style="font-size:9px;background:var(--gb-gold-500);color:#fff;padding:1px 5px;border-radius:3px">CUSTOM</span>'+(p.promoted?' <span style="font-size:9px;background:#6A1B9A;color:#fff;padding:1px 5px;border-radius:3px">POPULAR</span>':"")+'</div>'+(p.d?'<div class="pdesc">'+p.d+'</div>':'')+(p.u?'<div class="punit">'+p.u+'</div>':"")+'<div class="pprice">'+fm(p.p||0)+'</div><div style="font-size:9px;color:var(--gb-neutral-400);margin-top:2px">'+(p.useCount||1)+' usos</div></div></div>').join("");
+    // v7.9.13 SEC-05: p.n/p.d/p.u (custom persistidos) escapados con h()
+    html+=customMatches.map(p=>'<div class="pcard" style="border-left:3px solid var(--gb-gold-500)" onclick="pickCustomProduct(\''+p.id+'\')"><div class="pinfo"><div class="pname">'+h(p.n)+' <span style="font-size:9px;background:var(--gb-gold-500);color:#fff;padding:1px 5px;border-radius:3px">CUSTOM</span>'+(p.promoted?' <span style="font-size:9px;background:#6A1B9A;color:#fff;padding:1px 5px;border-radius:3px">POPULAR</span>':"")+'</div>'+(p.d?'<div class="pdesc">'+h(p.d)+'</div>':'')+(p.u?'<div class="punit">'+h(p.u)+'</div>':"")+'<div class="pprice">'+fm(p.p||0)+'</div><div style="font-size:9px;color:var(--gb-neutral-400);margin-top:2px">'+(p.useCount||1)+' usos</div></div></div>').join("");
   }
   if(catalogMatches.length){
     if(customMatches.length)html+='<div style="font-size:10px;font-weight:700;color:#6A1B9A;text-transform:uppercase;letter-spacing:.5px;padding:6px 4px;margin-top:12px">Catálogo Oficial</div>';
-    html+=catalogMatches.map(p=>'<div class="pcard" onclick="pickProduct('+p.id+')"><div class="pinfo"><div class="pname">'+p.n+'</div>'+(p.d?'<div class="pdesc">'+p.d+'</div>':'')+'<div class="punit">'+p.u+'</div><div class="pprice">'+fm(p.p)+'</div></div></div>').join("");
+    html+=catalogMatches.map(p=>'<div class="pcard" onclick="pickProduct('+p.id+')"><div class="pinfo"><div class="pname">'+h(p.n)+'</div>'+(p.d?'<div class="pdesc">'+h(p.d)+'</div>':'')+'<div class="punit">'+p.u+'</div><div class="pprice">'+fm(p.p)+'</div></div></div>').join("");
   }
   $("pk-list").innerHTML=html;
 }
@@ -651,7 +618,7 @@ function renderMenaje(){
       const bg=isActive?"#1B5E20":"#fff";
       const color=isActive?"#fff":"#1B5E20";
       const border=isActive?"#1B5E20":"#A5D6A7";
-      html+='<button onclick="setActiveMenajeOption(\''+op.id+'\')" style="background:'+bg+';color:'+color+';border:1px solid '+border+';border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer">'+(op.label||"Opción")+'</button>';
+      html+='<button onclick="setActiveMenajeOption(\''+op.id+'\')" style="background:'+bg+';color:'+color+';border:1px solid '+border+';border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer">'+h(op.label||"Opción")+'</button>'; // v7.9.13 SEC-05: label escapado
     });
     html+='<button onclick="addMenajeOption()" style="background:#fff;color:#1B5E20;border:1px dashed #A5D6A7;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer" title="Agregar nueva opción de menaje">+ Opción</button>';
     if(menajeOptions.length>1){
@@ -666,14 +633,14 @@ function renderMenaje(){
   // Label editable de la opción activa (solo si hay >1)
   if(menajeOptions.length>1){
     const activeOp=menajeOptions.find(o=>o.id===activeMenajeOptionId);
-    html+='<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><span style="font-size:11px;color:#888">Etiqueta:</span><input type="text" value="'+(activeOp?.label||"")+'" onchange="updMenajeOptionLabel(\''+activeMenajeOptionId+'\',this.value);renderMenaje()" style="flex:1;padding:3px 6px;border:1px solid var(--gb-neutral-200);border-radius:4px;font-size:12px"></div>';
+    html+='<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><span style="font-size:11px;color:#888">Etiqueta:</span><input type="text" value="'+h(activeOp?.label||"")+'" onchange="updMenajeOptionLabel(\''+activeMenajeOptionId+'\',this.value);renderMenaje()" style="flex:1;padding:3px 6px;border:1px solid var(--gb-neutral-200);border-radius:4px;font-size:12px"></div>';
   }
   // Items de la opción activa
   html+=menajeItems.map((m,i)=>{
     const sugP=!m.price&&priceMemoryCache.menaje[m.name]?priceMemoryCache.menaje[m.name]:"";
     const priceClass=sugP?"mi-price sug":"mi-price";
     const priceTitle=sugP?'title="Sugerido de propuesta anterior"':"";
-    return '<div class="menaje-item"><span style="flex:1;font-weight:600">'+m.name+'</span><input type="number" placeholder="Cant." style="width:55px;padding:4px 6px;border:1px solid var(--gb-neutral-200);border-radius:4px;text-align:center;font-size:12px" value="'+m.qty+'" onchange="menajeItems['+i+'].qty=this.value;renderMenaje();renderReposicion()"><input type="number" class="'+priceClass+'" placeholder="'+(sugP?sugP+" (sug)":"Precio")+'" value="'+m.price+'" '+priceTitle+' onchange="menajeItems['+i+'].price=this.value;renderMenaje();renderReposicion()"><button class="del-btn" style="font-size:14px" onclick="menajeItems.splice('+i+',1);renderMenaje();renderReposicion()">×</button></div>';
+    return '<div class="menaje-item"><span style="flex:1;font-weight:600">'+h(m.name)+'</span><input type="number" placeholder="Cant." style="width:55px;padding:4px 6px;border:1px solid var(--gb-neutral-200);border-radius:4px;text-align:center;font-size:12px" value="'+m.qty+'" onchange="menajeItems['+i+'].qty=this.value;renderMenaje();renderReposicion()"><input type="number" class="'+priceClass+'" placeholder="'+(sugP?sugP+" (sug)":"Precio")+'" value="'+m.price+'" '+priceTitle+' onchange="menajeItems['+i+'].price=this.value;renderMenaje();renderReposicion()"><button class="del-btn" style="font-size:14px" onclick="menajeItems.splice('+i+',1);renderMenaje();renderReposicion()">×</button></div>';
   }).join("");
   $("menaje-list").innerHTML=html;
   if($("repo-list"))renderReposicion();
@@ -681,7 +648,18 @@ function renderMenaje(){
 function addMenajeItem(){const name=prompt("Nombre del ítem de menaje:");if(!name)return;menajeItems.push({id:"m"+Date.now(),name,qty:"",price:""});renderMenaje()}
 
 // ─── SAVE / LOAD PROPUESTA ─────────────────────────────────
+// v7.9.13 UX-02: guard anti doble-click (patrón _submitPagoBusy de app-historial).
+// El flag se setea ANTES de cualquier await/modal y se libera en finally.
 async function savePropQuote(silent){
+  if(window._savePropBusy){
+    console.warn("[savePropQuote] guardado en curso, ignorando invocación duplicada");
+    return;
+  }
+  window._savePropBusy=true;
+  try{return await _savePropQuoteImpl(silent)}
+  finally{window._savePropBusy=false}
+}
+async function _savePropQuoteImpl(silent){
   const cl=$("fp-cli").value.trim()||"Sin nombre";
   if(!cloudOnline){if(!silent){if(typeof toast==="function")toast("Sin conexión. No se puede guardar.","error");else alert("Sin conexión. No se puede guardar.")}return}
   // v4.12.7: bloquear guardado como borrador si currentPropNumber es una PF.
@@ -747,6 +725,9 @@ async function savePropQuote(silent){
     aperturaFrase=$("fp-apertura").value.trim()||aperturaFrase;
     fechaVencimiento=$("fp-fecha-venc").value||fechaVencimiento;
     let prevStatus="enviada",prevApprovalData=null,prevPropFinalRef=null,prevPagos=null,prevEntregaData=null,prevComentarioCliente=null,prevProductionDate=null,prevProduced=null,prevHoraEntrega=null,prevPdfHistorial=null,prevPdfRegenCount=null,prevEditHistory=null,prevOptionGroupId=null,prevFeData=null;
+    // v7.9.13 DAT-01: campos operativos adicionales que antes se perdían al sobreescribir el doc
+    const EXTRA_PRESERVE_FIELDS=["ajustes","saldoData","pago_changelog","auditTrail","itemsProducidos","followUpStatus","followUpLog","replacedBy","replaces","expectsReplacement","needsSync","anuladaData"];
+    const prevExtras={};
     if(currentPropNumber&&!creatingChild&&oldDoc){
       if(oldDoc.status)prevStatus=oldDoc.status;
       if(oldDoc.approvalData)prevApprovalData=oldDoc.approvalData;
@@ -762,6 +743,8 @@ async function savePropQuote(silent){
       if(Array.isArray(oldDoc.editHistory))prevEditHistory=oldDoc.editHistory;
       if(oldDoc.optionGroupId)prevOptionGroupId=oldDoc.optionGroupId;
       if(oldDoc.feData)prevFeData=oldDoc.feData;
+      // v7.9.13 DAT-01: preservar también los campos operativos extra
+      EXTRA_PRESERVE_FIELDS.forEach(k=>{if(typeof oldDoc[k]!=="undefined")prevExtras[k]=oldDoc[k]});
       if($("fp-requiere-fe"))$("fp-requiere-fe").checked=!!oldDoc.requiereFE;
     }else if(creatingChild){
       prevStatus="enviada"; // hija siempre arranca limpia pre-confirmación
@@ -776,6 +759,8 @@ async function savePropQuote(silent){
     const pObj={
       quoteNumber:pNum,type:"prop",year:APP_YEAR,
       dateISO:new Date().toISOString(),
+      // v7.9.13 DAT-08: persistir también fecha local (dateISO en UTC desfasa el día en UTC-5). dateISO se mantiene por retrocompatibilidad.
+      dateLocal:gbTodayIso(),
       client:cl,idStr:getPropIdStr(),
       att:$("fp-att").value,mail:$("fp-mail").value,tel:$("fp-tel").value,dir:$("fp-dir").value,
       city:getCityNameP(),cityType:$("fp-city").value,trCustom:$("fp-tr-custom").value,
@@ -808,6 +793,8 @@ async function savePropQuote(silent){
       }
     }
     if(prevApprovalData)pObj.approvalData=prevApprovalData;
+    // v7.9.13 DAT-01: re-aplicar campos operativos extra preservados
+    Object.keys(prevExtras).forEach(k=>{pObj[k]=prevExtras[k]});
     if(prevPropFinalRef)pObj.propFinalRef=prevPropFinalRef;
     if(prevPagos)pObj.pagos=prevPagos;
     if(prevOptionGroupId)pObj.optionGroupId=prevOptionGroupId;
@@ -848,14 +835,13 @@ async function savePropQuote(silent){
     // v6.3.0 E3-1: al crear versión hija, save-hijo + mark-padre-superseded deben ser ATÓMICOS.
     // Antes (v5.5.0-v6.2.0): dos operaciones separadas → race condition si cae red entre ellas.
     // Ahora: runTransaction que hace ambas o ninguna.
-    // Fallback defensivo: si la transacción falla (p.ej. rules strictas, caso edge),
-    // se cae al método legacy (2 operaciones separadas). Solo log en consola — Kathy/JP
-    // no deben ver detalle técnico. Mantener fallback 1-2 versiones antes de eliminar.
+    // v7.9.13 DAT-11: fallback legacy (write ciego con saveProposalToCloud) retirado.
+    // Cumplió su período de observación (introducido v6.3.0, "mantener 1-2 versiones").
+    // Ahora: si la tx falla, error visible + abort — NUNCA escribir por fuera de la transacción.
     if(creatingChild){
-      const {db,doc,runTransaction,setDoc,updateDoc,serverTimestamp}=window.fb;
+      const {db,doc,runTransaction,setDoc,serverTimestamp}=window.fb;
       const parentRef=doc(db,"proposals",currentPropNumber);
       const childRef=doc(db,"proposals",pObj.quoteNumber);
-      let usedFallback=false;
       try{
         await runTransaction(db,async(tx)=>{
           const parentSnap=await tx.get(parentRef);
@@ -870,27 +856,18 @@ async function savePropQuote(silent){
           });
         });
       }catch(txErr){
-        console.warn("[v6.3.0 E3-1] runTransaction falló en creatingChild (propuesta); usando fallback legacy. Detalle:",txErr);
-        usedFallback=true;
-        await saveProposalToCloud(pObj);
-        try{
-          await updateDoc(parentRef,{
-            status:"superseded",
-            supersededBy:pNum,
-            updatedAt:serverTimestamp()
-          });
-        }catch(e){
-          console.warn("[v6.3.0 E3-1] Fallback también falló al marcar padre propuesta:",e);
-          if(!silent)toast&&toast("Versión creada, pero no se pudo archivar la anterior. Reintenta manualmente.","warn",6000);
-        }
+        console.error("[v7.9.13 DAT-11] runTransaction falló en creatingChild (propuesta). NO se escribió nada:",txErr);
+        hideLoader();
+        if(typeof toast==="function")toast("❌ No se pudo guardar la versión nueva — reintenta.","error",6000);
+        return;
       }
       const padre=(quotesCache||[]).find(x=>x.id===currentPropNumber&&x.kind==="proposal");
       if(padre){padre.status="superseded";padre.supersededBy=pNum}
-      if(usedFallback)console.info("[v6.3.0 E3-1] Guardado propuesta exitoso en modo compatibilidad (fallback).");
     }else{
       // v7.9.10: guardado directo en transacción contra lost-update (ver DR-LU-1).
       // Espejo de saveCurrentQuote: re-lee fresco dentro de la tx, los campos
-      // operativos del fresco ganan, fallback legacy si la tx falla.
+      // operativos del fresco ganan.
+      // v7.9.13 DAT-11: fallback legacy retirado — si la tx falla, error visible + abort.
       const {db,doc,runTransaction,serverTimestamp}=window.fb;
       const ref=doc(db,"proposals",pObj.quoteNumber);
       try{
@@ -912,8 +889,10 @@ async function savePropQuote(silent){
           if(!silent){hideLoader();toast&&toast("⚠️ Otro usuario archivó/anuló esta propuesta mientras editabas. Recarga (Archivo) y revisa antes de volver a guardar.","warn",7000);}
           return;
         }
-        console.warn("[v7.9.10] runTransaction falló en save directo (propuesta); usando fallback legacy. Detalle:",txErr);
-        await saveProposalToCloud(pObj);
+        console.error("[v7.9.13 DAT-11] runTransaction falló en save directo (propuesta). NO se escribió nada:",txErr);
+        hideLoader();
+        if(typeof toast==="function")toast("❌ No se pudo guardar — reintenta.","error",6000);
+        return;
       }
     }
     // v5.5.0 FIX #3: sincronizar quotesCache local
@@ -925,7 +904,8 @@ async function savePropQuote(silent){
         else quotesCache.unshift(cacheEntry);
       }
     }catch(e){console.warn("No se pudo sincronizar quotesCache:",e)}
-    if(!creatingChild&&typeof linkPendingReplacement==="function"){try{await linkPendingReplacement(pNum,"proposal",pObj.client)}catch(e){console.warn("linkPendingReplacement:",e)}}
+    // v7.9.13 UX-04: si falla el enlace del reemplazo pendiente, avisar (mismo fix que app-cotizar)
+    if(!creatingChild&&typeof linkPendingReplacement==="function"){try{await linkPendingReplacement(pNum,"proposal",pObj.client)}catch(e){console.warn("linkPendingReplacement:",e);if(typeof toast==="function")toast("⚠️ Se guardó, pero no se pudo enlazar el reemplazo pendiente con la propuesta anulada. Revisa en Historial.","error",7000)}}
     // Guardar referencias para UI post-guardado
     window._lastSavedProp={
       id:pNum,
@@ -1054,13 +1034,14 @@ function renderPropFinalPicker(){
   let html="";
   secs.forEach(sec=>{
     const opts=sec.options||[];
-    html+='<div class="pf-section-card"><div class="pf-sec-name">'+sec.name+'</div>';
+    // v7.9.13 SEC-05: sec.name/opt.label/it.name escapados con h()
+    html+='<div class="pf-section-card"><div class="pf-sec-name">'+h(sec.name)+'</div>';
     opts.forEach(opt=>{
       const isSel=propFinalSelection[sec.id]===opt.id;
       const items=opt.items||[];
       const sub=items.reduce((s,it)=>s+(it.price||0)*(it.qty||0),0);
-      const itemsText=items.length?items.map(it=>{const q=it.qty%1===0?String(it.qty):it.qty.toFixed(1);return q+" × "+it.name}).join(" · "):"<em>Sin ítems</em>";
-      html+='<label class="pf-opt-radio '+(isSel?"sel":"")+'"><input type="radio" name="pf-sec-'+sec.id+'" '+(isSel?"checked":"")+' onchange="pfSelectOption(\''+sec.id+'\',\''+opt.id+'\')"><div class="pf-opt-body"><div class="pf-opt-label">'+opt.label+'</div><div class="pf-opt-items">'+itemsText+'</div><div class="pf-opt-sub">Subtotal: '+fm(sub)+'</div></div></label>';
+      const itemsText=items.length?items.map(it=>{const q=it.qty%1===0?String(it.qty):it.qty.toFixed(1);return q+" × "+h(it.name)}).join(" · "):"<em>Sin ítems</em>";
+      html+='<label class="pf-opt-radio '+(isSel?"sel":"")+'"><input type="radio" name="pf-sec-'+sec.id+'" '+(isSel?"checked":"")+' onchange="pfSelectOption(\''+sec.id+'\',\''+opt.id+'\')"><div class="pf-opt-body"><div class="pf-opt-label">'+h(opt.label)+'</div><div class="pf-opt-items">'+itemsText+'</div><div class="pf-opt-sub">Subtotal: '+fm(sub)+'</div></div></label>';
     });
     html+='</div>';
   });
@@ -1150,6 +1131,8 @@ async function generarPropuestaFinal(){
     const pfObj={
       quoteNumber:pfNum,type:"propfinal",year:APP_YEAR,
       dateISO:new Date().toISOString(),
+      // v7.9.13 DAT-08: persistir también fecha local (dateISO en UTC desfasa el día en UTC-5). dateISO se mantiene por retrocompatibilidad.
+      dateLocal:gbTodayIso(),
       client:src.client,idStr:src.idStr||"",
       att:src.att||"",mail:src.mail||"",tel:src.tel||"",dir:src.dir||"",
       city:src.city||"",cityType:src.cityType||"",trCustom:src.trCustom||"",
@@ -1171,9 +1154,14 @@ async function generarPropuestaFinal(){
       pfObj.supersedes=window.__regenerating_pf.oldPfId;
       pfObj.version=(window.__regenerating_pf.oldVersion||1)+1;
     }
-    const {db,doc,setDoc,updateDoc,serverTimestamp}=window.fb;
-    await setDoc(doc(db,"propfinals",pfNum),{...pfObj,createdAt:serverTimestamp()});
-    await updateDoc(doc(db,"proposals",src.id),{status:"convertida",propFinalRef:pfNum,updatedAt:serverTimestamp()});
+    const {db,doc,runTransaction,updateDoc,serverTimestamp}=window.fb;
+    // v7.9.13 DAT-06: crear PF + marcar propuesta como convertida en UNA transacción atómica.
+    // Antes: setDoc + updateDoc separados → si caía la red entre ambos quedaba PF creada
+    // con la propuesta base aún "enviada". El catch externo ya muestra toast 'error'.
+    await runTransaction(db,async(tx)=>{
+      tx.set(doc(db,"propfinals",pfNum),{...pfObj,createdAt:serverTimestamp()});
+      tx.update(doc(db,"proposals",src.id),{status:"convertida",propFinalRef:pfNum,updatedAt:serverTimestamp()});
+    });
     const localProp=quotesCache.find(x=>x.id===src.id&&x.kind==="proposal");
     if(localProp){localProp.status="convertida";localProp.propFinalRef=pfNum}
     // v4.12.7: marcar la PF anterior como superseded (reemplazada por la nueva)
@@ -1188,7 +1176,11 @@ async function generarPropuestaFinal(){
         });
         const oldLocal=quotesCache.find(x=>x.id===oldId);
         if(oldLocal){oldLocal.status="superseded";oldLocal.supersededBy=pfNum}
-      }catch(e){console.warn("No se pudo marcar PF vieja como superseded:",e)}
+      }catch(e){
+        // v7.9.13 UX-04: avisar (antes solo console.warn) — quedan 2 PF vigentes a la vez
+        console.warn("No se pudo marcar PF vieja como superseded:",e);
+        if(typeof toast==="function")toast("⚠️ Se creó "+pfNum+", pero NO se pudo archivar la PF anterior ("+oldId+"). Quedaron 2 PF vigentes — márcala como reemplazada manualmente desde Historial.","error",9000);
+      }
       window.__regenerating_pf=null;
     }
     quotesCache.unshift({kind:"proposal",id:pfNum,...pfObj,createdAt:{toDate:()=>new Date()}});
@@ -1266,14 +1258,8 @@ async function genPropPDF(){
     const{jsPDF}=window.jspdf;const doc=new jsPDF("p","mm","letter");const W=215.9,H=279.4,mg=16;
     const cl=$("fp-cli").value||"—",idStr=getPropIdStr(),att=$("fp-att").value||cl,mail=$("fp-mail").value,tel=$("fp-tel").value,dir=$("fp-dir").value,city=getCityNameP()||"",pers=$("fp-pers").value||"",momento=$("fp-momento").value||"",eventDate=$("fp-date").value;
     const tw=W-mg*2;const footerH=18;
-    try{const li=new Image();li.src=LOGO_IW;doc.addImage(li,"JPEG",(W-65)/2,4,65,65*(272/500))}catch(e){console.warn("[PDF] logo no cargó:",e)}
-    let y=4+65*(272/500)+2;
-    doc.setDrawColor(201,169,110);doc.setLineWidth(0.4);doc.line(40,y,W-40,y);
-    y+=5;doc.setFont("helvetica","bold");doc.setFontSize(13);doc.setTextColor(26,26,26);
-    doc.text(isFinal?"Propuesta Final de Catering":"Propuesta de Catering",W/2,y,{align:"center"});
-    y+=5;doc.setFontSize(9);doc.setTextColor(201,169,110);doc.setFont("helvetica","bold");
-    doc.text(currentPropNumber,W/2,y,{align:"center"});
-    doc.setTextColor(26,26,26);
+    // v7.9.13 ARQ-05: header compartido (logo + línea dorada + título + número) → app-core.js
+    let y=gbPdfHeader(doc,{titulo:isFinal?"Propuesta Final de Catering":"Propuesta de Catering",numero:currentPropNumber,tituloSize:13});
     y+=5;doc.setFontSize(8);doc.setFont("helvetica","normal");doc.setTextColor(80,80,80);
     let refLine=isFinal?"REF: Propuesta Final servicio catering":"REF: Propuesta servicio catering";
     if(eventDate){const p=eventDate.split("-");const ms=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];refLine+=" "+parseInt(p[2])+" de "+ms[parseInt(p[1])-1]+" de "+p[0]}
@@ -1612,16 +1598,9 @@ async function genPropPDF(){
     doc.setFont("helvetica","normal");doc.setFontSize(9);doc.setTextColor(60,60,60);
     doc.text("Agradecemos su confianza en Gourmet Bites. Estamos listos para crear una experiencia culinaria memorable para usted y sus invitados.",mg,y,{maxWidth:W-mg*2});
     y+=10;
-    doc.setFont("helvetica","italic");doc.setFontSize(9);doc.text("Cordialmente,",mg,y);
-    y+=4;
-    const firmanteSel=FIRMANTES[firmaProp]||FIRMANTES.jp;
-    try{doc.addImage(firmanteSel.img,"PNG",mg,y,60,18)}catch(e){console.warn("No se pudo insertar firma:",e)}
-    y+=19;
-    doc.setDrawColor(100,100,100);doc.setLineWidth(0.3);doc.line(mg,y,mg+70,y);
-    y+=4;doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(26,26,26);
-    doc.text(firmanteSel.nombre,mg,y);
-    y+=4;doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(80,80,80);
-    doc.text(firmanteSel.cargo,mg,y);
+    // v7.9.13 ARQ-05: firma compartida → app-core.js (el setTextColor(60,60,60) del helper
+    // es no-op aquí: el color ya era 60,60,60 desde el párrafo de agradecimiento)
+    y=gbPdfFirma(doc,y,{firmante:FIRMANTES[firmaProp]||FIRMANTES.jp});
     let ay=y-28;
     doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(26,26,26);
     doc.text("Aceptado por:",W-mg-70,ay);
@@ -1629,7 +1608,8 @@ async function genPropPDF(){
     doc.text("Nombre:",W-mg-70,ay);doc.setDrawColor(100,100,100);doc.line(W-mg-55,ay+0.5,W-mg,ay+0.5);
     ay+=5;doc.text("Firma:",W-mg-70,ay);doc.line(W-mg-55,ay+0.5,W-mg,ay+0.5);
     ay+=5;doc.text("Fecha:",W-mg-70,ay);doc.line(W-mg-55,ay+0.5,W-mg,ay+0.5);
-    const pg=doc.getNumberOfPages();for(let i=1;i<=pg;i++){doc.setPage(i);doc.setDrawColor(201,169,110);doc.setLineWidth(0.3);doc.line(30,H-14,W-30,H-14);doc.setFontSize(14);doc.setTextColor(26,26,26);doc.text("WhatsApp +57 310 444 1588",mg,H-7);doc.text("@GourmetBitesbyAndradeMatuk",W-mg,H-7,{align:"right"})}
+    // v7.9.13 ARQ-05: footer compartido → app-core.js
+    gbPdfFooter(doc);
     // v4.12.2: usar Web Share API en iOS/Android para evitar fuga del blob URL en WhatsApp
     // v5.4.1 (Bloque B): versionado + copia Storage. kind se infiere del prefijo:
     // "GB-PF-" → propfinal (colección propfinals), resto → proposal (colección proposals).

@@ -11,7 +11,7 @@
 // secret de Firebase (firebase functions:secrets:set GB_AGENDA_TOKEN).
 // Sin token o con token incorrecto → 401.
 //
-// Performance: cache HTTP de 1h (Cache-Control: public, max-age=3600).
+// Performance: cache HTTP de 1h (Cache-Control: private, max-age=3600). // v7.9.13: private (SEC-10)
 // Las apps de calendario respetan el cache, evita golpear Firestore
 // más de lo necesario.
 
@@ -19,6 +19,7 @@ const {onRequest} = require("firebase-functions/v2/https");
 const {defineSecret} = require("firebase-functions/params");
 const {initializeApp} = require("firebase-admin/app");
 const {getFirestore} = require("firebase-admin/firestore");
+const crypto = require("crypto"); // v7.9.13: comparación de token en tiempo constante (SEC-09)
 
 initializeApp();
 const db = getFirestore();
@@ -308,7 +309,11 @@ exports.agendaIcs = onRequest(
       // Validar token
       const expected = AGENDA_TOKEN.value();
       const provided = (req.query.token || "").toString();
-      if (!expected || provided !== expected) {
+      // v7.9.13: SEC-09 — comparación en tiempo constante para evitar timing attacks.
+      // Se hashea con sha256 para garantizar buffers de igual longitud (timingSafeEqual lo exige).
+      const providedHash = crypto.createHash("sha256").update(provided || "").digest();
+      const expectedHash = crypto.createHash("sha256").update(expected || "").digest();
+      if (!expected || !crypto.timingSafeEqual(providedHash, expectedHash)) {
         res.status(401).set("Content-Type", "text/plain").send("Unauthorized: token inválido o no provisto.\nUsa ?token=TU_TOKEN en la URL.");
         return;
       }
@@ -346,12 +351,13 @@ exports.agendaIcs = onRequest(
       const ics = lines.join("\r\n") + "\r\n";
 
       res.set("Content-Type", "text/calendar; charset=utf-8");
-      res.set("Cache-Control", "public, max-age=3600"); // 1h cache
+      res.set("Cache-Control", "private, max-age=3600"); // v7.9.13: SEC-10 — private: respuesta autenticada, no cacheable por proxies compartidos
       res.set("Content-Disposition", `inline; filename="gourmet-bites-agenda.ics"`);
       res.status(200).send(ics);
     } catch (e) {
       console.error("agendaIcs error", e);
-      res.status(500).set("Content-Type", "text/plain").send("Error generando calendario: " + e.message);
+      // v7.9.13: SEC-11 — no exponer e.message al cliente; el detalle queda solo en console.error
+      res.status(500).set("Content-Type", "text/plain").send("Error interno");
     }
   }
 );

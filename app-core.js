@@ -109,8 +109,8 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.12";
-const BUILD_DATE="2026-05-30";
+const BUILD_VERSION="v7.9.13";
+const BUILD_DATE="2026-06-10";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
 // Helper único para resolver la colección Firestore de un documento por kind+id.
@@ -154,6 +154,7 @@ function getDespachos(q){
 }
 
 // Suma transporteCosto de despachos. Para legacy usa trCustom único del doc.
+// v7.9.13 ARQ-08: NO eliminada — referenciada por scripts/check_drift.mjs + test_despachos.mjs.
 function getTransporteTotal(q){
   if(!q)return 0;
   if(Array.isArray(q.despachos)&&q.despachos.length){
@@ -175,6 +176,7 @@ function getDespachoDireccion(despacho, q){
 }
 
 // Status agregado del doc según despachos: 'pendiente'|'parcial'|'completo'
+// v7.9.13 ARQ-08: NO eliminada — referenciada por scripts/check_drift.mjs + test_despachos.mjs.
 function getDespachoStatusAgregado(q){
   const ds=getDespachos(q);
   if(!ds.length)return "pendiente";
@@ -187,6 +189,123 @@ function getDespachoStatusAgregado(q){
 // True si el doc usa modelo nuevo de N despachos (al menos 1 explícito).
 function tieneDespachosExplicitos(q){
   return Array.isArray(q?.despachos)&&q.despachos.length>0;
+}
+
+// v7.9.13 ARQ-01: expansión doc → entradas (q, despacho) compartida.
+// Antes copiada 3 veces en app-dashboard.js (generarPdfEmpaque, _heRenderTablaPdf,
+// _expandirParaUrgent3d).
+/**
+ * Expande un doc a N entradas {q, despacho, idx, total, multi, _despachosArr}.
+ * Modo default (PDFs de empaque / hojas de entrega):
+ *   - multi (>1 despacho, alguno explícito) → 1 entrada por despacho, multi:true
+ *   - 1 despacho explícito único → 1 entrada con ese despacho, multi:false
+ *   - legacy puro → 1 entrada con despacho:null y _despachosArr:[]
+ * opts.incluirLegacy:true (urgentes 3d / calendario):
+ *   - expande TODOS los despachos de getDespachos, incluido el derivado _legacy
+ *     (despacho nunca es null), y agrega fechaIso/hora parseados de
+ *     despacho.fechaHora con fallback a eventDate/horaEntrega del doc.
+ */
+function expandDespachoEntries(q,opts){
+  opts=opts||{};
+  const ds=getDespachos(q);
+  const hayExplicito=ds.some(d=>!d._legacy);
+  const multi=ds.length>1&&hayExplicito;
+  if(opts.incluirLegacy){
+    if(!ds.length){
+      // Fallback ultra-defensivo: no debería ocurrir porque getDespachos devuelve al menos 1
+      const fecha=(q&&(q.eventDate||q.fechaEntrega))||"";
+      return [{q,despacho:null,idx:0,total:1,multi:false,_despachosArr:[],fechaIso:fecha,hora:(q&&q.horaEntrega)||""}];
+    }
+    return ds.map((d,i)=>{
+      // fechaHora es "YYYY-MM-DDTHH:mm" en local Bogotá. Separar.
+      const fh=(d.fechaHora||"").trim();
+      let fechaIso="",hora="";
+      if(fh){
+        const t=fh.indexOf("T");
+        if(t>0){fechaIso=fh.slice(0,t);hora=fh.slice(t+1,t+6)}
+        else{fechaIso=fh.slice(0,10);hora=""}
+      }else{
+        fechaIso=q.eventDate||q.fechaEntrega||"";
+        hora=q.horaEntrega||"";
+      }
+      return {q,despacho:d,idx:i,total:ds.length,multi,_despachosArr:ds,fechaIso,hora};
+    });
+  }
+  if(multi){
+    return ds.map((d,i)=>({q,despacho:d,idx:i,total:ds.length,multi:true,_despachosArr:ds}));
+  }
+  if(hayExplicito){
+    // 1 despacho explícito único: usa datos del despacho sin multi-fila/hoja
+    return [{q,despacho:ds[0],idx:0,total:1,multi:false,_despachosArr:ds}];
+  }
+  // Legacy puro: sin despacho explícito
+  return [{q,despacho:null,idx:0,total:1,multi:false,_despachosArr:[]}];
+}
+
+// v7.9.13 ARQ-02: HELPERS CANÓNICOS DE DINERO (movidos a core).
+// computePropTotal venía de app-propuesta.js y getDocTotal de app-dashboard.js;
+// core/historial los usaban antes de que esos archivos cargaran (dependencia
+// invertida). Lógica intacta — solo cambio de archivo.
+
+// ─── COMPUTE TOTAL DE PROPUESTA (mismo cálculo que el PDF) ──
+// Reproduce la lógica de "TOTAL DEL SERVICIO" para que cualquier
+// vista (dashboard, historial) tenga el mismo número que el PDF.
+// Para propuestas con varias opciones, usa Opción A (igual que PDF).
+function computePropTotal(q){
+  if(!q)return 0;
+  let totMenu=0,totCatering=0;
+  (q.sections||[]).forEach(sec=>{
+    // v7.8.4.2: secciones marcadas como alternativas (incluirEnTotal===false) no se suman
+    if(sec.incluirEnTotal===false)return;
+    const isCateringSec=/servicio\s*de\s*catering|coordinaci[oó]n/i.test(sec.name||"");
+    (sec.options||[]).forEach(opt=>{
+      if(opt.label==="Opción A"||sec.options.length===1){
+        (opt.items||[]).forEach(it=>{
+          const val=(it.price||0)*(it.qty||0);
+          if(isCateringSec)totCatering+=val;else totMenu+=val;
+        });
+      }
+    });
+  });
+  let totMenajeVal=0;
+  (q.menaje||[]).forEach(m=>{const qty=parseFloat(m.qty)||0,p=parseFloat(m.price)||0;totMenajeVal+=qty*p});
+  const pd=q.personalData||{meseros:{},auxiliares:{}};
+  const pm=pd.meseros||{},pa=pd.auxiliares||{};
+  const mSub=(parseFloat(pm.cantidad)||0)*((parseFloat(pm.valor4h)||0)+(parseFloat(pm.horasExtra)||0)*(parseFloat(pm.valorHoraExtra)||0));
+  const aSub=(parseFloat(pa.cantidad)||0)*((parseFloat(pa.valor4h)||0)+(parseFloat(pa.horasExtra)||0)*(parseFloat(pa.valorHoraExtra)||0));
+  const totPersonal=mSub+aSub;
+  // v7.9.12 FIX: transporte de despachos múltiples. Mismo criterio que el PDF
+  // (genPropPDF): si hay 2+ despachos, el transporte es la suma de cada uno;
+  // si no, se usa el transporte legacy (cityType/trCustom) de la entrega única.
+  // Antes computePropTotal ignoraba q.despachos[] → el total guardado subestimaba
+  // eventos multi-domicilio (Cartera/saldo/stats quedaban cortos).
+  const despachos=Array.isArray(q.despachos)?q.despachos:[];
+  const totTranspDespachos=despachos.length>=2?despachos.reduce((s,d)=>s+(parseFloat(d.transporteCosto)||0),0):0;
+  let totTransp=0;
+  if(totTranspDespachos>0){
+    totTransp=totTranspDespachos;
+  }else if(q.cityType==="Otra"){
+    totTransp=parseInt(q.trCustom)||0;
+  }else if(q.cityType&&TR[q.cityType]){
+    totTransp=TR[q.cityType].p;
+  }
+  return totMenu+totCatering+totMenajeVal+totPersonal+totTransp;
+}
+
+// ─── HELPER: total real de cualquier doc ───────────────────
+// Para propuestas usa computePropTotal (replica el "TOTAL DEL SERVICIO" del PDF).
+// Para cotizaciones usa q.total (ya guardado correctamente).
+// Si el doc tiene q.total persistido, lo usa directo (fast path).
+function getDocTotal(q){
+  if(!q)return 0;
+  // v7.9.12 FIX: para propuestas SIEMPRE recalcular (no confiar en q.total guardado).
+  // q.total se persistió con la fórmula vieja que no sumaba el transporte de
+  // despachos múltiples; recalcular al leer corrige docs viejos (ej. Angela) sin
+  // tocar Firestore. Para propuestas normales el valor no cambia (q.total ya era
+  // == computePropTotal al guardar); solo corrige los eventos multi-despacho.
+  if(q.kind==="proposal"&&typeof computePropTotal==="function")return computePropTotal(q);
+  if(q.total)return q.total;
+  return q.totalReal||0;
 }
 
 // ─── Modelo de menaje con opciones (v7.9.8) ────────────────
@@ -260,6 +379,7 @@ function getReposicionActivos(q, opcionId){
 }
 
 // True si el doc tiene opciones de menaje explícitas (>=1 en menajeOptions).
+// v7.9.13 ARQ-08: NO eliminada — referenciada por scripts/check_drift.mjs + test_menaje.mjs.
 function tieneMenajeOpciones(q){
   return Array.isArray(q?.menajeOptions)&&q.menajeOptions.length>0;
 }
@@ -405,6 +525,47 @@ async function savePdfConCopiaStorage(doc,baseName,kind,docId){
   }
   // 6. Entregar PDF local al usuario (share/descarga)
   return savePdf(doc,localFilename);
+}
+
+// ─── v7.9.13 ARQ-05: HELPERS PDF COMPARTIDOS (cotización + propuesta) ──────
+// Extraídos línea a línea de genPDF (app-cotizar.js) y genPropPDF (app-propuesta.js).
+// NO aplican a los PDF de dashboard ni a la remisión (familias distintas).
+
+// Header: logo + línea dorada + título + número. Devuelve y en la baseline del número.
+function gbPdfHeader(docPdf,opts){
+  const W=215.9;
+  try{const li=new Image();li.src=LOGO_IW;docPdf.addImage(li,"JPEG",(W-65)/2,4,65,65*(272/500))}catch(e){console.warn("[PDF] logo no cargó:",e)}
+  let y=4+65*(272/500)+2;
+  docPdf.setDrawColor(201,169,110);docPdf.setLineWidth(0.4);docPdf.line(40,y,W-40,y);
+  y+=5;docPdf.setFont("helvetica","bold");docPdf.setFontSize(opts.tituloSize);docPdf.setTextColor(26,26,26);
+  docPdf.text(opts.titulo,W/2,y,{align:"center"});
+  y+=5;docPdf.setFontSize(9);docPdf.setTextColor(201,169,110);docPdf.setFont("helvetica","bold");
+  docPdf.text(opts.numero,W/2,y,{align:"center"});
+  docPdf.setTextColor(26,26,26);
+  return y;
+}
+
+// Firma: "Cordialmente," + imagen de firma + línea + nombre + cargo. Devuelve y en la baseline del cargo.
+function gbPdfFirma(docPdf,y,opts){
+  const mg=16;
+  docPdf.setFont("helvetica","italic");docPdf.setFontSize(9);docPdf.setTextColor(60,60,60);
+  docPdf.text("Cordialmente,",mg,y);
+  y+=4;
+  try{docPdf.addImage(opts.firmante.img,"PNG",mg,y,60,18)}catch(e){console.warn("No se pudo insertar firma:",e)}
+  y+=19;
+  docPdf.setDrawColor(100,100,100);docPdf.setLineWidth(0.3);docPdf.line(mg,y,mg+70,y);
+  y+=4;docPdf.setFont("helvetica","bold");docPdf.setFontSize(9);docPdf.setTextColor(26,26,26);
+  docPdf.text(opts.firmante.nombre,mg,y);
+  y+=4;docPdf.setFont("helvetica","normal");docPdf.setFontSize(8);docPdf.setTextColor(80,80,80);
+  docPdf.text(opts.firmante.cargo,mg,y);
+  return y;
+}
+
+// Footer en cada página: línea dorada + WhatsApp + Instagram.
+function gbPdfFooter(docPdf){
+  const W=215.9,H=279.4,mg=16;
+  const pg=docPdf.getNumberOfPages();
+  for(let i=1;i<=pg;i++){docPdf.setPage(i);docPdf.setDrawColor(201,169,110);docPdf.setLineWidth(0.3);docPdf.line(30,H-14,W-30,H-14);docPdf.setFontSize(14);docPdf.setTextColor(26,26,26);docPdf.text("WhatsApp +57 310 444 1588",mg,H-7);docPdf.text("@GourmetBitesbyAndradeMatuk",W-mg,H-7,{align:"right"})}
 }
 
 // ─── CATÁLOGO DE PRODUCTOS ─────────────────────────────────
@@ -776,10 +937,7 @@ function warningSeverity(q){
   return null;
 }
 
-function editOnlyNotes(q){
-  if(!q)return false;
-  return (q.status||"")==="entregado";
-}
+// v7.9.13 ARQ-08: eliminada editOnlyNotes (0 referencias, auditoría 2026-06-10)
 
 // ═══════════════════════════════════════════════════════════
 // v6.0.0: VENTAS ANTERIORES — Helpers de pedidos cumplidos
@@ -1022,9 +1180,6 @@ function closeEditWarningModal(){
 }
 
 // ─── v5.0: AUTHENTICATION (Firebase Auth, reemplaza al PIN de v4.x) ──
-// No-ops para compatibilidad: los handlers del PIN ya no existen en HTML.
-// Si algún código viejo los llama, no rompe.
-function renderPinPad(){} function pinPress(){} function pinBack(){} function updatePinDots(){} function checkPin(){}
 
 // v5.0: handler del submit del form de login (email + password)
 async function submitLogin(ev){
@@ -1627,37 +1782,7 @@ function _slugify(text){
     .replace(/^-+|-+$/g,"");
 }
 
-// Detecta porciones desde nombre o unidad. Default 1.
-// Ejemplos: "Arroz Reina (10 pers)" → 10, "(individual)" → 1, "(20 uds)" → 20.
-function _detectarPorciones(nombre,unidad){
-  const n=String(nombre||"");
-  // Regex de mayor a menor especificidad
-  const patrones=[
-    /\((\d+)\s*pers(?:onas)?\)/i,
-    /\((\d+)p\)/i,
-    /\((\d+)\s*uds?\)/i,
-    /\((\d+)\s*porciones?\)/i,
-    /\((\d+)\s*unidades?\)/i,
-  ];
-  for(const re of patrones){
-    const m=n.match(re);
-    if(m)return parseInt(m[1],10);
-  }
-  if(/\((indiv(?:idual)?)\)/i.test(n))return 1;
-  // Fallback: probar la unidad
-  const u=String(unidad||"");
-  const muu=u.match(/(\d+)\s*(?:personas?|porciones?|unidades?|uds?)/i);
-  if(muu)return parseInt(muu[1],10);
-  return 1;
-}
-
-// Receta master key = nombre base sin sufijo de presentación (lowercase+trim).
-// "Arroz Reina (10 pers)" → "arroz reina". "Tabbule" → "tabbule".
-function _detectarRecetaKey(nombre){
-  return String(nombre||"").toLowerCase().trim()
-    .replace(/\s*\([^)]+\)\s*$/,"")
-    .trim();
-}
+// v7.9.13 ARQ-08: eliminadas _detectarPorciones y _detectarRecetaKey (0 referencias, auditoría 2026-06-10)
 
 async function loadProductosFromCloud(){
   try{
@@ -2051,7 +2176,10 @@ async function getNextNumber(kind){
 // avance de estado, producción, etc.). En un guardado concurrente estos deben
 // ganar desde el doc FRESCO leído dentro de la transacción, no desde el snapshot
 // que esta sesión leyó al abrir el editor. Ver DR-LU-1 en el plan v7.9.10.
-const OPERATIONAL_FIELDS=["status","supersededBy","pagos","orderData","entregaData","produced","productionDate","approvalData","propFinalRef","comentarioCliente","pdfHistorial","pdfRegenCount"];
+// v7.9.13 DAT-01: ampliada — ajustes/saldoData/pago_changelog/auditTrail/itemsProducidos/
+// followUp*/replaced*/replaces/expectsReplacement/needsSync/anuladaData también son operativos:
+// editar una propuesta con perdón de saldo (ajustes[]) los borraba al guardar desde el form.
+const OPERATIONAL_FIELDS=["status","supersededBy","pagos","orderData","entregaData","produced","productionDate","approvalData","propFinalRef","comentarioCliente","pdfHistorial","pdfRegenCount","ajustes","saldoData","pago_changelog","auditTrail","itemsProducidos","followUpStatus","followUpLog","replacedBy","replaces","expectsReplacement","needsSync","anuladaData"];
 
 // v7.9.10: construye el objeto a persistir tomando el CONTENIDO desde el form
 // (formObj) y los CAMPOS OPERATIVOS desde el doc fresco (freshDoc). editHistory
@@ -2142,7 +2270,11 @@ async function autoTransitionToEnProduccion(list){
       try{
         await updateDoc(doc(db,coll,q.id),{status:"en_produccion",updatedAt:serverTimestamp()});
         q.status="en_produccion";
-      }catch(innerE){console.warn("No se pudo transicionar "+q.id,innerE)}
+      }catch(innerE){
+        console.warn("No se pudo transicionar "+q.id,innerE);
+        // v7.9.13 UX-01: el fallo era invisible (solo console.warn) — Kathy no se enteraba
+        if(typeof toast==="function")toast("No se pudo pasar a producción — revisa el pedido "+q.id,"error",6000);
+      }
     }
     if(curMode==="hist")renderHist();
     if(curMode==="cal")renderCalendar();
@@ -2228,7 +2360,6 @@ function estadoComercial(q){
   if(!isFollowable(q))return null;
   return getFollowUp(q)==="perdida"?"perdida":"viva";
 }
-function isViva(q){return estadoComercial(q)==="viva"}
 function isPerdida(q){return estadoComercial(q)==="perdida"}
 
 // Días desde la última actualización del doc (cualquier edición cuenta)
@@ -2465,41 +2596,7 @@ async function markAsSynced(docs){
   }catch(e){console.warn("markAsSynced error",e)}
 }
 
-// Mantenimiento: fuerza a que todos los agendables futuros queden needsSync=true.
-// Útil si Luis cambia de teléfono o quiere re-sincronizar todo.
-async function markAllUnsyncedAsPending(){
-  if(!cloudOnline){toast("Sin conexión.","error");return}
-  try{
-    if(!quotesCache.length){await loadAllHistory()}
-    const pendientes=quotesCache.filter(isAgendable);
-    if(!pendientes.length){
-      if(typeof toast==="function")toast("No hay pedidos futuros agendables — nada que marcar","info");
-      else toast("No hay pedidos futuros agendables.","info");
-      return;
-    }
-    const okMark=await confirmModal({
-      title:"🔁 Marcar pedidos como pendientes de sincronizar",
-      body:"Voy a marcar <strong>"+pendientes.length+"</strong> pedido(s) futuro(s) agendable(s) como pendientes.<br><br>El banner verde de sync aparecerá arriba del dashboard con un conteo de "+pendientes.length+".",
-      okLabel:"Marcar todos",
-      tone:"primary"
-    });
-    if(!okMark)return;
-    showLoader("Marcando "+pendientes.length+" pedidos...");
-    const {db,doc,updateDoc,serverTimestamp}=window.fb;
-    let ok=0,fail=0;
-    for(const q of pendientes){
-      const coll=getCollectionName(q.id,q.kind);
-      const payload={needsSync:true,updatedAt:serverTimestamp()};
-      if(typeof auditStamp==="function"){Object.assign(payload,auditStamp())}
-      try{await updateDoc(doc(db,coll,q.id),payload);q.needsSync=true;ok++}
-      catch(e){fail++;console.warn("fail mark "+q.id,e)}
-    }
-    hideLoader();
-    if(typeof toast==="function")toast("🔁 "+ok+" pedido(s) marcados"+(fail?" · "+fail+" fallos":""),fail?"warn":"success");
-    if(curMode==="dash"&&typeof renderDashboard==="function")renderDashboard();
-    if(curMode==="hist"&&typeof renderHist==="function")renderHist();
-  }catch(e){hideLoader();toast("Error: "+(e.message||e),"error");console.error(e)}
-}
+// v7.9.13 ARQ-08: eliminada markAllUnsyncedAsPending (0 referencias, auditoría 2026-06-10)
 
 // ═══════════════════════════════════════════════════════════
 // v5.0.2: MODAL BACKUP INFO (abrir/cerrar)
@@ -2566,14 +2663,21 @@ async function initApp(){
   showLoader("Conectando a la nube...");
   await fbReady();
   try{
-    await loadClientsFromCloud();
-    await loadProveedoresFromCloud();
-    await loadComprasFromCloud();
-    await loadPreciosCatalogoFromCloud();
-    await loadAjustesLogFromCloud();
-    await loadRecetasInternasFromCloud();
-    await loadCustomProducts();
-    await loadPriceMemory();
+    // v7.9.13 REN-03: 8 loaders independientes en paralelo (antes secuenciales, ~8 RTT).
+    // Promise.all (no allSettled): cada loader tiene try/catch interno con fallback a
+    // localStorage y nunca rechaza, así que all no puede cortar por un fallo individual.
+    // Verificado: ningún loader consume el cache de otro (cada uno escribe su propia
+    // *Cache + localStorage; loadPriceMemory solo lee cloudOnline, igual que antes).
+    await Promise.all([
+      loadClientsFromCloud(),
+      loadProveedoresFromCloud(),
+      loadComprasFromCloud(),
+      loadPreciosCatalogoFromCloud(),
+      loadAjustesLogFromCloud(),
+      loadRecetasInternasFromCloud(),
+      loadCustomProducts(),
+      loadPriceMemory()
+    ]);
     setCloudStatus(true);
     refreshCliSel();
     hideLoader();
@@ -2794,9 +2898,10 @@ async function doSearch(){
       const q=r.data;const qn=q.quoteNumber||r.id;
       return '<div class="search-result" onclick="openDocument(\''+(r.type==="cot"?"quote":"proposal")+'\',\''+r.id+'\')"><div class="sr-top"><div><span class="qnum">'+h(qn)+'</span> <strong>'+h(q.client||"—")+'</strong></div><span class="sr-type t-'+r.type+'">'+(r.type==="cot"?"Cotización":"Propuesta")+'</span></div>'+(q.total?'<div style="font-size:13px;color:var(--gb-success-500);font-weight:700">'+fm(q.total)+'</div>':'')+'<div style="font-size:11px;color:var(--gb-neutral-400)">'+(q.dateISO?new Date(q.dateISO).toLocaleDateString("es-CO"):"")+'</div></div>';
     }
-    if(r.type==="cli"){const c=r.data;return '<div class="search-result" onclick="pickClientFromSearch(\''+c.id+'\')"><div class="sr-top"><div><strong>'+c.name+'</strong>'+(c.idtype?' — '+c.idtype+' '+c.idnum:'')+'</div><span class="sr-type t-cli">Cliente</span></div><div style="font-size:11px;color:var(--gb-neutral-500)">'+(c.tel||"")+(c.mail?' · '+c.mail:'')+'</div></div>'}
-    if(r.type==="prod"){const p=r.data;return '<div class="search-result" style="border-left-color:#6A1B9A"><div class="sr-top"><div><strong>'+p.n+'</strong></div><span class="sr-type t-prod">Catálogo</span></div>'+(p.d?'<div style="font-size:11px;color:var(--gb-neutral-400)">'+p.d+'</div>':'')+'<div style="font-size:13px;color:var(--gb-success-500);font-weight:700">'+fm(p.p)+' · '+p.u+'</div><div style="font-size:10px;color:var(--gb-neutral-500)">'+p.c+'</div></div>'}
-    if(r.type==="cprod"){const p=r.data;return '<div class="search-result" style="border-left-color:var(--gb-gold-500)"><div class="sr-top"><div><strong>'+p.n+'</strong> <span style="font-size:9px;background:var(--gb-gold-500);color:#fff;padding:1px 5px;border-radius:3px">CUSTOM</span></div><span class="sr-type t-prod">'+(p.useCount||1)+' usos'+(p.promoted?' ✓':"")+'</span></div>'+(p.d?'<div style="font-size:11px;color:var(--gb-neutral-400)">'+p.d+'</div>':'')+'<div style="font-size:13px;color:var(--gb-success-500);font-weight:700">'+fm(p.p||0)+(p.u?' · '+p.u:"")+'</div></div>'}
+    // v7.9.13 SEC-02: campos crudos de cliente/producto envueltos en h() — la rama cot/prop ya escapaba
+    if(r.type==="cli"){const c=r.data;return '<div class="search-result" onclick="pickClientFromSearch(\''+c.id+'\')"><div class="sr-top"><div><strong>'+h(c.name)+'</strong>'+(c.idtype?' — '+h(c.idtype)+' '+h(c.idnum):'')+'</div><span class="sr-type t-cli">Cliente</span></div><div style="font-size:11px;color:var(--gb-neutral-500)">'+h(c.tel||"")+(c.mail?' · '+h(c.mail):'')+'</div></div>'}
+    if(r.type==="prod"){const p=r.data;return '<div class="search-result" style="border-left-color:#6A1B9A"><div class="sr-top"><div><strong>'+h(p.n)+'</strong></div><span class="sr-type t-prod">Catálogo</span></div>'+(p.d?'<div style="font-size:11px;color:var(--gb-neutral-400)">'+h(p.d)+'</div>':'')+'<div style="font-size:13px;color:var(--gb-success-500);font-weight:700">'+fm(p.p)+' · '+h(p.u)+'</div><div style="font-size:10px;color:var(--gb-neutral-500)">'+h(p.c)+'</div></div>'}
+    if(r.type==="cprod"){const p=r.data;return '<div class="search-result" style="border-left-color:var(--gb-gold-500)"><div class="sr-top"><div><strong>'+h(p.n)+'</strong> <span style="font-size:9px;background:var(--gb-gold-500);color:#fff;padding:1px 5px;border-radius:3px">CUSTOM</span></div><span class="sr-type t-prod">'+(p.useCount||1)+' usos'+(p.promoted?' ✓':"")+'</span></div>'+(p.d?'<div style="font-size:11px;color:var(--gb-neutral-400)">'+h(p.d)+'</div>':'')+'<div style="font-size:13px;color:var(--gb-success-500);font-weight:700">'+fm(p.p||0)+(p.u?' · '+h(p.u):"")+'</div></div>'}
     return "";
   }).join("");
 }
@@ -2805,10 +2910,10 @@ function pickClientFromSearch(id){setMode("cot");setTimeout(()=>{$("sel-cli").va
 // ─── TRANSPORT ─────────────────────────────────────────────
 function getTr(){const v=$("f-city").value;if(v==="Otra"){const p=parseInt($("f-tr-custom").value);if(p)return{n:"Transporte "+($("f-city-custom").value.trim()||"Otra ciudad"),p};return null}return TR[v]||null}
 function getCityName(){const v=$("f-city").value;if(v==="Otra")return $("f-city-custom").value.trim()||"Otra ciudad";return v}
-function updTr(){const v=$("f-city").value;$("custom-city-wrap").classList.toggle("hidden",v!=="Otra");const t=getTr(),e=$("tr-info");if(t){e.classList.remove("hidden");$("tr-text").innerHTML='<strong>'+t.n+'</strong> — '+fm(t.p)}else e.classList.add("hidden")}
+function updTr(){const v=$("f-city").value;$("custom-city-wrap").classList.toggle("hidden",v!=="Otra");const t=getTr(),e=$("tr-info");if(t){e.classList.remove("hidden");$("tr-text").innerHTML='<strong>'+h(t.n)+'</strong> — '+fm(t.p)}else e.classList.add("hidden")} // v7.9.13 SEC: t.n incluye ciudad custom tipeada — escapar
 function getTrP(){const v=$("fp-city").value;if(v==="Otra"){const p=parseInt($("fp-tr-custom").value);if(p)return{n:"Transporte "+($("fp-city-custom").value.trim()||"Otra ciudad"),p};return null}return TR[v]||null}
 function getCityNameP(){const v=$("fp-city").value;if(v==="Otra")return $("fp-city-custom").value.trim()||"Otra ciudad";return v}
-function updTrP(){const v=$("fp-city").value;$("custom-city-wrap-p").classList.toggle("hidden",v!=="Otra");const t=getTrP(),e=$("tr-info-p");if(t){e.classList.remove("hidden");$("tr-text-p").innerHTML='<strong>'+t.n+'</strong> — '+fm(t.p)}else e.classList.add("hidden")}
+function updTrP(){const v=$("fp-city").value;$("custom-city-wrap-p").classList.toggle("hidden",v!=="Otra");const t=getTrP(),e=$("tr-info-p");if(t){e.classList.remove("hidden");$("tr-text-p").innerHTML='<strong>'+h(t.n)+'</strong> — '+fm(t.p)}else e.classList.add("hidden")} // v7.9.13 SEC: ídem updTr
 function getPropIdStr(){const tp=$("fp-idtype").value,nm=$("fp-idnum").value.trim();if(!tp||!nm)return"";return tp+" "+nm}
 
 // ─── CART HELPERS ──────────────────────────────────────────
@@ -2890,13 +2995,15 @@ async function autoSaveClientFromCot(){
   const name=$("f-cli").value.trim();
   if(!name||!cloudOnline)return;
   const obj={name,idtype:$("f-idtype").value,idnum:$("f-idnum").value.trim(),att:$("f-att").value.trim(),mail:$("f-mail").value.trim(),tel:$("f-tel").value.trim(),dir:$("f-dir").value.trim(),city:$("f-city").value,cityCustom:$("f-city-custom").value.trim(),trCustom:$("f-tr-custom").value};
-  try{await saveClientToCloud(obj);refreshCliSel()}catch(e){console.warn("autosave client failed",e)}
+  // v7.9.13 UX-04: fallo de autosave era silencioso — el directorio quedaba desactualizado sin aviso
+  try{await saveClientToCloud(obj);refreshCliSel()}catch(e){console.warn("autosave client failed",e);if(typeof toast==="function")toast("No se pudo actualizar el directorio de clientes","error")}
 }
 async function autoSaveClientFromProp(){
   const name=$("fp-cli").value.trim();
   if(!name||!cloudOnline)return;
   const obj={name,idtype:$("fp-idtype").value,idnum:$("fp-idnum").value.trim(),att:$("fp-att").value.trim(),mail:$("fp-mail").value.trim(),tel:$("fp-tel").value.trim(),dir:$("fp-dir").value.trim(),city:$("fp-city").value,cityCustom:$("fp-city-custom").value.trim(),trCustom:$("fp-tr-custom").value};
-  try{await saveClientToCloud(obj);refreshCliSel()}catch(e){console.warn("autosave client failed",e)}
+  // v7.9.13 UX-04: ídem autoSaveClientFromCot
+  try{await saveClientToCloud(obj);refreshCliSel()}catch(e){console.warn("autosave client failed",e);if(typeof toast==="function")toast("No se pudo actualizar el directorio de clientes","error")}
 }
 function loadClient(){
   const id=$("sel-cli").value;if(!id)return;
@@ -3052,7 +3159,7 @@ function openCascadeDelModal(propBase,pfHija){
   let html='<div style="font-size:13px;line-height:1.5;color:#333;margin-bottom:14px">';
   html+='<p style="margin:0 0 10px"><strong>'+propBase.id+'</strong> es la propuesta base que generó una Propuesta Final viva:</p>';
   html+='<div style="background:#FFF3E0;border:1px solid #FFB74D;border-radius:8px;padding:10px 12px;margin:8px 0;font-size:12px">';
-  html+='<div><strong style="color:#E65100">'+pfHija.id+'</strong> · '+(pfHija.client||"—")+'</div>';
+  html+='<div><strong style="color:#E65100">'+pfHija.id+'</strong> · '+h(pfHija.client||"—")+'</div>'; // v7.9.13 SEC-08: client crudo en innerHTML
   html+='<div style="color:#555;margin-top:4px">Estado: <strong>'+pfStatus+'</strong> · Total: '+fm(pfHija.total||0);
   if(pagos&&pagos.length>0)html+=' · 💵 '+pagos.length+' pago(s)';
   if(tieneEntrega)html+=' · 🎉 entregada';
@@ -3144,6 +3251,14 @@ function h(s){
     .replace(/'/g,"&#39;");
 }
 
+// v7.9.13 ARQ-02: escapeHtml movida desde app-dashboard.js (junto a h()).
+// Al vivir en core, los fallbacks `typeof escapeHtml==="function"?escapeHtml:...`
+// de los demás módulos caen siempre en la rama segura (la global existe desde core).
+// Helper: escape HTML para evitar XSS en nombres con < > & etc.
+function escapeHtml(s){
+  return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+
 // ═══════════════════════════════════════════════════════════
 // v7.0-α FIX-03: REVERTIR ENTREGA · revertDelivery(id,kind,opts)
 // ═══════════════════════════════════════════════════════════
@@ -3190,9 +3305,16 @@ async function revertDelivery(quoteId,kind,opts){
         auditTrail:auditTrail,
         updatedAt:serverTimestamp()
       };
+      // v7.9.13 DAT-05: revertir también despachos[].status — quedaban en 'entregado'
+      // tras revertir el status global, dejando el doc inconsistente.
+      let despachosRevertidos=null;
+      if(Array.isArray(q.despachos)&&q.despachos.length){
+        despachosRevertidos=q.despachos.map(d=>d&&d.status==="entregado"?{...d,status:"producido"}:d);
+        patch.despachos=despachosRevertidos;
+      }
       if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
       tx.update(ref,patch);
-      return {ok:true,entry:entry};
+      return {ok:true,entry:entry,despachos:despachosRevertidos};
     });
     if(!result.ok){
       if(result.reason==="not_found")toast("Pedido no encontrado","error");
@@ -3208,6 +3330,8 @@ async function revertDelivery(quoteId,kind,opts){
       delete cached.entregaData;
       cached.auditTrail=Array.isArray(cached.auditTrail)?cached.auditTrail:[];
       cached.auditTrail.push(result.entry);
+      // v7.9.13 DAT-05: sync de despachos revertidos en cache local
+      if(result.despachos)cached.despachos=result.despachos;
     }
     if(window.__GB_V7_DEBUG)console.log("[FIX-03] revertDelivery OK",{quoteId,kind,reason:reasonClean,entry:result.entry});
     return true;

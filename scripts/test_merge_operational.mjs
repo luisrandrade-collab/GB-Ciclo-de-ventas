@@ -13,7 +13,9 @@
 
 // ─── Copia de app-core.js (mantener sincronizado) ───────────────────────────
 
-const OPERATIONAL_FIELDS=["status","supersededBy","pagos","orderData","entregaData","produced","productionDate","approvalData","propFinalRef","comentarioCliente","pdfHistorial","pdfRegenCount"];
+// v7.9.13 DAT-01: lista ampliada (ajustes, saldoData, pago_changelog, auditTrail, itemsProducidos,
+// followUpStatus, followUpLog, replacedBy, replaces, expectsReplacement, needsSync, anuladaData).
+const OPERATIONAL_FIELDS=["status","supersededBy","pagos","orderData","entregaData","produced","productionDate","approvalData","propFinalRef","comentarioCliente","pdfHistorial","pdfRegenCount","ajustes","saldoData","pago_changelog","auditTrail","itemsProducidos","followUpStatus","followUpLog","replacedBy","replaces","expectsReplacement","needsSync","anuladaData"];
 
 function mergeOperationalFields(formObj,freshDoc){
   const out={...formObj};
@@ -147,6 +149,24 @@ describe("Caso 7: status bloqueado vive en el fresco (la guardia lo lee de ahí)
   const fresh = { client: "X", status: "superseded" };
   const out = mergeOperationalFields(form, fresh);
   eq(out.status, "superseded", "el merge expone el status fresco para que el caller aborte");
+});
+
+// v7.9.13 DAT-01: regresión — editar no debe borrar perdón de saldo ni audit trail
+describe("Caso 9: campos operativos nuevos (ajustes, auditTrail, followUp) del fresco ganan", () => {
+  const form = { client: "X", total: 100000 };   // el editor no conoce estos campos
+  const fresh = {
+    client: "X",
+    ajustes: [{ tipo: "perdon_saldo", monto: -20000 }],
+    auditTrail: [{ type: "reverted_delivery" }],
+    followUpStatus: "contactado",
+    needsSync: true,
+  };
+  const out = mergeOperationalFields(form, fresh);
+  eq(out.ajustes, [{ tipo: "perdon_saldo", monto: -20000 }], "ajustes del fresco NO se pierden al editar");
+  eq(out.auditTrail, [{ type: "reverted_delivery" }], "auditTrail del fresco se preserva");
+  eq(out.followUpStatus, "contactado", "followUpStatus del fresco se preserva");
+  eq(out.needsSync, true, "needsSync del fresco se preserva");
+  eq(out.total, 100000, "el contenido del form sigue ganando");
 });
 
 // ─── Resumen ────────────────────────────────────────────────────────────────

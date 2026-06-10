@@ -93,14 +93,15 @@ function renderR(){
   const all=allIt(),tr=getTr(),tot=getTotal();
   if(!all.length){$("rev-content").innerHTML='<div class="empty"><div class="ic">📋</div><p>No hay productos</p><button class="btn bp" onclick="go(\'products\')">Agregar Productos</button></div>';return}
   let rows="";
+  // v7.9.13 SEC-06: i.n/i.d (datos persistidos) escapados con h() antes de innerHTML
   cart.forEach(i=>{
     const editedBadge=i.edited?' <span style="font-size:9px;background:var(--gb-gold-500);color:#fff;padding:1px 5px;border-radius:3px">AJUSTADO</span>':'';
     const priceInput='<input type="number" class="pinput'+(i.edited?' edited':'')+'" value="'+i.p+'" onchange="chgCartPrice('+i.id+',+this.value)" onfocus="this.select()">';
-    rows+='<tr><td style="text-align:left"><strong>'+i.n+'</strong>'+editedBadge+(i.d?'<br><span style="font-size:10px;color:#999">'+i.d+'</span>':'')+'</td><td style="text-align:center"><div class="qc" style="justify-content:center"><button class="qb" style="width:24px;height:24px;font-size:14px" onclick="chgCartR('+i.id+','+(i.qty-1)+')">−</button><input type="number" class="qn" value="'+i.qty+'" min="1" onchange="chgCartR('+i.id+',+this.value)" onfocus="this.select()" style="width:34px;font-size:12px"><button class="qb" style="width:24px;height:24px;font-size:14px" onclick="chgCartR('+i.id+','+(i.qty+1)+')">+</button></div></td><td style="text-align:right">'+priceInput+'</td><td style="text-align:right;font-weight:600">'+fm(i.p*i.qty)+'</td><td><button style="background:none;border:none;color:var(--gb-danger-500);font-size:18px;cursor:pointer" onclick="remCart('+i.id+')">×</button></td></tr>';
+    rows+='<tr><td style="text-align:left"><strong>'+h(i.n)+'</strong>'+editedBadge+(i.d?'<br><span style="font-size:10px;color:#999">'+h(i.d)+'</span>':'')+'</td><td style="text-align:center"><div class="qc" style="justify-content:center"><button class="qb" style="width:24px;height:24px;font-size:14px" onclick="chgCartR('+i.id+','+(i.qty-1)+')">−</button><input type="number" class="qn" value="'+i.qty+'" min="1" onchange="chgCartR('+i.id+',+this.value)" onfocus="this.select()" style="width:34px;font-size:12px"><button class="qb" style="width:24px;height:24px;font-size:14px" onclick="chgCartR('+i.id+','+(i.qty+1)+')">+</button></div></td><td style="text-align:right">'+priceInput+'</td><td style="text-align:right;font-weight:600">'+fm(i.p*i.qty)+'</td><td><button style="background:none;border:none;color:var(--gb-danger-500);font-size:18px;cursor:pointer" onclick="remCart('+i.id+')">×</button></td></tr>';
   });
   cust.forEach(i=>{
     const priceInput='<input type="number" class="pinput" value="'+i.p+'" onchange="chgCustPrice(\''+i.id+'\',+this.value)" onfocus="this.select()">';
-    rows+='<tr style="background:#FFFDE7"><td style="text-align:left"><strong>'+i.n+'</strong> <span style="font-size:9px;background:var(--gb-gold-500);color:#fff;padding:1px 5px;border-radius:3px">CUSTOM</span>'+(i.d?'<br><span style="font-size:10px;color:#999">'+i.d+'</span>':'')+'</td><td style="text-align:center"><div class="qc" style="justify-content:center"><button class="qb" style="width:24px;height:24px;font-size:14px" onclick="chgCustQ(\''+i.id+'\','+(i.qty-1)+')">−</button><input type="number" class="qn" value="'+i.qty+'" min="1" onchange="chgCustQ(\''+i.id+'\',+this.value)" onfocus="this.select()" style="width:34px;font-size:12px"><button class="qb" style="width:24px;height:24px;font-size:14px" onclick="chgCustQ(\''+i.id+'\','+(i.qty+1)+')">+</button></div></td><td style="text-align:right">'+priceInput+'</td><td style="text-align:right;font-weight:600">'+fm(i.p*i.qty)+'</td><td><button style="background:none;border:none;color:var(--gb-danger-500);font-size:18px;cursor:pointer" onclick="remCust(\''+i.id+'\')">×</button></td></tr>';
+    rows+='<tr style="background:#FFFDE7"><td style="text-align:left"><strong>'+h(i.n)+'</strong> <span style="font-size:9px;background:var(--gb-gold-500);color:#fff;padding:1px 5px;border-radius:3px">CUSTOM</span>'+(i.d?'<br><span style="font-size:10px;color:#999">'+h(i.d)+'</span>':'')+'</td><td style="text-align:center"><div class="qc" style="justify-content:center"><button class="qb" style="width:24px;height:24px;font-size:14px" onclick="chgCustQ(\''+i.id+'\','+(i.qty-1)+')">−</button><input type="number" class="qn" value="'+i.qty+'" min="1" onchange="chgCustQ(\''+i.id+'\',+this.value)" onfocus="this.select()" style="width:34px;font-size:12px"><button class="qb" style="width:24px;height:24px;font-size:14px" onclick="chgCustQ(\''+i.id+'\','+(i.qty+1)+')">+</button></div></td><td style="text-align:right">'+priceInput+'</td><td style="text-align:right;font-weight:600">'+fm(i.p*i.qty)+'</td><td><button style="background:none;border:none;color:var(--gb-danger-500);font-size:18px;cursor:pointer" onclick="remCust(\''+i.id+'\')">×</button></td></tr>';
   });
   if(tr)rows+='<tr style="background:var(--gb-cream)"><td style="text-align:left"><strong>'+tr.n+'</strong></td><td style="text-align:center">1</td><td style="text-align:right">'+fm(tr.p)+'</td><td style="text-align:right;font-weight:600">'+fm(tr.p)+'</td><td></td></tr>';
   const payBoxHtml='<div class="paybox"><div class="paytit">INSTRUCCIONES DE PAGO</div><div class="paybody">'+
@@ -173,7 +174,18 @@ function chgCartPrice(id,newP){newP=parseInt(newP)||0;if(newP<=0)return;const i=
 function chgCustPrice(id,newP){newP=parseInt(newP)||0;if(newP<=0)return;const i=cust.find(x=>x.id===id);if(i)i.p=newP;renderR();updUI()}
 
 // ─── SAVE COTIZACIÓN ───────────────────────────────────────
+// v7.9.13 UX-02: guard anti doble-click (patrón _submitPagoBusy de app-historial).
+// El flag se setea ANTES de cualquier await/modal y se libera en finally.
 async function saveCurrentQuote(silent){
+  if(window._saveQuoteBusy){
+    console.warn("[saveCurrentQuote] guardado en curso, ignorando invocación duplicada");
+    return;
+  }
+  window._saveQuoteBusy=true;
+  try{return await _saveCurrentQuoteImpl(silent)}
+  finally{window._saveQuoteBusy=false}
+}
+async function _saveCurrentQuoteImpl(silent){
   const cl=$("f-cli").value.trim()||"Sin nombre";
   const items=allIt();
   if(!items.length){if(!silent){if(typeof toast==="function")toast("Agrega productos primero","warn");else alert("Agrega productos primero")}return}
@@ -236,6 +248,9 @@ async function saveCurrentQuote(silent){
     await autoSaveClientFromCot();
     for(const cu of cust){try{await registerCustomProduct(cu.n,cu.d,cu.p,cu.u,cu.inCatalog)}catch(e){console.warn("custom register skipped:",e)}}
     let prevStatus="enviada",prevOrderData=null,prevPagos=null,prevEntregaData=null,prevComentarioCliente=null,prevProductionDate=null,prevProduced=null,prevEventDate=null,prevHoraEntrega=null,prevPdfHistorial=null,prevPdfRegenCount=null,prevEditHistory=null,prevOptionGroupId=null,prevFeData=null;
+    // v7.9.13 DAT-01: campos operativos adicionales que antes se perdían al sobreescribir el doc
+    const EXTRA_PRESERVE_FIELDS=["ajustes","saldoData","pago_changelog","auditTrail","itemsProducidos","followUpStatus","followUpLog","replacedBy","replaces","expectsReplacement","needsSync","anuladaData"];
+    const prevExtras={};
     if(currentQuoteNumber&&!creatingChild){
       // Guardando sobre el mismo doc: preservar campos operativos existentes
       if(oldDoc){
@@ -253,6 +268,8 @@ async function saveCurrentQuote(silent){
         if(Array.isArray(oldDoc.editHistory))prevEditHistory=oldDoc.editHistory;
         if(oldDoc.optionGroupId)prevOptionGroupId=oldDoc.optionGroupId;
         if(oldDoc.feData)prevFeData=oldDoc.feData;
+        // v7.9.13 DAT-01: preservar también los campos operativos extra
+        EXTRA_PRESERVE_FIELDS.forEach(k=>{if(typeof oldDoc[k]!=="undefined")prevExtras[k]=oldDoc[k]});
         if($("f-requiere-fe"))$("f-requiere-fe").checked=!!oldDoc.requiereFE;
       }
     }else if(creatingChild&&oldDoc){
@@ -264,6 +281,8 @@ async function saveCurrentQuote(silent){
     const qObj={
       quoteNumber:qNum,type:"cot",year:APP_YEAR,
       dateISO:new Date().toISOString(),
+      // v7.9.13 DAT-08: persistir también fecha local (dateISO en UTC desfasa el día en UTC-5). dateISO se mantiene por retrocompatibilidad.
+      dateLocal:gbTodayIso(),
       client:cl,idStr:getIdStr(),
       att:$("f-att").value,mail:$("f-mail").value,tel:$("f-tel").value,dir:$("f-dir").value,
       city:getCityName(),cityType:$("f-city").value,trCustom:$("f-tr-custom").value,
@@ -281,6 +300,8 @@ async function saveCurrentQuote(silent){
     // v7.0-α FIX-01-Q9: orderData se reconcilia más abajo, después de que qObj
     // tenga eventDate/horaEntrega/productionDate finales (del form o preservados).
     if(prevPagos)qObj.pagos=prevPagos;
+    // v7.9.13 DAT-01: re-aplicar campos operativos extra preservados
+    Object.keys(prevExtras).forEach(k=>{qObj[k]=prevExtras[k]});
     if(prevOptionGroupId)qObj.optionGroupId=prevOptionGroupId;
     if(prevFeData)qObj.feData=prevFeData;
     if(prevEntregaData)qObj.entregaData=prevEntregaData;
@@ -343,14 +364,13 @@ async function saveCurrentQuote(silent){
     // v6.3.0 E3-1: al crear versión hija, save-hijo + mark-padre-superseded deben ser ATÓMICOS.
     // Antes (v5.5.0-v6.2.0): dos operaciones separadas → race condition si cae red entre ellas.
     // Ahora: runTransaction que hace ambas o ninguna.
-    // Fallback defensivo: si la transacción falla (p.ej. rules strictas, caso edge),
-    // se cae al método legacy (2 operaciones separadas). Solo log en consola — Kathy/JP
-    // no deben ver detalle técnico. Mantener fallback 1-2 versiones antes de eliminar.
+    // v7.9.13 DAT-11: fallback legacy (write ciego con saveQuoteToCloud) retirado.
+    // Cumplió su período de observación (introducido v6.3.0, "mantener 1-2 versiones").
+    // Ahora: si la tx falla, error visible + abort — NUNCA escribir por fuera de la transacción.
     if(creatingChild){
-      const {db,doc,runTransaction,setDoc,updateDoc,serverTimestamp}=window.fb;
+      const {db,doc,runTransaction,setDoc,serverTimestamp}=window.fb;
       const parentRef=doc(db,"quotes",currentQuoteNumber);
       const childRef=doc(db,"quotes",qObj.quoteNumber);
-      let usedFallback=false;
       try{
         await runTransaction(db,async(tx)=>{
           // Validar que el padre sigue existiendo y no fue supersedeado por alguien más (edge caso colaboración)
@@ -366,32 +386,21 @@ async function saveCurrentQuote(silent){
           });
         });
       }catch(txErr){
-        // Fallback defensivo: método legacy de v5.5.0-v6.2.0
-        console.warn("[v6.3.0 E3-1] runTransaction falló en creatingChild; usando fallback legacy. Detalle:",txErr);
-        usedFallback=true;
-        await saveQuoteToCloud(qObj);
-        try{
-          await updateDoc(parentRef,{
-            status:"superseded",
-            supersededBy:qNum,
-            updatedAt:serverTimestamp()
-          });
-        }catch(e){
-          console.warn("[v6.3.0 E3-1] Fallback también falló al marcar padre:",e);
-          if(!silent)toast&&toast("Versión creada, pero no se pudo archivar la anterior. Reintenta manualmente.","warn",6000);
-        }
+        console.error("[v7.9.13 DAT-11] runTransaction falló en creatingChild (cotización). NO se escribió nada:",txErr);
+        hideLoader();
+        if(typeof toast==="function")toast("❌ No se pudo guardar la versión nueva — reintenta.","error",6000);
+        return;
       }
-      // Sync cache local para el padre (ambas rutas terminaron OK si llegamos acá sin toast de error)
+      // Sync cache local para el padre (tx terminó OK si llegamos acá)
       const padre=(quotesCache||[]).find(x=>x.id===currentQuoteNumber&&x.kind==="quote");
       if(padre){padre.status="superseded";padre.supersededBy=qNum}
-      if(usedFallback)console.info("[v6.3.0 E3-1] Guardado exitoso en modo compatibilidad (fallback).");
     }else{
       // v7.9.10: guardado directo en transacción contra lost-update.
       // Antes (≤v7.9.9): setDoc sobreescribía el doc completo con qObj armado desde
       // el snapshot leído al abrir el editor → un pago/avance de estado registrado
       // por otra sesión entre medias se perdía. Ahora re-leemos fresco dentro de la
-      // tx y los campos operativos del fresco ganan (DR-LU-1). Fallback legacy si
-      // la tx falla (mismo patrón que creatingChild desde v6.3.0).
+      // tx y los campos operativos del fresco ganan (DR-LU-1).
+      // v7.9.13 DAT-11: fallback legacy retirado — si la tx falla, error visible + abort.
       const {db,doc,runTransaction,serverTimestamp}=window.fb;
       const ref=doc(db,"quotes",qObj.quoteNumber);
       try{
@@ -415,8 +424,10 @@ async function saveCurrentQuote(silent){
           if(!silent){hideLoader();toast&&toast("⚠️ Otro usuario archivó/anuló esta cotización mientras editabas. Recarga (Archivo) y revisa antes de volver a guardar.","warn",7000);}
           return;
         }
-        console.warn("[v7.9.10] runTransaction falló en save directo (cotización); usando fallback legacy. Detalle:",txErr);
-        await saveQuoteToCloud(qObj);
+        console.error("[v7.9.13 DAT-11] runTransaction falló en save directo (cotización). NO se escribió nada:",txErr);
+        hideLoader();
+        if(typeof toast==="function")toast("❌ No se pudo guardar — reintenta.","error",6000);
+        return;
       }
     }
     // v5.5.0 FIX #3: sincronizar quotesCache local inmediatamente tras save exitoso
@@ -429,7 +440,8 @@ async function saveCurrentQuote(silent){
         else quotesCache.unshift(cacheEntry);
       }
     }catch(e){console.warn("No se pudo sincronizar quotesCache:",e)}
-    if(!creatingChild&&typeof linkPendingReplacement==="function"){try{await linkPendingReplacement(qNum,"quote",qObj.client)}catch(e){console.warn("linkPendingReplacement:",e)}}
+    // v7.9.13 UX-04: si falla el enlace del reemplazo pendiente, avisar (antes fallaba silencioso)
+    if(!creatingChild&&typeof linkPendingReplacement==="function"){try{await linkPendingReplacement(qNum,"quote",qObj.client)}catch(e){console.warn("linkPendingReplacement:",e);if(typeof toast==="function")toast("⚠️ Se guardó, pero no se pudo enlazar el reemplazo pendiente con la cotización anulada. Revisa en Historial.","error",7000)}}
     // v5.5.0: guardar referencias para el renderR post-guardado
     window._lastSavedQuote={
       id:qNum,
@@ -473,14 +485,8 @@ async function genPDF(){
     const{jsPDF}=window.jspdf;const doc=new jsPDF("p","mm","letter");const W=215.9,H=279.4,mg=16;
     const cl=$("f-cli").value||"—",idStr=getIdStr(),att=$("f-att").value||cl,mail=$("f-mail").value,tel=$("f-tel").value,dir=$("f-dir").value,city=getCityName()||"—",deliv=getDelivStr();
     const tr=getTr(),tot=getTotal();
-    try{const li=new Image();li.src=LOGO_IW;doc.addImage(li,"JPEG",(W-65)/2,4,65,65*(272/500))}catch(e){console.warn("[PDF] logo no cargó:",e)}
-    let y=4+65*(272/500)+2;
-    doc.setDrawColor(201,169,110);doc.setLineWidth(0.4);doc.line(40,y,W-40,y);
-    y+=5;doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(26,26,26);
-    doc.text("COTIZACIÓN GOURMETBITES BY ANDRADE MATUK - "+dateStr(),W/2,y,{align:"center"});
-    y+=5;doc.setFontSize(9);doc.setTextColor(201,169,110);
-    doc.text(currentQuoteNumber,W/2,y,{align:"center"});
-    doc.setTextColor(26,26,26);
+    // v7.9.13 ARQ-05: header compartido (logo + línea dorada + título + número) → app-core.js
+    let y=gbPdfHeader(doc,{titulo:"COTIZACIÓN GOURMETBITES BY ANDRADE MATUK - "+dateStr(),numero:currentQuoteNumber,tituloSize:10});
     y+=6;doc.setFontSize(8.5);
     let cliLine="Cliente: "+cl;if(idStr)cliLine+=" - "+idStr;cliLine+="     Atención: "+att;
     doc.text(cliLine,W/2,y,{align:"center"});
@@ -559,18 +565,9 @@ async function genPDF(){
     y+=2;
     const firmaCotH=35;
     if(y+firmaCotH>H-20){doc.addPage();y=20}
-    doc.setFont("helvetica","italic");doc.setFontSize(9);doc.setTextColor(60,60,60);
-    doc.text("Cordialmente,",mg,y);
-    y+=4;
-    const firmanteSelCot=FIRMANTES[firmaCot]||FIRMANTES.km;
-    try{doc.addImage(firmanteSelCot.img,"PNG",mg,y,60,18)}catch(e){console.warn("No se pudo insertar firma:",e)}
-    y+=19;
-    doc.setDrawColor(100,100,100);doc.setLineWidth(0.3);doc.line(mg,y,mg+70,y);
-    y+=4;doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(26,26,26);
-    doc.text(firmanteSelCot.nombre,mg,y);
-    y+=4;doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(80,80,80);
-    doc.text(firmanteSelCot.cargo,mg,y);
-    const pg=doc.getNumberOfPages();for(let i=1;i<=pg;i++){doc.setPage(i);doc.setDrawColor(201,169,110);doc.setLineWidth(0.3);doc.line(30,H-14,W-30,H-14);doc.setFontSize(14);doc.setTextColor(26,26,26);doc.text("WhatsApp +57 310 444 1588",mg,H-7);doc.text("@GourmetBitesbyAndradeMatuk",W-mg,H-7,{align:"right"})}
+    // v7.9.13 ARQ-05: firma + footer compartidos → app-core.js
+    y=gbPdfFirma(doc,y,{firmante:FIRMANTES[firmaCot]||FIRMANTES.km});
+    gbPdfFooter(doc);
     // v4.12.2: usar Web Share API en iOS/Android para evitar fuga del blob URL en WhatsApp
     // v5.4.1 (Bloque B): usar savePdfConCopiaStorage para versionar + copia en Storage.
     // currentQuoteNumber es a la vez el docId en Firestore (confirmado: los

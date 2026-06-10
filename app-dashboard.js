@@ -30,21 +30,8 @@
 //         · Sin cambio Firestore schema.
 // ═══════════════════════════════════════════════════════════
 
-// ─── HELPER: total real de cualquier doc ───────────────────
-// Para propuestas usa computePropTotal (replica el "TOTAL DEL SERVICIO" del PDF).
-// Para cotizaciones usa q.total (ya guardado correctamente).
-// Si el doc tiene q.total persistido, lo usa directo (fast path).
-function getDocTotal(q){
-  if(!q)return 0;
-  // v7.9.12 FIX: para propuestas SIEMPRE recalcular (no confiar en q.total guardado).
-  // q.total se persistió con la fórmula vieja que no sumaba el transporte de
-  // despachos múltiples; recalcular al leer corrige docs viejos (ej. Angela) sin
-  // tocar Firestore. Para propuestas normales el valor no cambia (q.total ya era
-  // == computePropTotal al guardar); solo corrige los eventos multi-despacho.
-  if(q.kind==="proposal"&&typeof computePropTotal==="function")return computePropTotal(q);
-  if(q.total)return q.total;
-  return q.totalReal||0;
-}
+// v7.9.13 ARQ-02: getDocTotal vivía acá — movida a app-core.js (la usaban
+// core/historial antes de que este archivo cargara: dependencia invertida).
 
 // ─── DASHBOARD ─────────────────────────────────────────────
 let dashPeriod="month";
@@ -111,6 +98,7 @@ function _deltaSpan(actual,previo,label){
   return '<span class="dash-card-delta '+cls+'">'+arrow+' '+sign+pct+'% '+(label||"")+'</span>';
 }
 function dateOfCreation(q){
+  if(q.dateLocal)return q.dateLocal; // v7.9.13: DAT-08 preferir fecha local persistida (docs nuevos); slice de dateISO es UTC y desplaza el bucket diario
   if(q.dateISO)return q.dateISO.slice(0,10);
   if(q.createdAt?.toDate)try{return q.createdAt.toDate().toISOString().slice(0,10)}catch{}
   return null;
@@ -582,7 +570,7 @@ async function renderDashboard(){
       if(q.eventDate>=todayIso2&&q.eventDate<=t14Iso)upcoming.push(q);
     });
     upcoming.sort((a,b)=>(a.eventDate+(a.horaEntrega||"")).localeCompare(b.eventDate+(b.horaEntrega||"")));
-    const sinFechaHtml=sinFecha.length?'<div class="dash-met-empty" style="background:#FFF3E0;color:#E65100;border:1px solid #FFB74D;border-radius:8px;padding:10px 14px;margin-top:8px;cursor:pointer" onclick="if(typeof switchSection===\'function\')switchSection(\'ventas\')">⚠️ '+sinFecha.length+' pedido'+(sinFecha.length>1?'s':'')+' sin fecha de entrega: '+sinFecha.map(q=>(q.client||q.id)).join(", ")+'</div>':"";
+    const sinFechaHtml=sinFecha.length?'<div class="dash-met-empty" style="background:#FFF3E0;color:#E65100;border:1px solid #FFB74D;border-radius:8px;padding:10px 14px;margin-top:8px;cursor:pointer" onclick="if(typeof switchSection===\'function\')switchSection(\'ventas\')">⚠️ '+sinFecha.length+' pedido'+(sinFecha.length>1?'s':'')+' sin fecha de entrega: '+sinFecha.map(q=>h(q.client||q.id)).join(", ")/* v7.9.13: SEC-07 escape cliente */+'</div>':"";
     if(!upcoming.length){$("dash-upcoming").innerHTML='<div class="dash-met-empty">No hay entregas en los próximos 14 días.</div>'+sinFechaHtml}
     else{
       const byDay={};upcoming.forEach(q=>{(byDay[q.eventDate]=byDay[q.eventDate]||[]).push(q)});
@@ -599,7 +587,7 @@ async function renderDashboard(){
           const tag=q.kind==="quote"?'<span class="ui-tag prod">Pedido</span>':'<span class="ui-tag ent">Evento</span>';
           const hora=q.horaEntrega?'⏰ '+q.horaEntrega:'';
           const total=fm(getDocTotal(q));
-          return '<div class="dash-up-item" onclick="openDocument(\''+q.kind+'\',\''+q.id+'\')"><div class="ui-cli">'+tag+(q.client||"—")+'</div><div class="ui-meta">'+hora+' · '+total+'</div></div>';
+          return '<div class="dash-up-item" onclick="openDocument(\''+q.kind+'\',\''+q.id+'\')"><div class="ui-cli">'+tag+h(q.client||"—")+'</div><div class="ui-meta">'+hora+' · '+total+'</div></div>'; // v7.9.13: SEC-07 escape cliente
         }).join("");
         return '<div class="dash-up-day"><div class="dash-up-day-label">'+dayLabel(d)+'</div>'+items+'</div>';
       }).join("")+sinFechaHtml;
@@ -981,10 +969,10 @@ function renderMonth(){
     if(hasEv){
       // v7.6.5: pastillas con prefijo según tipo (🔥 producir / 🚚 entregar)
       const pastillas=evs.slice(0,2).map(e=>{
-        const lbl=(e.q.client||"—").split(/\s+/)[0].slice(0,7);
+        const lbl=h((e.q.client||"—").split(/\s+/)[0].slice(0,7)); // v7.9.13: SEC-03 escape (mismo patrón que el title)
         const cls="cd-ev cd-ev-"+e.tipo+" "+(e.q.status||"");
         const ico=e.tipo==="producir"?"🔥":"🚚";
-        return '<div class="'+cls+'" title="'+(e.tipo==="producir"?"Producir ":"Entregar ")+(e.q.client||"")+'">'+ico+' '+lbl+'</div>';
+        return '<div class="'+cls+'" title="'+(e.tipo==="producir"?"Producir ":"Entregar ")+h(e.q.client||"")+'">'+ico+' '+lbl+'</div>'; // v7.9.13: SEC-03 cliente crudo en atributo title (h escapa comillas)
       }).join("");
       const extra=evs.length>2?'<div class="cd-ev cd-ev-more">+'+(evs.length-2)+'</div>':"";
       inner+='<div class="cd-evs">'+pastillas+extra+'</div>';
@@ -1016,7 +1004,7 @@ function renderMonth(){
     const card='<div class="cal-ev-card cal-ev-'+e.tipo+' '+q.status+'" id="cal-ev-'+p.d+'-'+e.tipo+'-'+q.id+'" onclick="openDocument(\''+q.kind+'\',\''+q.id+'\')">'+
       '<div class="cal-ev-date"><div class="d">'+p.d+'</div><div class="m">'+mShort[p.m]+'</div></div>'+
       '<div class="cal-ev-body">'+
-        '<div class="cal-ev-cli">'+accionPrefix+(q.client||"—")+typeTag+' <span class="hc-status '+sMeta.cls+'" style="margin-left:4px">'+sMeta.label+'</span></div>'+
+        '<div class="cal-ev-cli">'+accionPrefix+h(q.client||"—")+typeTag+/* v7.9.13: SEC-07 escape cliente */' <span class="hc-status '+sMeta.cls+'" style="margin-left:4px">'+sMeta.label+'</span></div>'+
         '<div class="cal-ev-meta"><span>'+meta+'</span></div>'+
       '</div>'+
     '</div>';
@@ -1576,8 +1564,8 @@ function openDashDetail(tipo){
     const pagosHtml=pagosLista.map(({q,p,monto,met})=>{
       const fotoIcon=(p.fotoUrl||p.foto)?' 📷':'';
       return '<div class="dd-row" onclick="closeDashDetail();openVerPagosModal(\''+q.id+'\',\''+q.kind+'\')">'+
-        '<div class="dd-row-top"><div class="dd-row-cli">'+(q.client||"—")+fotoIcon+'</div><div class="dd-row-monto">'+fm(monto)+'</div></div>'+
-        '<div class="dd-row-meta">'+p.fecha+' · '+met+' · '+(p.tipo||"pago")+(p.notas?' · '+p.notas.slice(0,40):'')+'</div>'+
+        '<div class="dd-row-top"><div class="dd-row-cli">'+h(q.client||"—")+fotoIcon+'</div><div class="dd-row-monto">'+fm(monto)+'</div></div>'+ // v7.9.13: SEC-01 escape cliente (gap del fix v7.9.8.5)
+        '<div class="dd-row-meta">'+p.fecha+' · '+met+' · '+(p.tipo||"pago")+(p.notas?' · '+h(p.notas.slice(0,40)):'')+'</div>'+ // v7.9.13: SEC-01 escape notas
       '</div>';
     }).join("");
     $("dd-title").textContent=title;
@@ -1731,7 +1719,7 @@ function renderBannerEntregasHoy(){
   if(!entregasHoy.length){el.classList.add("hidden");el.innerHTML="";return}
   el.classList.remove("hidden");
   entregasHoy.sort((a,b)=>(a.horaEntrega||"").localeCompare(b.horaEntrega||""));
-  const clientesTxt=entregasHoy.slice(0,3).map(q=>(q.client||"—")+(q.horaEntrega?' '+q.horaEntrega:'')).join(" · ");
+  const clientesTxt=entregasHoy.slice(0,3).map(q=>h(q.client||"—")+(q.horaEntrega?' '+q.horaEntrega:'')).join(" · "); // v7.9.13: SEC-07 escape cliente (banner entregas HOY)
   const mas=entregasHoy.length>3?' · +'+(entregasHoy.length-3)+' más':'';
   el.innerHTML='<div class="dbh-ic">🔥</div>'+
     '<div class="dbh-txt"><strong>'+entregasHoy.length+' entrega'+(entregasHoy.length!==1?'s':'')+' HOY</strong> · '+clientesTxt+mas+'</div>'+
@@ -2352,29 +2340,15 @@ async function normalizarDocsSinStatus(){
 // Para docs legacy (sin despachos[]), getDespachos devuelve 1 despacho derivado del eventDate.
 // Para docs con N despachos explícitos, la propuesta aparece N veces ordenada por fechaHora.
 function _expandirParaUrgent3d(qDocs){
+  // v7.9.13 ARQ-01: expansión delegada a expandDespachoEntries (app-core.js).
+  // incluirLegacy:true → expande TODOS los despachos (incluido el derivado _legacy)
+  // y agrega fechaIso/hora parseados de fechaHora.
   const out=[];
   qDocs.forEach(q=>{
-    const ds=(typeof getDespachos==="function")?getDespachos(q):[];
-    if(!ds.length){
-      // Fallback ultra-defensivo: no debería ocurrir porque getDespachos devuelve al menos 1
-      const fecha=q.eventDate||q.fechaEntrega||"";
-      out.push({q,despacho:null,idx:0,total:1,fechaIso:fecha,hora:q.horaEntrega||""});
-      return;
-    }
-    ds.forEach((d,i)=>{
-      // fechaHora es "YYYY-MM-DDTHH:mm" en local Bogotá. Separar.
-      const fh=(d.fechaHora||"").trim();
-      let fechaIso="",hora="";
-      if(fh){
-        const t=fh.indexOf("T");
-        if(t>0){fechaIso=fh.slice(0,t);hora=fh.slice(t+1,t+6)}
-        else{fechaIso=fh.slice(0,10);hora=""}
-      }else{
-        fechaIso=q.eventDate||q.fechaEntrega||"";
-        hora=q.horaEntrega||"";
-      }
-      out.push({q,despacho:d,idx:i,total:ds.length,fechaIso,hora});
-    });
+    const entries=(typeof expandDespachoEntries==="function")
+      ?expandDespachoEntries(q,{incluirLegacy:true})
+      :[{q,despacho:null,idx:0,total:1,fechaIso:q.eventDate||q.fechaEntrega||"",hora:q.horaEntrega||""}];
+    entries.forEach(e=>out.push(e));
   });
   return out;
 }
@@ -2643,7 +2617,7 @@ function renderPipelineActivo(){
         refDate=q.fechaEntrega||q.entregaData?.fechaEntrega||q.eventDate||"";
       }else{
         refDate=q.updatedAtLocal||q.updatedAtIso||q.dateISO||"";
-        if(q.updatedAt?.toDate){try{refDate=q.updatedAt.toDate().toISOString().slice(0,10)}catch(_){}}
+        if(q.updatedAt?.toDate){try{refDate=gbDateToIso(q.updatedAt.toDate())}catch(_){}} // v7.9.13: DAT-08 fecha local (toISOString era UTC y sumaba/restaba un día a "días sin actividad")
         if(refDate&&refDate.length>10)refDate=refDate.slice(0,10);
       }
       if(!refDate)return;
@@ -2955,44 +2929,9 @@ let _clienteFiltroInput="";    // lo que está tipeando (para sugerencias)
 
 function _normTxtDash(s){return String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")}
 
-function onClienteFilterInput(ev){
-  const v=ev.target.value;
-  _clienteFiltroInput=v;
-  const clearBtn=$("dash-cliente-clear");
-  if(clearBtn)clearBtn.style.display=v?"flex":"none";
-  if(!v.trim()){
-    _clienteFiltroActivo="";
-    $("dash-cliente-suggestions").classList.add("hidden");
-    renderClienteView();
-    return;
-  }
-  // Buscar clientes que matcheen
-  const norm=_normTxtDash(v);
-  const clientesSet=new Set();
-  const clientesCount={};
-  quotesCache.forEach(q=>{
-    if(q._wrongCollection)return;
-    if(!q.client)return;
-    const nc=_normTxtDash(q.client);
-    if(nc.includes(norm)){
-      clientesSet.add(q.client);
-      clientesCount[q.client]=(clientesCount[q.client]||0)+1;
-    }
-  });
-  const clientes=[...clientesSet].sort((a,b)=>(clientesCount[b]||0)-(clientesCount[a]||0)).slice(0,8);
-  const sug=$("dash-cliente-suggestions");
-  if(!clientes.length){
-    sug.classList.add("hidden");
-  }else{
-    sug.classList.remove("hidden");
-    sug.innerHTML=clientes.map(c=>{
-      return '<div class="cs-item" onclick="selectClienteFilter('+JSON.stringify(c).replace(/"/g,"&quot;")+')">'+
-        '<span>'+c.replace(/[<>]/g,"")+'</span>'+
-        '<span class="cs-count">'+clientesCount[c]+' doc</span>'+
-      '</div>';
-    }).join("");
-  }
-}
+// v7.9.13 ARQ-08: eliminada onClienteFilterInput (0 referencias, auditoría 2026-06-10).
+// OJO: selectClienteFilter/renderClienteView quedan huérfanas pero NO estaban en la
+// lista aprobada — candidatas para próxima auditoría.
 
 function selectClienteFilter(clienteName){
   _clienteFiltroActivo=clienteName;
@@ -3002,14 +2941,7 @@ function selectClienteFilter(clienteName){
   renderClienteView();
 }
 
-function clearClienteFilter(){
-  _clienteFiltroActivo="";
-  _clienteFiltroInput="";
-  const inp=$("dash-cliente-input");if(inp)inp.value="";
-  const sug=$("dash-cliente-suggestions");if(sug)sug.classList.add("hidden");
-  const clr=$("dash-cliente-clear");if(clr)clr.style.display="none";
-  renderClienteView();
-}
+// v7.9.13 ARQ-08: eliminada clearClienteFilter (0 referencias, auditoría 2026-06-10)
 
 function renderClienteView(){
   const el=$("dash-cliente-resultado");
@@ -3072,15 +3004,7 @@ function renderClienteView(){
   '</div>';
 }
 
-// ─── Mantenimiento colapsable ─────────────────────────────
-let _mantOpen=false;
-function toggleMantenimiento(){
-  _mantOpen=!_mantOpen;
-  const body=$("dash-mant-body");
-  const chev=$("mant-chevron");
-  if(body)body.classList.toggle("hidden",!_mantOpen);
-  if(chev)chev.classList.toggle("open",_mantOpen);
-}
+// v7.9.13 ARQ-08: eliminada toggleMantenimiento (y su estado _mantOpen) (0 referencias, auditoría 2026-06-10)
 
 // ─── D1.2 · Banner novedades — delta real desde última visita acuse-recibido ──
 // Anchor congelado por sesión-dash: se captura UNA vez con getLastVisit() al primer
@@ -3504,7 +3428,6 @@ function setReportesTab(t){/* no-op desde v7.8.2 */}
 
 // Helpers fecha
 function _reportesHoy(){return gbTodayIso()}
-function _reportesHoyMas(d){const t=new Date();t.setDate(t.getDate()+d);return gbDateToIso(t)}
 // v7.8.4: fin de mes actual (último día). Default del tab Excel — más útil que +30
 // que cruza meses arbitrariamente.
 function _reportesFinDeMes(){
@@ -4416,20 +4339,14 @@ function generarPdfEmpaque(){
   // datos del despacho. Items huérfanos (assignedTo a despacho borrado) se incluyen en
   // TODAS las hojas con etiqueta "[ASIGNACIÓN INVÁLIDA]" + console.warn.
   // Docs legacy (sin despachos[] o solo derivado): 1 hoja como antes (sin cambio visual).
+  // v7.9.13 ARQ-01: expansión delegada a expandDespachoEntries (app-core.js).
+  // Acá se renombran idx/total → despachoIdx/totalDespachos (nombres locales históricos).
   const _entradas=[];
   docs.forEach(q=>{
-    const despachos=(typeof getDespachos==="function")?getDespachos(q):[];
-    const hayExplicito=despachos.some(d=>!d._legacy);
-    const multiDespacho=despachos.length>1&&hayExplicito;
-    if(multiDespacho){
-      despachos.forEach((d,di)=>_entradas.push({q,despacho:d,despachoIdx:di,totalDespachos:despachos.length,multi:true,_despachosArr:despachos}));
-    }else if(hayExplicito){
-      // 1 despacho explícito único: usa datos del despacho pero NO multi-hoja
-      _entradas.push({q,despacho:despachos[0],despachoIdx:0,totalDespachos:1,multi:false,_despachosArr:despachos});
-    }else{
-      // Legacy puro: sin despacho explícito
-      _entradas.push({q,despacho:null,despachoIdx:0,totalDespachos:1,multi:false,_despachosArr:[]});
-    }
+    const entries=(typeof expandDespachoEntries==="function")
+      ?expandDespachoEntries(q)
+      :[{q,despacho:null,idx:0,total:1,multi:false,_despachosArr:[]}];
+    entries.forEach(e=>_entradas.push({q:e.q,despacho:e.despacho,despachoIdx:e.idx,totalDespachos:e.total,multi:e.multi,_despachosArr:e._despachosArr}));
   });
   const _totalHojas=_entradas.length;
   _entradas.forEach((entrada,idx)=>{
@@ -5206,20 +5123,13 @@ function _heRenderTablaPdf(pdf,docs,state,W,M,startY,esRecogida){
   // v7.9.8.3: separar multi de "usar despacho". 1 despacho explícito único usa sus datos
   // (hora/dir) sin multi-fila. Items huérfanos (assignedTo a despacho borrado) se
   // incluyen en todas las filas con marcador "(!)" para alertar al conductor.
+  // v7.9.13 ARQ-01: expansión delegada a expandDespachoEntries (app-core.js).
   const entries=[];
   docs.forEach(q=>{
-    const despachosArr=(typeof getDespachos==="function")?getDespachos(q):[];
-    const hayExplicito=despachosArr.some(d=>!d._legacy);
-    const multi=despachosArr.length>1&&hayExplicito;
-    if(multi){
-      despachosArr.forEach((d,di)=>entries.push({q,despacho:d,idx:di,total:despachosArr.length,multi:true,_despachosArr:despachosArr}));
-    }else if(hayExplicito){
-      // 1 despacho explícito único: usa datos del despacho sin multi-fila
-      entries.push({q,despacho:despachosArr[0],idx:0,total:1,multi:false,_despachosArr:despachosArr});
-    }else{
-      // Legacy puro: sin despacho explícito
-      entries.push({q,despacho:null,idx:0,total:1,multi:false,_despachosArr:[]});
-    }
+    const exp=(typeof expandDespachoEntries==="function")
+      ?expandDespachoEntries(q)
+      :[{q,despacho:null,idx:0,total:1,multi:false,_despachosArr:[]}];
+    exp.forEach(e=>entries.push(e));
   });
   // Construir filas
   const rows=[];
@@ -5784,14 +5694,7 @@ const _REP_BORDER_THIN={style:"thin",color:{rgb:"DDDDDD"}};
 const _REP_BORDER_FULL={top:_REP_BORDER_THIN,bottom:_REP_BORDER_THIN,left:_REP_BORDER_THIN,right:_REP_BORDER_THIN};
 const _REP_FMT_PESOS='"$"#,##0';
 
-// Aplica estilo a una celda (creandola si falta)
-function _repSetCell(ws,addr,value,style){
-  ws[addr]=ws[addr]||{v:value,t:typeof value==="number"?"n":"s"};
-  if(value!==undefined)ws[addr].v=value;
-  if(typeof value==="number")ws[addr].t="n";
-  else if(typeof value==="string")ws[addr].t="s";
-  if(style)ws[addr].s=style;
-}
+// v7.9.13 ARQ-08: eliminada _repSetCell (0 referencias, auditoría 2026-06-10)
 
 // Aplica formato de tabla estandar (header azul + zebra striping)
 // cols: array con info de cada col: {align: 'center'|'right'|'left', pesos: bool}
@@ -6498,10 +6401,15 @@ async function delProveedorEditor(){
   }
 }
 
-// Helper: escape HTML para evitar XSS en nombres con < > & etc.
-// Si ya existe en el archivo, este se ignora silenciosamente por hoisting de function declaration.
-function escapeHtml(s){
-  return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+// v7.9.13 ARQ-02: escapeHtml vivía acá — movida a app-core.js (junto a h())
+// para que los fallbacks `typeof escapeHtml==="function"` de otros módulos
+// caigan siempre en la rama segura.
+
+// v7.9.13: DAT-09 fallback de "hoy" en fecha LOCAL (toISOString es UTC → en Bogotá de noche devolvía el día siguiente).
+// Vía principal sigue siendo gbTodayIso (app-core.js); esto solo cubre el caso de que no esté cargado.
+function _localTodayIsoFallback(){
+  const d=new Date();
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -6534,7 +6442,7 @@ function openCompraEditor(id,defaults){
   // Fecha: si nuevo y comprada → hoy. Si pendiente → vacío.
   let fecha="";
   if(c&&c.fecha)fecha=c.fecha;
-  else if(estado==="comprada")fecha=gbTodayIso?gbTodayIso():new Date().toISOString().slice(0,10);
+  else if(estado==="comprada")fecha=gbTodayIso?gbTodayIso():_localTodayIsoFallback(); // v7.9.13: DAT-09 fallback local, no UTC
   $("compra-ed-fecha").value=fecha;
   $("compra-ed-formaPago").value=c?.formaPago||"";
   $("compra-ed-nota").value=c?.nota||"";
@@ -6570,7 +6478,7 @@ function compraEdToggleEstado(){
   // Si pasa de pendiente → comprada y no hay fecha, set today
   const esComprada=$("compra-ed-estado-comprada").checked;
   if(esComprada&&!$("compra-ed-fecha").value){
-    $("compra-ed-fecha").value=gbTodayIso?gbTodayIso():new Date().toISOString().slice(0,10);
+    $("compra-ed-fecha").value=gbTodayIso?gbTodayIso():_localTodayIsoFallback(); // v7.9.13: DAT-09 fallback local, no UTC
   }
 }
 
@@ -7091,7 +6999,7 @@ function openPrecioListaModal(id){
   $("precio-lista-title").textContent=isNew?"+ Precio de lista":"Editar precio de lista";
   $("precio-lista-producto").value=e?.productoOriginal||e?.producto||"";
   $("precio-lista-precio").value=e?.precio||"";
-  $("precio-lista-fecha").value=e?.fecha||(gbTodayIso?gbTodayIso():new Date().toISOString().slice(0,10));
+  $("precio-lista-fecha").value=e?.fecha||(gbTodayIso?gbTodayIso():_localTodayIsoFallback()); // v7.9.13: DAT-09 fallback local, no UTC
   $("precio-lista-nota").value=e?.nota||"";
   // Poblar dropdown proveedores
   const sel=$("precio-lista-proveedorId");
@@ -7919,7 +7827,7 @@ async function renderCarteraHistorico(){
       '</div>'+
       '<div>'+
         '<label style="font-size:11px;color:#555;display:block;margin-bottom:3px;font-weight:600">Cliente</label>'+
-        '<input type="text" id="ch-cliente" value="'+(_carteraHistFiltros.cliente||"")+'" placeholder="Filtrar por nombre..." oninput="_carteraHistFiltros.cliente=this.value;clearTimeout(window.__chTimer);window.__chTimer=setTimeout(renderCarteraHistorico,250)" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px;box-sizing:border-box">'+
+        '<input type="text" id="ch-cliente" value="'+h(_carteraHistFiltros.cliente||"")+'" placeholder="Filtrar por nombre..." oninput="_carteraHistFiltros.cliente=this.value;clearTimeout(window.__chTimer);window.__chTimer=setTimeout(renderCarteraHistorico,250)" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px;box-sizing:border-box">'+
       '</div>'+
     '</div>';
 

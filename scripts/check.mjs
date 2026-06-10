@@ -99,19 +99,34 @@ if (!buildVer) {
   console.log(`  BUILD_VERSION: ${buildVer}`);
   const versionNum = buildVer.replace(/^v/, "");
   const htmlSrc = readFileSync(join(ROOT, "index.html"), "utf8");
-  const reg = /script\s+src="app-[^"]+\?v=([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?)"/g;
-  const found = new Set();
+  // v7.9.13 INF-04: contar matches POR ARCHIVO (no solo unicidad de versión):
+  // si un <script> pierde su ?v=, antes pasaba igual. Ahora cada JS esperado
+  // debe tener exactamente su buster con la versión de BUILD_VERSION.
+  const reg = /<script\s+src="(app-[^"?]+\.js)\?v=([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?)"/g;
+  const busters = new Map(); // archivo → versión
   let mm;
-  while ((mm = reg.exec(htmlSrc)) !== null) found.add(mm[1]);
-  const arr = [...found];
-  if (arr.length === 1 && arr[0] === versionNum) {
-    pass(`${jsFiles.length} <script ?v=${versionNum}> coinciden con BUILD_VERSION`);
-  } else if (arr.length === 1) {
-    fail(`Cache busters apuntan a ${arr[0]} pero BUILD_VERSION es ${versionNum}`);
-  } else if (arr.length === 0) {
-    fail("No encontré cache busters en index.html");
+  while ((mm = reg.exec(htmlSrc)) !== null) busters.set(mm[1], mm[2]);
+  let busterErrors = 0;
+  for (const f of jsFiles) {
+    if (!busters.has(f)) {
+      fail(`<script src="${f}?v=..."> NO encontrado en index.html (falta cache buster o el tag)`);
+      busterErrors++;
+    } else if (busters.get(f) !== versionNum) {
+      fail(`${f}: buster ?v=${busters.get(f)} ≠ BUILD_VERSION ${versionNum}`);
+      busterErrors++;
+    }
+  }
+  if (busterErrors === 0) {
+    pass(`${jsFiles.length}/${jsFiles.length} <script ?v=${versionNum}> coinciden con BUILD_VERSION`);
+  }
+  // v7.9.13 INF-05: validar también el cache buster del CSS de tokens.
+  const cssM = htmlSrc.match(/<link\s+rel="stylesheet"\s+href="gb-tokens\.css\?v=([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?)"/);
+  if (!cssM) {
+    fail(`<link href="gb-tokens.css?v=..."> NO encontrado en index.html (falta cache buster del CSS)`);
+  } else if (cssM[1] !== versionNum) {
+    fail(`gb-tokens.css: buster ?v=${cssM[1]} ≠ BUILD_VERSION ${versionNum}`);
   } else {
-    fail(`Cache busters INCONSISTENTES: ${arr.join(" ")}`);
+    pass(`gb-tokens.css?v=${versionNum} coincide con BUILD_VERSION (total: ${jsFiles.length} JS + 1 CSS)`);
   }
 }
 
