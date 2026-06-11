@@ -221,7 +221,7 @@ function renderTrend6m(){
 }
 // 2026-06-09: la fecha de una VENTA es la fecha del pedido (fecha de entrega), no la de aprobación.
 // Fallback a fechaAprobacion para docs viejos sin fecha de entrega (no desaparecen de los KPIs).
-function dateOfSale(q){return q.fechaEntrega||q.eventDate||q.orderData?.fechaAprobacion||q.approvalData?.fechaAprobacion||null}
+function dateOfSale(q){return q.fechaEntrega||q.entregaData?.fechaEntrega||q.eventDate||q.orderData?.fechaAprobacion||q.approvalData?.fechaAprobacion||null}
 
 // ─── v7.0-α D1.3 · Zona "Lo que pasa hoy" ──────────────────
 // 3 categorías reales (tareas → v7.1, no aplica). Orden por urgencia:
