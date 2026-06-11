@@ -10,7 +10,7 @@
 <link rel="icon" type="image/png" href="brand/cuchillo-negro.png">
 <link rel="apple-touch-icon" href="brand/cuchillo-negro.png">
 <title>Gourmet Bites - Cotizador</title>
-<link rel="stylesheet" href="gb-tokens.css?v=7.9.13"><!-- v7.9.13 INF-05: cache-buster CSS -->
+<link rel="stylesheet" href="gb-tokens.css?v=7.9.14"><!-- v7.9.13 INF-05: cache-buster CSS -->
 <!-- VERSION: 2026-04-26-v7.0.0-α-cascaron-v7-dashboard-rediseñado-fsm-pedido-vs-produccion -->
 <!--
   v6.3.0 (2026-04-24) — Robustez técnica + higiene (Entrega 3 del roadmap).
@@ -1772,7 +1772,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
 
     <div class="sb-section-label">Operación</div>
     <div class="sb-module" data-mod="ventas">
-      <button class="sb-module__btn"><span class="gb-shell-icon">💰</span><span class="sb-module__label">Ventas</span></button>
+      <button class="sb-module__btn"><span class="gb-shell-icon">💰</span><span class="sb-module__label">Cotizaciones</span></button>
       <div class="sb-submenu">
         <a href="javascript:void(0)" class="is-soon" data-sub="ventas/pipeline">Pipeline<span class="sub-soon">Pronto</span></a>
         <a href="javascript:void(0)" data-sub="ventas/cotizar">Nueva cotización</a>
@@ -1975,9 +1975,9 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'inicio/dashboard':  ['Inicio', 'Dashboard'],
     'inicio/tareas':     ['Inicio', 'Tareas y follow-ups'],
     'inicio/agenda':     ['Inicio', 'Agenda'],
-    'ventas/crear':      ['Ventas', 'Crear nueva'],
-    'ventas/cotizar':    ['Ventas', 'Nueva cotización'],
-    'ventas/propuesta':  ['Ventas', 'Nueva propuesta'],
+    'ventas/crear':      ['Cotizaciones', 'Crear nueva'],
+    'ventas/cotizar':    ['Cotizaciones', 'Nueva cotización'],
+    'ventas/propuesta':  ['Cotizaciones', 'Nueva propuesta'],
     'cartera/pendientes': ['Cartera', 'Pendientes de cobro'],
     'cartera/historico':  ['Cartera', 'Histórico de cobros'],
     'cartera/ajustes-log':['Cartera', 'Log de ajustes'],
@@ -1990,8 +1990,8 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'compras/catalogo':      ['Compras', 'Catálogo'],
     'reportes/excel':       ['Reportes', 'Exportar Excel'],
     'pedidos/hojas-imprimibles': ['Pedidos', 'Hojas para imprimir'],
-    'ventas/cotizaciones':  ['Ventas', 'Cotizaciones activas'],
-    'ventas/perdidas':      ['Ventas', 'Perdidas'],
+    'ventas/cotizaciones':  ['Cotizaciones', 'Cotizaciones activas'],
+    'ventas/perdidas':      ['Cotizaciones', 'Perdidas'],
     'pedidos/aprobados':    ['Pedidos', 'Aprobados'],
     'pedidos/produccion':   ['Pedidos', 'En producción'],
     'pedidos/producidos':   ['Pedidos', 'Producidos'],
@@ -2004,7 +2004,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'herr/recetas':         ['Herramientas', 'Recetas internas'],
     'herr/catalogo-productos': ['Herramientas', 'Catálogo de productos'],
     'herr/auditoria':       ['Herramientas', 'Auditoría'],
-    'ventas/lista-precios':    ['Ventas', 'Lista de precios']
+    'ventas/lista-precios':    ['Cotizaciones', 'Lista de precios']
   };
 
   function gbShellEnsureCrumb(){
@@ -4158,7 +4158,7 @@ body{padding-bottom:84px}
   <div class="sheet__handle"></div>
   <h2 class="sheet__title" id="gb-sheet-title">Crear</h2>
   <div class="sheet__list">
-    <div class="sheet__group-label">Ventas</div>
+    <div class="sheet__group-label">Cotizaciones</div>
     <a class="sheet__item" data-action="cot" href="#">
       <span class="icon"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 1.5h7l3 3V14a.5.5 0 01-.5.5h-9A.5.5 0 013 14V2a.5.5 0 01.5-.5z"/><path d="M10 1.5V4h3"/><path d="M5.5 8h5M5.5 11h3"/></svg></span>
       <div class="body"><div class="title">Nueva cotización</div><div class="desc">Cliente persona o empresa, productos del catálogo</div></div>
@@ -4607,12 +4607,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js" integrity="sha384-OUW9euuUyxyHcAhTqbhI+Iyb8LMssXt/cpz0yXhs9UWG2/R/uaWdakx/4cfww7Vb" crossorigin="anonymous"></script><!-- v7.9.13 SEC-12: SRI -->
-<script src="app-assets.js?v=7.9.13"></script>
-<script src="app-core.js?v=7.9.13"></script>
-<script src="app-cotizar.js?v=7.9.13"></script>
-<script src="app-propuesta.js?v=7.9.13"></script>
-<script src="app-historial.js?v=7.9.13"></script>
-<script src="app-seguimiento.js?v=7.9.13"></script>
-<script src="app-dashboard.js?v=7.9.13"></script>
+<script src="app-assets.js?v=7.9.14"></script>
+<script src="app-core.js?v=7.9.14"></script>
+<script src="app-cotizar.js?v=7.9.14"></script>
+<script src="app-propuesta.js?v=7.9.14"></script>
+<script src="app-historial.js?v=7.9.14"></script>
+<script src="app-seguimiento.js?v=7.9.14"></script>
+<script src="app-dashboard.js?v=7.9.14"></script>
 </body>
 </html>
