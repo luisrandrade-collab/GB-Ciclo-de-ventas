@@ -4073,6 +4073,18 @@ function generarPdfProduccionPorCliente(){
       // (antes quedaba invisible si _explodeComponentes devolvía []).
       try{
         const comps=_explodeComponentes(nombre,desc);
+        // v7.9.15 FIX: SIEMPRE imprimir la fila padre (producto + cantidad + casilla),
+        // tenga receta o no. Antes, si el producto tenía componentes, solo se
+        // empujaban las sub-filas y la comanda quedaba sin el nombre/cantidad del
+        // producto final (ingredientes huérfanos — reporte Luis 2026-06-13). Mismo
+        // patrón que la hoja B consolidada (fila padre primero, luego componentes).
+        items.push([
+          "",
+          {content:cantNum+"x",styles:{halign:"center",fontStyle:"bold"}},
+          fullName,
+          desc||"",
+          unidad||""
+        ]);
         if(comps&&comps.length){
           comps.forEach(comp=>{
             const qPorUnidad=Number(comp.q)||1;
@@ -4089,15 +4101,6 @@ function generarPdfProduccionPorCliente(){
               }
             }]);
           });
-        }else{
-          // Sin componentes: mostrar como ítem único con checkbox
-          items.push([
-            "",
-            {content:cantNum+"x",styles:{halign:"center",fontStyle:"bold"}},
-            fullName,
-            desc||"",
-            unidad||""
-          ]);
         }
       }catch(e){console.warn("explodeComponentes A falló para",nombre,desc,e)}
     };
@@ -4308,6 +4311,54 @@ function generarPdfProduccionConsolidada(){
     pdf.setFontSize(11);pdf.setFont("helvetica","bold");
     pdf.setTextColor(26,26,26);
     pdf.text("TOTAL: "+totalUnidades+" unidades a producir",M,y);
+    y+=8;
+
+    // v7.9.15: Resumen "TOTAL A PRODUCIR (POR COMPONENTE)" — lo que realmente se cocina.
+    // Explota cada producto agrupado a sus componentes y SUMA por nombre exacto,
+    // cruzando combos con productos sueltos del mismo nombre. Antes, p.ej. el Quibbe
+    // BBQ vivía en dos renglones que no se sumaban: 37x como ingrediente de "Plato
+    // Mixto Libanés" + 10 como producto suelto adicional → nunca se veía el total (47).
+    // Reporte Luis 2026-06-13. Suma por nombre EXACTO (ver caveat en el plan).
+    const baseTot={};
+    Object.values(porDia[f].productos).forEach(g=>{
+      const acc=(nm,cant,un)=>{
+        if(!nm)return;
+        const k=String(nm).trim();
+        if(!baseTot[k])baseTot[k]={name:k,qty:0,unit:un||""};
+        baseTot[k].qty+=cant;
+      };
+      let comps=[];
+      try{comps=_explodeComponentes(g.name,g.desc)||[]}catch(e){comps=[]}
+      if(comps.length){
+        comps.forEach(c=>acc(c.n,g.qty*(Number(c.q)||1),c.unidad));
+      }else{
+        acc(g.name,g.qty,g.unit);
+      }
+    });
+    const _fmtQ=n=>String(Math.round((Number(n)||0)*100)/100);
+    const baseRows=Object.values(baseTot)
+      .sort((a,b)=>(a.name||"").localeCompare(b.name||""))
+      .map(b=>[_fmtQ(b.qty),b.name,b.unit||""]);
+    if(baseRows.length&&pdf.autoTable){
+      pdf.setFontSize(11);pdf.setFont("helvetica","bold");pdf.setTextColor(26,26,26);
+      pdf.text("TOTAL A PRODUCIR (POR COMPONENTE)",M,y);
+      const tw=W-M*2;
+      pdf.autoTable({
+        startY:y+2,
+        margin:{left:M,right:M},
+        head:[["CANT","COMPONENTE","UNIDAD"]],
+        body:baseRows,
+        theme:"grid",
+        headStyles:_REP_PDF_HEAD_STYLE,
+        bodyStyles:{fontSize:9,cellPadding:2.5,valign:"middle",minCellHeight:8},
+        columnStyles:{
+          0:{halign:"center",cellWidth:tw*0.14,fontStyle:"bold"},
+          1:{halign:"left",cellWidth:tw*0.66},
+          2:{halign:"center",cellWidth:tw*0.20}
+        }
+      });
+      y=pdf.lastAutoTable.finalY+8;
+    }
   });
 
   _repPdfFooter(pdf,W,Hp);
