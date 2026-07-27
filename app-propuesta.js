@@ -616,13 +616,63 @@ function pickCustomProduct(id){
   propSections[pickerTarget.si].options[pickerTarget.oi].items.push({name:p.n,desc:p.d||"",unit:p.u||"",qty,price:p.p||0,customId:p.id});
   closePicker();renderPropSections();
 }
+// v7.9.17: 4 prompt() encadenados → modal de formulario (#propitem-modal).
+// Con los prompts, si el navegador bloqueaba diálogos (Chrome lo ofrece justo
+// por lanzar varios seguidos) prompt() devolvía null y el botón quedaba mudo,
+// sin ningún aviso (reporte Luis 2026-07-27). Además, cancelar el prompt del
+// precio agregaba el ítem con price:0 en silencio — ahora el precio se valida.
+let _propItemCtx=null;      // {si,oi} destino del ítem
+let _propItemQtyTocada=false; // el usuario editó la cantidad a mano → no re-sugerir
+
 function addPropItemCustom(si,oi){
-  const name=prompt("Nombre del ítem:");if(!name)return;
-  const desc=prompt("Descripción (opcional):")||"";
-  const price=parseInt(prompt("Precio unitario:")||"0");
-  const unit=prompt("Unidad (Individual, 10 personas, Evento, etc):")||"Individual";
-  const pers=parseInt($("fp-pers").value)||1;const qty=suggestQty(unit,pers);
-  propSections[si].options[oi].items.push({name,desc,unit,qty,price});renderPropSections();
+  const sec=propSections[si];if(!sec)return;
+  const opt=sec.options[oi];if(!opt)return;
+  _propItemCtx={si,oi};
+  _propItemQtyTocada=false;
+  const destino=$("pi-destino");
+  if(destino)destino.textContent=(sec.name||"sección")+(sec.options.length>1&&opt.label?" · "+opt.label:"");
+  $("pi-nombre").value="";
+  $("pi-desc").value="";
+  $("pi-precio").value="";
+  $("pi-unidad").value="Individual";
+  _propItemSyncQty();
+  $("propitem-modal").classList.remove("hidden");
+  setTimeout(()=>$("pi-nombre").focus(),50);
+}
+
+// Sugiere la cantidad desde unidad + pax del evento (misma regla de siempre),
+// salvo que el usuario ya la haya editado a mano.
+function _propItemSyncQty(){
+  if(_propItemQtyTocada)return;
+  const unit=$("pi-unidad")?$("pi-unidad").value:"Individual";
+  const pers=parseInt($("fp-pers")&&$("fp-pers").value)||1;
+  const q=$("pi-qty");
+  if(q)q.value=suggestQty(unit||"Individual",pers);
+}
+
+function closePropItemModal(){
+  const m=$("propitem-modal");
+  if(m)m.classList.add("hidden");
+  _propItemCtx=null;
+  _propItemQtyTocada=false;
+}
+
+function submitPropItemCustom(){
+  if(!_propItemCtx){toast("Contexto perdido, vuelve a abrir el ítem","warn");return}
+  const name=($("pi-nombre").value||"").trim();
+  if(!name){toast("El nombre es obligatorio","warn");$("pi-nombre").focus();return}
+  const price=parseInt($("pi-precio").value)||0;
+  if(price<=0){toast("El precio debe ser mayor a 0","warn");$("pi-precio").focus();return}
+  const desc=($("pi-desc").value||"").trim();
+  const unit=($("pi-unidad").value||"").trim()||"Individual";
+  const qty=parseFloat($("pi-qty").value)||1;
+  const {si,oi}=_propItemCtx;
+  const opt=propSections[si]&&propSections[si].options[oi];
+  if(!opt){toast("La sección ya no existe","warn");closePropItemModal();return}
+  opt.items.push({name,desc,unit,qty,price});
+  closePropItemModal();
+  renderPropSections();
+  toast('✅ "'+name+'" agregado',"success");
 }
 function updPropItem(si,oi,ii,field,val){propSections[si].options[oi].items[ii][field]=val;renderPropSections()}
 // v7.9.16: Deshacer al quitar un item (sin confirmación — granularidad fina).

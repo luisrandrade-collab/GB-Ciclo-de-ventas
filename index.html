@@ -10,7 +10,7 @@
 <link rel="icon" type="image/png" href="brand/cuchillo-negro.png">
 <link rel="apple-touch-icon" href="brand/cuchillo-negro.png">
 <title>Gourmet Bites - Cotizador</title>
-<link rel="stylesheet" href="gb-tokens.css?v=7.9.16"><!-- v7.9.13 INF-05: cache-buster CSS -->
+<link rel="stylesheet" href="gb-tokens.css?v=7.9.17"><!-- v7.9.13 INF-05: cache-buster CSS -->
 <!-- VERSION: 2026-04-26-v7.0.0-α-cascaron-v7-dashboard-rediseñado-fsm-pedido-vs-produccion -->
 <!--
   v6.3.0 (2026-04-24) — Robustez técnica + higiene (Entrega 3 del roadmap).
@@ -3354,6 +3354,43 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   </div>
 </div>
 
+<!-- v7.9.17: Modal de ítem custom en propuesta de evento.
+     Reemplaza los 4 prompt() nativos encadenados de addPropItemCustom: cuando el
+     navegador bloqueaba diálogos, prompt() devolvía null y el botón "+ Custom"
+     quedaba mudo sin avisar (reporte Luis 2026-07-27). -->
+<div id="propitem-modal" class="modal-overlay hidden" onclick="if(event.target===this)closePropItemModal()">
+  <div class="modal-box">
+    <div class="modal-head">
+      <span class="mtitle">✏️ Ítem personalizado</span>
+      <button class="mclose" onclick="closePropItemModal()">×</button>
+    </div>
+    <div class="mform">
+      <div class="mf-intro">Agrega un ítem que no está en el catálogo, a la sección <strong id="pi-destino">—</strong>. La cantidad se sugiere sola según la unidad y el número de personas del evento, pero puedes cambiarla.</div>
+      <div class="mf-field"><label>Nombre *</label><input type="text" id="pi-nombre" placeholder="Ej: Torta especial 3 pisos" autocomplete="off"></div>
+      <div class="mf-field"><label>Descripción (opcional)</label><input type="text" id="pi-desc" placeholder="Detalles que verá el cliente en la propuesta" autocomplete="off"></div>
+      <div class="mf-row">
+        <div class="mf-field"><label>Precio unitario *</label><input type="number" id="pi-precio" placeholder="150000" inputmode="numeric" min="1"></div>
+        <div class="mf-field"><label>Unidad</label>
+          <input type="text" id="pi-unidad" list="pi-unidades" value="Individual" autocomplete="off" onchange="_propItemSyncQty()" oninput="_propItemSyncQty()">
+          <datalist id="pi-unidades">
+            <option value="Individual"></option>
+            <option value="1 unidad"></option>
+            <option value="10 personas"></option>
+            <option value="10 porciones"></option>
+            <option value="10 unidades"></option>
+            <option value="12 personas"></option>
+            <option value="Porción"></option>
+            <option value="Evento"></option>
+            <option value="Bandeja"></option>
+          </datalist>
+        </div>
+        <div class="mf-field"><label>Cantidad</label><input type="number" id="pi-qty" value="1" step="0.5" min="0.5" inputmode="decimal" oninput="_propItemQtyTocada=true"></div>
+      </div>
+      <button class="mf-submit" onclick="submitPropItemCustom()">Agregar ítem</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: Marcar cotización como pedido -->
 <div id="order-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeOrderModal()">
   <div class="modal-box">
@@ -4607,12 +4644,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js" integrity="sha384-OUW9euuUyxyHcAhTqbhI+Iyb8LMssXt/cpz0yXhs9UWG2/R/uaWdakx/4cfww7Vb" crossorigin="anonymous"></script><!-- v7.9.13 SEC-12: SRI -->
-<script src="app-assets.js?v=7.9.16"></script>
-<script src="app-core.js?v=7.9.16"></script>
-<script src="app-cotizar.js?v=7.9.16"></script>
-<script src="app-propuesta.js?v=7.9.16"></script>
-<script src="app-historial.js?v=7.9.16"></script>
-<script src="app-seguimiento.js?v=7.9.16"></script>
-<script src="app-dashboard.js?v=7.9.16"></script>
+<script src="app-assets.js?v=7.9.17"></script>
+<script src="app-core.js?v=7.9.17"></script>
+<script src="app-cotizar.js?v=7.9.17"></script>
+<script src="app-propuesta.js?v=7.9.17"></script>
+<script src="app-historial.js?v=7.9.17"></script>
+<script src="app-seguimiento.js?v=7.9.17"></script>
+<script src="app-dashboard.js?v=7.9.17"></script>
 </body>
 </html>
