@@ -27,6 +27,8 @@ jobs:
         run: node scripts/test_ventas_anteriores.mjs
       - name: Run proptotal-transporte unit tests
         run: node scripts/test_proptotal_transporte.mjs
+      - name: Run integridad-editor unit tests
+        run: node scripts/test_integridad_editor.mjs
       - name: Run dinero unit tests
         run: node scripts/test_dinero.mjs
       - name: Run drift check (fuente vs copias de test)

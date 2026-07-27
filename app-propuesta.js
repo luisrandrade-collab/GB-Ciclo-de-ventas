@@ -378,6 +378,12 @@ function renderPropSections(){
   }).join("")
 }
 
+// v7.9.16: snapshot/restore de propSections para Deshacer en borrados del editor.
+// Deep-copy por JSON (propSections es data plana: strings/números/arrays/objetos).
+// El undo restaura el estado COMPLETO previo al borrado — simple y sin aliasing.
+function _propSnapshot(){return JSON.parse(JSON.stringify(propSections))}
+function _propRestore(snap){propSections=snap;renderPropSections()}
+
 function delPropSec(si){
   const nombre=propSections[si]&&propSections[si].name||"";
   confirmModal({
@@ -385,13 +391,39 @@ function delPropSec(si){
     body:"¿Eliminar sección <strong>"+h(nombre)+"</strong>?",
     okLabel:"Eliminar",
     tone:"warn",
-    onOk:()=>{propSections.splice(si,1);renderPropSections()}
+    onOk:()=>{
+      const snap=_propSnapshot();
+      propSections.splice(si,1);renderPropSections();
+      if(typeof toastUndo==="function")toastUndo('Sección "'+nombre+'" eliminada',()=>_propRestore(snap));
+    }
   });
 }
 // v7.9.8.4: actualiza nota/descripción de la sección (sin re-render: onchange dispara al perder foco)
 function updPropSecNota(si,val){if(propSections[si])propSections[si].nota=val}
 function addPropOpt(si){const letters="ABCDEFGH";const sec=propSections[si];sec.options.push({id:"po"+Date.now(),label:"Opción "+(letters[sec.options.length]||sec.options.length+1),items:[]});renderPropSections()}
-function delPropOpt(si,oi){propSections[si].options.splice(oi,1);renderPropSections()}
+// v7.9.16: antes borraba la opción CON todos sus items sin preguntar ni poder
+// deshacer (reporte Luis 2026-07-27). Ahora: confirma solo si tiene items + Deshacer.
+function delPropOpt(si,oi){
+  const sec=propSections[si];if(!sec)return;
+  const opt=sec.options[oi];if(!opt)return;
+  const nItems=(opt.items||[]).length;
+  const doDel=()=>{
+    const snap=_propSnapshot();
+    sec.options.splice(oi,1);renderPropSections();
+    if(typeof toastUndo==="function")toastUndo((opt.label||"Opción")+" eliminada"+(nItems?" ("+nItems+" item"+(nItems===1?"":"s")+")":""),()=>_propRestore(snap));
+  };
+  if(nItems>0){
+    confirmModal({
+      title:"Eliminar opción",
+      body:"¿Eliminar <strong>"+h(opt.label||"la opción")+"</strong> con sus <strong>"+nItems+"</strong> item"+(nItems===1?"":"s")+"?",
+      okLabel:"Eliminar",
+      tone:"warn",
+      onOk:doDel
+    });
+  }else{
+    doDel();
+  }
+}
 
 // ─── v7.9.7 F2: DESPACHOS MÚLTIPLES ────────────────────────
 // Cada despacho es un objeto {id, fechaHora, direccion?, transporteCosto, notas, status}.
@@ -593,7 +625,13 @@ function addPropItemCustom(si,oi){
   propSections[si].options[oi].items.push({name,desc,unit,qty,price});renderPropSections();
 }
 function updPropItem(si,oi,ii,field,val){propSections[si].options[oi].items[ii][field]=val;renderPropSections()}
-function delPropItem(si,oi,ii){propSections[si].options[oi].items.splice(ii,1);renderPropSections()}
+// v7.9.16: Deshacer al quitar un item (sin confirmación — granularidad fina).
+function delPropItem(si,oi,ii){
+  const it=propSections[si]&&propSections[si].options[oi]&&propSections[si].options[oi].items[ii];
+  const snap=_propSnapshot();
+  propSections[si].options[oi].items.splice(ii,1);renderPropSections();
+  if(typeof toastUndo==="function")toastUndo('"'+((it&&it.name)||"Item")+'" quitado',()=>_propRestore(snap));
+}
 
 // ─── MENAJE (v7.9.8: con opciones A/B/...) ─────────────────
 function renderMenaje(){

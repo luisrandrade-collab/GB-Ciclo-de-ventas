@@ -44,6 +44,7 @@ check.sh
 !scripts/test_merge_operational.mjs
 !scripts/test_ventas_anteriores.mjs
 !scripts/test_proptotal_transporte.mjs
+!scripts/test_integridad_editor.mjs
 !scripts/test_dinero.mjs
 !scripts/check_drift.mjs
 

@@ -109,8 +109,8 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.15";
-const BUILD_DATE="2026-06-13";
+const BUILD_VERSION="v7.9.16";
+const BUILD_DATE="2026-07-27";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
 // Helper único para resolver la colección Firestore de un documento por kind+id.
@@ -2046,8 +2046,12 @@ async function softDeleteAjuste(ajusteLogId,docId,docKind,ajusteIdInDoc){
 // Si esto falla, el log queda con la entrada y el doc no — preferible
 // (auditoría no se pierde) y el operador puede corregir manualmente.
 async function applyAjusteToDoc(q,docKind,ajusteEntry){
-  const {db,doc,updateDoc,serverTimestamp}=window.fb;
+  // v7.9.16 DAT2-B2: updateDoc ciego desde caché → runTransaction (patrón submitPago).
+  // Antes pusheaba a q.ajustes del caché y escribía el array completo: un ajuste
+  // concurrente de otra sesión se perdía (quedaba huérfano en ajustesLog sin aplicar).
+  const {db,doc,runTransaction,serverTimestamp}=window.fb;
   const coll=docKind==="quote"?"quotes":(docKind==="proposal"?"proposals":"propfinals");
+  const ref=doc(db,coll,q.id);
   const ajusteEnDoc={
     id:ajusteEntry.id||("aj_"+Date.now()),
     logId:ajusteEntry.id,  // referencia cruzada al log
@@ -2056,9 +2060,17 @@ async function applyAjusteToDoc(q,docKind,ajusteEntry){
     tipo:ajusteEntry.tipo,
     fecha:ajusteEntry.fecha
   };
-  q.ajustes=q.ajustes||[];
-  q.ajustes.push(ajusteEnDoc);
-  await updateDoc(doc(db,coll,q.id),{ajustes:q.ajustes,updatedAt:serverTimestamp(),...auditStamp()});
+  let ajustesCommit=null;
+  await runTransaction(db,async(tx)=>{
+    const snap=await tx.get(ref);
+    if(!snap.exists())throw new Error("Documento "+q.id+" no existe en Firestore (collection "+coll+")");
+    const ajustesTx=Array.isArray(snap.data().ajustes)?snap.data().ajustes.slice():[];
+    // IDEMPOTENCY en reintentos: no duplicar por id
+    if(!ajustesTx.some(a=>a.id===ajusteEnDoc.id))ajustesTx.push(ajusteEnDoc);
+    tx.update(ref,{ajustes:ajustesTx,updatedAt:serverTimestamp(),...auditStamp()});
+    ajustesCommit=ajustesTx;
+  });
+  q.ajustes=ajustesCommit; // caché local sincronizado con lo commiteado
 }
 
 // v7.7.1: extrae clientes únicos de quotesCache que NO existen en clientsCache.
@@ -3758,6 +3770,35 @@ function toast(msg,type,duration){
     ?duration
     :Math.min(6000,2500+msg.length*30);
   setTimeout(()=>{el.classList.add("toast-out");setTimeout(()=>el.remove(),300)},ms);
+}
+
+// v7.9.16: toast con botón "Deshacer" (patrón Gmail). Para acciones destructivas
+// EN MEMORIA (editores, pre-save): onUndo restaura el estado. 10s por defecto.
+// msg va como textContent (sin HTML) — mismo criterio anti-XSS que toast().
+function toastUndo(msg,onUndo,duration){
+  let wrap=$("toast-wrap");
+  if(!wrap){
+    wrap=document.createElement("div");
+    wrap.id="toast-wrap";
+    document.body.appendChild(wrap);
+  }
+  const el=document.createElement("div");
+  el.className="toast toast-warn";
+  el.style.display="flex";el.style.alignItems="center";el.style.gap="10px";
+  const txt=document.createElement("span");
+  txt.textContent=msg;
+  const btn=document.createElement("button");
+  btn.textContent="Deshacer";
+  btn.style.cssText="background:#fff;color:#5D4037;border:none;border-radius:6px;padding:4px 12px;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0";
+  el.appendChild(txt);el.appendChild(btn);
+  wrap.appendChild(el);
+  const ms=(typeof duration==="number"&&duration>0)?duration:10000;
+  const timer=setTimeout(()=>{el.classList.add("toast-out");setTimeout(()=>el.remove(),300)},ms);
+  btn.onclick=()=>{
+    clearTimeout(timer);
+    el.remove();
+    try{if(typeof onUndo==="function")onUndo()}catch(e){console.error("[toastUndo] onUndo falló",e)}
+  };
 }
 
 // ═══════════════════════════════════════════════════════════

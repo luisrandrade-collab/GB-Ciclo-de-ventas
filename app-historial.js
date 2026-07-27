@@ -1196,17 +1196,33 @@ async function _addSaldoAFavor(clienteName,monto,motivo,logId){
     aplicadoEnDoc:null  // se llena cuando se use en un cobro futuro
   };
   if(c&&c.id){
-    const nuevoSaldo=(c.saldoAFavor||0)+monto;
-    const movs=Array.isArray(c.saldoAFavorMovs)?c.saldoAFavorMovs.slice():[];
-    movs.push(movimiento);
-    await updateDoc(doc(db,"clients",c.id),{
-      saldoAFavor:nuevoSaldo,
-      saldoAFavorMovs:movs,
-      updatedAt:serverTimestamp(),
-      ...auditStamp()
+    // v7.9.16 DAT2-B3: suma desde caché + updateDoc ciego → runTransaction.
+    // Antes nuevoSaldo=(caché+monto): dos notas crédito concurrentes al mismo
+    // cliente perdían una (y el array de movimientos se pisaba igual).
+    const {runTransaction}=window.fb;
+    const ref=doc(db,"clients",c.id);
+    let saldoCommit=0,movsCommit=null;
+    await runTransaction(db,async(tx)=>{
+      const snap=await tx.get(ref);
+      if(!snap.exists())throw new Error("Cliente "+c.id+" no existe en Firestore");
+      const dataTx=snap.data();
+      const movsTx=Array.isArray(dataTx.saldoAFavorMovs)?dataTx.saldoAFavorMovs.slice():[];
+      // IDEMPOTENCY en reintentos: si el logId ya está, no sumar ni pushear de nuevo.
+      // Misma fórmula acumulativa de siempre (saldo fresco + monto) — solo cambia
+      // que el "fresco" viene del snapshot de la tx, no del caché local.
+      const yaEsta=movsTx.some(m=>m.logId===logId);
+      if(!yaEsta)movsTx.push(movimiento);
+      const saldoTx=yaEsta?(parseFloat(dataTx.saldoAFavor)||0):(parseFloat(dataTx.saldoAFavor)||0)+monto;
+      tx.update(ref,{
+        saldoAFavor:saldoTx,
+        saldoAFavorMovs:movsTx,
+        updatedAt:serverTimestamp(),
+        ...auditStamp()
+      });
+      saldoCommit=saldoTx;movsCommit=movsTx;
     });
-    c.saldoAFavor=nuevoSaldo;
-    c.saldoAFavorMovs=movs;
+    c.saldoAFavor=saldoCommit;
+    c.saldoAFavorMovs=movsCommit;
   }else{
     // Cliente fantasma: crear mínimo
     const obj={
@@ -2694,8 +2710,13 @@ async function submitAnular(){
       },
       runner:async()=>{
         showLoader("Anulando...");
-        const {db,doc,updateDoc,serverTimestamp}=window.fb;
+        // v7.9.16 DAT2-B1: updateDoc ciego → runTransaction (patrón submitPago v7.9.10).
+        // Antes patch.pagos se armaba desde el CACHÉ local: un pago registrado por otra
+        // sesión después de cargar este caché se BORRABA al anular con devolución.
+        // La tx re-lee pagos frescos y appendea la devolución atómicamente.
+        const {db,doc,runTransaction,serverTimestamp}=window.fb;
         const coll=getCollectionName(docId,kind);
+        const ref=doc(db,coll,docId);
 
         const anuladaData={
           fecha:new Date().toISOString(),
@@ -2707,39 +2728,52 @@ async function submitAnular(){
           totalCobradoAlAnular:cobrado
         };
 
-        const patch={updatedAt:serverTimestamp()};
-        if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
-
         const expectsRepl=$("an-reemplazo")&&$("an-reemplazo").checked;
-        if(accion==="anular"){
-          patch.status="anulada";
-          patch.anuladaData=anuladaData;
-          patch.needsSync=false;
-          if(expectsRepl){patch.expectsReplacement=true;patch.replacementClient=q.client||""}
-        }else{
-          patch.status="enviada";
-          patch.anuladaData=anuladaData;
-          patch.orderData=null;
-          patch.approvalData=null;
-          patch.eventDate=null;
-          patch.horaEntrega=null;
-          patch.productionDate=null;
-          patch.produced=false;
-          patch.producedAt=null;
-          patch.needsSync=false;
-          patch.lastSyncAt=null;
-        }
+        let pagosCommit=null;
+        await runTransaction(db,async(tx)=>{
+          const snap=await tx.get(ref);
+          if(!snap.exists()){
+            throw new Error("Documento "+docId+" no existe en Firestore (collection "+coll+")");
+          }
+          const freshTx=snap.data();
 
-        if(devPago){
-          const pagosExistentes=getPagos(q)||[];
-          const pagosNuevos=[...pagosExistentes,devPago];
-          patch.pagos=pagosNuevos;
-        }
+          const patch={updatedAt:serverTimestamp()};
+          if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
+          if(accion==="anular"){
+            patch.status="anulada";
+            patch.anuladaData=anuladaData;
+            patch.needsSync=false;
+            if(expectsRepl){patch.expectsReplacement=true;patch.replacementClient=q.client||""}
+          }else{
+            patch.status="enviada";
+            patch.anuladaData=anuladaData;
+            patch.orderData=null;
+            patch.approvalData=null;
+            patch.eventDate=null;
+            patch.horaEntrega=null;
+            patch.productionDate=null;
+            patch.produced=false;
+            patch.producedAt=null;
+            patch.needsSync=false;
+            patch.lastSyncAt=null;
+          }
 
-        await updateDoc(doc(db,coll,docId),patch);
+          if(devPago){
+            // Pagos FRESCOS del snapshot (no del caché). getPagos maneja el formato
+            // legacy (anticipo/saldoData) igual que en el resto del sistema.
+            const pagosFrescos=getPagos({...freshTx,id:docId,kind:kind})||[];
+            // IDEMPOTENCY en reintentos de la tx: no duplicar por registradoEn
+            const yaEsta=pagosFrescos.some(p=>p.tipo==="devolucion"&&p.registradoEn===devPago.registradoEn);
+            patch.pagos=yaEsta?pagosFrescos:[...pagosFrescos,devPago];
+            pagosCommit=patch.pagos;
+          }
+
+          tx.update(ref,patch);
+        });
+
         const local=quotesCache.find(x=>x.id===docId&&x.kind===kind);
         if(local){
-          local.status=patch.status;
+          local.status=accion==="anular"?"anulada":"enviada";
           local.anuladaData=anuladaData;
           if(expectsRepl){local.expectsReplacement=true;local.replacementClient=q.client||""}
           if(accion==="regresar"){
@@ -2751,7 +2785,7 @@ async function submitAnular(){
             local.produced=false;
             local.producedAt=null;
           }
-          if(devPago)local.pagos=patch.pagos;
+          if(pagosCommit)local.pagos=pagosCommit;
           local.needsSync=false;
         }
       }

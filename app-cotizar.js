@@ -246,7 +246,17 @@ async function _saveCurrentQuoteImpl(silent){
     if(!silent)showLoader("Generando consecutivo...");
     if(!qNum)qNum=await getNextNumber("quote");
     await autoSaveClientFromCot();
-    for(const cu of cust){try{await registerCustomProduct(cu.n,cu.d,cu.p,cu.u,cu.inCatalog)}catch(e){console.warn("custom register skipped:",e)}}
+    // v7.9.16 DAT2-B4: el catch pasaba el error a console.warn y el usuario creía
+    // que el producto quedó en el catálogo cuando no fue así (pérdida silenciosa).
+    // Ahora avisa con toast. NO bloquea el guardado de la cotización (el doc es
+    // lo prioritario; el registro en catálogo se puede reintentar guardando de nuevo).
+    for(const cu of cust){
+      try{await registerCustomProduct(cu.n,cu.d,cu.p,cu.u,cu.inCatalog)}
+      catch(e){
+        console.warn("custom register skipped:",e);
+        if(typeof toast==="function")toast('⚠️ El producto "'+(cu.n||"custom")+'" no se pudo registrar en el catálogo ('+(e?.message||"error")+'). La cotización se guarda igual.',"warn",7000);
+      }
+    }
     let prevStatus="enviada",prevOrderData=null,prevPagos=null,prevEntregaData=null,prevComentarioCliente=null,prevProductionDate=null,prevProduced=null,prevEventDate=null,prevHoraEntrega=null,prevPdfHistorial=null,prevPdfRegenCount=null,prevEditHistory=null,prevOptionGroupId=null,prevFeData=null;
     // v7.9.13 DAT-01: campos operativos adicionales que antes se perdían al sobreescribir el doc
     const EXTRA_PRESERVE_FIELDS=["ajustes","saldoData","pago_changelog","auditTrail","itemsProducidos","followUpStatus","followUpLog","replacedBy","replaces","expectsReplacement","needsSync","anuladaData"];
