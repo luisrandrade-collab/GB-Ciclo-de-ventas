@@ -138,6 +138,53 @@ describe("B3c: cliente legacy sin movimientos previos",()=>{
   eq(movs.length,1,"primer movimiento del array");
 });
 
+// ═══ Tests v7.9.18: resolución de ids en addC (cotizador) ═══
+// Copia de la cadena de lookup de app-core.js addC(). El bug: los personalizados
+// del catálogo se pintan con id "cp_<docId>" y addC no sabía resolverlos.
+function resolverProducto(id,{customProductsCache=[],productosCache=null,C=[]}={}){
+  let p=null,extra={};
+  if(typeof id==="string"&&id.indexOf("cp_")===0){
+    const cp=(customProductsCache||[]).find(x=>("cp_"+x.id)===id);
+    if(cp)p={id:id,n:cp.n,d:cp.d||"",p:parseInt(cp.p)||0,u:cp.u||""};
+  }else if(typeof id==="string"&&productosCache&&productosCache[id]){
+    const fp=productosCache[id];
+    p={id:fp.productId,n:fp.nombre,d:fp.descripcion||"",p:fp.precio||0,u:fp.unidad||""};
+    extra={productId:fp.productId};
+  }else{
+    p=C.find(x=>x.id===id)||null;
+  }
+  return {p,extra};
+}
+
+describe("v7.9.18: producto personalizado del catálogo (id cp_) SÍ se resuelve",()=>{
+  const cache=[{id:"abc123",n:"Peanut Butter Oreo Cheesecake",d:"5 personas",p:70000,u:"5 personas",inCatalog:true}];
+  const {p}=resolverProducto("cp_abc123",{customProductsCache:cache});
+  eq(!!p,true,"encuentra el producto (antes devolvía null → botón mudo)");
+  eq(p&&p.n,"Peanut Butter Oreo Cheesecake","nombre correcto");
+  eq(p&&p.p,70000,"precio correcto");
+  eq(p&&p.id,"cp_abc123","conserva el id cp_ (lo esperan renderP, chgQ y el guardado)");
+});
+
+describe("v7.9.18: no se rompe la resolución por productosCache (Firestore)",()=>{
+  const pc={"prod_9":{productId:"prod_9",nombre:"Lasagna",descripcion:"Pollo",precio:45000,unidad:"10 personas"}};
+  const {p,extra}=resolverProducto("prod_9",{productosCache:pc});
+  eq(p&&p.n,"Lasagna","resuelve por productosCache");
+  eq(extra.productId,"prod_9","conserva productId para el BOM");
+});
+
+describe("v7.9.18: no se rompe el catálogo hardcodeado (ids numéricos)",()=>{
+  const C=[{id:26,n:"Plato Mixto Libanés",d:"",p:56500,u:"por plato"}];
+  const {p}=resolverProducto(26,{C});
+  eq(p&&p.n,"Plato Mixto Libanés","resuelve por C[]");
+});
+
+describe("v7.9.18: id inexistente devuelve null (ahora el caller avisa, no calla)",()=>{
+  const {p}=resolverProducto("cp_noexiste",{customProductsCache:[{id:"otro",n:"X",p:1}]});
+  eq(p,null,"null cuando el cp_ no está en cache");
+  const r2=resolverProducto(999,{C:[{id:1,n:"A"}]});
+  eq(r2.p,null,"null cuando el id numérico no está en C[]");
+});
+
 // ─── Resumen ────────────────────────────────────────────────────────────────
 console.log("");
 if(fail===0){console.log(`${c.g}${c.b}✅ ${pass} tests pasaron${c.x}`);process.exit(0)}

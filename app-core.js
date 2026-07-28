@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.17";
+const BUILD_VERSION="v7.9.18";
 const BUILD_DATE="2026-07-27";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
@@ -2957,14 +2957,28 @@ function addC(id){
   if(distIt()>=MX){toast("Máximo "+MX+" productos","warn");return}
   // v7.9.3: buscar en productosCache (string id) o en C[] (numeric id)
   let p=null,extra={};
-  if(typeof id==="string"&&productosCache&&productosCache[id]){
+  // v7.9.18: los personalizados guardados en catálogo se pintan con id sintético
+  // "cp_<docId>" (renderP → catProds) pero addC solo miraba productosCache y C[],
+  // donde ese id NO existe → p quedaba null → return silencioso. Resultado: el
+  // botón "Agregar" de la pestaña Personalizados no hacía NADA. Reporte Luis
+  // 2026-07-27 (screenshot), confirmado con clic real en navegador.
+  if(typeof id==="string"&&id.indexOf("cp_")===0){
+    const cp=(customProductsCache||[]).find(x=>("cp_"+x.id)===id);
+    if(cp)p={id:id,n:cp.n,d:cp.d||"",p:parseInt(cp.p)||0,u:cp.u||""};
+  }else if(typeof id==="string"&&productosCache&&productosCache[id]){
     const fp=productosCache[id];
     p={id:fp.productId,n:fp.nombre,d:fp.descripcion||"",p:fp.precio||0,u:fp.unidad||""};
     extra={productId:fp.productId};
   }else{
     p=C.find(x=>x.id===id);
   }
-  if(!p)return;
+  // v7.9.18: antes era `if(!p)return` — un fallo de lookup dejaba el botón mudo
+  // sin ninguna señal, que es justo lo que mantuvo el bug invisible. Ahora avisa.
+  if(!p){
+    console.warn("[addC] producto no encontrado en ningún catálogo:",id);
+    if(typeof toast==="function")toast("No se pudo agregar: el producto no se encontró en el catálogo","error");
+    return;
+  }
   const e=cart.find(x=>x.id===id);
   if(e)e.qty++;
   else cart.push({...p,...extra,qty:1,origP:p.p,edited:false});
