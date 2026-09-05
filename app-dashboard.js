@@ -8298,10 +8298,15 @@ async function renderCatalogoProductos(){
     try{await loadCategoriasFromCloud()}catch{}
   }
 
+  // v7.9.22: asegurar los personalizados antes de pintarlos en esta pantalla
+  if(typeof customProductsCache!=="undefined"&&Array.isArray(customProductsCache)&&!customProductsCache.length&&cloudOnline){
+    try{await loadCustomProducts()}catch{}
+  }
   const prodsCount=(typeof productosCache!=="undefined"&&productosCache)?Object.keys(productosCache).length:0;
 
   if(prodsCount===0){
-    listEl.innerHTML='<div style="padding:20px;background:#FFEBEE;border:1px solid #EF9A9A;border-radius:8px;color:#C62828;font-size:13px;text-align:center">Sin productos en Firestore. Verificar conexión o cargar productos desde Herramientas > Catálogo.</div>';
+    // v7.9.22: aunque no haya catálogo principal, los personalizados sí se muestran
+    listEl.innerHTML='<div style="padding:20px;background:#FFEBEE;border:1px solid #EF9A9A;border-radius:8px;color:#C62828;font-size:13px;text-align:center">Sin productos en Firestore. Verificar conexión o cargar productos desde Herramientas > Catálogo.</div>'+_renderCustomProductsSection();
     return;
   }
 
@@ -8403,7 +8408,87 @@ async function renderCatalogoProductos(){
     html+='</div></div>';
   });
   html+='</div>';
+  // v7.9.22: los productos personalizados (colección custom_products) ahora se ven
+  // aquí — antes esta pantalla solo leía 'productos' y los custom quedaban
+  // invisibles y sin forma de corregirlos (pedido Luis 2026-09-05).
+  html+=_renderCustomProductsSection();
   listEl.innerHTML=html;
+}
+
+// v7.9.22: sección de personalizados con edición en línea, uso, antigüedad y
+// borrado — el apoyo para la limpieza mensual. Ordena los menos usados primero.
+function _renderCustomProductsSection(){
+  const cps=(typeof customProductsCache!=="undefined"&&Array.isArray(customProductsCache))?customProductsCache.slice():[];
+  let h='<div style="margin-top:22px;border:1px solid #E0E0E0;border-radius:10px;overflow:hidden">';
+  h+='<div style="background:#F5F5F5;padding:9px 14px;font-size:12.5px;font-weight:700;color:#424242;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">'+
+     '<span>✏️ Productos personalizados <span style="font-weight:400;color:#9E9E9E">('+cps.length+')</span></span>';
+  const viejos=cps.filter(cp=>{const m=mesesSinUso(cp);return m!==null&&m>=3}).length;
+  if(viejos>0)h+='<span style="background:#FFF3E0;color:#E65100;font-size:11px;font-weight:700;padding:2px 9px;border-radius:10px">'+viejos+' sin usar hace 3+ meses</span>';
+  h+='</div>';
+  if(!cps.length){
+    h+='<div style="padding:16px;font-size:12px;color:#9E9E9E;text-align:center">Aún no hay productos personalizados. Se crean con “+ Custom” al cotizar y quedan aquí para reutilizarlos.</div></div>';
+    return h;
+  }
+  h+='<div style="padding:10px 14px;background:#FFFDE7;border-bottom:1px solid #FFE082;font-size:11px;color:#795548">'+
+     'Corregir un nombre aquí afecta a los <strong>usos futuros</strong>. Las cotizaciones ya guardadas conservan el nombre con el que se enviaron. '+
+     'Revisa esta lista una vez al mes y elimina lo que ya no uses.</div>';
+  // menos usados / más antiguos primero — es el orden útil para depurar
+  cps.sort((a,b)=>{
+    const ma=mesesSinUso(a),mb=mesesSinUso(b);
+    const va=(ma===null?999:ma),vb=(mb===null?999:mb);
+    if(vb!==va)return vb-va;
+    return (a.useCount||0)-(b.useCount||0);
+  });
+  h+='<div style="display:flex;flex-direction:column">';
+  cps.forEach(cp=>{
+    const m=mesesSinUso(cp);
+    const usos=cp.useCount||1;
+    const badge=(m!==null&&m>=3)
+      ?'<span style="background:#FFEBEE;color:#C62828;font-size:10px;font-weight:700;padding:1px 7px;border-radius:9px;white-space:nowrap">'+m+' meses sin uso</span>'
+      :'<span style="color:#9E9E9E;font-size:10.5px;white-space:nowrap">'+(m===null?"sin fecha":(m<1?"usado este mes":"hace "+m+" mes"+(m===1?"":"es")))+'</span>';
+    const idJs=escapeHtml(cp.id);
+    const inp="padding:5px 8px;border:1px solid #DDD;border-radius:6px;font-size:12px;box-sizing:border-box";
+    h+='<div style="padding:10px 14px;border-top:1px solid #EEE">';
+    h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">'+
+         '<input type="text" value="'+escapeHtml(cp.n||"")+'" maxlength="90" aria-label="Nombre" onchange="guardarCustomProduct(\''+idJs+'\',\'n\',this.value)" style="'+inp+';flex:1;min-width:180px;font-weight:700">'+
+         badge+
+         '<span style="color:#9E9E9E;font-size:10.5px;white-space:nowrap">'+usos+' uso'+(usos===1?"":"s")+'</span>'+
+         '<button onclick="eliminarCustomProduct(\''+idJs+'\')" title="Eliminar" style="background:none;border:1px solid #EF9A9A;color:#C62828;border-radius:5px;padding:3px 9px;cursor:pointer;font-size:11px">🗑</button>'+
+       '</div>';
+    h+='<div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:6px">'+
+         '<input type="text" value="'+escapeHtml(cp.d||"")+'" maxlength="140" placeholder="Descripción" aria-label="Descripción" onchange="guardarCustomProduct(\''+idJs+'\',\'d\',this.value)" style="'+inp+'">'+
+         '<input type="number" value="'+(parseInt(cp.p)||0)+'" placeholder="Precio" aria-label="Precio" onchange="guardarCustomProduct(\''+idJs+'\',\'p\',this.value)" style="'+inp+';text-align:right">'+
+         '<input type="text" value="'+escapeHtml(cp.u||"")+'" maxlength="40" placeholder="Unidad" aria-label="Unidad" onchange="guardarCustomProduct(\''+idJs+'\',\'u\',this.value)" style="'+inp+'">'+
+       '</div>';
+    h+='</div>';
+  });
+  h+='</div></div>';
+  return h;
+}
+async function guardarCustomProduct(id,campo,valor){
+  try{
+    await updateCustomProduct(id,{[campo]:valor});
+    if(typeof toast==="function")toast("✅ Guardado","success",2200);
+    if(typeof renderP==="function"&&typeof curStep!=="undefined"&&curStep==="products")renderP();
+  }catch(e){renderCatalogoProductos()} // revertir la UI si falló
+}
+async function eliminarCustomProduct(id){
+  const cp=(customProductsCache||[]).find(x=>x.id===id);
+  if(!cp)return;
+  const usos=cp.useCount||1;
+  confirmModal({
+    title:"Eliminar producto personalizado",
+    body:"¿Eliminar <strong>"+escapeHtml(cp.n||"")+"</strong>?<br><br>Se ha usado <strong>"+usos+"</strong> vez"+(usos===1?"":"es")+". Las cotizaciones ya guardadas NO cambian: conservan su nombre y precio. Solo deja de estar disponible para nuevas cotizaciones.",
+    okLabel:"Eliminar",
+    tone:"danger",
+    onOk:async()=>{
+      try{
+        await deleteCustomProduct(id);
+        if(typeof toast==="function")toast("Producto eliminado","success");
+        renderCatalogoProductos();
+      }catch(e){}
+    }
+  });
 }
 
 // v7.9.0.4: marcar todos los productos + categorías activos como visibleEnWeb=true.

@@ -10,7 +10,7 @@
 <link rel="icon" type="image/png" href="brand/cuchillo-negro.png">
 <link rel="apple-touch-icon" href="brand/cuchillo-negro.png">
 <title>Gourmet Bites - Cotizador</title>
-<link rel="stylesheet" href="gb-tokens.css?v=7.9.21"><!-- v7.9.13 INF-05: cache-buster CSS -->
+<link rel="stylesheet" href="gb-tokens.css?v=7.9.22"><!-- v7.9.13 INF-05: cache-buster CSS -->
 <!-- VERSION: 2026-04-26-v7.0.0-α-cascaron-v7-dashboard-rediseñado-fsm-pedido-vs-produccion -->
 <!--
   v6.3.0 (2026-04-24) — Robustez técnica + higiene (Entrega 3 del roadmap).
@@ -2747,7 +2747,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <div><label class="flbl">Unidad</label><input class="fin" id="cf-u" placeholder="Porción"></div>
       <div class="sm"><label class="flbl">Cant.</label><input class="fin" id="cf-q" type="number" min="1" value="1"></div>
     </div>
-    <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:#555;cursor:pointer"><input type="checkbox" id="cf-catalog"> Guardar en catalogo para reutilizar</label>
+    <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:#555;cursor:pointer"><input type="checkbox" id="cf-catalog" checked> Guardar para reutilizar (queda en Personalizados)</label>
     <div style="display:flex;gap:8px;margin-top:10px">
       <button class="btn bp" style="flex:1" onclick="addCust()">Agregar</button>
       <button class="btn bo" onclick="togCF()">Cancelar</button>
@@ -4644,12 +4644,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js" integrity="sha384-OUW9euuUyxyHcAhTqbhI+Iyb8LMssXt/cpz0yXhs9UWG2/R/uaWdakx/4cfww7Vb" crossorigin="anonymous"></script><!-- v7.9.13 SEC-12: SRI -->
-<script src="app-assets.js?v=7.9.21"></script>
-<script src="app-core.js?v=7.9.21"></script>
-<script src="app-cotizar.js?v=7.9.21"></script>
-<script src="app-propuesta.js?v=7.9.21"></script>
-<script src="app-historial.js?v=7.9.21"></script>
-<script src="app-seguimiento.js?v=7.9.21"></script>
-<script src="app-dashboard.js?v=7.9.21"></script>
+<script src="app-assets.js?v=7.9.22"></script>
+<script src="app-core.js?v=7.9.22"></script>
+<script src="app-cotizar.js?v=7.9.22"></script>
+<script src="app-propuesta.js?v=7.9.22"></script>
+<script src="app-historial.js?v=7.9.22"></script>
+<script src="app-seguimiento.js?v=7.9.22"></script>
+<script src="app-dashboard.js?v=7.9.22"></script>
 </body>
 </html>

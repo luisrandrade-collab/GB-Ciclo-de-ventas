@@ -361,6 +361,58 @@ describe("v7.9.21: multi-opción se conserva cuando está activada",()=>{
   eq(ops.length,2,"dos opciones de menaje → dos tablas de reposición");
 });
 
+// ═══ Tests v7.9.22: productos personalizados (limpieza mensual) ═══
+// Copia de mesesSinUso (app-core.js). Acepta Timestamp de Firestore, ISO o Date.
+function mesesSinUso(cp,ahora){
+  const raw=(cp&&(cp.lastUsed||cp.createdAt))||null;
+  if(!raw)return null;
+  let d=null;
+  if(raw&&typeof raw.toDate==="function")d=raw.toDate();
+  else if(typeof raw==="string")d=new Date(raw);
+  else if(raw instanceof Date)d=raw;
+  else if(raw&&typeof raw.seconds==="number")d=new Date(raw.seconds*1000);
+  if(!d||isNaN(d.getTime()))return null;
+  return Math.floor(((ahora||Date.now())-d.getTime())/(1000*60*60*24*30.44));
+}
+const AHORA=new Date("2026-09-05T12:00:00Z").getTime();
+const haceMeses=m=>new Date(AHORA-m*30.44*24*60*60*1000).toISOString();
+
+describe("v7.9.22: antigüedad de un personalizado (soporta los 3 formatos)",()=>{
+  eq(mesesSinUso({lastUsed:haceMeses(0.2)},AHORA),0,"usado este mes → 0");
+  eq(mesesSinUso({lastUsed:haceMeses(5)},AHORA),5,"ISO string");
+  eq(mesesSinUso({lastUsed:{seconds:Math.floor((AHORA-4*30.44*86400000)/1000)}},AHORA),4,"Timestamp de Firestore");
+  eq(mesesSinUso({lastUsed:{toDate:()=>new Date(AHORA-6*30.44*86400000)}},AHORA),6,"objeto con toDate()");
+  eq(mesesSinUso({},AHORA),null,"sin fecha → null (no se marca como viejo)");
+});
+
+describe("v7.9.22: cae a createdAt si nunca se registró un uso posterior",()=>{
+  eq(mesesSinUso({createdAt:haceMeses(7)},AHORA),7,"usa createdAt");
+  eq(mesesSinUso({createdAt:haceMeses(7),lastUsed:haceMeses(1)},AHORA),1,"lastUsed manda sobre createdAt");
+});
+
+describe("v7.9.22: orden para la limpieza — más viejos y menos usados primero",()=>{
+  const cps=[
+    {n:"Reciente",lastUsed:haceMeses(0),useCount:9},
+    {n:"Viejo",lastUsed:haceMeses(8),useCount:1},
+    {n:"Medio",lastUsed:haceMeses(4),useCount:2}
+  ];
+  cps.sort((a,b)=>{
+    const ma=mesesSinUso(a,AHORA),mb=mesesSinUso(b,AHORA);
+    const va=(ma===null?999:ma),vb=(mb===null?999:mb);
+    if(vb!==va)return vb-va;
+    return (a.useCount||0)-(b.useCount||0);
+  });
+  eq(cps.map(c=>c.n),["Viejo","Medio","Reciente"],"el candidato a borrar queda primero");
+  eq(cps.filter(c=>{const m=mesesSinUso(c,AHORA);return m!==null&&m>=3}).length,2,"contador de '3+ meses sin usar'");
+});
+
+describe("v7.9.22: inCatalog por defecto true (antes se perdía si no marcabas)",()=>{
+  const nuevo=inCatalog=>({inCatalog:(inCatalog!==false)});
+  eq(nuevo(undefined).inCatalog,true,"sin especificar → queda disponible");
+  eq(nuevo(true).inCatalog,true,"marcado → disponible");
+  eq(nuevo(false).inCatalog,false,"desmarcado explícito → opt-out respetado");
+});
+
 // ─── Resumen ────────────────────────────────────────────────────────────────
 console.log("");
 if(fail===0){console.log(`${c.g}${c.b}✅ ${pass} tests pasaron${c.x}`);process.exit(0)}

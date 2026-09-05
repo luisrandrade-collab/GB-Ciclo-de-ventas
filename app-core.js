@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.21";
+const BUILD_VERSION="v7.9.22";
 const BUILD_DATE="2026-09-05";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
@@ -2162,6 +2162,64 @@ async function loadCustomProducts(){
   }
 }
 
+// v7.9.22: actualizar un producto personalizado ya guardado (corregir nombre,
+// descripción, precio o unidad). Antes NO existía: un producto creado con el
+// nombre mal escrito quedaba así para siempre (pedido Luis 2026-09-05).
+// OJO: no reescribe cotizaciones pasadas — esas guardan el nombre como texto.
+async function updateCustomProduct(id,campos){
+  const {db,doc,updateDoc,serverTimestamp}=window.fb;
+  const limpio={};
+  if(typeof campos.n==="string"&&campos.n.trim())limpio.n=campos.n.trim();
+  if(typeof campos.d==="string")limpio.d=campos.d.trim();
+  if(typeof campos.u==="string")limpio.u=campos.u.trim();
+  if(campos.p!==undefined&&campos.p!==null&&campos.p!=="")limpio.p=parseInt(campos.p)||0;
+  if(!Object.keys(limpio).length)return null;
+  limpio.updatedAt=serverTimestamp();
+  if(typeof auditStamp==="function")Object.assign(limpio,auditStamp());
+  try{
+    await updateDoc(doc(db,"custom_products",id),limpio);
+  }catch(e){
+    console.error("[updateCustomProduct]",id,e);
+    if(typeof toast==="function")toast("No se pudo guardar el cambio: "+(e?.message||"error"),"error",6000);
+    throw e;
+  }
+  const local=customProductsCache.find(x=>x.id===id);
+  if(local)Object.assign(local,limpio);
+  localStorage.setItem("gb_cprods_cache",JSON.stringify(customProductsCache));
+  return local;
+}
+// v7.9.22: eliminar un personalizado (para la depuración mensual). Borrado real:
+// esta colección es solo un catálogo de reutilización, no evidencia financiera —
+// las cotizaciones que lo usaron conservan el nombre y el precio en su propio doc.
+async function deleteCustomProduct(id){
+  const {db,doc,deleteDoc}=window.fb;
+  try{
+    await deleteDoc(doc(db,"custom_products",id));
+  }catch(e){
+    console.error("[deleteCustomProduct]",id,e);
+    if(typeof toast==="function")toast("No se pudo eliminar: "+(e?.message||"error"),"error",6000);
+    throw e;
+  }
+  const i=customProductsCache.findIndex(x=>x.id===id);
+  if(i>=0)customProductsCache.splice(i,1);
+  localStorage.setItem("gb_cprods_cache",JSON.stringify(customProductsCache));
+}
+// v7.9.22: meses sin usar (para la limpieza mensual). Acepta Timestamp de
+// Firestore, ISO string o Date. null si nunca se registró uso.
+function mesesSinUso(cp){
+  const raw=(cp&&(cp.lastUsed||cp.createdAt))||null;
+  if(!raw)return null;
+  let d=null;
+  try{
+    if(raw&&typeof raw.toDate==="function")d=raw.toDate();
+    else if(typeof raw==="string")d=new Date(raw);
+    else if(raw instanceof Date)d=raw;
+    else if(raw&&typeof raw.seconds==="number")d=new Date(raw.seconds*1000);
+  }catch(e){}
+  if(!d||isNaN(d.getTime()))return null;
+  return Math.floor((Date.now()-d.getTime())/(1000*60*60*24*30.44));
+}
+
 async function registerCustomProduct(n,d,p,u,inCatalog){
   const {db,collection,doc,addDoc,updateDoc,serverTimestamp}=window.fb;
   const existing=customProductsCache.find(x=>x.n.toLowerCase()===n.toLowerCase());
@@ -2175,7 +2233,9 @@ async function registerCustomProduct(n,d,p,u,inCatalog){
     existing.promoted=promoted;
     if(inCatalog)existing.inCatalog=true;
   }else{
-    const obj={n,d:d||"",p:parseInt(p)||0,u:u||"",useCount:1,promoted:false,inCatalog:!!inCatalog,createdAt:serverTimestamp(),lastUsed:serverTimestamp()};
+    // v7.9.22: inCatalog por defecto TRUE — antes dependia de marcar un checkbox
+    // que era facil de olvidar y el producto se perdia (pedido Luis 2026-09-05).
+    const obj={n,d:d||"",p:parseInt(p)||0,u:u||"",useCount:1,promoted:false,inCatalog:(inCatalog!==false),createdAt:serverTimestamp(),lastUsed:serverTimestamp()};
     const ref=await addDoc(collection(db,"custom_products"),obj);
     customProductsCache.push({id:ref.id,...obj});
   }
