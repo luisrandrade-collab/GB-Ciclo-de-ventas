@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.20";
+const BUILD_VERSION="v7.9.21";
 const BUILD_DATE="2026-09-05";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
@@ -1581,10 +1581,17 @@ async function logOperacion(opts){
 
 // ─── CLOUD INDICATOR ───────────────────────────────────────
 function setCloudStatus(online){
+  const antes=cloudOnline;
   cloudOnline=online;
   const el=$("cloud-ind");
   if(online){el.className="cloud-ind on";el.textContent="☁ Nube conectada"}
   else{el.className="cloud-ind off";el.textContent="⚫ Sin conexión"}
+  // v7.9.21: avisar cuando la nube pasa a conectada. loadPriceMemory se salta si
+  // cloudOnline aún es false (arranca así) y la memoria de precios quedaba vacía
+  // toda la sesión — el usuario lo percibía como "no guarda los precios".
+  if(online&&!antes&&typeof window!=="undefined"){
+    try{window.dispatchEvent(new Event("gb-cloud-online"))}catch(e){}
+  }
 }
 
 // ─── FIRESTORE LAYER ───────────────────────────────────────

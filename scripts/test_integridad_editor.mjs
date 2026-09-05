@@ -325,6 +325,42 @@ describe("v7.9.20: legacy de salida — cliente con caché vieja no ve vacío",(
   eq(leg.n3,"txt3","faltantes con el default (nunca undefined)");
 });
 
+// ═══ Tests v7.9.21: reposición opcional (reporte JP) ═══
+// Copia de getIncluirReposicion. Regla crítica: un doc SIN el campo debe
+// comportarse como siempre (sale en PropFinal, no en propuesta inicial).
+function getIncluirReposicion(guardado,esFinal){
+  if(guardado===true||guardado===false)return guardado;
+  return !!esFinal;
+}
+// Gate del PDF (app-propuesta.js): con repoOn false la lista queda vacía.
+function opcionesParaRepo(repoOn,menajeOptions,menajeItems){
+  return repoOn&&Array.isArray(menajeOptions)&&menajeOptions.length
+    ?menajeOptions
+    :(repoOn?[{id:"_active",label:"",items:menajeItems}]:[]);
+}
+
+describe("v7.9.21: doc VIEJO sin el campo → comportamiento histórico intacto",()=>{
+  eq(getIncluirReposicion(undefined,true),true,"PropFinal vieja SÍ imprime reposición");
+  eq(getIncluirReposicion(undefined,false),false,"propuesta inicial vieja NO imprime (regla v7.9.8.1)");
+  eq(getIncluirReposicion(null,false),false,"null = sin decidir → default");
+});
+
+describe("v7.9.21: JP puede activarla en la propuesta de evento",()=>{
+  eq(getIncluirReposicion(true,false),true,"activada explícitamente en propuesta inicial");
+  const ops=opcionesParaRepo(true,[{id:"opA",items:[{name:"Platos",qty:10}]}],[]);
+  eq(ops.length,1,"el PDF sí recorre las opciones de menaje");
+});
+
+describe("v7.9.21: y desactivarla en una PropFinal si no la quiere",()=>{
+  eq(getIncluirReposicion(false,true),false,"desactivada explícitamente en PropFinal");
+  eq(opcionesParaRepo(false,[{id:"opA",items:[{name:"Platos"}]}],[{name:"X"}]).length,0,"gate cerrado → no se imprime nada");
+});
+
+describe("v7.9.21: multi-opción se conserva cuando está activada",()=>{
+  const ops=opcionesParaRepo(true,[{id:"a",items:[]},{id:"b",items:[]}],[]);
+  eq(ops.length,2,"dos opciones de menaje → dos tablas de reposición");
+});
+
 // ─── Resumen ────────────────────────────────────────────────────────────────
 console.log("");
 if(fail===0){console.log(`${c.g}${c.b}✅ ${pass} tests pasaron${c.x}`);process.exit(0)}

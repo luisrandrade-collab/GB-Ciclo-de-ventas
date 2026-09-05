@@ -106,9 +106,18 @@ function renderReposicion(){
   const items=menajeItems.filter(m=>m.name&&(m.qty||m.price)).map(m=>m.name);
   const uniqueItems=[...new Set(items)];
   const opLabel=(menajeOptions.find(o=>o.id===activeMenajeOptionId)||{}).label||"";
-  const header=menajeOptions.length>1
+  // v7.9.21: toggle para incluir (o no) los valores de reposición en el PDF.
+  // Antes el bloque solo salía en PropFinal por la regla fija de v7.9.8.1 y en la
+  // propuesta de evento NO aparecía nunca (reporte JP 2026-09-05). Ahora se elige
+  // por documento; el default conserva el comportamiento histórico.
+  const _inc=getIncluirReposicion();
+  const toggle='<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;margin-bottom:8px;background:var(--gb-cream);border:1px solid var(--gb-neutral-200);border-radius:8px;font-size:11.5px;color:var(--gb-neutral-700);cursor:pointer">'+
+    '<input type="checkbox" '+(_inc?"checked":"")+' onchange="setIncluirReposicion(this.checked)" style="cursor:pointer">'+
+    '<span><strong>Incluir los valores de reposición en el PDF</strong><br><span style="font-size:10.5px;color:var(--gb-neutral-500)">Si lo desmarcas, los precios se guardan pero la tabla no sale en el documento del cliente.</span></span>'+
+  '</label>';
+  const header=toggle+(menajeOptions.length>1
     ?'<div style="font-size:11px;color:var(--gb-gold-500);font-weight:600;padding:4px 8px;margin-bottom:4px">📋 Reposición — '+opLabel+'</div>'
-    :"";
+    :"");
   if(!uniqueItems.length){
     $("repo-list").innerHTML=header+'<div style="font-size:11px;color:var(--gb-neutral-400);padding:8px;text-align:center;font-style:italic">Agrega items al menaje arriba para que aparezcan aquí con sus precios de reposición.</div>';
     return;
@@ -208,12 +217,34 @@ function setDefaultFechaVenc(){
   $("fp-fecha-venc").value=iso;fechaVencimiento=iso;
 }
 
+// v7.9.21: incluirReposicion por documento. null = sin decidir → se usa el
+// default histórico (sale en PropFinal, no en propuesta inicial). Así los
+// documentos ya guardados imprimen exactamente igual que hoy.
+let incluirReposicion=null;
+function getIncluirReposicion(esFinal){
+  if(incluirReposicion===true||incluirReposicion===false)return incluirReposicion;
+  const f=(typeof esFinal==="boolean")?esFinal:!!(currentPropNumber&&String(currentPropNumber).startsWith("GB-PF-"));
+  return f; // default: PropFinal sí, propuesta inicial no
+}
+function setIncluirReposicion(v){incluirReposicion=!!v}
+
+// v7.9.21: la memoria de precios podía quedar VACÍA toda la sesión si esto se
+// llamaba antes de que la nube conectara (cloudOnline arranca en false) — el
+// usuario percibía que "no guarda los precios anteriores". Ahora reintenta.
+let _priceMemoryCargada=false;
 async function loadPriceMemory(){
-  if(!cloudOnline)return;
+  if(!cloudOnline){
+    if(!_priceMemoryCargada&&typeof window!=="undefined"){
+      window.addEventListener("gb-cloud-online",()=>{if(!_priceMemoryCargada)loadPriceMemory()},{once:true});
+    }
+    return;
+  }
   try{
     const {db,doc,getDoc}=window.fb;
     const snap=await getDoc(doc(db,"config","price_memory"));
     if(snap.exists()){const d=snap.data();priceMemoryCache={reposicion:d.reposicion||{},menaje:d.menaje||{},personal:d.personal||{}}}
+    _priceMemoryCargada=true;
+    if($("repo-list"))renderReposicion(); // refrescar sugerencias ya visibles
   }catch(e){console.warn("loadPriceMemory failed",e)}
 }
 async function savePriceMemory(){
@@ -223,7 +254,12 @@ async function savePriceMemory(){
     // v7.9.13 DAT-07: merge:true — antes el setDoc pisaba el doc completo y borraba
     // claves de memoria de precios escritas por otras sesiones que esta no tenía cargadas.
     await setDoc(doc(db,"config","price_memory"),{...priceMemoryCache,updatedAt:serverTimestamp()},{merge:true});
-  }catch(e){console.warn("savePriceMemory failed",e)}
+  }catch(e){
+    // v7.9.21: antes solo console.warn → el usuario creía que los precios quedaban
+    // memorizados para la próxima propuesta y no era así (reporte JP).
+    console.warn("savePriceMemory failed",e);
+    if(typeof toast==="function")toast("⚠️ No se pudo guardar la memoria de precios ("+(e?.message||"error")+"). Los precios de este documento sí se guardan.","warn",6000);
+  }
 }
 function rememberPricesFromProposal(){
   menajeItems.forEach(m=>{if(m.name&&m.price)priceMemoryCache.menaje[m.name]=m.price});
@@ -965,6 +1001,7 @@ async function _savePropQuoteImpl(silent){
       aperturaFrase:aperturaFrase,fechaVencimiento:fechaVencimiento,
       condicionesData:JSON.parse(JSON.stringify(condicionesData)),
       // v7.9.8: persistir reposicionByOption (nuevo) además de reposicionData plano (legacy compat)
+      incluirReposicion:getIncluirReposicion(),
       reposicionByOption:JSON.parse(JSON.stringify(reposicionByOption)),
       reposicionData:JSON.parse(JSON.stringify(reposicionData)),
       firma:firmaProp,status:prevStatus,
@@ -1160,6 +1197,7 @@ function loadPropQuote(q){
     :menajeOptions[0].id;
   tipoServicio=q.tipoServicio||"";
   tituloMenaje=q.tituloMenaje||"";tituloPersonal=q.tituloPersonal||"";
+  incluirReposicion=(typeof q.incluirReposicion==="boolean")?q.incluirReposicion:null;
   condicionesLista=gbNotasNormalizar(q.condicionesLista,q.condicionesData,DEFAULT_CONDICIONES,CONDICIONES_TITULOS);
   // v7.9.7 F2: cargar despachos al editar propuesta existente
   if(typeof loadDespachosFromDoc==="function")loadDespachosFromDoc(q);
@@ -1292,6 +1330,7 @@ async function generarPropuestaFinal(){
     personalData=JSON.parse(JSON.stringify(src.personalData||{meseros:{},auxiliares:{}}));
     tipoServicio=src.tipoServicio||"";
     tituloMenaje=src.tituloMenaje||"";tituloPersonal=src.tituloPersonal||"";
+    incluirReposicion=(typeof src.incluirReposicion==="boolean")?src.incluirReposicion:null;
     condicionesLista=gbNotasNormalizar(src.condicionesLista,src.condicionesData,DEFAULT_CONDICIONES,CONDICIONES_TITULOS);
     condicionesData=JSON.parse(JSON.stringify(src.condicionesData||{}));
     reposicionData=JSON.parse(JSON.stringify(src.reposicionData||{}));
@@ -1342,6 +1381,7 @@ async function generarPropuestaFinal(){
       propFinalSelection:{menaje:activeMenajeOptionId},
       aperturaFrase:aperturaFrase,fechaVencimiento:fechaVencimiento,
       condicionesData:condicionesData,reposicionData:reposicionData,
+      incluirReposicion:getIncluirReposicion(),
       reposicionByOption:JSON.parse(JSON.stringify(reposicionByOption)),
       firma:firmaProp,status:"propfinal",sourceProposal:src.id
     };
@@ -1691,9 +1731,12 @@ async function genPropPDF(){
     // v7.9.8.1: la sección VALORES DE REPOSICIÓN (+ caja firma cliente) SOLO se renderiza
     // en PropFinal (isFinal=true). En propuesta inicial NO se muestra — los valores de
     // reposición se aceptan cuando el cliente aprueba y firma la PropFinal.
-    const _opcionesParaRepo=isFinal&&Array.isArray(menajeOptions)&&menajeOptions.length
+    // v7.9.21: el gate ya no es "isFinal" sino la decisión del documento
+    // (getIncluirReposicion, cuyo default sigue la regla histórica).
+    const _repoOn=getIncluirReposicion(isFinal);
+    const _opcionesParaRepo=_repoOn&&Array.isArray(menajeOptions)&&menajeOptions.length
       ?menajeOptions
-      :(isFinal?[{id:"_active",label:"",items:menajeItems}]:[]);
+      :(_repoOn?[{id:"_active",label:"",items:menajeItems}]:[]);
     const _multiOpRepo=_opcionesParaRepo.length>1;
     _opcionesParaRepo.forEach(_op=>{
       const opItems=Array.isArray(_op.items)?_op.items:[];
@@ -1879,7 +1922,7 @@ async function cancelEdicionProp(){
     });
     if(!ok)return;
     propSections=[];menajeItems=[];personalData=[];currentPropNumber=null;
-    tituloMenaje="";tituloPersonal=""; // v7.9.20: títulos de bloque a default
+    tituloMenaje="";tituloPersonal="";incluirReposicion=null; // v7.9.20/21: bloques y reposición a default
     condicionesLista=gbNotasNormalizar(null,null,DEFAULT_CONDICIONES,CONDICIONES_TITULOS);
     window._lastSavedProp=null;
     go("dashboard");
