@@ -51,6 +51,24 @@ const CONDICIONES_TITULOS={
   c4:"Montaje y Retiro",c5:"Responsabilidad por Menaje",c6:"Prueba de Comida",c7:"Responsable Tributario y Pagos"
 };
 
+// v7.9.20: LISTA dinamica de condiciones del evento (editar titulo/texto,
+// agregar, eliminar, reordenar) — mismo motor compartido que la cotizacion.
+let condicionesLista=[];
+function gbNotaPropSet(i,campo,val){if(condicionesLista[i])condicionesLista[i][campo]=val}
+function gbNotaPropMover(i,dir){condicionesLista=gbNotaMover(condicionesLista,i,dir);renderCondiciones()}
+function gbNotaPropAgregar(){condicionesLista.push(gbNotaNueva());renderCondiciones()}
+function gbNotaPropReset(i){
+  const n=condicionesLista[i];if(!n||!DEFAULT_CONDICIONES[n.id])return;
+  n.titulo=CONDICIONES_TITULOS[n.id];n.texto=DEFAULT_CONDICIONES[n.id];renderCondiciones();
+}
+function gbNotaPropBorrar(i){
+  const n=condicionesLista[i];if(!n)return;
+  const quitar=()=>{condicionesLista.splice(i,1);renderCondiciones()};
+  if((n.texto||"").trim().length>0&&typeof confirmModal==="function"){
+    confirmModal({title:"Eliminar condicion",body:"¿Eliminar <strong>"+(typeof escapeHtml==="function"?escapeHtml(n.titulo||"esta condicion"):"esta condicion")+"</strong>? No saldra en el PDF.",okLabel:"Eliminar",tone:"warn",onOk:quitar});
+  }else quitar();
+}
+
 function initCondiciones(){
   Object.keys(DEFAULT_CONDICIONES).forEach(k=>{if(!condicionesData[k])condicionesData[k]=DEFAULT_CONDICIONES[k]});
   Object.keys(condicionesData).forEach(k=>{
@@ -58,15 +76,17 @@ function initCondiciones(){
       condicionesData[k]=condicionesData[k].replace(/1\.032\.876\.667/g,"1.032.876.662");
     }
   });
+  // v7.9.20: construir la lista desde lo guardado (lista nueva o legacy {c1..c7})
+  if(!condicionesLista.length)condicionesLista=gbNotasNormalizar(null,condicionesData,DEFAULT_CONDICIONES,CONDICIONES_TITULOS);
+  condicionesLista.forEach(x=>{
+    if(x.texto&&x.texto.includes("1.032.876.667"))x.texto=x.texto.replace(/1\.032\.876\.667/g,"1.032.876.662");
+  });
 }
 function renderCondiciones(){
   initCondiciones();
-  $("cond-list").innerHTML=Object.keys(DEFAULT_CONDICIONES).map((k,i)=>{
-    const n=i+1;
-    return '<div class="cond-sec"><div class="cond-sec-tit"><span class="num">'+n+'</span>'+CONDICIONES_TITULOS[k]+'<button class="cond-reset" onclick="resetCondicion(\''+k+'\')">↻ Restablecer</button></div><textarea class="cond-textarea" onchange="condicionesData[\''+k+'\']=this.value">'+(condicionesData[k]||DEFAULT_CONDICIONES[k])+'</textarea></div>';
-  }).join("");
+  // v7.9.20: lista dinámica (editar título/texto, agregar, eliminar, reordenar)
+  $("cond-list").innerHTML=gbNotasRenderHTML(condicionesLista,"Prop",DEFAULT_CONDICIONES);
 }
-function resetCondicion(k){condicionesData[k]=DEFAULT_CONDICIONES[k];renderCondiciones()}
 function resetAllConditions(){
   confirmModal({
     title:"Restablecer cláusulas",
@@ -75,6 +95,7 @@ function resetAllConditions(){
     tone:"warn",
     onOk:()=>{
       Object.keys(DEFAULT_CONDICIONES).forEach(k=>condicionesData[k]=DEFAULT_CONDICIONES[k]);
+      condicionesLista=gbNotasNormalizar(null,null,DEFAULT_CONDICIONES,CONDICIONES_TITULOS);
       renderCondiciones();
     }
   });
@@ -329,6 +350,46 @@ function addPropSection(){
   propSections.push({id:"ps"+Date.now(),name:"Nueva sección",incluirEnTotal:true,options:[{id:"po"+Date.now(),label:"Opción A",items:[]}]});
   renderPropSections();
   renamePropSec(propSections.length-1);
+}
+
+// v7.9.20: títulos editables de los bloques MENAJE y PERSONAL DE SERVICIO
+// (follow-up de JP a v7.9.19). Se resuelven contra el default al leer, así las
+// propuestas viejas sin estos campos imprimen exactamente igual que hoy.
+const DEFAULT_TIT_MENAJE="MENAJE";
+const DEFAULT_TIT_PERSONAL="PERSONAL DE SERVICIO";
+let tituloMenaje="";
+let tituloPersonal="";
+function getTitMenaje(){return (tituloMenaje||DEFAULT_TIT_MENAJE)}
+function getTitPersonal(){return (tituloPersonal||DEFAULT_TIT_PERSONAL)}
+
+// Renombrado inline de un encabezado de bloque (mismo patrón que renamePropSec).
+// which: "menaje" | "personal". El <span> ancla lo pinta index.html.
+function renameBloqueProp(which){
+  const span=document.getElementById("prop-tit-"+which);if(!span)return;
+  const actual=which==="menaje"?getTitMenaje():getTitPersonal();
+  const inp=document.createElement("input");
+  inp.type="text";inp.value=actual;inp.maxLength=60;
+  inp.setAttribute("aria-label","Título del bloque");
+  inp.style.cssText="font:inherit;font-weight:700;padding:3px 8px;border:1.5px solid #C9A96E;border-radius:6px;min-width:180px;max-width:100%";
+  let cancelado=false;
+  const pintar=()=>{
+    const t=which==="menaje"?getTitMenaje():getTitPersonal();
+    const nuevo=document.createElement("span");
+    nuevo.id="prop-tit-"+which;nuevo.textContent=t;
+    inp.replaceWith(nuevo);
+  };
+  const commit=()=>{
+    if(cancelado)return;
+    const v=inp.value.trim();
+    if(v){if(which==="menaje")tituloMenaje=v;else tituloPersonal=v} // vacío → conserva
+    pintar();
+  };
+  inp.addEventListener("keydown",e=>{
+    if(e.key==="Enter"){e.preventDefault();inp.blur()}
+    else if(e.key==="Escape"){cancelado=true;pintar()}
+  });
+  inp.addEventListener("blur",commit);
+  span.replaceWith(inp);inp.focus();inp.select();
 }
 
 // v7.9.19: renombrar el subtítulo de una sección (pedido de Juan Pablo: "Desayuno",
@@ -722,6 +783,9 @@ function delPropItem(si,oi,ii){
 // ─── MENAJE (v7.9.8: con opciones A/B/...) ─────────────────
 function renderMenaje(){
   if(!$("menaje-list"))return;
+  // v7.9.20: refrescar los encabezados editables al re-renderizar el editor
+  const _tm=document.getElementById("prop-tit-menaje");if(_tm)_tm.textContent=getTitMenaje();
+  const _tp=document.getElementById("prop-tit-personal");if(_tp)_tp.textContent=getTitPersonal();
   // Auto-bootstrap si está vacío (caso load propuesta legacy sin opciones)
   if(!menajeOptions.length){
     menajeOptions=[{id:"opA_"+Date.now(),label:"Opción A",items:[]}];
@@ -890,6 +954,9 @@ async function _savePropQuoteImpl(silent){
       city:getCityNameP(),cityType:$("fp-city").value,trCustom:$("fp-tr-custom").value,
       pers:$("fp-pers").value,momento:$("fp-momento").value,eventDate:$("fp-date").value,
       tipoServicio:tipoServicio||"",
+      tituloMenaje:tituloMenaje||"",tituloPersonal:tituloPersonal||"",
+      condicionesLista:JSON.parse(JSON.stringify(condicionesLista)),
+      condicionesData:gbNotasALegacy(condicionesLista,DEFAULT_CONDICIONES),
       personalData:JSON.parse(JSON.stringify(personalData)),
       sections:JSON.parse(JSON.stringify(propSections)),
       // v7.9.8: persistir tanto menaje[] (legacy, items de la opción activa) como menajeOptions[] (nuevo, todas las opciones)
@@ -1092,6 +1159,8 @@ function loadPropQuote(q){
     ?selOpId
     :menajeOptions[0].id;
   tipoServicio=q.tipoServicio||"";
+  tituloMenaje=q.tituloMenaje||"";tituloPersonal=q.tituloPersonal||"";
+  condicionesLista=gbNotasNormalizar(q.condicionesLista,q.condicionesData,DEFAULT_CONDICIONES,CONDICIONES_TITULOS);
   // v7.9.7 F2: cargar despachos al editar propuesta existente
   if(typeof loadDespachosFromDoc==="function")loadDespachosFromDoc(q);
   if(q.personalData){
@@ -1222,6 +1291,8 @@ async function generarPropuestaFinal(){
     menajeItems=JSON.parse(JSON.stringify(src.menaje||[]));
     personalData=JSON.parse(JSON.stringify(src.personalData||{meseros:{},auxiliares:{}}));
     tipoServicio=src.tipoServicio||"";
+    tituloMenaje=src.tituloMenaje||"";tituloPersonal=src.tituloPersonal||"";
+    condicionesLista=gbNotasNormalizar(src.condicionesLista,src.condicionesData,DEFAULT_CONDICIONES,CONDICIONES_TITULOS);
     condicionesData=JSON.parse(JSON.stringify(src.condicionesData||{}));
     reposicionData=JSON.parse(JSON.stringify(src.reposicionData||{}));
     // v7.9.8: hidratar reposicionByOption del source o derivar legacy
@@ -1261,7 +1332,10 @@ async function generarPropuestaFinal(){
       att:src.att||"",mail:src.mail||"",tel:src.tel||"",dir:src.dir||"",
       city:src.city||"",cityType:src.cityType||"",trCustom:src.trCustom||"",
       pers:src.pers||"",momento:src.momento||"",eventDate:src.eventDate||"",
-      tipoServicio:tipoServicio,personalData:personalData,
+      tipoServicio:tipoServicio,tituloMenaje:tituloMenaje||"",tituloPersonal:tituloPersonal||"",
+      condicionesLista:JSON.parse(JSON.stringify(condicionesLista)),
+      condicionesData:gbNotasALegacy(condicionesLista,DEFAULT_CONDICIONES),
+      personalData:personalData,
       // v7.9.8: PropFinal incluye TODAS las opciones de menaje preservadas + propFinalSelection.menaje marca la activa
       sections:pfSections,menaje:menajeItems,
       menajeOptions:JSON.parse(JSON.stringify(menajeOptions)),
@@ -1506,7 +1580,7 @@ async function genPropPDF(){
     const persTotal=mSubTotal+aSubTotal;
     if(mCant>0||aCant>0){
       const ptd=[];
-      const headTxt="PERSONAL DE SERVICIO"+(tipoServicio?" — "+tipoServicio.toUpperCase():"");
+      const headTxt=getTitPersonal()+(tipoServicio?" — "+tipoServicio.toUpperCase():"");
       ptd.push([{content:headTxt,colSpan:4,styles:{fillColor:[106,27,154],textColor:[255,255,255],fontStyle:"bold",fontSize:8.5,halign:"left"}}]);
       if(mCant>0){
         ptd.push([{content:"Meseros (servicio 4 horas)",colSpan:1},String(mCant),fm(mV4),fm(mCant*mV4)]);
@@ -1531,7 +1605,7 @@ async function genPropPDF(){
       const opItems=Array.isArray(_op.items)?_op.items:[];
       const usedMenaje=opItems.filter(m=>m.qty||m.price);
       if(!usedMenaje.length)return;
-      const headerTxt=_multiOpciones?("MENAJE — "+(_op.label||"Opción")):"MENAJE";
+      const headerTxt=_multiOpciones?(getTitMenaje()+" — "+(_op.label||"Opción")):getTitMenaje();
       const mtd=[];
       mtd.push([{content:headerTxt,colSpan:4,styles:{fillColor:[201,169,110],textColor:[255,255,255],fontStyle:"bold",fontSize:8.5,halign:"left"}}]);
       usedMenaje.forEach(m=>{mtd.push([m.name,String(m.qty||""),m.price?fm(parseInt(m.price)):"—",m.qty&&m.price?fm(parseInt(m.qty)*parseInt(m.price)):"—"])});
@@ -1634,9 +1708,10 @@ async function genPropPDF(){
       const estRep=estH(repoItems.length)+30; // +30 por caja de firma cliente
       if(y+estRep>H-footerH){doc.addPage();y=20}
       const reptd=[];
+      // v7.9.20: sigue el título editable del bloque para que quede coherente
       const headerRepo=_multiOpRepo
-        ?"VALORES DE REPOSICIÓN DE MENAJE — "+(_op.label||"Opción")+" (valores unitarios)"
-        :"VALORES DE REPOSICIÓN DE MENAJE (valores unitarios)";
+        ?"VALORES DE REPOSICIÓN DE "+getTitMenaje()+" — "+(_op.label||"Opción")+" (valores unitarios)"
+        :"VALORES DE REPOSICIÓN DE "+getTitMenaje()+" (valores unitarios)";
       reptd.push([{content:headerRepo,colSpan:3,styles:{fillColor:[211,47,47],textColor:[255,255,255],fontStyle:"bold",fontSize:8.5,halign:"left"}}]);
       reptd.push([{content:"En caso de daño, rotura o pérdida del menaje durante el evento, los siguientes valores corresponden al costo de reposición. El costo a cobrar será cantidad afectada × valor unitario indicado abajo.",colSpan:3,styles:{fontSize:7.5,fontStyle:"italic",textColor:[100,100,100],fillColor:[254,248,248]}}]);
       reptd.push([{content:"Cant",styles:{fontStyle:"bold",fontSize:8,halign:"center",fillColor:[245,245,245]}},{content:"Item",styles:{fontStyle:"bold",fontSize:8,halign:"left",fillColor:[245,245,245]}},{content:"Valor unitario",styles:{fontStyle:"bold",fontSize:8,halign:"right",fillColor:[245,245,245]}}]);
@@ -1702,10 +1777,11 @@ async function genPropPDF(){
     doc.text("Y POLÍTICAS DEL SERVICIO",W/2,y,{align:"center"});
     y+=4;doc.setDrawColor(201,169,110);doc.setLineWidth(0.4);doc.line(60,y,W-60,y);
     y+=7;doc.setTextColor(26,26,26);
-    const condOrder=["c1","c2","c3","c4","c5","c6","c7"];
-    condOrder.forEach((k,i)=>{
-      const titulo=CONDICIONES_TITULOS[k];
-      const texto=condicionesData[k]||DEFAULT_CONDICIONES[k];
+    // v7.9.20: el PDF recorre la LISTA (respeta orden, títulos y condiciones agregadas)
+    initCondiciones();
+    condicionesLista.filter(n=>(n.titulo||"").trim()||(n.texto||"").trim()).forEach((n,i)=>{
+      const titulo=(n.titulo||"").trim();
+      const texto=n.texto||"";
       const wrapped=doc.splitTextToSize(texto,W-mg*2-4);
       const blockH=6+wrapped.length*3.6+5;
       if(y+blockH>H-footerH){doc.addPage();y=20}
@@ -1803,6 +1879,8 @@ async function cancelEdicionProp(){
     });
     if(!ok)return;
     propSections=[];menajeItems=[];personalData=[];currentPropNumber=null;
+    tituloMenaje="";tituloPersonal=""; // v7.9.20: títulos de bloque a default
+    condicionesLista=gbNotasNormalizar(null,null,DEFAULT_CONDICIONES,CONDICIONES_TITULOS);
     window._lastSavedProp=null;
     go("dashboard");
     return;

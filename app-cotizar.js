@@ -16,7 +16,32 @@ const NOTAS_COT_TITULOS={
   n3:"Modificaciones al Pedido",
   n4:"Responsable Tributario"
 };
-let notasCotData={};
+// v7.9.20: encabezados de bloque del PDF, editables (pedido Luis 2026-09-05).
+const DEFAULT_TIT_PAGO="INSTRUCCIONES DE PAGO";
+const DEFAULT_TIT_CONDICIONES="CONDICIONES DEL SERVICIO";
+let notasCotData={};        // legacy {n1..n4} — se sigue guardando por compatibilidad
+// v7.9.20: LISTA dinámica de notas [{id,titulo,texto}]. Permite editar título y
+// texto, agregar, eliminar y reordenar (pedido Luis 2026-09-05).
+let notasCotLista=[];
+let tituloInstruccionesPago="";
+let tituloCondiciones="";
+function getTitPago(){return tituloInstruccionesPago||DEFAULT_TIT_PAGO}
+function getTitCondiciones(){return tituloCondiciones||DEFAULT_TIT_CONDICIONES}
+// Handlers del motor compartido (app-core.js) para el namespace "Cot"
+function gbNotaCotSet(i,campo,val){if(notasCotLista[i])notasCotLista[i][campo]=val}
+function gbNotaCotMover(i,dir){notasCotLista=gbNotaMover(notasCotLista,i,dir);renderNotasCot()}
+function gbNotaCotAgregar(){notasCotLista.push(gbNotaNueva());renderNotasCot()}
+function gbNotaCotReset(i){
+  const n=notasCotLista[i];if(!n||!DEFAULT_NOTAS_COT[n.id])return;
+  n.titulo=NOTAS_COT_TITULOS[n.id];n.texto=DEFAULT_NOTAS_COT[n.id];renderNotasCot();
+}
+function gbNotaCotBorrar(i){
+  const n=notasCotLista[i];if(!n)return;
+  const quitar=()=>{notasCotLista.splice(i,1);renderNotasCot()};
+  if((n.texto||"").trim().length>0&&typeof confirmModal==="function"){
+    confirmModal({title:"Eliminar nota",body:"¿Eliminar <strong>"+(typeof escapeHtml==="function"?escapeHtml(n.titulo||"esta nota"):"esta nota")+"</strong>? No saldrá en el PDF.",okLabel:"Eliminar",tone:"warn",onOk:quitar});
+  }else quitar();
+}
 let firmaCot="km";
 
 function setFirma(mode,key){
@@ -34,24 +59,38 @@ function initNotasCot(){
       notasCotData[k]=notasCotData[k].replace(/1\.032\.876\.667/g,"1.032.876.662");
     }
   });
+  // v7.9.20: construir la lista desde lo guardado (lista nueva o legacy {n1..n4})
+  if(!notasCotLista.length)notasCotLista=gbNotasNormalizar(null,notasCotData,DEFAULT_NOTAS_COT,NOTAS_COT_TITULOS);
+  notasCotLista.forEach(n=>{
+    if(n.texto&&n.texto.includes("1.032.876.667"))n.texto=n.texto.replace(/1\.032\.876\.667/g,"1.032.876.662");
+  });
 }
 function renderNotasCot(){
   initNotasCot();
   const el=$("notas-cot-list");if(!el)return;
-  el.innerHTML=Object.keys(DEFAULT_NOTAS_COT).map((k,i)=>{
-    const n=i+1;
-    return '<div class="cond-sec"><div class="cond-sec-tit"><span class="num">'+n+'</span>'+NOTAS_COT_TITULOS[k]+'<button class="cond-reset" onclick="resetNotaCot(\''+k+'\')">↻ Restablecer</button></div><textarea class="cond-textarea" onchange="notasCotData[\''+k+'\']=this.value">'+(notasCotData[k]||DEFAULT_NOTAS_COT[k])+'</textarea></div>';
-  }).join("");
+  const _h=typeof escapeHtml==="function"?escapeHtml:(s=>String(s||""));
+  // v7.9.20: encabezados de bloque del PDF, editables arriba de las cláusulas.
+  let html='<div class="cond-sec" style="background:var(--gb-neutral-0)">'+
+    '<div class="cond-sec-tit" style="margin-bottom:8px">Títulos que salen en el PDF</div>'+
+    '<div style="display:grid;gap:8px">'+
+      '<label style="font-size:11px;color:var(--gb-neutral-600)">Bloque de pago<input type="text" maxlength="60" value="'+_h(getTitPago())+'" oninput="tituloInstruccionesPago=this.value" style="width:100%;box-sizing:border-box;margin-top:3px;padding:6px 8px;border:1px solid var(--gb-neutral-200);border-radius:6px;font-size:12px;font-weight:700"></label>'+
+      '<label style="font-size:11px;color:var(--gb-neutral-600)">Bloque de condiciones<input type="text" maxlength="60" value="'+_h(getTitCondiciones())+'" oninput="tituloCondiciones=this.value" style="width:100%;box-sizing:border-box;margin-top:3px;padding:6px 8px;border:1px solid var(--gb-neutral-200);border-radius:6px;font-size:12px;font-weight:700"></label>'+
+    '</div></div>';
+  // v7.9.20: lista dinámica (editar título/texto, agregar, eliminar, reordenar)
+  html+=gbNotasRenderHTML(notasCotLista,"Cot",DEFAULT_NOTAS_COT);
+  el.innerHTML=html;
 }
-function resetNotaCot(k){notasCotData[k]=DEFAULT_NOTAS_COT[k];renderNotasCot()}
 function resetAllNotasCot(){
   confirmModal({
     title:"Restablecer cláusulas",
-    body:"¿Restablecer todas las cláusulas a sus valores por defecto?",
+    body:"¿Restablecer todas las cláusulas y sus títulos a los valores por defecto?",
     okLabel:"Restablecer",
     tone:"warn",
     onOk:()=>{
       Object.keys(DEFAULT_NOTAS_COT).forEach(k=>notasCotData[k]=DEFAULT_NOTAS_COT[k]);
+      // v7.9.20: la lista vuelve al set por defecto (se pierden las agregadas)
+      notasCotLista=gbNotasNormalizar(null,null,DEFAULT_NOTAS_COT,NOTAS_COT_TITULOS);
+      tituloInstruccionesPago="";tituloCondiciones="";
       renderNotasCot();
     }
   });
@@ -302,7 +341,12 @@ async function _saveCurrentQuoteImpl(silent){
       cart:cart.map(i=>({id:i.id,n:i.n,d:i.d||"",u:i.u||"",p:i.p,origP:i.origP||i.p,qty:i.qty,edited:!!i.edited})),
       cust:cust.map(i=>({n:i.n,p:i.p,d:i.d||"",u:i.u||"",qty:i.qty})),
       total:getTotal(),status:prevStatus,
-      notasCotData:{...notasCotData},firma:firmaCot,
+      // v7.9.20: notasCotData (legacy) se sigue guardando por compatibilidad con
+      // un cliente de caché vieja; notasCotLista es la fuente de verdad nueva.
+      notasCotData:gbNotasALegacy(notasCotLista,DEFAULT_NOTAS_COT),firma:firmaCot,
+      notasCotLista:JSON.parse(JSON.stringify(notasCotLista)),
+      tituloInstruccionesPago:tituloInstruccionesPago||"",
+      tituloCondiciones:tituloCondiciones||"",
       requiereFE:!!($("f-requiere-fe")&&$("f-requiere-fe").checked),
       // v7.7.4: notas internas para producción (no aparecen en PDF al cliente)
       notasInternas:($("f-notas-internas")?.value||"").trim()
@@ -523,7 +567,7 @@ async function genPDF(){
     doc.setDrawColor(220,220,220);doc.setLineWidth(0.4);doc.roundedRect(px,y,pw,ph,2,2,"S");
     doc.setFillColor(244,243,241);doc.rect(px,y,pw,9,"F");
     doc.setTextColor(26,26,26);doc.setFont("helvetica","bold");doc.setFontSize(10);
-    doc.text("INSTRUCCIONES DE PAGO",W/2,y+6.5,{align:"center"});
+    doc.text(getTitPago(),W/2,y+6.5,{align:"center"});
     doc.setDrawColor(220,220,220);doc.line(px,y+9,px+pw,y+9);
     let py=y+14;
     doc.setFontSize(8.5);doc.setFont("helvetica","bold");doc.setTextColor(201,169,110);
@@ -544,21 +588,21 @@ async function genPDF(){
     doc.text(nl,px+8,py);
     y=y+ph+6;
     initNotasCot();
-    const notasOrder=["n1","n2","n3","n4"];
+    // v7.9.20: el PDF recorre la LISTA (respeta orden, títulos y notas agregadas)
     const notasFontSize=7.8;
     doc.setFontSize(notasFontSize);doc.setFont("helvetica","normal");
     let notasEstimatedH=8;
-    const notasLines=notasOrder.map(k=>{
-      const titulo=NOTAS_COT_TITULOS[k];
-      const texto=notasCotData[k]||DEFAULT_NOTAS_COT[k];
-      const tituloLine=(notasOrder.indexOf(k)+1)+". "+titulo+".";
+    const notasLines=notasCotLista.filter(n=>(n.titulo||"").trim()||(n.texto||"").trim()).map((n,idx)=>{
+      const titulo=(n.titulo||"").trim();
+      const texto=n.texto||"";
+      const tituloLine=(idx+1)+". "+titulo+(titulo.endsWith(".")?"":".");
       const wrapped=doc.splitTextToSize(texto,pw-10);
       notasEstimatedH+=4.5+wrapped.length*3.3+2.5;
       return {tituloLine,wrapped};
     });
     if(y+notasEstimatedH>H-28){doc.addPage();y=20}
     doc.setFont("helvetica","bold");doc.setFontSize(9.5);doc.setTextColor(201,169,110);
-    doc.text("CONDICIONES DEL SERVICIO",px,y);
+    doc.text(getTitCondiciones(),px,y);
     doc.setDrawColor(201,169,110);doc.setLineWidth(0.3);doc.line(px,y+1.5,px+pw,y+1.5);
     doc.setTextColor(26,26,26);
     y+=6;

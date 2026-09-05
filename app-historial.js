@@ -1001,6 +1001,10 @@ function duplicateQuote(preserveClient){
     if($("f-time-other-wrap"))$("f-time-other-wrap").classList.add("hidden");
     if(src.notasCotData&&typeof src.notasCotData==="object"){notasCotData={...src.notasCotData}}
     else{notasCotData={...DEFAULT_NOTAS_COT}}
+    // v7.9.20: lista de notas (nueva) o conversion desde el objeto legacy
+    notasCotLista=gbNotasNormalizar(src.notasCotLista,src.notasCotData,DEFAULT_NOTAS_COT,NOTAS_COT_TITULOS);
+    tituloInstruccionesPago=src.tituloInstruccionesPago||"";
+    tituloCondiciones=src.tituloCondiciones||"";
     if(src.firma)firmaCot=src.firma;
     setFirma("cot",firmaCot);
     currentQuoteNumber=null;

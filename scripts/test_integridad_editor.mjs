@@ -228,6 +228,103 @@ describe("v7.9.19: renombrar sección — reglas de commit",()=>{
   eq(commitNombreSeccion("Cena","Cena"),"Cena","igual → sin cambio");
 });
 
+// ═══ Tests v7.9.20: títulos editables (retrocompatibilidad) ═══
+// Copia de los resolvedores de app-cotizar.js / app-propuesta.js. La regla clave:
+// un doc SIN los campos nuevos debe imprimir exactamente los títulos de siempre.
+const NOTAS_TIT_DEF={n1:"Confirmación y Anticipo",n2:"Política de Cancelación",n3:"Modificaciones al Pedido",n4:"Responsable Tributario"};
+const resolverTitNota=(guardados,k)=>(guardados&&guardados[k])||NOTAS_TIT_DEF[k];
+const resolverTit=(guardado,def)=>guardado||def;
+
+describe("v7.9.20: doc VIEJO sin títulos guardados → defaults (PDF idéntico a hoy)",()=>{
+  const doc={notasCotData:{n1:"texto"}}; // sin notasCotTitulos ni titulo*
+  const t=(doc.notasCotTitulos&&typeof doc.notasCotTitulos==="object")?{...doc.notasCotTitulos}:{};
+  eq(resolverTitNota(t,"n1"),"Confirmación y Anticipo","cláusula 1 con su título de siempre");
+  eq(resolverTitNota(t,"n4"),"Responsable Tributario","cláusula 4 con su título de siempre");
+  eq(resolverTit(doc.tituloInstruccionesPago||"","INSTRUCCIONES DE PAGO"),"INSTRUCCIONES DE PAGO","encabezado de pago por defecto");
+  eq(resolverTit(doc.tituloCondiciones||"","CONDICIONES DEL SERVICIO"),"CONDICIONES DEL SERVICIO","encabezado de condiciones por defecto");
+});
+
+describe("v7.9.20: doc con títulos propios → se respetan",()=>{
+  const guardados={n2:"Cancelaciones y reembolsos"};
+  eq(resolverTitNota(guardados,"n2"),"Cancelaciones y reembolsos","usa el título del documento");
+  eq(resolverTitNota(guardados,"n1"),"Confirmación y Anticipo","los no cambiados siguen en default");
+  eq(resolverTit("FORMAS DE PAGO","INSTRUCCIONES DE PAGO"),"FORMAS DE PAGO","encabezado personalizado");
+});
+
+describe("v7.9.20: título vacío o solo espacios NO pisa el default",()=>{
+  eq(resolverTitNota({n1:""},"n1"),"Confirmación y Anticipo","vacío cae al default");
+  eq(resolverTit("","CONDICIONES DEL SERVICIO"),"CONDICIONES DEL SERVICIO","cadena vacía cae al default");
+});
+
+describe("v7.9.20: bloques MENAJE / PERSONAL de la propuesta (pedido JP)",()=>{
+  eq(resolverTit("","MENAJE"),"MENAJE","propuesta vieja imprime MENAJE");
+  eq(resolverTit("","PERSONAL DE SERVICIO"),"PERSONAL DE SERVICIO","propuesta vieja imprime PERSONAL DE SERVICIO");
+  eq(resolverTit("VAJILLA Y CRISTALERÍA","MENAJE"),"VAJILLA Y CRISTALERÍA","título nuevo se usa");
+  // el encabezado de reposición y el sufijo de opción siguen al título
+  const tm=resolverTit("VAJILLA","MENAJE");
+  eq(tm+" — Opción A","VAJILLA — Opción A","multi-opción conserva el sufijo");
+  eq("VALORES DE REPOSICIÓN DE "+tm+" (valores unitarios)","VALORES DE REPOSICIÓN DE VAJILLA (valores unitarios)","reposición queda coherente");
+});
+
+// ═══ Tests v7.9.20 (C): motor compartido de notas dinámicas ═══
+// Copia de app-core.js gbNotasNormalizar / gbNotaMover. Regla crítica: un doc
+// viejo (objeto legacy {n1..}) debe producir EXACTAMENTE la lista de siempre.
+function gbNotasNormalizar(lista,legacy,defaults,titulos){
+  if(Array.isArray(lista)&&lista.length){
+    return lista.filter(n=>n&&(n.titulo||n.texto)).map((n,i)=>({id:n.id||("x"+i),titulo:String(n.titulo||""),texto:String(n.texto||"")}));
+  }
+  const src=(legacy&&typeof legacy==="object")?legacy:null;
+  return Object.keys(defaults).map(k=>({id:k,titulo:titulos[k]||"",texto:(src&&typeof src[k]==="string")?src[k]:defaults[k]}));
+}
+function gbNotasALegacy(lista,defaults){
+  const out={};Object.keys(defaults).forEach((k,i)=>{out[k]=(lista[i]&&lista[i].texto)||defaults[k]});return out;
+}
+function gbNotaMover(lista,i,dir){
+  const j=i+dir;if(i<0||i>=lista.length||j<0||j>=lista.length)return lista;
+  const out=lista.slice();const t=out[i];out[i]=out[j];out[j]=t;return out;
+}
+const DEF={n1:"txt1",n2:"txt2",n3:"txt3"},TIT={n1:"Uno",n2:"Dos",n3:"Tres"};
+
+describe("v7.9.20: doc VIEJO (objeto legacy) → lista idéntica a la de siempre",()=>{
+  const l=gbNotasNormalizar(null,{n1:"editado",n2:"txt2",n3:"txt3"},DEF,TIT);
+  eq(l.length,3,"3 notas");
+  eq(l.map(x=>x.titulo),["Uno","Dos","Tres"],"títulos por defecto en orden");
+  eq(l[0].texto,"editado","conserva el texto que el usuario había editado");
+});
+
+describe("v7.9.20: doc SIN notas → set por defecto completo",()=>{
+  const l=gbNotasNormalizar(null,null,DEF,TIT);
+  eq(l.map(x=>x.texto),["txt1","txt2","txt3"],"textos por defecto");
+});
+
+describe("v7.9.20: doc NUEVO con lista → se respeta tal cual (incluye agregadas)",()=>{
+  const guardada=[{id:"n1",titulo:"Uno",texto:"a"},{id:"nn99",titulo:"Nota propia",texto:"b"}];
+  const l=gbNotasNormalizar(guardada,{n1:"viejo"},DEF,TIT);
+  eq(l.length,2,"la lista manda sobre el legacy");
+  eq(l[1].titulo,"Nota propia","conserva la nota agregada por el usuario");
+});
+
+describe("v7.9.20: reordenar",()=>{
+  const l=[{id:"a",titulo:"A"},{id:"b",titulo:"B"},{id:"c",titulo:"C"}];
+  eq(gbNotaMover(l,0,1).map(x=>x.id),["b","a","c"],"bajar la primera");
+  eq(gbNotaMover(l,2,-1).map(x=>x.id),["a","c","b"],"subir la última");
+  eq(gbNotaMover(l,0,-1).map(x=>x.id),["a","b","c"],"subir la primera no hace nada");
+  eq(gbNotaMover(l,2,1).map(x=>x.id),["a","b","c"],"bajar la última no hace nada");
+});
+
+describe("v7.9.20: notas vacías se descartan (no ensucian el PDF)",()=>{
+  const l=gbNotasNormalizar([{id:"a",titulo:"A",texto:"x"},{id:"b",titulo:"",texto:""}],null,DEF,TIT);
+  eq(l.length,1,"la nota totalmente vacía no entra");
+});
+
+describe("v7.9.20: legacy de salida — cliente con caché vieja no ve vacío",()=>{
+  const l=[{id:"n1",titulo:"Uno",texto:"nuevo1"},{id:"nn5",titulo:"Extra",texto:"extra"}];
+  const leg=gbNotasALegacy(l,DEF);
+  eq(leg.n1,"nuevo1","primera nota mapeada a n1");
+  eq(leg.n2,"extra","segunda posición mapeada a n2");
+  eq(leg.n3,"txt3","faltantes con el default (nunca undefined)");
+});
+
 // ─── Resumen ────────────────────────────────────────────────────────────────
 console.log("");
 if(fail===0){console.log(`${c.g}${c.b}✅ ${pass} tests pasaron${c.x}`);process.exit(0)}

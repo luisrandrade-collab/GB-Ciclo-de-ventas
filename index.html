@@ -10,7 +10,7 @@
 <link rel="icon" type="image/png" href="brand/cuchillo-negro.png">
 <link rel="apple-touch-icon" href="brand/cuchillo-negro.png">
 <title>Gourmet Bites - Cotizador</title>
-<link rel="stylesheet" href="gb-tokens.css?v=7.9.19"><!-- v7.9.13 INF-05: cache-buster CSS -->
+<link rel="stylesheet" href="gb-tokens.css?v=7.9.20"><!-- v7.9.13 INF-05: cache-buster CSS -->
 <!-- VERSION: 2026-04-26-v7.0.0-α-cascaron-v7-dashboard-rediseñado-fsm-pedido-vs-produccion -->
 <!--
   v6.3.0 (2026-04-24) — Robustez técnica + higiene (Entrega 3 del roadmap).
@@ -2869,7 +2869,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     <button class="btn bbl bf" onclick="addPropSection()">+ Agregar Sección</button>
   </div>
   <div class="prop-sec" style="border-left-color:#6A1B9A">
-    <div class="sec-head"><span class="sec-title">👔 Personal de Servicio</span></div>
+    <div class="sec-head"><span class="sec-title">👔 <span id="prop-tit-personal">PERSONAL DE SERVICIO</span><button onclick="renameBloqueProp('personal')" title="Renombrar bloque" aria-label="Renombrar bloque" style="background:none;border:none;cursor:pointer;font-size:13px;padding:0 6px;opacity:.7;vertical-align:middle">✏️</button></span></div>
     <div style="font-size:11px;color:var(--gb-neutral-500);margin-bottom:10px">Tipo de servicio del evento (sugiere cantidad de meseros)</div>
     <div class="tipo-serv" id="tipo-serv-sel">
       <div class="tipo-serv-opt" data-val="Bufé" onclick="setTipoServ('Bufé')">Bufé<br><span style="font-size:9px;opacity:.7">1 c/40 pax</span></div>
@@ -2879,7 +2879,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     <div id="personal-content"></div>
   </div>
   <div class="prop-sec" style="border-left-color:var(--gb-gold-500)">
-    <div class="sec-head"><span class="sec-title">🍽 Menaje</span></div>
+    <div class="sec-head"><span class="sec-title">🍽 <span id="prop-tit-menaje">MENAJE</span><button onclick="renameBloqueProp('menaje')" title="Renombrar bloque" aria-label="Renombrar bloque" style="background:none;border:none;cursor:pointer;font-size:13px;padding:0 6px;opacity:.7;vertical-align:middle">✏️</button></span></div>
     <div id="menaje-list"></div>
     <button class="btn bo" style="font-size:11px;margin-top:8px" onclick="addMenajeItem()">+ Agregar ítem</button>
   </div>
@@ -4644,12 +4644,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js" integrity="sha384-OUW9euuUyxyHcAhTqbhI+Iyb8LMssXt/cpz0yXhs9UWG2/R/uaWdakx/4cfww7Vb" crossorigin="anonymous"></script><!-- v7.9.13 SEC-12: SRI -->
-<script src="app-assets.js?v=7.9.19"></script>
-<script src="app-core.js?v=7.9.19"></script>
-<script src="app-cotizar.js?v=7.9.19"></script>
-<script src="app-propuesta.js?v=7.9.19"></script>
-<script src="app-historial.js?v=7.9.19"></script>
-<script src="app-seguimiento.js?v=7.9.19"></script>
-<script src="app-dashboard.js?v=7.9.19"></script>
+<script src="app-assets.js?v=7.9.20"></script>
+<script src="app-core.js?v=7.9.20"></script>
+<script src="app-cotizar.js?v=7.9.20"></script>
+<script src="app-propuesta.js?v=7.9.20"></script>
+<script src="app-historial.js?v=7.9.20"></script>
+<script src="app-seguimiento.js?v=7.9.20"></script>
+<script src="app-dashboard.js?v=7.9.20"></script>
 </body>
 </html>

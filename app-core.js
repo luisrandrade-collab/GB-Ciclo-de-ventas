@@ -109,8 +109,8 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.19";
-const BUILD_DATE="2026-09-04";
+const BUILD_VERSION="v7.9.20";
+const BUILD_DATE="2026-09-05";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
 // Helper único para resolver la colección Firestore de un documento por kind+id.
@@ -2833,6 +2833,9 @@ async function newQuote(){
   $("f-idtype").value="";$("f-city").value="";
   $("sel-cli").value="";
   notasCotData={...DEFAULT_NOTAS_COT};
+  // v7.9.20: lista de notas y títulos vuelven al set por defecto
+  notasCotLista=gbNotasNormalizar(null,null,DEFAULT_NOTAS_COT,NOTAS_COT_TITULOS);
+  tituloInstruccionesPago="";tituloCondiciones="";
   // v4.12: limpiar panel de historial cliente
   const ch=$("cli-hist-panel");if(ch)ch.classList.add("hidden");
   updTr();
@@ -3769,6 +3772,10 @@ async function loadQuote(kind,id){
     }catch(e){console.warn("[loadQuote] restaurar f-date/f-moments falló:",e)}
     if(q.notasCotData&&typeof q.notasCotData==="object"){notasCotData={...q.notasCotData}}
     else{notasCotData={...DEFAULT_NOTAS_COT}}
+    // v7.9.20: lista de notas (nueva) o conversion desde el objeto legacy
+    notasCotLista=gbNotasNormalizar(q.notasCotLista,q.notasCotData,DEFAULT_NOTAS_COT,NOTAS_COT_TITULOS);
+    tituloInstruccionesPago=q.tituloInstruccionesPago||"";
+    tituloCondiciones=q.tituloCondiciones||"";
     if(q.firma)firmaCot=q.firma;
     setFirma("cot",firmaCot);
     // v7.7.4: cargar notas internas para producción (campo del doc, opcional)
@@ -3808,6 +3815,69 @@ function toast(msg,type,duration){
 // v7.9.16: toast con botón "Deshacer" (patrón Gmail). Para acciones destructivas
 // EN MEMORIA (editores, pre-save): onUndo restaura el estado. 10s por defecto.
 // msg va como textContent (sin HTML) — mismo criterio anti-XSS que toast().
+// ═══════════════════════════════════════════════════════════
+// v7.9.20 · MOTOR COMPARTIDO DE NOTAS / CONDICIONES
+// ═══════════════════════════════════════════════════════════
+// Antes, cotización (4 cláusulas n1-n4) y evento (7 cláusulas c1-c7) tenían
+// listas FIJAS: se podía editar el texto pero no el título, ni agregar, ni
+// eliminar, ni reordenar (pedido Luis 2026-09-05). Ahora ambos usan una LISTA
+// dinámica de {id,titulo,texto} y comparten este motor, para que no vuelvan a
+// divergir (la divergencia ya causó los bugs de v7.9.12 y v7.9.15).
+//
+// gbNotasNormalizar: acepta la lista nueva O el objeto legacy {n1:"txt",...} y
+// devuelve SIEMPRE la lista. Así los documentos viejos se ven e imprimen igual.
+function gbNotasNormalizar(guardadoLista,guardadoLegacy,defaults,titulos){
+  if(Array.isArray(guardadoLista)&&guardadoLista.length){
+    return guardadoLista
+      .filter(n=>n&&(n.titulo||n.texto))
+      .map((n,i)=>({id:n.id||("x"+i),titulo:String(n.titulo||""),texto:String(n.texto||"")}));
+  }
+  const src=(guardadoLegacy&&typeof guardadoLegacy==="object")?guardadoLegacy:null;
+  return Object.keys(defaults).map(k=>({
+    id:k,
+    titulo:titulos[k]||"",
+    texto:(src&&typeof src[k]==="string")?src[k]:defaults[k]
+  }));
+}
+// Objeto legacy a partir de la lista (solo claves por defecto) — se sigue
+// guardando para que un cliente con caché vieja no vea el documento vacío.
+function gbNotasALegacy(lista,defaults){
+  const out={};
+  Object.keys(defaults).forEach((k,i)=>{out[k]=(lista[i]&&lista[i].texto)||defaults[k]});
+  return out;
+}
+// Render compartido. ns = prefijo de las funciones globales del módulo
+// (ej. "Cot" → gbNotaMoverCot / gbNotaBorrarCot / ...), definidas en cada archivo.
+function gbNotasRenderHTML(lista,ns,defaults){
+  const _e=typeof escapeHtml==="function"?escapeHtml:(s=>String(s||""));
+  const btn="background:none;border:1px solid var(--gb-neutral-200);border-radius:5px;cursor:pointer;font-size:11px;padding:2px 7px;color:var(--gb-neutral-600)";
+  return lista.map((n,i)=>{
+    const esDefault=!!defaults[n.id];
+    return '<div class="cond-sec">'+
+      '<div class="cond-sec-tit"><span class="num">'+(i+1)+'</span>'+
+        '<input type="text" maxlength="60" value="'+_e(n.titulo)+'" aria-label="Título de la nota '+(i+1)+'" '+
+          'oninput="gbNota'+ns+'Set('+i+',\'titulo\',this.value)" '+
+          'style="flex:1;min-width:0;font:inherit;font-weight:700;padding:4px 8px;border:1px solid var(--gb-neutral-200);border-radius:6px;background:var(--gb-neutral-0)">'+
+        '<span style="display:inline-flex;gap:4px;flex-shrink:0">'+
+          '<button title="Subir" aria-label="Subir nota" onclick="gbNota'+ns+'Mover('+i+',-1)" style="'+btn+'"'+(i===0?" disabled":"")+'>↑</button>'+
+          '<button title="Bajar" aria-label="Bajar nota" onclick="gbNota'+ns+'Mover('+i+',1)" style="'+btn+'"'+(i===lista.length-1?" disabled":"")+'>↓</button>'+
+          (esDefault?'<button class="cond-reset" title="Restablecer al texto original" onclick="gbNota'+ns+'Reset('+i+')">↻</button>':'')+
+          '<button title="Eliminar nota" aria-label="Eliminar nota" onclick="gbNota'+ns+'Borrar('+i+')" style="'+btn+';color:#C62828;border-color:#EF9A9A">🗑</button>'+
+        '</span>'+
+      '</div>'+
+      '<textarea class="cond-textarea" oninput="gbNota'+ns+'Set('+i+',\'texto\',this.value)">'+_e(n.texto)+'</textarea>'+
+    '</div>';
+  }).join("")+
+  '<button onclick="gbNota'+ns+'Agregar()" style="width:100%;margin-top:4px;padding:9px;border:1.5px dashed var(--gb-gold-500);border-radius:8px;background:none;color:var(--gb-neutral-700);font-size:12px;font-weight:600;cursor:pointer">+ Agregar nota</button>';
+}
+// Operaciones puras sobre la lista (probadas en test_integridad_editor.mjs)
+function gbNotaMover(lista,i,dir){
+  const j=i+dir;
+  if(i<0||i>=lista.length||j<0||j>=lista.length)return lista;
+  const out=lista.slice();const t=out[i];out[i]=out[j];out[j]=t;return out;
+}
+function gbNotaNueva(){return {id:"nn"+Date.now(),titulo:"Nueva nota",texto:""}}
+
 function toastUndo(msg,onUndo,duration){
   let wrap=$("toast-wrap");
   if(!wrap){
