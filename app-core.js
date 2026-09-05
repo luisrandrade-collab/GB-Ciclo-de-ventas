@@ -109,8 +109,8 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.18";
-const BUILD_DATE="2026-07-27";
+const BUILD_VERSION="v7.9.19";
+const BUILD_DATE="2026-09-04";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
 // Helper único para resolver la colección Firestore de un documento por kind+id.
@@ -2020,25 +2020,44 @@ async function saveAjusteToCloud(obj){
 }
 
 // Borrado lógico (marca deletedAt + deletedBy). NO elimina del log — auditoría forense.
+// v7.9.19: reescrita (análisis integral 2026-09-04). Antes: (1) escribía q.ajustes
+// desde el CACHÉ con updateDoc ciego → podía borrar un ajuste concurrente de otra
+// sesión; (2) si el doc no estaba en quotesCache (todo lo anterior a los últimos 50
+// pedidos), se saltaba EN SILENCIO el paso de revertir: el log quedaba "eliminado" y
+// la UI decía ✅, pero el descuento seguía aplicado en el pedido. Ahora: primero se
+// revierte en el doc con transacción sobre datos FRESCOS (filtrando por logId, sin
+// depender del caché) y SOLO si eso funciona se marca el log. Devuelve {quitados}.
 async function softDeleteAjuste(ajusteLogId,docId,docKind,ajusteIdInDoc){
-  const {db,doc,updateDoc,collection,getDocs,query,where,serverTimestamp}=window.fb;
-  // 1. Marcar en log
+  const {db,doc,updateDoc,runTransaction,serverTimestamp}=window.fb;
+  const esElAjuste=a=>a&&(a.logId===ajusteLogId||a.id===ajusteLogId||(ajusteIdInDoc&&a.id===ajusteIdInDoc));
+  let quitados=0;
+  // 1. Revertir en el documento (fuente de verdad del saldo)
+  if(docId&&docKind){
+    const coll=docKind==="quote"?"quotes":(docKind==="proposal"?"proposals":"propfinals");
+    const ref=doc(db,coll,docId);
+    let ajustesCommit=null;
+    await runTransaction(db,async(tx)=>{
+      const snap=await tx.get(ref);
+      if(!snap.exists())throw new Error("El documento "+docId+" no existe en Firestore; no se puede revertir el ajuste (el log NO se marcó)");
+      const frescos=Array.isArray(snap.data().ajustes)?snap.data().ajustes:[];
+      const filtrados=frescos.filter(a=>!esElAjuste(a));
+      quitados=frescos.length-filtrados.length;
+      // Idempotente: si ya no estaba (reintento de la tx o ya revertido) no escribe nada
+      if(quitados>0)tx.update(ref,{ajustes:filtrados,updatedAt:serverTimestamp(),...auditStamp()});
+      ajustesCommit=filtrados;
+    });
+    const local=quotesCache.find(x=>x.id===docId);
+    if(local&&ajustesCommit)local.ajustes=ajustesCommit; // caché = lo commiteado
+  }
+  // 2. Marcar en log (solo llegamos aquí si el paso 1 no falló)
   await updateDoc(doc(db,"ajustesLog",ajusteLogId),{
     deletedAt:serverTimestamp(),
     deletedBy:(currentUser&&currentUser.email)||"(sin email)"
   });
   const logEntry=ajustesLogCache.find(x=>x.id===ajusteLogId);
   if(logEntry){logEntry.deletedAt=new Date().toISOString();logEntry.deletedBy=(currentUser&&currentUser.email)||""}
-  // 2. Quitar del q.ajustes[] del doc para que saldoPendiente vuelva a valor original
-  if(docId&&docKind&&ajusteIdInDoc){
-    const coll=docKind==="quote"?"quotes":(docKind==="proposal"?"proposals":"propfinals");
-    const q=quotesCache.find(x=>x.id===docId);
-    if(q){
-      q.ajustes=(q.ajustes||[]).filter(a=>a.id!==ajusteIdInDoc);
-      await updateDoc(doc(db,coll,docId),{ajustes:q.ajustes,updatedAt:serverTimestamp()});
-    }
-  }
   localStorage.setItem("gb_ajustesLog_cache",JSON.stringify(ajustesLogCache));
+  return {quitados};
 }
 
 // Helper: aplica un ajuste a un doc (push al q.ajustes[] + persiste).

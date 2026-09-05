@@ -185,6 +185,49 @@ describe("v7.9.18: id inexistente devuelve null (ahora el caller avisa, no calla
   eq(r2.p,null,"null cuando el id numérico no está en C[]");
 });
 
+// ═══ Tests v7.9.19 (A): softDeleteAjuste — filtro sobre ajustes FRESCOS ═══
+// Copia del predicado de app-core.js softDeleteAjuste. El bug: filtraba el array
+// del CACHÉ (podía pisar ajustes concurrentes) y se saltaba el doc si no estaba en
+// caché. Ahora filtra los frescos por logId/id y reporta cuántos quitó.
+function filtrarAjusteFresco(frescos,ajusteLogId,ajusteIdInDoc){
+  const esElAjuste=a=>a&&(a.logId===ajusteLogId||a.id===ajusteLogId||(ajusteIdInDoc&&a.id===ajusteIdInDoc));
+  const filtrados=frescos.filter(a=>!esElAjuste(a));
+  return {filtrados,quitados:frescos.length-filtrados.length};
+}
+
+describe("v7.9.19: revertir ajuste quita SOLO el indicado y conserva el concurrente",()=>{
+  // Firestore fresco tiene 2 ajustes: el que Luis borra + uno que Kathy aplicó después
+  const frescos=[{id:"aj_1",logId:"log_1",monto:20000},{id:"aj_2",logId:"log_2",monto:5000}];
+  const {filtrados,quitados}=filtrarAjusteFresco(frescos,"log_1",null);
+  eq(quitados,1,"quitó exactamente 1");
+  eq(filtrados.map(a=>a.id),["aj_2"],"el ajuste de Kathy sobrevive (antes se perdía al escribir el caché)");
+});
+
+describe("v7.9.19: matchea por logId aunque el caché no tenga el id interno",()=>{
+  const frescos=[{id:"x9",logId:"log_7",monto:1000}];
+  const r=filtrarAjusteFresco(frescos,"log_7",null); // ajusteIdInDoc=null (doc fuera del caché)
+  eq(r.quitados,1,"ya no depende de que el doc esté en quotesCache");
+});
+
+describe("v7.9.19: idempotente — si ya no estaba, quitados=0 y no cambia nada",()=>{
+  const frescos=[{id:"aj_2",logId:"log_2",monto:5000}];
+  const r=filtrarAjusteFresco(frescos,"log_1","aj_1");
+  eq(r.quitados,0,"0 quitados → el caller avisa, no dice ✅ a ciegas");
+  eq(r.filtrados.length,1,"el array queda intacto");
+});
+
+// ═══ Tests v7.9.19 (B): regla de commit del renombrado de sección ═══
+function commitNombreSeccion(actual,tecleado){
+  const v=(tecleado||"").trim();
+  return (v&&v!==actual)?v:actual; // vacío o igual → conserva
+}
+describe("v7.9.19: renombrar sección — reglas de commit",()=>{
+  eq(commitNombreSeccion("Nueva sección","Desayuno"),"Desayuno","guarda el nombre nuevo");
+  eq(commitNombreSeccion("Almuerzo","   "),"Almuerzo","vacío conserva el anterior");
+  eq(commitNombreSeccion("Almuerzo","  Menaje  "),"Menaje","recorta espacios");
+  eq(commitNombreSeccion("Cena","Cena"),"Cena","igual → sin cambio");
+});
+
 // ─── Resumen ────────────────────────────────────────────────────────────────
 console.log("");
 if(fail===0){console.log(`${c.g}${c.b}✅ ${pass} tests pasaron${c.x}`);process.exit(0)}

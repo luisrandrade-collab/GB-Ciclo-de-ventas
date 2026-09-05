@@ -323,11 +323,46 @@ function applyPriceMemorySuggestions(){
   renderPersonal();
 }
 
+// v7.9.19: sin prompt() (misma clase de fallo que dejó mudo al "+ Custom" en v7.9.17).
+// Crea la sección con nombre provisional y abre el renombrado inline de inmediato.
 function addPropSection(){
-  const name=prompt("Nombre de sección:\n(Ej: "+PROP_SECTION_NAMES.filter(n=>!propSections.find(s=>s.name===n)).join(", ")+")");
-  if(!name)return;
-  propSections.push({id:"ps"+Date.now(),name,incluirEnTotal:true,options:[{id:"po"+Date.now(),label:"Opción A",items:[]}]});
+  propSections.push({id:"ps"+Date.now(),name:"Nueva sección",incluirEnTotal:true,options:[{id:"po"+Date.now(),label:"Opción A",items:[]}]});
   renderPropSections();
+  renamePropSec(propSections.length-1);
+}
+
+// v7.9.19: renombrar el subtítulo de una sección (pedido de Juan Pablo: "Desayuno",
+// "Almuerzo", "Menaje"… antes quedaban fijos al crearlas). Edición inline: el título
+// se vuelve un <input> con sugerencias (datalist); Enter/blur guarda, Escape cancela,
+// vacío conserva el anterior. El input se crea por DOM (sin innerHTML) y el nombre
+// sigue pasando por h() en el render y por el escape del PDF → sin riesgo XSS.
+function renamePropSec(si){
+  const sec=propSections[si];if(!sec)return;
+  const span=document.getElementById("prop-sec-title-"+si);if(!span)return;
+  let dl=document.getElementById("prop-sec-names");
+  if(!dl){
+    dl=document.createElement("datalist");dl.id="prop-sec-names";
+    PROP_SECTION_NAMES.concat(["Desayuno","Almuerzo","Cena","Coffee break","Menaje"]).forEach(n=>{const o=document.createElement("option");o.value=n;dl.appendChild(o)});
+    document.body.appendChild(dl);
+  }
+  const inp=document.createElement("input");
+  inp.type="text";inp.value=sec.name||"";inp.maxLength=60;inp.setAttribute("list","prop-sec-names");
+  inp.setAttribute("aria-label","Nombre de la sección");
+  inp.style.cssText="font:inherit;font-weight:700;padding:3px 8px;border:1.5px solid #C9A96E;border-radius:6px;min-width:200px;max-width:100%";
+  let cancelado=false;
+  const commit=()=>{
+    if(cancelado)return;
+    const v=inp.value.trim();
+    if(v&&v!==sec.name)sec.name=v; // vacío → conserva el nombre anterior
+    renderPropSections();
+  };
+  inp.addEventListener("keydown",e=>{
+    if(e.key==="Enter"){e.preventDefault();inp.blur()}
+    else if(e.key==="Escape"){cancelado=true;renderPropSections()}
+  });
+  inp.addEventListener("blur",commit);
+  span.replaceWith(inp);
+  inp.focus();inp.select();
 }
 // v7.8.4.2: toggle "Incluir en TOTAL del servicio" para marcar secciones alternativas
 function togglePropSecIncluir(si){
@@ -353,7 +388,8 @@ function renderPropSections(){
     const notaVal=(sec.nota||"");
     const notaHTML='<textarea placeholder="Nota o descripción de la sección (opcional) — se muestra en la propuesta debajo del título" style="width:100%;box-sizing:border-box;margin:0 0 8px;padding:6px 8px;border:1px solid var(--gb-neutral-200);border-radius:6px;font-size:11px;font-family:inherit;resize:vertical;min-height:34px;color:var(--gb-neutral-600)" onchange="updPropSecNota('+si+',this.value)">'+h(notaVal)+'</textarea>';
     // v7.9.13 SEC-05: sec.name/opt.label/it.* (datos persistidos) escapados con h() antes de innerHTML
-    return'<div class="prop-sec" style="'+secStyle+'"><div class="sec-head"><span class="sec-title">'+h(sec.name)+altBadge+'</span><div style="display:flex;align-items:center">'+toggleHTML+'<button class="del-btn" onclick="delPropSec('+si+')" title="Eliminar sección">×</button></div></div>'+
+    // v7.9.19: título con id (ancla del renombrado inline) + botón ✏️ (pedido JP)
+    return'<div class="prop-sec" style="'+secStyle+'"><div class="sec-head"><span class="sec-title"><span id="prop-sec-title-'+si+'">'+h(sec.name)+'</span><button onclick="renamePropSec('+si+')" title="Renombrar sección" aria-label="Renombrar sección" style="background:none;border:none;cursor:pointer;font-size:13px;padding:0 6px;opacity:.7;vertical-align:middle">✏️</button>'+altBadge+'</span><div style="display:flex;align-items:center">'+toggleHTML+'<button class="del-btn" onclick="delPropSec('+si+')" title="Eliminar sección">×</button></div></div>'+
     notaHTML+
     sec.options.map((opt,oi)=>{
       const sub=opt.items.reduce((s,it)=>s+(it.price||0)*(it.qty||0),0);

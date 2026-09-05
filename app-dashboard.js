@@ -7838,9 +7838,12 @@ async function ajusteLogConfirmDelete(logId){
       const found=q.ajustes.find(aj=>aj.logId===logId||aj.id===logId);
       if(found)ajusteIdInDoc=found.id;
     }
-    await softDeleteAjuste(logId,a.docId,a.docKind,ajusteIdInDoc);
+    // v7.9.19: softDeleteAjuste ahora revierte en el doc con transacción (datos frescos,
+    // sin depender del caché) y devuelve cuántos ajustes quitó. 0 = ya no estaba aplicado.
+    const res=await softDeleteAjuste(logId,a.docId,a.docKind,ajusteIdInDoc);
     hideLoader();
-    toast("Ajuste eliminado","success");
+    if(res&&res.quitados===0&&a.docId)toast("Ajuste marcado como eliminado en el log. Ojo: ya no estaba aplicado en el documento (saldo sin cambios).","warn",7000);
+    else toast("Ajuste eliminado · saldo del documento revertido","success");
     renderCarteraAjustesLog();
     if(typeof renderCartera==="function"&&curMode==="cartera")renderCartera();
   }catch(e){
