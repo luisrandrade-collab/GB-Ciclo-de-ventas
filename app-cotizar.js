@@ -134,9 +134,13 @@ function renderR(){
   let rows="";
   // v7.9.13 SEC-06: i.n/i.d (datos persistidos) escapados con h() antes de innerHTML
   cart.forEach(i=>{
+    // v7.9.23: citar ids de texto (productId de Firestore v7.9.3, personalizados 'cp_' v7.9.18).
+    // Sin comillas el HTML quedaba remCart(cp_xxx) → ReferenceError → cantidad, precio y
+    // eliminar no respondían (reporte Luis, cotización 0265). Mismo patrón que renderP.
+    const idJs=typeof i.id==="string"?"'"+i.id+"'":i.id;
     const editedBadge=i.edited?' <span style="font-size:9px;background:var(--gb-gold-500);color:#fff;padding:1px 5px;border-radius:3px">AJUSTADO</span>':'';
-    const priceInput='<input type="number" class="pinput'+(i.edited?' edited':'')+'" value="'+i.p+'" onchange="chgCartPrice('+i.id+',+this.value)" onfocus="this.select()">';
-    rows+='<tr><td style="text-align:left"><strong>'+h(i.n)+'</strong>'+editedBadge+(i.d?'<br><span style="font-size:10px;color:#999">'+h(i.d)+'</span>':'')+'</td><td style="text-align:center"><div class="qc" style="justify-content:center"><button class="qb" style="width:24px;height:24px;font-size:14px" onclick="chgCartR('+i.id+','+(i.qty-1)+')">−</button><input type="number" class="qn" value="'+i.qty+'" min="1" onchange="chgCartR('+i.id+',+this.value)" onfocus="this.select()" style="width:34px;font-size:12px"><button class="qb" style="width:24px;height:24px;font-size:14px" onclick="chgCartR('+i.id+','+(i.qty+1)+')">+</button></div></td><td style="text-align:right">'+priceInput+'</td><td style="text-align:right;font-weight:600">'+fm(i.p*i.qty)+'</td><td><button style="background:none;border:none;color:var(--gb-danger-500);font-size:18px;cursor:pointer" onclick="remCart('+i.id+')">×</button></td></tr>';
+    const priceInput='<input type="number" class="pinput'+(i.edited?' edited':'')+'" value="'+i.p+'" onchange="chgCartPrice('+idJs+',+this.value)" onfocus="this.select()">';
+    rows+='<tr><td style="text-align:left"><strong>'+h(i.n)+'</strong>'+editedBadge+(i.d?'<br><span style="font-size:10px;color:#999">'+h(i.d)+'</span>':'')+'</td><td style="text-align:center"><div class="qc" style="justify-content:center"><button class="qb" style="width:24px;height:24px;font-size:14px" onclick="chgCartR('+idJs+','+(i.qty-1)+')">−</button><input type="number" class="qn" value="'+i.qty+'" min="1" onchange="chgCartR('+idJs+',+this.value)" onfocus="this.select()" style="width:34px;font-size:12px"><button class="qb" style="width:24px;height:24px;font-size:14px" onclick="chgCartR('+idJs+','+(i.qty+1)+')">+</button></div></td><td style="text-align:right">'+priceInput+'</td><td style="text-align:right;font-weight:600">'+fm(i.p*i.qty)+'</td><td><button style="background:none;border:none;color:var(--gb-danger-500);font-size:18px;cursor:pointer" onclick="remCart('+idJs+')">×</button></td></tr>';
   });
   cust.forEach(i=>{
     const priceInput='<input type="number" class="pinput" value="'+i.p+'" onchange="chgCustPrice(\''+i.id+'\',+this.value)" onfocus="this.select()">';

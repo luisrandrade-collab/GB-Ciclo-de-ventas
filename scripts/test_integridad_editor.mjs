@@ -413,6 +413,28 @@ describe("v7.9.22: inCatalog por defecto true (antes se perdía si no marcabas)"
   eq(nuevo(false).inCatalog,false,"desmarcado explícito → opt-out respetado");
 });
 
+// ═══ Tests v7.9.23: ids de texto en el paso Cotización (cotización 0265) ═══
+// Copia de idJs de app-cotizar.js renderR. El bug: sin comillas, remCart(cp_xxx)
+// es una VARIABLE inexistente → ReferenceError → botón muerto. Se valida que el
+// código generado sea JS ejecutable y que llegue el id con su tipo correcto.
+const idJsDe=id=>typeof id==="string"?"'"+id+"'":id;
+function ejecutaOnclick(id){
+  let recibido;
+  const remCart=x=>{recibido=x};
+  try{new Function("remCart","remCart("+idJsDe(id)+")")(remCart);return {ok:true,recibido}}
+  catch(e){return {ok:false,error:e.name}}
+}
+describe("v7.9.23: los botones del paso Cotización ejecutan con cualquier tipo de id",()=>{
+  eq(ejecutaOnclick(14),{ok:true,recibido:14},"id numérico del catálogo base (Kaftas carne)");
+  eq(ejecutaOnclick("cp_Xy12AbCd"),{ok:true,recibido:"cp_Xy12AbCd"},"personalizado cp_ (Kaftas pollo) — antes ReferenceError");
+  eq(ejecutaOnclick("prod_9f3k"),{ok:true,recibido:"prod_9f3k"},"productId de Firestore — antes ReferenceError");
+});
+describe("v7.9.23: el tipo se conserva para la comparación estricta (===)",()=>{
+  const cart=[{id:14},{id:"cp_Xy12AbCd"}];
+  eq(cart.filter(x=>x.id!==ejecutaOnclick("cp_Xy12AbCd").recibido).length,1,"eliminar el cp_ deja solo el numérico");
+  eq(cart.filter(x=>x.id!==ejecutaOnclick(14).recibido).length,1,"eliminar el 14 deja solo el cp_");
+});
+
 // ─── Resumen ────────────────────────────────────────────────────────────────
 console.log("");
 if(fail===0){console.log(`${c.g}${c.b}✅ ${pass} tests pasaron${c.x}`);process.exit(0)}
