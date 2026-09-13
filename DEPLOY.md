@@ -1,8 +1,8 @@
-# Deploy y rollback — Gourmet Bites v7
+# Deploy y rollback — Gourmet Bites APP
 
 Procedimiento operativo para deploy de la app, las rules de Firebase, y los rollbacks correspondientes.
 
-**Mantener este archivo actualizado al cambiar infraestructura.** Última revisión: 2026-05-10 (v7.9.4.1).
+**Mantener este archivo actualizado al cambiar infraestructura.** Última revisión: 2026-09-13 (v7.9.23 — carpeta renombrada a `Gourmet Bites APP` y nueva convención de archivo de versiones).
 
 ---
 
@@ -90,14 +90,21 @@ Manual:
 3. Login → registrar pago de prueba → verificar entrada en Herramientas > Auditoría
 4. Si la versión tocó alguna operación crítica, validar el flujo específico
 
-### 7. Snapshot OneDrive (al cierre de versión)
+### 7. Archivo de versiones (al cierre de versión)
 
-Carpeta en `Downloads/gourmet-bites-vX.Y.Z_<fecha>/` con:
-- `_internos/` completo
-- `context.txt` (resumen ejecutivo)
-- `LEEME.txt` (instrucciones reconstrucción)
+Convención vigente desde 2026-09-13 (reemplaza el patrón anterior en Downloads, que ya no se usa).
 
-Patrón ligero (recomendado): solo `_internos` + 2 docs. El código fuente vive en GitHub.
+Carpeta `Ver X.Y.Z` (mismo formato que `Ver 6.40`) con:
+- el código en la raíz (`git archive` del commit de la versión)
+- `_internos/` completo (sin `codex-maintenance-*`)
+- `HANDOFF.md`, `context.txt` (resumen ejecutivo) y `LEEME.txt` (cómo restaurar)
+- `gourmet-bites-vX.Y.Z.zip` dentro de la carpeta
+
+Flujo:
+1. Se prepara en `OneDrive - HBCorp SAS\_Para mover a Archivo de versiones APP\Ver X.Y.Z\`, verificando cantidad de archivos y bytes contra el origen.
+2. Luis la arrastra desde el Explorador a `OneDrive - HBCorp SAS\Documentos\gourmet-bites\Archivo de versiones APP\`. Esa carpeta no admite escritura por script (carpeta conocida de OneDrive).
+
+`OneDrive - HBCorp SAS\07_Gourmet_Bites_ERP\` guarda solo material de negocio; ahí no van versiones.
 
 ### 8. Actualizar Onboarding
 
