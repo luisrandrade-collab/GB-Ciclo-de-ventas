@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.23";
+const BUILD_VERSION="v7.9.23.1";
 const BUILD_DATE="2026-09-13";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
@@ -569,7 +569,11 @@ function gbPdfFooter(docPdf){
 }
 
 // ─── CATÁLOGO DE PRODUCTOS ─────────────────────────────────
-const MX=12;
+// v7.9.23.1: tope de productos DISTINTOS por cotizacion (no limita cantidades).
+// Era 12 desde la primera version, sin justificacion documentada y sin que el PDF
+// lo exigiera: autoTable pagina solo. El texto del letrero #limit-warn se rellena
+// desde aqui en updUI(); no volver a escribir el numero a mano en index.html.
+const MX=40;
 const C=[
   {id:1,c:"Libanés - Mezza",n:"Hummus / Tahinne con Garbanzos",d:"Con aceite de oliva, ajo y limón",p:34000,u:"Porción 10 pers"},
   {id:2,c:"Libanés - Mezza",n:"Babaganush / Tahinne Berenjenas",d:"Puré de berenjenas asadas con tahinne",p:31000,u:"Porción 10 pers"},
@@ -3026,7 +3030,7 @@ function getIdStr(){const tp=$("f-idtype").value,nm=$("f-idnum").value.trim();if
 
 // ─── NAVIGATION ────────────────────────────────────────────
 function go(s){curStep=s;["info","products","review"].forEach(x=>{$("step-"+x).classList.toggle("hidden",x!==s);$("nav-"+x).classList.toggle("act",x===s)});if(s==="products")renderP();if(s==="review")renderR();updUI();window.scrollTo(0,0)}
-function updUI(){const c=totCnt(),n=distIt();const b=$("cbadge"),bar=$("cbar");if(c>0){b.classList.remove("hidden");b.textContent=c}else b.classList.add("hidden");bar.classList.toggle("vis",c>0&&curStep==="products");$("bar-c").textContent=c+" producto"+(c!==1?"s":"");$("bar-t").textContent=fm(getTotal());$("limit-warn").classList.toggle("hidden",n<MX)}
+function updUI(){const c=totCnt(),n=distIt();const b=$("cbadge"),bar=$("cbar");if(c>0){b.classList.remove("hidden");b.textContent=c}else b.classList.add("hidden");bar.classList.toggle("vis",c>0&&curStep==="products");$("bar-c").textContent=c+" producto"+(c!==1?"s":"");$("bar-t").textContent=fm(getTotal());const lw=$("limit-warn");lw.textContent="Máximo "+MX+" productos por cotización. Elimina uno para agregar otro.";lw.classList.toggle("hidden",n<MX)}
 
 // ─── CATEGORY/PRODUCT RENDER ───────────────────────────────
 function renderCats(){$("cats").innerHTML=CATS.map(c=>`<button class="cpill ${c===selCat?'act':''}" onclick="selC('${c.replace(/'/g,"\\'")}')">${c==="Todas"?"Todas":c}</button>`).join("")}
