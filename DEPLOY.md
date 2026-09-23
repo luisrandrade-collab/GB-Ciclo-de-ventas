@@ -2,7 +2,7 @@
 
 Procedimiento operativo para deploy de la app, las rules de Firebase, y los rollbacks correspondientes.
 
-**Mantener este archivo actualizado al cambiar infraestructura.** Última revisión: 2026-09-13 (v7.9.23 — carpeta renombrada a `Gourmet Bites APP` y nueva convención de archivo de versiones).
+**Mantener este archivo actualizado al cambiar infraestructura.** Última revisión: 2026-09-23 (estado de producción v7.9.33). Anterior: 2026-09-13 (v7.9.23 — carpeta renombrada a `Gourmet Bites APP` y nueva convención de archivo de versiones).
 
 ---
 
@@ -177,9 +177,13 @@ Si tras hard reload sigue sirviendo versión vieja:
 
 ---
 
-## Estado del deploy actual (al 2026-05-10)
+## Estado del deploy actual (al 2026-09-23)
 
-- **Versión en producción:** v7.9.4.1 (commit `83af371`)
+- **Versión en producción:** v7.9.33 (commit `e930f7a`, publicada el 2026-09-22). Anterior: v7.9.23.3 (`fb90c7a`).
+- **Rollback de v7.9.33:** `git revert e930f7a` + push. Sólo frontend: las rules no cambiaron en esta versión y las publicadas son idénticas a `firestore.rules` y `storage.rules` del repositorio (verificado el 2026-09-22).
+- **CI (`.github/workflows/check.yml`, "pre-deploy check"):** `check.mjs`, siete suites unitarias, `test_integridad_flujos.mjs` (incorporada en v7.9.33, sobre la fuente real) y `check_drift.mjs`. En verde en `e930f7a`.
+- **Emulador local:** `firebase.json` incluye el bloque `emulators` (auth 9099, firestore 8080, storage 9199, UI 4000). Usar siempre un proyecto `demo-*`, nunca `gourmet-bites-cotizador`.
+- **Repositorio público:** GitHub Pages publica la raíz del repo. Añadir al commit sólo los archivos de la versión, uno por uno (nunca `git add .`); la documentación interna no se sube.
 - **URL app:** https://app.gourmetbites.com.co (CNAME → GitHub Pages)
 - **URL Pages directa:** https://luisrandrade-collab.github.io/GB-Ciclo-de-ventas/
 - **Proyecto Firebase:** `gourmet-bites-cotizador` (Plan Blaze)
