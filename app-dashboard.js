@@ -5348,12 +5348,54 @@ function _buildItemsResumenHE(q, despacho, despachosArr){
       if(it.name&&_aplica(it))parts.push(_pfx(it)+_mark(it.name)+(it.qty||0)+" "+it.name);
     })));
   }
+  // v7.9.23.2: EL MENAJE TAMBIÉN SE ENTREGA, y hasta ahora no salía aquí.
+  // La hoja de reparto se armaba sólo con comida (cart/cust o sections), así que
+  // quien entregaba no tenía la lista del menaje y quien recibía no podía
+  // revisarla ni firmarla. Mientras el menaje viajó junto a comida alguien sabía
+  // qué llevaba; un despacho sólo de menaje deja la fila sin nada (GB-P-2026-0122).
+  // Va en su propio bloque, con cantidades y SIN precios de reposición: esos ya
+  // están en la cotización y aquí sólo estorban.
+  const menajeParts=_menajeParaDespachoHE(q,despacho,despachosArr);
   // v7.9.7.1 F8.5: quitar truncate de 220 chars. autoTable de jsPDF wrapea
   // nativamente texto largo en celdas colSpan. Antes Diana León GB-P-2026-0102
   // (13 items) perdía los últimos 5 en la hoja de reparto. Detalle:
   // _internos/Pendientes_hoja_reparto_truncate.md.
-  return parts.join(" · ");
+  const comida=parts.join(" · ");
+  if(!menajeParts.length)return comida;
+  const menajeTxt="MENAJE: "+menajeParts.join(" · ");
+  return comida?comida+"   |   "+menajeTxt:menajeTxt;
 }
+
+// v7.9.23.2: ítems de menaje que corresponden a ESTA fila de la hoja de entregas.
+// El menaje se entrega una sola vez: en el despacho asignado (menajeAssignedTo)
+// o, si no hay asignación, en el primero cronológico. Un ítem sin cantidad se
+// lista igual —sigue saliendo de la casa— pero sin número delante.
+function _menajeParaDespachoHE(q,despacho,despachosArr){
+  if(!q)return [];
+  const items=(typeof getMenajeItemsActivos==="function")
+    ?getMenajeItemsActivos(q)
+    :(Array.isArray(q.menaje)?q.menaje:[]);
+  const conNombre=(items||[]).filter(m=>m&&m.name);
+  if(!conNombre.length)return [];
+  const lista=(Array.isArray(despachosArr)?despachosArr:[]).filter(d=>d&&!d._legacy);
+  // Sin despachos reales (entrega única legacy): el menaje va en la única fila.
+  if(!despacho||despacho._legacy||lista.length<=1)return _menajeTextos(conNombre);
+  let toca;
+  if(typeof menajeTocaEsteDespacho==="function"){
+    const orden=lista.slice().sort((a,b)=>String(a.fechaHora||"").localeCompare(String(b.fechaHora||"")));
+    toca=menajeTocaEsteDespacho(q,lista,despacho,orden.length>0&&orden[0].id===despacho.id);
+  }else{
+    toca=q.menajeAssignedTo?q.menajeAssignedTo===despacho.id:false;
+  }
+  return toca?_menajeTextos(conNombre):[];
+}
+function _menajeTextos(items){
+  return items.map(m=>{
+    const q=parseInt(m.qty)||0;
+    return (q?q+" ":"")+String(m.name).trim();
+  });
+}
+
 
 async function generarPdfEntregas(){
   if(!window.jspdf||!window.jspdf.jsPDF){
