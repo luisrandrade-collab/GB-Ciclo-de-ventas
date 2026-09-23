@@ -1784,7 +1784,7 @@ async function syncAgendaAllFuture(){
     if(typeof toast==="function")toast("✅ Agenda lista para compartir · "+futuros.length+" pedidos","success");
   }catch(e){
     console.error("syncAgendaAllFuture error",e);
-    toast("Error generando agenda: "+(e.message||e),"error");
+    toast("Error generando agenda: "+gbMensajeError(e),"error");
   }
 }
 
@@ -1840,7 +1840,7 @@ async function syncPendingOnly(){
     if(curMode==="hist"&&typeof renderHist==="function")renderHist();
   }catch(e){
     console.error("syncPendingOnly error",e);
-    toast("Error: "+(e.message||e),"error");
+    toast("Error: "+gbMensajeError(e),"error");
   }
 }
 
@@ -1968,16 +1968,21 @@ function shareSyncAgendaWA(quien){
 
 async function exportHistoryJson(){
   try{
-    if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+    // v7.9.24: exportación comercial completa desde servidor, sin transicionar estados.
+    const [history,clients]=await Promise.all([
+      loadAllHistory({requireFresh:true,transition:false}),
+      readHistoryCollection("clients",{requireFresh:true})
+    ]);
     const payload={
       exportedAt:new Date().toISOString(),
       buildVersion:BUILD_VERSION,
-      quotes:quotesCache.map(q=>{
+      scope:"historial-comercial-y-clientes; no sustituye respaldos Firestore/Storage",
+      quotes:history.map(q=>{
         // Quitar campos internos que no aportan (createdAt es serverTimestamp no serializable)
         const {createdAt,..._q}=q;
-        return _q;
+        return {..._q,createdAtISO:createdAt?.toDate?.().toISOString()||q.createdAtISO||q.dateISO||null};
       }),
-      clients:clientsCache,
+      clients:clients.docs,
       stats:{
         totalDocs:quotesCache.length,
         cotizaciones:quotesCache.filter(q=>q.kind==="quote").length,
@@ -1986,7 +1991,7 @@ async function exportHistoryJson(){
         fantasmas:quotesCache.filter(q=>q._wrongCollection).length,
         superseded:quotesCache.filter(q=>q.status==="superseded").length,
         anuladas:quotesCache.filter(q=>q.status==="anulada").length,
-        clientes:clientsCache.length
+        clientes:clients.docs.length
       }
     };
     const json=JSON.stringify(payload,null,2);
@@ -2007,7 +2012,7 @@ async function exportHistoryJson(){
     setTimeout(()=>{URL.revokeObjectURL(url);document.body.removeChild(a)},100);
     toast("📥 Backup descargado ("+Math.round(json.length/1024)+" KB)","success");
   }catch(e){
-    toast("Error exportando backup: "+e.message,"error");
+    toast("Error exportando backup: "+gbMensajeError(e),"error");
     console.error(e);
   }
 }
@@ -2049,10 +2054,13 @@ async function onRestoreBackupFile(ev){
     const data=JSON.parse(text);
     hideLoader();
     // Validación básica
-    if(!data||typeof data!=="object"){throw new Error("Archivo no es un JSON válido")}
-    if(!Array.isArray(data.quotes)){throw new Error("No es un backup de Gourmet Bites (falta campo 'quotes')")}
-    // Asegurar cache actual cargado para comparar
-    if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+    if(!data||typeof data!=="object"){throw Object.assign(new Error("Archivo no es un JSON válido"),{paraUsuario:true})}
+    if(!Array.isArray(data.quotes)){throw Object.assign(new Error("No es un backup de Gourmet Bites (falta campo 'quotes')"),{paraUsuario:true})}
+    // v7.9.24: preview con lectura fresca; la transacción vuelve a comprobar cada ID.
+    const [,freshClients]=await Promise.all([
+      loadAllHistory({requireFresh:true,transition:false}),
+      readHistoryCollection("clients",{requireFresh:true})
+    ]);
     // Calcular preview: qué se agregaría, qué se saltaría
     const idsEnCache=new Set(quotesCache.map(q=>q.id));
     const toAdd=[];
@@ -2063,7 +2071,7 @@ async function onRestoreBackupFile(ev){
       else toAdd.push(q);
     });
     const clientsArr=Array.isArray(data.clients)?data.clients:[];
-    const idsClientesCache=new Set((clientsCache||[]).map(c=>c.id||c.name));
+    const idsClientesCache=new Set(freshClients.docs.map(c=>c.id||c.name));
     const clientesNuevos=clientsArr.filter(c=>{
       const k=c.id||c.name;
       return k&&!idsClientesCache.has(k);
@@ -2073,7 +2081,7 @@ async function onRestoreBackupFile(ev){
     openRestorePreviewModal();
   }catch(e){
     hideLoader();
-    toast("Error leyendo backup: "+e.message,"error");
+    toast("Error leyendo backup: "+gbMensajeError(e),"error");
     console.error("[restore backup]",e);
   }
 }
@@ -2088,8 +2096,8 @@ function openRestorePreviewModal(){
     '<span style="font-size:11px;color:#666">'+meta+'</span>'+
     '</div>'+
     '<div style="background:#E8F5E9;border-left:3px solid #388E3C;padding:10px 12px;border-radius:6px;margin-bottom:10px">'+
-      '<div style="font-size:13px;font-weight:700;color:#1B5E20;margin-bottom:4px">✅ Se agregarán '+toAdd.length+' doc'+(toAdd.length!==1?'s':'')+' nuevo'+(toAdd.length!==1?'s':'')+'</div>'+
-      '<div style="font-size:11px;color:#2E7D32">Cotizaciones/propuestas cuyo ID no existe actualmente en la nube.</div>'+
+      '<div style="font-size:13px;font-weight:700;color:#1B5E20;margin-bottom:4px">✅ Candidatos a agregar: '+toAdd.length+' doc'+(toAdd.length!==1?'s':'')+'</div>'+
+      '<div style="font-size:11px;color:#2E7D32">No estaban en la última consulta al servidor. Se verificará cada ID nuevamente antes de escribir; los existentes se omiten.</div>'+
     '</div>'+
     '<div style="background:#FFF3E0;border-left:3px solid #FB8C00;padding:10px 12px;border-radius:6px;margin-bottom:10px">'+
       '<div style="font-size:13px;font-weight:700;color:#E65100;margin-bottom:4px">⏭️ Se saltarán '+toSkip.length+' doc'+(toSkip.length!==1?'s':'')+' (ya existen)</div>'+
@@ -2134,22 +2142,17 @@ async function confirmRestoreBackup(){
   if(!confirm("⚠️ CONFIRMACIÓN FINAL\n\nVoy a escribir "+toAdd.length+" doc(s) + "+clientesNuevos.length+" cliente(s) nuevos a la nube.\n\nModo MERGE: NO sobrescribe lo existente.\n\n¿Continuar?")){return}
   if(!currentUser){alert("🔒 Debes estar autenticado");return}
   showLoader("Restaurando... 0/"+toAdd.length);
-  let okQuotes=0,errQuotes=0,okClients=0,errClients=0;
+  let okQuotes=0,errQuotes=0,okClients=0,errClients=0,skipped=0;
   try{
     await fbReady();
-    const {db,doc:fsDoc,setDoc,serverTimestamp}=window.fb;
     // Escribir quotes uno a uno (mejor visibilidad de errores que batch)
     for(let i=0;i<toAdd.length;i++){
       const q=toAdd[i];
       try{
         const kind=q.kind||"quote";
         const coll=getCollectionName(q.id,kind);
-        // Limpiar campos internos que no deben viajar
-        const {_wrongCollection,_isPF,kind:_k,..._clean}=q;
-        _clean.restoredAt=serverTimestamp();
-        _clean.restoredBy=(currentUser.displayName||currentUser.email||"desconocido");
-        await setDoc(fsDoc(db,coll,q.id),_clean,{merge:false}); // doc nuevo: escritura completa
-        okQuotes++;
+        if(await restoreMissingDocument(coll,q.id,q))okQuotes++;
+        else skipped++;
       }catch(e){
         console.warn("[restore] falló quote "+q.id,e);
         errQuotes++;
@@ -2163,8 +2166,8 @@ async function confirmRestoreBackup(){
       try{
         const cid=c.id||c.name;
         if(!cid){errClients++;continue}
-        await setDoc(fsDoc(db,"clients",cid),{...c,restoredAt:serverTimestamp()},{merge:false});
-        okClients++;
+        if(await restoreMissingDocument("clients",cid,c))okClients++;
+        else skipped++;
       }catch(e){
         console.warn("[restore] falló cliente",c,e);
         errClients++;
@@ -2174,13 +2177,14 @@ async function confirmRestoreBackup(){
     closeRestoreBackupModal();
     let msg="✅ Restaurados: "+okQuotes+" doc(s)";
     if(okClients)msg+=" + "+okClients+" cliente(s)";
+    if(skipped)msg+=" · Omitidos por existir: "+skipped;
     if(errQuotes||errClients)msg+=" · ⚠️ Errores: "+(errQuotes+errClients);
     toast(msg,errQuotes||errClients?"warn":"success");
     // Reload historial
-    try{await loadAllHistory();renderDashboard()}catch{}
+    try{await loadAllHistory({requireFresh:true,transition:false});renderDashboard()}catch{}
   }catch(e){
     hideLoader();
-    toast("Error restaurando: "+e.message,"error");
+    toast("Error restaurando: "+gbMensajeError(e),"error");
     console.error("[restore]",e);
   }
 }
@@ -5348,7 +5352,7 @@ function _buildItemsResumenHE(q, despacho, despachosArr){
       if(it.name&&_aplica(it))parts.push(_pfx(it)+_mark(it.name)+(it.qty||0)+" "+it.name);
     })));
   }
-  // v7.9.23.2: EL MENAJE TAMBIÉN SE ENTREGA, y hasta ahora no salía aquí.
+  // v7.9.28: EL MENAJE TAMBIÉN SE ENTREGA, y hasta ahora no salía aquí.
   // La hoja de reparto se armaba sólo con comida (cart/cust o sections), así que
   // quien entregaba no tenía la lista del menaje y quien recibía no podía
   // revisarla ni firmarla. Mientras el menaje viajó junto a comida alguien sabía
@@ -5366,7 +5370,7 @@ function _buildItemsResumenHE(q, despacho, despachosArr){
   return comida?comida+"   |   "+menajeTxt:menajeTxt;
 }
 
-// v7.9.23.2: ítems de menaje que corresponden a ESTA fila de la hoja de entregas.
+// v7.9.28: ítems de menaje que corresponden a ESTA fila de la hoja de entregas.
 // El menaje se entrega una sola vez: en el despacho asignado (menajeAssignedTo)
 // o, si no hay asignación, en el primero cronológico. Un ítem sin cantidad se
 // lista igual —sigue saliendo de la casa— pero sin número delante.
@@ -5395,7 +5399,6 @@ function _menajeTextos(items){
     return (q?q+" ":"")+String(m.name).trim();
   });
 }
-
 
 async function generarPdfEntregas(){
   if(!window.jspdf||!window.jspdf.jsPDF){
@@ -5920,7 +5923,7 @@ function descargarExcel(){
   docs.forEach(q=>{
     const total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||0);
     const saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
-    const cobrado=total-saldo;
+    const cobrado=totalCobrado(q);
     const nProd=(q.cart||[]).length+(q.cust||[]).length+(q.sections||[]).reduce((s,sec)=>s+(sec.options||[]).reduce((s2,o)=>s2+(o.items||[]).length,0),0);
     aoa2.push([
       _reportesGetFecha(q),
@@ -5972,7 +5975,7 @@ function descargarExcel(){
     if(!porDia[f])porDia[f]={count:0,total:0,cobrado:0,saldo:0,clientes:new Set()};
     const total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||0);
     const saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
-    porDia[f].count++;porDia[f].total+=total;porDia[f].cobrado+=(total-saldo);porDia[f].saldo+=saldo;
+    porDia[f].count++;porDia[f].total+=total;porDia[f].cobrado+=totalCobrado(q);porDia[f].saldo+=saldo;
     if(q.client)porDia[f].clientes.add(q.client);
   });
   const aoa4=[["Fecha entrega","# Docs","Total","Cobrado","Saldo","Clientes"]];
@@ -6195,7 +6198,7 @@ async function cliDirRunMigration(){
     renderClientesDirectorio();
   }catch(e){
     hideLoader();
-    toast("Error en migración: "+e.message,"error");
+    toast("Error en migración: "+gbMensajeError(e),"error");
     console.error(e);
   }
 }
@@ -6296,7 +6299,7 @@ async function saveClienteEditor(){
     refreshCliSel();
   }catch(e){
     hideLoader();
-    toast("Error: "+e.message,"error");
+    toast("Error: "+gbMensajeError(e),"error");
     console.error(e);
   }
 }
@@ -6321,7 +6324,7 @@ async function delClienteEditor(){
     refreshCliSel();
   }catch(e){
     hideLoader();
-    toast("Error: "+e.message,"error");
+    toast("Error: "+gbMensajeError(e),"error");
   }
 }
 
@@ -6469,7 +6472,7 @@ async function saveProveedorEditor(){
     renderProveedoresDirectorio();
   }catch(e){
     hideLoader();
-    toast("Error: "+e.message,"error");
+    toast("Error: "+gbMensajeError(e),"error");
     console.error(e);
   }
 }
@@ -6492,7 +6495,7 @@ async function delProveedorEditor(){
     renderProveedoresDirectorio();
   }catch(e){
     hideLoader();
-    toast("Error: "+e.message,"error");
+    toast("Error: "+gbMensajeError(e),"error");
   }
 }
 
@@ -6699,7 +6702,7 @@ async function saveProvQuick(){
     _compraEdRefreshProveedorOptions(nuevo?.id||"");
   }catch(e){
     hideLoader();
-    toast("Error: "+e.message,"error");
+    toast("Error: "+gbMensajeError(e),"error");
   }
 }
 
@@ -6778,7 +6781,7 @@ async function saveCompraEditor(){
     if(typeof renderProveedoresDirectorio==="function"&&curMode==="proveedores-directorio")renderProveedoresDirectorio();
   }catch(e){
     hideLoader();
-    toast("Error: "+e.message,"error");
+    toast("Error: "+gbMensajeError(e),"error");
     console.error(e);
   }
 }
@@ -6800,7 +6803,7 @@ async function delCompraEditor(){
     if(typeof renderProveedoresDirectorio==="function"&&curMode==="proveedores-directorio")renderProveedoresDirectorio();
   }catch(e){
     hideLoader();
-    toast("Error: "+e.message,"error");
+    toast("Error: "+gbMensajeError(e),"error");
   }
 }
 
@@ -6957,7 +6960,7 @@ async function comprasPendQuickAdd(){
     $("compras-pend-quick-nombre").focus();
     renderComprasPendientes();
   }catch(e){
-    toast("Error: "+e.message,"error");
+    toast("Error: "+gbMensajeError(e),"error");
   }
 }
 
@@ -6968,7 +6971,7 @@ async function comprasPendDel(id,ev){
     await deleteCompraFromCloud(id);
     renderComprasPendientes();
   }catch(e){
-    toast("Error: "+e.message,"error");
+    toast("Error: "+gbMensajeError(e),"error");
   }
 }
 
@@ -7138,7 +7141,7 @@ async function savePrecioLista(){
     if(curMode==="compras-catalogo")renderComprasCatalogo();
   }catch(e){
     hideLoader();
-    toast("Error: "+e.message,"error");
+    toast("Error: "+gbMensajeError(e),"error");
   }
 }
 
@@ -7154,7 +7157,7 @@ async function delPrecioLista(){
     if(curMode==="compras-catalogo")renderComprasCatalogo();
   }catch(e){
     hideLoader();
-    toast("Error: "+e.message,"error");
+    toast("Error: "+gbMensajeError(e),"error");
   }
 }
 
@@ -7890,7 +7893,7 @@ async function ajusteLogConfirmDelete(logId){
     if(typeof renderCartera==="function"&&curMode==="cartera")renderCartera();
   }catch(e){
     hideLoader();
-    toast("Error: "+e.message,"error");
+    toast("Error: "+gbMensajeError(e),"error");
   }
 }
 
@@ -7999,7 +8002,9 @@ function renderCarteraCard(q,urgencia){
   const id=q.id||"";
   const total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||0);
   const saldo=saldoPendiente(q);
-  const cobrado=total-saldo;
+  const cobrado=totalCobrado(q); // v7.9.24: un ajuste no es dinero recibido.
+  const ajustado=totalAjustes(q);
+  const credito=creditoAFavor(q);
   const fecha=carteraGetFecha(q);
   const hora=q.horaEntrega||(q.orderData||{}).horaEntrega||"";
   const statusLbl=(typeof STATUS_META!=="undefined"&&STATUS_META[q.status]?.label)||q.status||"";
@@ -8017,6 +8022,8 @@ function renderCarteraCard(q,urgencia){
       '<div style="text-align:right;font-size:11px;color:#888;line-height:1.5">'+
         '<div>Total '+fmt(total)+'</div>'+
         '<div>Cobrado '+fmt(cobrado)+'</div>'+
+        (ajustado?'<div>Ajustes '+fmt(ajustado)+'</div>':'')+
+        (credito?'<div>Saldo a favor '+fmt(credito)+'</div>':'')+
         '<div style="font-weight:700;font-size:14px;color:'+borderColor+';margin-top:2px">Saldo '+fmt(saldo)+'</div>'+
       '</div>'+
     '</div>'+
@@ -8104,7 +8111,7 @@ async function saveItemsProducidosModal(){
     if(typeof renderPedidosProduccion==="function")renderPedidosProduccion();
     if(typeof renderPedidosAprobados==="function")renderPedidosAprobados();
   }catch(e){
-    hideLoader();toast("Error: "+e.message,"error");console.error(e);
+    hideLoader();toast("Error: "+gbMensajeError(e),"error");console.error(e);
   }
 }
 
@@ -8284,7 +8291,7 @@ async function saveRecetaEditor(){
     saveOk=true;
   }catch(e){
     hideLoader();
-    const msg=e?.message||String(e)||"(sin detalle)";
+    const msg=gbMensajeError(e); // v7.9.32 P2-R2-04: sin texto técnico
     toast("Error guardando receta: "+msg,"error");
     console.error("[saveRecetaEditor] save falló",{modo,nombre,oldKey:_recetaEditorKey,existingId,error:e});
     return;
@@ -8320,7 +8327,7 @@ async function deleteRecetaEditor(){
     renderRecetasInternas();
   }catch(e){
     hideLoader();
-    toast("Error: "+e.message,"error");
+    toast("Error: "+gbMensajeError(e),"error");
     console.error(e);
   }
 }
@@ -8724,7 +8731,7 @@ async function _guardarEdicionProducto(productId,data){
     renderCatalogoProductos();
   }catch(e){
     hideLoader();
-    toast("Error guardando: "+(e?.message||e),"error");
+    toast("Error guardando: "+gbMensajeError(e),"error");
     console.error("[_guardarEdicionProducto]",e);
   }
 }
@@ -8750,7 +8757,7 @@ async function archivarProducto(productId){
     renderCatalogoProductos();
   }catch(e){
     hideLoader();
-    toast("Error: "+(e?.message||e),"error");
+    toast("Error: "+gbMensajeError(e),"error");
     console.error("[archivarProducto]",e);
   }
 }
@@ -8775,7 +8782,7 @@ async function restaurarProducto(productId){
     renderCatalogoProductos();
   }catch(e){
     hideLoader();
-    toast("Error: "+(e?.message||e),"error");
+    toast("Error: "+gbMensajeError(e),"error");
     console.error("[restaurarProducto]",e);
   }
 }
@@ -8982,7 +8989,7 @@ async function toggleVisibleEnListaPrecios(productId,checked){
     productosCache[productId].visibleEnListaPrecios=!!checked;
     localStorage.setItem("gb_productos_cache",JSON.stringify(productosCache));
   }catch(e){
-    toast("Error guardando: "+(e?.message||e),"error");
+    toast("Error guardando: "+gbMensajeError(e),"error");
     console.error("[toggleVisibleEnListaPrecios]",e);
     renderCatalogoProductos(); // revertir UI
   }
@@ -9002,7 +9009,7 @@ async function moverProductoACategoria(productId,nuevaCategoriaId){
     renderCatalogoProductos();
   }catch(e){
     hideLoader();
-    toast("Error: "+(e?.message||e),"error");
+    toast("Error: "+gbMensajeError(e),"error");
     console.error("[moverProductoACategoria]",e);
   }
 }
@@ -9022,7 +9029,7 @@ async function renombrarCategoria(catId){
     renderCatalogoProductos();
   }catch(e){
     hideLoader();
-    toast("Error: "+(e?.message||e),"error");
+    toast("Error: "+gbMensajeError(e),"error");
     console.error("[renombrarCategoria]",e);
   }
 }
@@ -9063,7 +9070,7 @@ async function eliminarCategoria(catId){
       renderCatalogoProductos();
     }catch(e){
       hideLoader();
-      toast("Error: "+(e?.message||e),"error");
+      toast("Error: "+gbMensajeError(e),"error");
       console.error("[eliminarCategoria con reasign]",e);
     }
   }else{
@@ -9079,7 +9086,7 @@ async function eliminarCategoria(catId){
       renderCatalogoProductos();
     }catch(e){
       hideLoader();
-      toast("Error: "+(e?.message||e),"error");
+      toast("Error: "+gbMensajeError(e),"error");
       console.error("[eliminarCategoria]",e);
     }
   }
@@ -9115,7 +9122,7 @@ async function _onCatalogoFotoSelected(ev){
     renderCatalogoProductos();
   }catch(e){
     hideLoader();
-    toast("Error subiendo foto: "+(e?.message||e),"error");
+    toast("Error subiendo foto: "+gbMensajeError(e),"error");
     console.error("[subirFotoProducto] falló",{productId,error:e});
   }
 }
@@ -9197,7 +9204,7 @@ async function borrarFotoProducto(productId){
     renderCatalogoProductos();
   }catch(e){
     hideLoader();
-    toast("Error: "+(e?.message||e),"error");
+    toast("Error: "+gbMensajeError(e),"error");
     console.error("[borrarFotoProducto] falló",{productId,error:e});
   }
 }
@@ -9233,7 +9240,7 @@ async function crearCategoria(){
     renderCatalogoProductos();
   }catch(e){
     hideLoader();
-    toast("Error: "+(e?.message||e),"error");
+    toast("Error: "+gbMensajeError(e),"error");
     console.error("[crearCategoria]",e);
   }
 }

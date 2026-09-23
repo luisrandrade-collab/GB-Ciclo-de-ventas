@@ -811,7 +811,7 @@ async function submitMarkAsOrder(){
     toast("✅ Pedido "+($("om-num").value)+" · Entrega "+fechaEntrega+" "+horaEntrega+" · Producción "+productionDate+(produced?" (✓ ya producido)":""),"success");
     renderHist();
     if(curMode==="dash")renderDashboard();
-  }catch(e){hideLoader();toast("Error al actualizar: "+e.message,"error");console.error("[submitMarkAsOrder]",e)}
+  }catch(e){hideLoader();toast("Error al actualizar: "+gbMensajeError(e),"error");console.error("[submitMarkAsOrder]",e)}
 }
 
 // ─── ASIGNAR FECHA DE ENTREGA ──────────────────────────────
@@ -842,7 +842,7 @@ async function assignDeliveryDate(quoteId,kind,ev){
     if(patch.needsSync)q.needsSync=true;
     hideLoader();renderHist();
     if(typeof renderDashboard==="function")renderDashboard();
-  }catch(e){hideLoader();toast("Error: "+e.message,"error")}
+  }catch(e){hideLoader();toast("Error: "+gbMensajeError(e),"error")}
 }
 
 // ─── APROBAR PROPUESTA ─────────────────────────────────────
@@ -948,7 +948,7 @@ async function submitApproveProposal(){
     hideLoader();closeApproveModal();
     toast("✓ Propuesta aprobada: "+($("am-num").value),"success");
     refreshActiveView(); // v7.9.9 F1: refresca cualquier pantalla origen (Hist/Dash/Seg/Pedidos)
-  }catch(e){hideLoader();toast("Error al actualizar: "+e.message,"error");console.error("[submitApproveProposal]",e)}
+  }catch(e){hideLoader();toast("Error al actualizar: "+gbMensajeError(e),"error");console.error("[submitApproveProposal]",e)}
 }
 
 // ─── DUPLICAR ──────────────────────────────────────────────
@@ -969,7 +969,7 @@ function openDuplicateModal(kind,id,ev){
     $("dup-num").textContent=snap.data().quoteNumber||id;
     $("dup-cli").textContent=snap.data().client||"—";
     $("dup-modal").classList.remove("hidden");
-  }).catch(e=>{hideLoader();toast("Error cargando documento: "+e.message,"error");console.error(e)});
+  }).catch(e=>{hideLoader();toast("Error cargando documento: "+gbMensajeError(e),"error");console.error(e)});
 }
 function closeDuplicateModal(){$("dup-modal").classList.add("hidden");dupSource=null}
 
@@ -978,69 +978,75 @@ function duplicateQuote(preserveClient){
   const src=dupSource.data;
   const effKind=dupSource.coll==="propfinals"?"proposal":dupSource.kind;
   closeDuplicateModal();
+  // Copia profunda de lo que se toma de la fuente: editar el duplicado no toca la fuente.
+  const copia=v=>v==null?v:JSON.parse(JSON.stringify(v));
   if(effKind==="quote"){
-    setMode("cot");cart=[];cust=[];
-    if(src.cart){src.cart.forEach(ci=>{const p=C.find(x=>x.id===ci.id);if(p)cart.push({...p,p:ci.p,origP:ci.origP||p.p,qty:ci.qty,edited:!!ci.edited});else cart.push({id:ci.id||Date.now()+Math.random(),n:ci.n,d:ci.d,u:ci.u,p:ci.p,origP:ci.origP||ci.p,qty:ci.qty,edited:!!ci.edited})})}
-    if(src.cust)cust=src.cust.map((ci,ix)=>({id:"x"+Date.now()+ix,...ci,custom:true}));
+    setMode("cot");
+    // v7.9.32 P1-02 (revisión de Codex, ronda 2): la rama de cotizaciones tenía su propia
+    // lista de campos, igual que la de propuestas antes de v7.9.31, y dejaba la ciudad de
+    // la cotización abierta antes cuando la fuente no traía ciudad, y siempre su hora de
+    // entrega. Ahora arma una plantilla y la carga con cargarCotizacionEnEditor, el mismo
+    // cargador que abre una cotización. Semántica: la de propuestas (ver abajo) —productos,
+    // notas, títulos y firma se copian; cliente, ciudad/transporte y factura sólo si se
+    // conserva el cliente; fecha, hora, momentos y notas internas nunca—.
+    const plantilla={
+      quoteNumber:null,
+      cart:copia(src.cart||[]),cust:copia(src.cust||[]),
+      notasCotData:copia(src.notasCotData),notasCotLista:copia(src.notasCotLista),
+      tituloInstruccionesPago:src.tituloInstruccionesPago||"",tituloCondiciones:src.tituloCondiciones||"",
+      firma:src.firma
+    };
     if(preserveClient){
-      $("f-cli").value=src.client||"";
-      const parts=(src.idStr||"").split(" ");
-      $("f-idtype").value=parts[0]||"";
-      $("f-idnum").value=parts.slice(1).join(" ")||"";
-      $("f-att").value=src.att||"";$("f-mail").value=src.mail||"";
-      $("f-tel").value=src.tel||"";$("f-dir").value=src.dir||"";
-      if(src.cityType){$("f-city").value=src.cityType;if(src.cityType==="Otra"){$("f-city-custom").value=src.city||"";$("f-tr-custom").value=src.trCustom||""}}
-      updTr();
-    }else{
-      ["f-cli","f-idnum","f-att","f-mail","f-tel","f-dir","f-city-custom","f-tr-custom"].forEach(id=>{if($(id))$(id).value=""});
-      $("f-idtype").value="";$("f-city").value="";updTr();
+      Object.assign(plantilla,{client:src.client||"",idStr:src.idStr||"",att:src.att||"",mail:src.mail||"",tel:src.tel||"",dir:src.dir||"",
+        city:src.city||"",cityType:src.cityType||"",trCustom:src.trCustom||"",requiereFE:!!src.requiereFE});
     }
-    $("f-date").value="";
-    document.querySelectorAll('#f-moments input[type=checkbox]').forEach(c=>{c.checked=false;togMom(c)});
-    if($("f-time-other"))$("f-time-other").value="";
-    if($("f-time-other-wrap"))$("f-time-other-wrap").classList.add("hidden");
-    if(src.notasCotData&&typeof src.notasCotData==="object"){notasCotData={...src.notasCotData}}
-    else{notasCotData={...DEFAULT_NOTAS_COT}}
-    // v7.9.20: lista de notas (nueva) o conversion desde el objeto legacy
-    notasCotLista=gbNotasNormalizar(src.notasCotLista,src.notasCotData,DEFAULT_NOTAS_COT,NOTAS_COT_TITULOS);
-    tituloInstruccionesPago=src.tituloInstruccionesPago||"";
-    tituloCondiciones=src.tituloCondiciones||"";
-    if(src.firma)firmaCot=src.firma;
-    setFirma("cot",firmaCot);
-    currentQuoteNumber=null;
+    cargarCotizacionEnEditor(plantilla);
     go("info");
     toast("📋 Duplicado listo. Revisa y guarda para asignar consecutivo.","info",5000);
     return;
   }
   setMode("prop");
+  // v7.9.31 P1-02 (revisión de Codex): la duplicación armaba el editor con su PROPIA
+  // lista de campos, que se quedó atrás cada vez que el editor ganó estados nuevos
+  // (despachos, asignación y opciones de menaje, condiciones en lista, títulos,
+  // reposición por opción, notas internas, factura). Todo lo que no tocaba se quedaba
+  // con lo de la propuesta abierta ANTES y se guardaba en el duplicado: despachos con
+  // su estado de entrega, listas de menaje y precios, condiciones y notas internas de
+  // otro cliente. Ahora se arma una plantilla desde la fuente y se carga con
+  // loadPropQuote, la misma función que abre una propuesta, así que todo estado del
+  // editor queda definido por la plantilla y no por lo que hubiera antes.
+  // Semántica de la duplicación (definida en v7.9.31):
+  //  · COPIA el contenido-plantilla: secciones, opciones de menaje y su selección,
+  //    menaje heredado, reposición, personal, tipo de servicio, títulos, condiciones,
+  //    frase de apertura y firma.
+  //  · Copia datos del cliente, ciudad/transporte y factura electrónica SÓLO si se pide
+  //    conservar el cliente.
+  //  · NO copia nada propio de un evento: despachos, asignación del menaje, fecha, hora,
+  //    personas, momento, vencimiento, notas internas, número, estado ni movimientos.
+  const plantilla={
+    quoteNumber:null,
+    sections:copia(src.sections||[]),
+    menajeOptions:copia(src.menajeOptions||[]),
+    menaje:copia(src.menaje||[]),
+    propFinalSelection:(src.propFinalSelection&&src.propFinalSelection.menaje)?{menaje:src.propFinalSelection.menaje}:undefined,
+    reposicionByOption:copia(src.reposicionByOption),
+    reposicionData:copia(src.reposicionData||{}),
+    incluirReposicion:src.incluirReposicion,
+    personalData:copia(src.personalData),
+    tipoServicio:src.tipoServicio||"",
+    tituloMenaje:src.tituloMenaje||"",tituloPersonal:src.tituloPersonal||"",
+    condicionesLista:copia(src.condicionesLista),
+    condicionesData:copia(src.condicionesData||{}),
+    aperturaFrase:src.aperturaFrase,
+    firma:src.firma||"jp"
+  };
   if(preserveClient){
-    $("fp-cli").value=src.client||"";
-    const parts=(src.idStr||"").split(" ");
-    $("fp-idtype").value=parts[0]||"";
-    $("fp-idnum").value=parts.slice(1).join(" ")||"";
-    $("fp-att").value=src.att||"";$("fp-mail").value=src.mail||"";
-    $("fp-tel").value=src.tel||"";$("fp-dir").value=src.dir||"";
-    if(src.cityType){$("fp-city").value=src.cityType;if(src.cityType==="Otra"){$("fp-city-custom").value=src.city||"";$("fp-tr-custom").value=src.trCustom||""}}
-    updTrP();
-  }else{
-    ["fp-cli","fp-idnum","fp-att","fp-mail","fp-tel","fp-dir","fp-city-custom","fp-tr-custom"].forEach(id=>{if($(id))$(id).value=""});
-    $("fp-idtype").value="";$("fp-city").value="";updTrP();
+    Object.assign(plantilla,{client:src.client||"",idStr:src.idStr||"",att:src.att||"",mail:src.mail||"",tel:src.tel||"",dir:src.dir||"",
+      city:src.city||"",cityType:src.cityType||"",trCustom:src.trCustom||"",requiereFE:!!src.requiereFE});
   }
-  $("fp-date").value="";$("fp-pers").value="";$("fp-momento").value="";
-  propSections=JSON.parse(JSON.stringify(src.sections||[]));
-  menajeItems=JSON.parse(JSON.stringify(src.menaje||[]));
-  personalData=JSON.parse(JSON.stringify(src.personalData||{meseros:{cantidad:"",valor4h:"",horasExtra:"",valorHoraExtra:""},auxiliares:{cantidad:"",valor4h:"",horasExtra:"",valorHoraExtra:""}}));
-  tipoServicio=src.tipoServicio||"";
-  condicionesData=JSON.parse(JSON.stringify(src.condicionesData||{}));
-  reposicionData=JSON.parse(JSON.stringify(src.reposicionData||{}));
-  firmaProp=src.firma||"jp";
-  aperturaFrase=src.aperturaFrase||aperturaFrase;
-  fechaVencimiento="";setDefaultFechaVenc();
-  $("fp-apertura").value=aperturaFrase;
-  setTipoServ(tipoServicio||null);
-  renderPropSections();renderMenaje();renderPersonal();renderCondiciones();renderReposicion();
-  setFirma("prop",firmaProp);
-  currentPropNumber=null;
+  // v7.9.32: loadPropQuote ya vacía la ciudad cuando la plantilla no la trae y carga la
+  // factura (P1-R2-02 y P1-R2-03), así que no hace falta ningún ajuste después.
+  loadPropQuote(plantilla);
   toast("📋 Propuesta duplicada. Revisa fechas y datos del evento antes de guardar.","info",5000);
 }
 
@@ -1180,7 +1186,7 @@ async function submitAjuste(){
   }catch(e){
     hideLoader();
     console.error("submitAjuste error",e);
-    toast("Error: "+e.message,"error");
+    toast("Error: "+gbMensajeError(e),"error");
   }
 }
 
@@ -1189,7 +1195,7 @@ async function submitAjuste(){
 async function _addSaldoAFavor(clienteName,monto,motivo,logId){
   const {db,collection,doc,addDoc,updateDoc,serverTimestamp}=window.fb;
   const k=(clienteName||"").toLowerCase().trim();
-  if(!k)throw new Error("Nombre de cliente vacío");
+  if(!k)throw Object.assign(new Error("Nombre de cliente vacío"),{paraUsuario:true});
   let c=clientsCache.find(x=>(x.name||"").toLowerCase().trim()===k);
   const nowIso=new Date().toISOString();
   const movimiento={
@@ -1208,7 +1214,7 @@ async function _addSaldoAFavor(clienteName,monto,motivo,logId){
     let saldoCommit=0,movsCommit=null;
     await runTransaction(db,async(tx)=>{
       const snap=await tx.get(ref);
-      if(!snap.exists())throw new Error("Cliente "+c.id+" no existe en Firestore");
+      if(!snap.exists())throw Object.assign(new Error("El cliente ya no existe en el sistema. Recarga la lista de clientes."),{paraUsuario:true,detalle:"Cliente "+c.id+" no existe en Firestore"});
       const dataTx=snap.data();
       const movsTx=Array.isArray(dataTx.saldoAFavorMovs)?dataTx.saldoAFavorMovs.slice():[];
       // IDEMPOTENCY en reintentos: si el logId ya está, no sumar ni pushear de nuevo.
@@ -1388,7 +1394,7 @@ async function submitPago(){
         await runTransaction(db,async(tx)=>{
           const snap=await tx.get(ref);
           if(!snap.exists()){
-            throw new Error("Documento "+pagoSrc.id+" no existe en Firestore (collection "+coll+")");
+            throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true,detalle:"Documento "+pagoSrc.id+" no existe en Firestore (collection "+coll+")"});
           }
           const freshTx=snap.data();
           const pagosTx=Array.isArray(freshTx.pagos)?freshTx.pagos.slice():[];
@@ -1459,13 +1465,28 @@ async function submitPago(){
     }
     window._submitPagoBusy=false;
 
+    // v7.9.29: ante un permiso negado, reintentar nunca funcionaría —el usuario no
+    // tiene permiso, no es un problema de conexión—. Se explica y NO se ofrece reintentar.
+    if(typeof gbEsErrorDePermiso==="function"&&gbEsErrorDePermiso(e)){
+      await confirmModal({
+        title:"❌ No se registró el pago",
+        body:'<div style="font-size:13px;line-height:1.6"><p>El pago <strong>NO</strong> quedó guardado en el sistema.</p><p>'+gbMensajeError(e)+'</p></div>',
+        okLabel:"Entendido",
+        cancelLabel:"Cerrar",
+        tone:"danger"
+      });
+      return;
+    }
+
     // PERSISTENT ERROR MODAL — con Reintentar
+    // v7.9.32 P2-R2-04: el motivo se explica en español; el detalle técnico queda en la
+    // consola (gbMensajeError lo registra). Se conserva «Reintentar» para fallos pasajeros.
     const reintentar=await confirmModal({
       title:"❌ Error al registrar pago",
       body:'<div style="font-size:13px;line-height:1.6">'+
         '<p>El pago <strong>NO</strong> quedó guardado en el sistema.</p>'+
-        '<div style="background:#FFEBEE;border-left:3px solid #C62828;padding:8px 12px;margin:10px 0;font-size:11.5px;color:#C62828;font-family:monospace;word-break:break-word">'+
-          (e&&e.message?e.message.replace(/</g,"&lt;"):"(sin detalle)")+
+        '<div style="background:#FFEBEE;border-left:3px solid #C62828;padding:8px 12px;margin:10px 0;font-size:12px;color:#C62828;word-break:break-word">'+
+          String(gbMensajeError(e)).replace(/</g,"&lt;")+
         '</div>'+
         (nuevo.fotoUrl?'<p style="font-size:11.5px;color:#5D4037">✓ Tu comprobante fue subido a Storage. Si decides cancelar, puedes registrar el pago manualmente más tarde sin volver a subir la foto.</p>':'')+
         '<p><strong>¿Reintentar ahora?</strong> (si la conexión titubeó, reintentar suele funcionar)</p>'+
@@ -1657,11 +1678,11 @@ async function savePagoEdit(idx){
         let pagosCommit=null,changelogCommit=null;
         await runTransaction(db,async(tx)=>{
           const snap=await tx.get(ref);
-          if(!snap.exists())throw new Error("Documento "+docId+" no existe en Firestore (collection "+coll+")");
+          if(!snap.exists())throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true,detalle:"Documento "+docId+" no existe en Firestore (collection "+coll+")"});
           const freshTx=snap.data();
           const pagosTx=Array.isArray(freshTx.pagos)?freshTx.pagos.map(p=>({...p})):[];
           const idxTx=_findPagoIdxFresh(pagosTx,old,idx);
-          if(idxTx<0)throw new Error("No se encontró el pago a editar en el documento actual. Recarga (F1) y reintenta.");
+          if(idxTx<0)throw Object.assign(new Error("No se encontró el pago a editar en el documento actual. Recarga (F1) y reintenta."),{paraUsuario:true});
           pagosTx[idxTx]={...pagosTx[idxTx],monto:pagos[idx].monto,fecha:nuevoFecha,metodo:nuevoMetodo,tipo:nuevoTipo,notas:nuevoNotas,editadoEn:pagos[idx].editadoEn};
           const changelogTx=Array.isArray(freshTx.pago_changelog)?freshTx.pago_changelog.slice():[];
           changelogTx.push({pagoIdx:idxTx,timestamp:new Date().toISOString(),changes});
@@ -1680,7 +1701,7 @@ async function savePagoEdit(idx){
     // v7.2 F5: auto-refresh Cartera y Historico tras editar pago.
     if(typeof renderHist==="function")renderHist();
     if(typeof renderCartera==="function")renderCartera();
-  }catch(e){hideLoader();toast("Error: "+e.message,"error")}
+  }catch(e){hideLoader();toast("Error: "+gbMensajeError(e),"error")}
 }
 
 // v5.1.0: Adjuntar comprobante DESPUÉS de registrar un pago.
@@ -1717,10 +1738,10 @@ async function onAdjuntarPagoFile(ev,idx){
       let pagosCommit=null;
       await runTransaction(db,async(tx)=>{
         const snap=await tx.get(ref);
-        if(!snap.exists())throw new Error("Documento "+docId+" no existe en Firestore (collection "+coll+")");
+        if(!snap.exists())throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true,detalle:"Documento "+docId+" no existe en Firestore (collection "+coll+")"});
         const pagosTx=Array.isArray(snap.data().pagos)?snap.data().pagos.map(p=>({...p})):[];
         const idxTx=_findPagoIdxFresh(pagosTx,pagoRef,idx);
-        if(idxTx<0)throw new Error("No se encontró el pago en el documento actual. Recarga (F1) y reintenta.");
+        if(idxTx<0)throw Object.assign(new Error("No se encontró el pago en el documento actual. Recarga (F1) y reintenta."),{paraUsuario:true});
         pagosTx[idxTx]={...pagosTx[idxTx],fotoUrl:url,fotoAdjuntadaEn:fotoAdjuntadaEn};
         tx.update(ref,{pagos:pagosTx,updatedAt:serverTimestamp(),...auditStamp()});
         pagosCommit=pagosTx;
@@ -1733,7 +1754,7 @@ async function onAdjuntarPagoFile(ev,idx){
     }catch(e){
       hideLoader();
       console.error("onAdjuntarPagoFile error:",e);
-      toast("Error subiendo comprobante: "+e.message,"error");
+      toast("Error subiendo comprobante: "+gbMensajeError(e),"error");
     }
   });
 }
@@ -1761,7 +1782,7 @@ async function toggleProduced(docId,kind,ev){
     if(typeof toast==="function"){
       toast(newVal?"🔪 Marcado como producido":"↩️ Desmarcado producido — el pedido vuelve a 'pendiente de producir'",newVal?"success":"info",newVal?3000:5000);
     }
-  }catch(e){hideLoader();toast("Error: "+e.message,"error")}
+  }catch(e){hideLoader();toast("Error: "+gbMensajeError(e),"error")}
 }
 
 // v7.9.7.1 F6: marca producido un DESPACHO individual de una propuesta con despachos[] explícitos.
@@ -1789,12 +1810,12 @@ async function toggleProducedDespacho(docId,despachoId,kind,ev){
     let nuevoArr=null,todosListos=false,patchCommit=null,idxTx=-1;
     await runTransaction(db,async(tx)=>{
       const snap=await tx.get(ref);
-      if(!snap.exists())throw new Error("Documento "+docId+" no existe en Firestore (collection "+coll+")");
+      if(!snap.exists())throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true,detalle:"Documento "+docId+" no existe en Firestore (collection "+coll+")"});
       const freshTx=snap.data();
       const despachosTx=Array.isArray(freshTx.despachos)?freshTx.despachos:null;
-      if(!despachosTx)throw new Error("El documento ya no tiene despachos. Recarga (F1) y reintenta.");
+      if(!despachosTx)throw Object.assign(new Error("El documento ya no tiene despachos. Recarga (F1) y reintenta."),{paraUsuario:true});
       idxTx=despachosTx.findIndex(d=>d.id===despachoId);
-      if(idxTx<0)throw new Error("Despacho no encontrado en el documento actual. Recarga (F1) y reintenta.");
+      if(idxTx<0)throw Object.assign(new Error("Despacho no encontrado en el documento actual. Recarga (F1) y reintenta."),{paraUsuario:true});
       nuevoArr=despachosTx.map((d,i)=>{
         if(i!==idxTx)return d;
         const next={...d,status:nuevoStatus};
@@ -1823,7 +1844,7 @@ async function toggleProducedDespacho(docId,despachoId,kind,ev){
         :"↩️ Despacho "+numDesp+"/"+totalDesp+" vuelto a pendiente";
       toast(msg,nuevoStatus==="producido"?"success":"info",3000);
     }
-  }catch(e){hideLoader();if(typeof toast==="function")toast("Error: "+e.message,"error");else console.error(e)}
+  }catch(e){hideLoader();if(typeof toast==="function")toast("Error: "+gbMensajeError(e),"error");else console.error(e)}
 }
 
 // v7.9.7.1 F7: marca ENTREGADO un despacho individual.
@@ -1876,12 +1897,12 @@ async function toggleEntregadoDespacho(docId,despachoId,kind,ev){
     let nuevoArr=null,todosEntregados=false,patchCommit=null,idxTx=-1;
     await runTransaction(db,async(tx)=>{
       const snap=await tx.get(ref);
-      if(!snap.exists())throw new Error("Documento "+docId+" no existe en Firestore (collection "+coll+")");
+      if(!snap.exists())throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true,detalle:"Documento "+docId+" no existe en Firestore (collection "+coll+")"});
       const freshTx=snap.data();
       const despachosTx=Array.isArray(freshTx.despachos)?freshTx.despachos:null;
-      if(!despachosTx)throw new Error("El documento ya no tiene despachos. Recarga (F1) y reintenta.");
+      if(!despachosTx)throw Object.assign(new Error("El documento ya no tiene despachos. Recarga (F1) y reintenta."),{paraUsuario:true});
       idxTx=despachosTx.findIndex(d=>d.id===despachoId);
-      if(idxTx<0)throw new Error("Despacho no encontrado en el documento actual. Recarga (F1) y reintenta.");
+      if(idxTx<0)throw Object.assign(new Error("Despacho no encontrado en el documento actual. Recarga (F1) y reintenta."),{paraUsuario:true});
       nuevoArr=despachosTx.map((d,i)=>{
         if(i!==idxTx)return d;
         return {...d,status:"entregado",entregadoEn:nowIso,entregaData:entregaDataDesp};
@@ -1918,7 +1939,7 @@ async function toggleEntregadoDespacho(docId,despachoId,kind,ev){
       const tel=(typeof KATHY_WA_TEL!=="undefined"&&KATHY_WA_TEL)||"573104441588";
       window.open("https://wa.me/"+tel+"?text="+encodeURIComponent(texto),"_blank");
     },400);
-  }catch(e){hideLoader();if(typeof toast==="function")toast("Error: "+e.message,"error");else console.error(e)}
+  }catch(e){hideLoader();if(typeof toast==="function")toast("Error: "+gbMensajeError(e),"error");else console.error(e)}
 }
 
 // v7.0-α FIX-02c: setea estado del toggle "Recibido conforme" en el delivery-modal.
@@ -2250,7 +2271,7 @@ async function submitDelivery(){
       // Pequeño delay para que se vea el toast antes del modal
       setTimeout(()=>openEntregaWhatsAppModal(docInfoForWA),700);
     }
-  }catch(e){hideLoader();toast("Error: "+e.message,"error");console.error(e)}
+  }catch(e){hideLoader();toast("Error: "+gbMensajeError(e),"error");console.error(e)}
 }
 
 // v6.4.0 P6: modal post-entrega para enviar foto(s) a Kathy por WhatsApp.
@@ -2545,7 +2566,7 @@ async function submitComentario(){
     toast("💬 Comentario guardado","success");
     renderHist();
     if(curMode==="dash")renderDashboard();
-  }catch(e){hideLoader();toast("Error: "+e.message,"error");console.error(e)}
+  }catch(e){hideLoader();toast("Error: "+gbMensajeError(e),"error");console.error(e)}
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2566,7 +2587,7 @@ async function deleteWrongDoc(docId,ev){
     toast("✅ Fantasma eliminado","success");
     renderHist();
     if(curMode==="dash")renderDashboard();
-  }catch(e){hideLoader();toast("Error: "+e.message,"error");console.error(e)}
+  }catch(e){hideLoader();toast("Error: "+gbMensajeError(e),"error");console.error(e)}
 }
 
 // v4.12.7: limpieza masiva de fantasmas — llamar desde consola del navegador
@@ -2590,7 +2611,7 @@ async function cleanupWrongDocs(){
     toast("✅ Limpieza completa · Eliminados: "+ok+(fail?" · Fallidos: "+fail:""),fail?"warn":"success");
     renderHist();
     if(curMode==="dash")renderDashboard();
-  }catch(e){hideLoader();toast("Error: "+e.message,"error");console.error(e)}
+  }catch(e){hideLoader();toast("Error: "+gbMensajeError(e),"error");console.error(e)}
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2737,7 +2758,7 @@ async function submitAnular(){
         await runTransaction(db,async(tx)=>{
           const snap=await tx.get(ref);
           if(!snap.exists()){
-            throw new Error("Documento "+docId+" no existe en Firestore (collection "+coll+")");
+            throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true,detalle:"Documento "+docId+" no existe en Firestore (collection "+coll+")"});
           }
           const freshTx=snap.data();
 
@@ -2805,7 +2826,7 @@ async function submitAnular(){
     if(typeof renderMiniDash==="function")renderMiniDash();
   }catch(e){
     hideLoader();
-    toast("Error al anular: "+(e.message||e),"error");
+    toast("Error al anular: "+gbMensajeError(e),"error");
     console.error("[submitAnular]",e);
   }
 }
@@ -3078,7 +3099,7 @@ async function retryAllFailedPdfs(){
     },400);
   }catch(e){
     console.error("[retryAllFailedPdfs] error abriendo doc:",e);
-    toast("⚠️ No pude abrir "+(q.quoteNumber||q.id)+": "+(e&&e.message||e),"error",6000);
+    toast("⚠️ No pude abrir "+(q.quoteNumber||q.id)+": "+gbMensajeError(e),"error",6000);
   }
 }
 
@@ -3169,7 +3190,7 @@ async function linkOptionGroup(docIdA,kindA,docIdB,kindB){
   }catch(e){
     if(typeof hideLoader==="function")hideLoader();
     console.error("linkOptionGroup error:",e);
-    toast("Error al vincular: "+e.message,"error");
+    toast("Error al vincular: "+gbMensajeError(e),"error");
   }
 }
 
@@ -3200,7 +3221,7 @@ async function unlinkOptionGroup(docIdA,kindA,docIdB,kindB){
   }catch(e){
     if(typeof hideLoader==="function")hideLoader();
     console.error("unlinkOptionGroup error:",e);
-    toast("Error al desvincular: "+e.message,"error");
+    toast("Error al desvincular: "+gbMensajeError(e),"error");
   }
 }
 
@@ -3327,7 +3348,7 @@ async function submitFe(docId,kind){
   }catch(e){
     if(typeof hideLoader==="function")hideLoader();
     console.error("submitFe error:",e);
-    toast("Error: "+e.message,"error");
+    toast("Error: "+gbMensajeError(e),"error");
   }
 }
 
@@ -4034,7 +4055,7 @@ async function loadAuditoria(){
     renderAuditoria();
   }catch(e){
     console.error("[loadAuditoria]",e);
-    listEl.innerHTML='<div style="padding:20px;background:#FFEBEE;border:1px solid #EF9A9A;border-radius:8px;color:#C62828;font-size:13px">Error cargando logs: '+(e.message||e)+'</div>';
+    listEl.innerHTML='<div style="padding:20px;background:#FFEBEE;border:1px solid #EF9A9A;border-radius:8px;color:#C62828;font-size:13px">Error cargando logs: '+gbMensajeError(e)+'</div>';
   }
 }
 

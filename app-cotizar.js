@@ -210,7 +210,7 @@ async function cancelEdicion(){
     await loadQuote("quote",currentQuoteNumber);
     hideLoader();
     if(typeof toast==="function")toast("Cambios descartados","success");
-  }catch(e){hideLoader();toast("Error al recargar: "+e.message,"error")}
+  }catch(e){hideLoader();toast("Error al recargar: "+gbMensajeError(e),"error")}
 }
 
 function chgCartPrice(id,newP){newP=parseInt(newP)||0;if(newP<=0)return;const i=cart.find(x=>x.id===id);if(i){if(!i.origP)i.origP=i.p;i.p=newP;i.edited=newP!==i.origP}renderR();updUI()}
@@ -228,18 +228,53 @@ async function saveCurrentQuote(silent){
   try{return await _saveCurrentQuoteImpl(silent)}
   finally{window._saveQuoteBusy=false}
 }
+// v7.9.32 P1-R2-01: lo que el formulario de cotización envía al guardar, en UN solo sitio.
+// Lo usan el guardado y la firma del formulario recién abierto (recordarFormularioAbierto):
+// si los dos leyeran el formulario por separado, volvería el conflicto falso.
+function formularioCotizacion(){
+  const out={
+    client:$("f-cli").value.trim()||"Sin nombre",idStr:getIdStr(),
+    att:$("f-att").value,mail:$("f-mail").value,tel:$("f-tel").value,dir:$("f-dir").value,
+    city:getCityName(),cityType:$("f-city").value,trCustom:$("f-tr-custom").value,
+    deliv:getDelivStr(),
+    momentosArr:(typeof getMomentos==="function"?getMomentos():[]),
+    eventDate:($("f-date")?.value||""),
+    cart:cart.map(i=>({id:i.id,n:i.n,d:i.d||"",u:i.u||"",p:i.p,origP:i.origP||i.p,qty:i.qty,edited:!!i.edited})),
+    cust:cust.map(i=>({n:i.n,p:i.p,d:i.d||"",u:i.u||"",qty:i.qty})),
+    // v7.9.20: notasCotData (legacy) se sigue guardando por compatibilidad con
+    // un cliente de caché vieja; notasCotLista es la fuente de verdad nueva.
+    notasCotData:gbNotasALegacy(notasCotLista,DEFAULT_NOTAS_COT),firma:firmaCot,
+    notasCotLista:JSON.parse(JSON.stringify(notasCotLista)),
+    tituloInstruccionesPago:tituloInstruccionesPago||"",
+    tituloCondiciones:tituloCondiciones||"",
+    requiereFE:!!($("f-requiere-fe")&&$("f-requiere-fe").checked),
+    // v7.7.4: notas internas para producción (no aparecen en PDF al cliente)
+    notasInternas:($("f-notas-internas")?.value||"").trim()
+  };
+  const hora=($("f-hora-entrega")?.value)||"";
+  if(hora)out.horaEntrega=hora;
+  return out;
+}
 async function _saveCurrentQuoteImpl(silent){
-  const cl=$("f-cli").value.trim()||"Sin nombre";
+  const editingQuoteNumber=currentQuoteNumber;
+  const editorContext=window._gbEditorContexts?.quote||0;
+  const ensureSameEditor=()=>{
+    if(currentQuoteNumber!==editingQuoteNumber||(window._gbEditorContexts?.quote||0)!==editorContext){
+      const error=Object.assign(new Error("Cambiaste de cotización mientras se guardaba. No se escribió el documento; vuelve a guardar desde el editor actual."),{paraUsuario:true});
+      error.code="EDITOR_CONTEXT_CHANGED";throw error;
+    }
+  };
+  const editBase=window._gbEditBases?.quote;
   const items=allIt();
   if(!items.length){if(!silent){if(typeof toast==="function")toast("Agrega productos primero","warn");else alert("Agrega productos primero")}return}
   if(!cloudOnline){if(!silent){if(typeof toast==="function")toast("Sin conexión. No se puede guardar.","error");else alert("Sin conexión. No se puede guardar.")}return}
   // v5.5.0: matriz de edición reemplaza el bloqueo duro v4.13.0
   let oldDoc=null; // snapshot previo para diff del audit trail
   let statusActual="enviada";
-  if(currentQuoteNumber){
+  if(editingQuoteNumber){
     try{
       const {db,doc,getDoc}=window.fb;
-      const snap=await getDoc(doc(db,"quotes",currentQuoteNumber));
+      const snap=await getDoc(doc(db,"quotes",editingQuoteNumber));
       if(snap.exists()){
         oldDoc=snap.data();
         statusActual=oldDoc.status||"enviada";
@@ -247,7 +282,7 @@ async function _saveCurrentQuoteImpl(silent){
         if(["anulada","convertida","superseded"].includes(statusActual)){
           if(!silent){
             const _lbl=(STATUS_META[statusActual]||{}).label||statusActual;
-            toast("🔒 Cotización \""+_lbl+"\" ("+currentQuoteNumber+") no se puede modificar. Duplica (📋) y arranca una nueva.","warn",6000);
+            toast("🔒 Cotización \""+_lbl+"\" ("+editingQuoteNumber+") no se puede modificar. Duplica (📋) y arranca una nueva.","warn",6000);
           }
           return;
         }
@@ -264,11 +299,12 @@ async function _saveCurrentQuoteImpl(silent){
       }
     }catch(e){console.warn("No se pudo verificar status previo:",e)}
   }
+  ensureSameEditor();
   try{
     // v7.9.7.6: showLoader movido DESPUÉS del modal de versionado.
     // Antes aparecía "Generando consecutivo..." superpuesto con el modal
     // "¿Guardar como versión nueva?" mientras el usuario decidía. Bug visual.
-    let qNum=currentQuoteNumber;
+    let qNum=editingQuoteNumber;
     let creatingChild=false;
     if(qNum&&oldDoc&&shouldVersionWithSuffix(oldDoc,"quote")){
       // Preguntar al usuario: ¿nueva versión (recotización) o sobreescribir?
@@ -288,23 +324,12 @@ async function _saveCurrentQuoteImpl(silent){
     }
     if(!silent)showLoader("Generando consecutivo...");
     if(!qNum)qNum=await getNextNumber("quote");
-    await autoSaveClientFromCot();
-    // v7.9.16 DAT2-B4: el catch pasaba el error a console.warn y el usuario creía
-    // que el producto quedó en el catálogo cuando no fue así (pérdida silenciosa).
-    // Ahora avisa con toast. NO bloquea el guardado de la cotización (el doc es
-    // lo prioritario; el registro en catálogo se puede reintentar guardando de nuevo).
-    for(const cu of cust){
-      try{await registerCustomProduct(cu.n,cu.d,cu.p,cu.u,cu.inCatalog)}
-      catch(e){
-        console.warn("custom register skipped:",e);
-        if(typeof toast==="function")toast('⚠️ El producto "'+(cu.n||"custom")+'" no se pudo registrar en el catálogo ('+(e?.message||"error")+'). La cotización se guarda igual.',"warn",7000);
-      }
-    }
+    ensureSameEditor();
     let prevStatus="enviada",prevOrderData=null,prevPagos=null,prevEntregaData=null,prevComentarioCliente=null,prevProductionDate=null,prevProduced=null,prevEventDate=null,prevHoraEntrega=null,prevPdfHistorial=null,prevPdfRegenCount=null,prevEditHistory=null,prevOptionGroupId=null,prevFeData=null;
     // v7.9.13 DAT-01: campos operativos adicionales que antes se perdían al sobreescribir el doc
-    const EXTRA_PRESERVE_FIELDS=["ajustes","saldoData","pago_changelog","auditTrail","itemsProducidos","followUpStatus","followUpLog","replacedBy","replaces","expectsReplacement","needsSync","anuladaData"];
+    const EXTRA_PRESERVE_FIELDS=OPERATIONAL_FIELDS; // v7.9.24: contrato compartido.
     const prevExtras={};
-    if(currentQuoteNumber&&!creatingChild){
+    if(editingQuoteNumber&&!creatingChild){
       // Guardando sobre el mismo doc: preservar campos operativos existentes
       if(oldDoc){
         if(oldDoc.status)prevStatus=oldDoc.status;
@@ -323,7 +348,9 @@ async function _saveCurrentQuoteImpl(silent){
         if(oldDoc.feData)prevFeData=oldDoc.feData;
         // v7.9.13 DAT-01: preservar también los campos operativos extra
         EXTRA_PRESERVE_FIELDS.forEach(k=>{if(typeof oldDoc[k]!=="undefined")prevExtras[k]=oldDoc[k]});
-        if($("f-requiere-fe"))$("f-requiere-fe").checked=!!oldDoc.requiereFE;
+        // v7.9.32 P1-R2-03: la factura ya no se fuerza al valor guardado. Era un parche de
+        // v7.1 porque el editor no cargaba la casilla; ahora la carga cargarCotizacionEnEditor
+        // y el cambio del usuario se respeta (entra en la comparación a tres bandas).
       }
     }else if(creatingChild&&oldDoc){
       // Versión hija: copia estado pero reinicia audit trail (nuevo doc)
@@ -331,29 +358,14 @@ async function _saveCurrentQuoteImpl(silent){
       prevStatus="enviada";
       // No arrastramos orderData/pagos/etc — la hija es cotización limpia
     }
+    const formulario=formularioCotizacion(); // v7.9.32: el mismo lector que firma el formulario al abrir
     const qObj={
       quoteNumber:qNum,type:"cot",year:APP_YEAR,
       dateISO:new Date().toISOString(),
       // v7.9.13 DAT-08: persistir también fecha local (dateISO en UTC desfasa el día en UTC-5). dateISO se mantiene por retrocompatibilidad.
       dateLocal:gbTodayIso(),
-      client:cl,idStr:getIdStr(),
-      att:$("f-att").value,mail:$("f-mail").value,tel:$("f-tel").value,dir:$("f-dir").value,
-      city:getCityName(),cityType:$("f-city").value,trCustom:$("f-tr-custom").value,
-      deliv:getDelivStr(),
-      momentosArr:(typeof getMomentos==="function"?getMomentos():[]),
-      eventDate:($("f-date")?.value||""),
-      cart:cart.map(i=>({id:i.id,n:i.n,d:i.d||"",u:i.u||"",p:i.p,origP:i.origP||i.p,qty:i.qty,edited:!!i.edited})),
-      cust:cust.map(i=>({n:i.n,p:i.p,d:i.d||"",u:i.u||"",qty:i.qty})),
-      total:getTotal(),status:prevStatus,
-      // v7.9.20: notasCotData (legacy) se sigue guardando por compatibilidad con
-      // un cliente de caché vieja; notasCotLista es la fuente de verdad nueva.
-      notasCotData:gbNotasALegacy(notasCotLista,DEFAULT_NOTAS_COT),firma:firmaCot,
-      notasCotLista:JSON.parse(JSON.stringify(notasCotLista)),
-      tituloInstruccionesPago:tituloInstruccionesPago||"",
-      tituloCondiciones:tituloCondiciones||"",
-      requiereFE:!!($("f-requiere-fe")&&$("f-requiere-fe").checked),
-      // v7.7.4: notas internas para producción (no aparecen en PDF al cliente)
-      notasInternas:($("f-notas-internas")?.value||"").trim()
+      ...formulario,
+      total:getTotal(),status:prevStatus
     };
     // v7.0-α FIX-01-Q9: orderData se reconcilia más abajo, después de que qObj
     // tenga eventDate/horaEntrega/productionDate finales (del form o preservados).
@@ -416,9 +428,10 @@ async function _saveCurrentQuoteImpl(silent){
     if(nuevosHistory.length>0)qObj.editHistory=nuevosHistory;
     // v5.5.0: si es child, enlazar al padre
     if(creatingChild){
-      qObj.parentQuote=currentQuoteNumber;
+      qObj.parentQuote=editingQuoteNumber;
     }
     if(!silent)showLoader("Guardando en la nube...");
+    let adoptadosGuardado=[]; // v7.9.32 CL-R2-01: campos que ganó la otra sesión en este guardado
     // v6.3.0 E3-1: al crear versión hija, save-hijo + mark-padre-superseded deben ser ATÓMICOS.
     // Antes (v5.5.0-v6.2.0): dos operaciones separadas → race condition si cae red entre ellas.
     // Ahora: runTransaction que hace ambas o ninguna.
@@ -427,30 +440,49 @@ async function _saveCurrentQuoteImpl(silent){
     // Ahora: si la tx falla, error visible + abort — NUNCA escribir por fuera de la transacción.
     if(creatingChild){
       const {db,doc,runTransaction,setDoc,serverTimestamp}=window.fb;
-      const parentRef=doc(db,"quotes",currentQuoteNumber);
+      const parentRef=doc(db,"quotes",editingQuoteNumber);
       const childRef=doc(db,"quotes",qObj.quoteNumber);
+      let hijoConfirmado=null;
       try{
-        await runTransaction(db,async(tx)=>{
+        hijoConfirmado=await runTransaction(db,async(tx)=>{
           // Validar que el padre sigue existiendo y no fue supersedeado por alguien más (edge caso colaboración)
           const parentSnap=await tx.get(parentRef);
           if(!parentSnap.exists()){
-            throw new Error("Padre "+currentQuoteNumber+" no existe");
+            throw Object.assign(new Error("La cotización original ya no existe. Vuelve a abrir el historial."),{paraUsuario:true,detalle:"Padre "+editingQuoteNumber+" no existe"});
           }
-          tx.set(childRef,{...qObj,createdAt:serverTimestamp()});
+          const parent=parentSnap.data();
+          if(["anulada","convertida","superseded"].includes(parent.status))throw Object.assign(new Error("La cotización original cambió de estado. Vuelve a abrirla."),{paraUsuario:true});
+          if((parent.status||"enviada")!==(oldDoc.status||"enviada")||(parent.pagos||[]).length||(parent.ajustes||[]).length)throw Object.assign(new Error("La cotización tiene un cambio de estado o movimientos financieros. Revisa el original antes de crear otra versión."),{paraUsuario:true});
+          // v7.9.26 REV-01: la hija hereda los campos que movió la operación (p. ej. un
+          // reagendamiento) sin bloquear el versionado; sólo aborta si chocan de verdad.
+          const adoptar=resolveEditableConflicts(qObj,parent,editBase,editingQuoteNumber);
+          adoptadosGuardado=adoptar;
+          if((await tx.get(childRef)).exists())throw Object.assign(new Error("La versión nueva ya existe. Vuelve a abrir la cotización original."),{paraUsuario:true});
+          ensureSameEditor();
+          const childObj=aplicarAdopcion(qObj,parent,adoptar); // v7.9.31 ADV-02: sin undefined
+          recalcularTotalTrasAdoptar(childObj,adoptar,"quote"); // v7.9.30: total coherente con lo adoptado
+          tx.set(childRef,{...childObj,createdAt:serverTimestamp()});
           tx.update(parentRef,{
             status:"superseded",
             supersededBy:qNum,
             updatedAt:serverTimestamp()
           });
+          return childObj;
         });
       }catch(txErr){
         console.error("[v7.9.13 DAT-11] runTransaction falló en creatingChild (cotización). NO se escribió nada:",txErr);
         hideLoader();
-        if(typeof toast==="function")toast("❌ No se pudo guardar la versión nueva — reintenta.","error",6000);
+        if(typeof toast==="function")toast("No se guardó la versión nueva: "+(typeof gbMensajeError==="function"?gbMensajeError(txErr):txErr.message),"error",9000);
         return;
       }
+      // v7.9.33 CL-R2-01 (revisión de Codex, ronda 3): lo local sale del hijo CONFIRMADO, como
+      // en el guardado directo. Antes caché, base, snapshot y auxiliares usaban el objeto del
+      // formulario, sin lo que el hijo adoptó de la otra sesión (p. ej. un reagendamiento).
+      const hijo={...hijoConfirmado};
+      Object.keys(qObj).forEach(k=>delete qObj[k]);
+      Object.assign(qObj,hijo);
       // Sync cache local para el padre (tx terminó OK si llegamos acá)
-      const padre=(quotesCache||[]).find(x=>x.id===currentQuoteNumber&&x.kind==="quote");
+      const padre=(quotesCache||[]).find(x=>x.id===editingQuoteNumber&&x.kind==="quote");
       if(padre){padre.status="superseded";padre.supersededBy=qNum}
     }else{
       // v7.9.10: guardado directo en transacción contra lost-update.
@@ -462,21 +494,33 @@ async function _saveCurrentQuoteImpl(silent){
       const {db,doc,runTransaction,serverTimestamp}=window.fb;
       const ref=doc(db,"quotes",qObj.quoteNumber);
       try{
-        await runTransaction(db,async(tx)=>{
+        const committed=await runTransaction(db,async(tx)=>{
           const snap=await tx.get(ref);
           if(snap.exists()){
             const fresh=snap.data();
+            if(!editingQuoteNumber)throw Object.assign(new Error("El número generado ya existe. Reintenta para obtener otro."),{paraUsuario:true});
+            const adoptar=resolveEditableConflicts(qObj,fresh,editBase,editingQuoteNumber); // v7.9.26 REV-01
+            adoptadosGuardado=adoptar;
             // DR-LU-2: si otra sesión bloqueó el doc mientras editábamos, abortar.
             if(["anulada","convertida","superseded"].includes(fresh.status)){
               throw new Error("STATUS_BLOQUEADO_CONCURRENTE:"+fresh.status);
             }
-            const finalObj=mergeOperationalFields(qObj,fresh);
-            tx.set(ref,{...finalObj,createdAt:serverTimestamp()});
+            const finalObj=mergeOperationalFields(qObj,fresh,adoptar);
+            recalcularTotalTrasAdoptar(finalObj,adoptar,"quote"); // v7.9.30: total coherente con lo adoptado
+            ensureSameEditor();
+            tx.set(ref,{...finalObj,createdAt:fresh.createdAt||serverTimestamp(),updatedAt:serverTimestamp()});
+            return finalObj;
           }else{
+            if(editingQuoteNumber)throw Object.assign(new Error("La cotización fue eliminada. No se recreó; guarda tus cambios y revisa el historial."),{paraUsuario:true});
             // Doc nuevo: no hay nada que preservar.
+            ensureSameEditor();
             tx.set(ref,{...qObj,createdAt:serverTimestamp()});
+            return qObj;
           }
         });
+        const confirmed={...committed};
+        Object.keys(qObj).forEach(k=>delete qObj[k]);
+        Object.assign(qObj,confirmed); // v7.9.24: UI y PDF usan lo confirmado por la transacción.
       }catch(txErr){
         if(typeof txErr.message==="string"&&txErr.message.startsWith("STATUS_BLOQUEADO_CONCURRENTE:")){
           if(!silent){hideLoader();toast&&toast("⚠️ Otro usuario archivó/anuló esta cotización mientras editabas. Recarga (Archivo) y revisa antes de volver a guardar.","warn",7000);}
@@ -484,7 +528,7 @@ async function _saveCurrentQuoteImpl(silent){
         }
         console.error("[v7.9.13 DAT-11] runTransaction falló en save directo (cotización). NO se escribió nada:",txErr);
         hideLoader();
-        if(typeof toast==="function")toast("❌ No se pudo guardar — reintenta.","error",6000);
+        if(typeof toast==="function")toast("No se guardó: "+(typeof gbMensajeError==="function"?gbMensajeError(txErr):txErr.message),"error",9000);
         return;
       }
     }
@@ -498,53 +542,74 @@ async function _saveCurrentQuoteImpl(silent){
         else quotesCache.unshift(cacheEntry);
       }
     }catch(e){console.warn("No se pudo sincronizar quotesCache:",e)}
+    // v7.9.25: auxiliares sólo después de confirmar el documento principal.
+    await autoSaveClientDocument(qObj);
+    for(const cu of qObj.cust||[]){
+      try{await registerCustomProduct(cu.n,cu.d,cu.p,cu.u,cu.inCatalog)}
+      catch(e){console.warn("custom register skipped:",e);if(typeof toast==="function")toast('⚠️ Se guardó la cotización, pero el producto "'+(cu.n||"custom")+'" no se pudo registrar en el catálogo ('+gbMensajeError(e)+').',"warn",7000)}
+    }
     // v7.9.13 UX-04: si falla el enlace del reemplazo pendiente, avisar (antes fallaba silencioso)
     if(!creatingChild&&typeof linkPendingReplacement==="function"){try{await linkPendingReplacement(qNum,"quote",qObj.client)}catch(e){console.warn("linkPendingReplacement:",e);if(typeof toast==="function")toast("⚠️ Se guardó, pero no se pudo enlazar el reemplazo pendiente con la cotización anulada. Revisa en Historial.","error",7000)}}
-    // v5.5.0: guardar referencias para el renderR post-guardado
-    window._lastSavedQuote={
-      id:qNum,
-      cambios:cambiosDetectados,
-      statusPrevio:statusActual,
-      creatingChild:creatingChild,
-      afectaCliente:cambiosAfectanCliente(cambiosDetectados),
-      hayPagos:Array.isArray(prevPagos)&&prevPagos.length>0,
-      totalAnterior:(oldDoc&&oldDoc.total)||0,
-      totalNuevo:qObj.total
-    };
-    const padreNumeroParaMsg=currentQuoteNumber; // guardar ANTES de sobreescribir
-    currentQuoteNumber=qNum;
-    if(!silent){
-      hideLoader();
-      if(creatingChild){
-        if(typeof toast==="function")toast("✅ Nueva versión creada: "+qNum+" · La anterior ("+padreNumeroParaMsg+") quedó archivada.","success",5000);
-        else toast("✅ Nueva versión creada: "+qNum+". La anterior ("+padreNumeroParaMsg+") quedó archivada.","success",5000);
-      }else if(cambiosDetectados.length>0&&statusActual==="en_produccion"){
-        // Letrero aparece en renderR — aquí solo toast
-        if(typeof toast==="function")toast("⚠️ Pedido en producción modificado. Aviso visible al equipo.","warn",5000);
-      }else{
-        if(typeof toast==="function")toast("✅ Guardado: "+qNum,"success");
-        else toast("✅ Guardado: "+qNum,"success");
+    const padreNumeroParaMsg=editingQuoteNumber;
+    const editorStillSame=currentQuoteNumber===editingQuoteNumber&&(window._gbEditorContexts?.quote||0)===editorContext;
+    if(editorStillSame){
+      // v7.9.33 CL-R2-01: si el guardado adoptó campos de otra sesión, el editor se recarga
+      // desde lo confirmado: la pantalla, la base y la firma del formulario quedan iguales al
+      // documento, y un cambio posterior del usuario nunca choca con una base ficticia.
+      if(adoptadosGuardado.length){
+        cargarCotizacionEnEditor({...qObj});
+        if(typeof go==="function"&&typeof curStep!=="undefined"&&curStep)go(curStep);
+      }else rememberEditBase("quote",qNum,qObj,{formulario});
+      window._lastSavedQuote={id:qNum,cambios:cambiosDetectados,statusPrevio:statusActual,creatingChild:creatingChild,afectaCliente:cambiosAfectanCliente(cambiosDetectados),hayPagos:Array.isArray(prevPagos)&&prevPagos.length>0,totalAnterior:(oldDoc&&oldDoc.total)||0,totalNuevo:qObj.total};
+      currentQuoteNumber=qNum;
+      if(!silent){
+        hideLoader();
+        if(creatingChild){
+          if(typeof toast==="function")toast("✅ Nueva versión creada: "+qNum+" · La anterior ("+padreNumeroParaMsg+") quedó archivada.","success",5000);
+          else toast("✅ Nueva versión creada: "+qNum+". La anterior ("+padreNumeroParaMsg+") quedó archivada.","success",5000);
+        }else if(cambiosDetectados.length>0&&statusActual==="en_produccion"){
+          if(typeof toast==="function")toast("⚠️ Pedido en producción modificado. Aviso visible al equipo.","warn",5000);
+        }else{
+          if(typeof toast==="function")toast("✅ Guardado: "+qNum,"success");
+          else toast("✅ Guardado: "+qNum,"success");
+        }
+        // v7.9.33: el aviso nombra sólo lo que cambió en pantalla; un valor adoptado igual al que
+        // ya se veía (p. ej. un valor por defecto que la otra sesión escribió) no se menciona.
+        if(adoptadosGuardado.length&&typeof toast==="function"){
+          const _enPantalla=editableFieldSignatures(formulario,{formulario:true}),_confirmado=editableFieldSignatures(qObj);
+          const incorporados=adoptadosGuardado.filter(c=>_enPantalla[c]!==_confirmado[c]);
+          if(incorporados.length)toast("Se incorporaron cambios hechos en otra sesión: "+etiquetasDeCampos(incorporados).join(", ")+".","info",7000);
+        }
       }
-    }
-    if(curStep==="review")renderR();
-  }catch(e){if(!silent)hideLoader();if(typeof toast==="function")toast("Error al guardar: "+e.message,"error",6000);else alert("Error al guardar: "+e.message);console.error(e)}
+      if(curStep==="review")renderR();
+    }else if(!silent)hideLoader();
+    return {ok:true,id:qNum,document:{...qObj}};
+  }catch(e){if(!silent)hideLoader();/* v7.9.31 P2-01: tambien este catch exterior traduce los permisos negados (p. ej. getNextNumber rechazado por las reglas de counters) */const _msgErr=(typeof gbMensajeError==="function"?gbMensajeError(e):e.message);if(typeof toast==="function")toast("Error al guardar: "+_msgErr,"error",6000);else alert("Error al guardar: "+_msgErr);console.error(e)}
 }
 
 // ─── PDF COTIZACIÓN ────────────────────────────────────────
 async function genPDF(){
   try{
-    const all=allIt();
+    let all=allIt();
     if(!all.length){if(typeof toast==="function")toast("Agrega productos antes de generar el PDF","warn");else alert("Agrega productos antes de generar el PDF");return}
     if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión. Conecta a internet para generar el PDF con número de cotización.","error",5000);else alert("Sin conexión. Conecta a internet para generar el PDF con número de cotización.");return}
     showLoader("Guardando cotización...");
-    await saveCurrentQuote(true);
-    if(!currentQuoteNumber){hideLoader();return}
+    const saved=await saveCurrentQuote(true);
+    if(!saved?.ok){hideLoader();toast("No se generó el PDF: el guardado no fue confirmado.","error",7000);return}
     hideLoader();
+    // v7.9.24: emitir la instantánea confirmada aunque el editor haya cambiado durante el await.
+    const snapshot=JSON.parse(JSON.stringify(saved.document));
+    const pdfNumber=saved.id;
+    all=[...(snapshot.cart||[]),...(snapshot.cust||[])];
+    const notasCotLista=gbNotasNormalizar(snapshot.notasCotLista,snapshot.notasCotData,DEFAULT_NOTAS_COT,NOTAS_COT_TITULOS);
+    const firmaCot=snapshot.firma||"km";
+    const getTitPago=()=>snapshot.tituloInstruccionesPago||DEFAULT_TIT_PAGO;
+    const getTitCondiciones=()=>snapshot.tituloCondiciones||DEFAULT_TIT_CONDICIONES;
     const{jsPDF}=window.jspdf;const doc=new jsPDF("p","mm","letter");const W=215.9,H=279.4,mg=16;
-    const cl=$("f-cli").value||"—",idStr=getIdStr(),att=$("f-att").value||cl,mail=$("f-mail").value,tel=$("f-tel").value,dir=$("f-dir").value,city=getCityName()||"—",deliv=getDelivStr();
-    const tr=getTr(),tot=getTotal();
+    const cl=snapshot.client||"—",idStr=snapshot.idStr||"",att=snapshot.att||cl,mail=snapshot.mail||"",tel=snapshot.tel||"",dir=snapshot.dir||"",city=snapshot.city||"—",deliv=snapshot.deliv||"";
+    const tr=snapshot.cityType==="Otra"?{n:"Transporte "+(snapshot.city||"Otra ciudad"),p:parseInt(snapshot.trCustom)||0}:(TR[snapshot.cityType]||null),tot=snapshot.total;
     // v7.9.13 ARQ-05: header compartido (logo + línea dorada + título + número) → app-core.js
-    let y=gbPdfHeader(doc,{titulo:"COTIZACIÓN GOURMETBITES BY ANDRADE MATUK - "+dateStr(),numero:currentQuoteNumber,tituloSize:10});
+    let y=gbPdfHeader(doc,{titulo:"COTIZACIÓN GOURMETBITES BY ANDRADE MATUK - "+dateStr(),numero:pdfNumber,tituloSize:10});
     y+=6;doc.setFontSize(8.5);
     let cliLine="Cliente: "+cl;if(idStr)cliLine+=" - "+idStr;cliLine+="     Atención: "+att;
     doc.text(cliLine,W/2,y,{align:"center"});
@@ -553,6 +618,15 @@ async function genPDF(){
     if(dir){y+=4;doc.setFont("helvetica","normal");doc.text("Dirección: "+dir,W/2,y,{align:"center"})}
     y+=4;doc.setFont("helvetica","bold");doc.text("Ciudad de Entrega: "+city,W/2,y,{align:"center"});
     if(deliv){y+=4;doc.text("Fecha de Entrega: "+deliv,W/2,y,{align:"center"})}
+    // v7.9.29: el total también en la PRIMERA hoja. Con el tope de 40 productos la
+    // cotización sale en varias páginas y el recuadro verde queda al final; quien sólo
+    // miraba la primera hoja no veía cuánto cuesta (pedido de Luis). Usa el mismo `tot`
+    // que el recuadro verde, así que no pueden no coincidir.
+    {y+=5;const rh=9;doc.setFillColor(232,245,233);doc.setDrawColor(165,214,167);doc.setLineWidth(0.3);doc.roundedRect(mg,y,W-mg*2,rh,2,2,"FD");
+     doc.setTextColor(27,94,32);doc.setFont("helvetica","bold");doc.setFontSize(9.5);
+     doc.text("TOTAL DE LA COTIZACIÓN"+(tr?" (incluye transporte)":""),mg+4,y+6);
+     doc.setFontSize(12);doc.text(fm(tot),W-mg-4,y+6.2,{align:"right"});
+     doc.setTextColor(26,26,26);doc.setFont("helvetica","normal");doc.setFontSize(8.5);y+=rh}
     y+=5;const td=[];all.forEach(i=>td.push([i.n+(i.d?"\n"+i.d:""),String(i.qty),fm(i.p),fm(i.p*i.qty)]));
     if(tr)td.push([tr.n,"1",fm(tr.p),fm(tr.p)]);
     const tw=W-mg*2;
@@ -591,7 +665,7 @@ async function genPDF(){
     py+=6;doc.setFontSize(7.5);doc.setTextColor(100,100,100);doc.setFont("helvetica","italic");
     doc.text(nl,px+8,py);
     y=y+ph+6;
-    initNotasCot();
+    // Notas confirmadas en snapshot; no rehidratar desde el editor.
     // v7.9.20: el PDF recorre la LISTA (respeta orden, títulos y notas agregadas)
     const notasFontSize=7.8;
     doc.setFontSize(notasFontSize);doc.setFont("helvetica","normal");
@@ -625,14 +699,14 @@ async function genPDF(){
     if(y+firmaCotH>H-20){doc.addPage();y=20}
     // v7.9.13 ARQ-05: firma + footer compartidos → app-core.js
     y=gbPdfFirma(doc,y,{firmante:FIRMANTES[firmaCot]||FIRMANTES.km});
-    gbPdfFooter(doc);
+    gbPdfFooter(doc,{numerar:true}); // v7.9.29: "Página X de Y"
     // v4.12.2: usar Web Share API en iOS/Android para evitar fuga del blob URL en WhatsApp
     // v5.4.1 (Bloque B): usar savePdfConCopiaStorage para versionar + copia en Storage.
     // currentQuoteNumber es a la vez el docId en Firestore (confirmado: los
     // getDoc(doc(db,"quotes",currentQuoteNumber)) de saveCurrentQuote lo usan así).
     // v7.9.7.1 F8.6: ver app-propuesta.js — mismo fix de mojibake en filename.
     const clSafe=(cl||"sin").normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-zA-Z0-9]/g,"_");
-    const baseName=currentQuoteNumber+"_"+clSafe;
-    await savePdfConCopiaStorage(doc,baseName,"quote",currentQuoteNumber);
-  }catch(err){alert("Error generando PDF: "+err.message);console.error(err)}
+    const baseName=pdfNumber+"_"+clSafe;
+    await savePdfConCopiaStorage(doc,baseName,"quote",pdfNumber);
+  }catch(err){alert("Error generando PDF: "+gbMensajeError(err));console.error(err)}
 }

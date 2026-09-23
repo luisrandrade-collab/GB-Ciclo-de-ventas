@@ -5,41 +5,18 @@
 // Uso: node scripts/test_merge_operational.mjs
 // Sale con 0 si todos los casos pasan, 1 si alguno falla.
 //
-// Por qué copia el helper de app-core.js (no lo importa):
-//   app-core.js es UMD-style sin export, cargado por <script>. Igual que
-//   test_despachos.mjs, copiamos la función aquí para probarla en aislamiento.
+// v7.9.24: extrae y ejecuta el helper de app-core.js en un contexto aislado.
+// No mantiene una copia del código bajo prueba ni carga Firebase.
 //   Si la firma o la lista OPERATIONAL_FIELDS cambia, actualizar este archivo.
 // ═══════════════════════════════════════════════════════════════════════════
 
-// ─── Copia de app-core.js (mantener sincronizado) ───────────────────────────
-
-// v7.9.13 DAT-01: lista ampliada (ajustes, saldoData, pago_changelog, auditTrail, itemsProducidos,
-// followUpStatus, followUpLog, replacedBy, replaces, expectsReplacement, needsSync, anuladaData).
-const OPERATIONAL_FIELDS=["status","supersededBy","pagos","orderData","entregaData","produced","productionDate","approvalData","propFinalRef","comentarioCliente","pdfHistorial","pdfRegenCount","ajustes","saldoData","pago_changelog","auditTrail","itemsProducidos","followUpStatus","followUpLog","replacedBy","replaces","expectsReplacement","needsSync","anuladaData"];
-
-function mergeOperationalFields(formObj,freshDoc){
-  const out={...formObj};
-  if(!freshDoc)return out;
-  for(const f of OPERATIONAL_FIELDS){
-    if(typeof freshDoc[f]!=="undefined")out[f]=freshDoc[f];
-  }
-  const freshHist=Array.isArray(freshDoc.editHistory)?freshDoc.editHistory:[];
-  const formHist=Array.isArray(formObj.editHistory)?formObj.editHistory:[];
-  let common=0;
-  while(common<freshHist.length&&common<formHist.length&&JSON.stringify(freshHist[common])===JSON.stringify(formHist[common]))common++;
-  const nuevasDeSesion=formHist.slice(common);
-  const merged=[...freshHist,...nuevasDeSesion];
-  if(merged.length>0)out.editHistory=merged; else delete out.editHistory;
-  if(out.orderData&&typeof out.orderData==="object"){
-    out.orderData={
-      ...out.orderData,
-      fechaEntrega:out.eventDate||out.orderData.fechaEntrega||"",
-      horaEntrega:out.horaEntrega||out.orderData.horaEntrega||"",
-      productionDate:out.productionDate||out.orderData.productionDate||""
-    };
-  }
-  return out;
-}
+// v7.9.24: prueba la implementación real, sin copias.
+import { loadSourceFunctions } from './source_test_helpers.mjs';
+const { mergeOperationalFields } = loadSourceFunctions([
+  ['app-core.js', 'OPERATIONAL_FIELDS'],
+  ['app-core.js', 'mergeDespachosForSave'],
+  ['app-core.js', 'mergeOperationalFields']
+]);
 
 // ─── Framework mínimo de testing ────────────────────────────────────────────
 

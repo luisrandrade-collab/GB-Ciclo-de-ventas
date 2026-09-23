@@ -24,7 +24,7 @@ let menajeOptions=[]; // [{id, label, items:[{id,name,qty,price}]}]
 let activeMenajeOptionId=null;
 let reposicionByOption={}; // {opcionId: {name: precio}}
 let menajeItems=[];     // espejo: items de la opción activa
-// v7.9.23.2: id del despacho donde se entrega el menaje. null = primero cronológico.
+// v7.9.28: id del despacho donde se entrega el menaje. null = primero cronológico.
 let menajeAssignedTo=null;
 let tipoServicio="";
 let personalData={
@@ -260,7 +260,7 @@ async function savePriceMemory(){
     // v7.9.21: antes solo console.warn → el usuario creía que los precios quedaban
     // memorizados para la próxima propuesta y no era así (reporte JP).
     console.warn("savePriceMemory failed",e);
-    if(typeof toast==="function")toast("⚠️ No se pudo guardar la memoria de precios ("+(e?.message||"error")+"). Los precios de este documento sí se guardan.","warn",6000);
+    if(typeof toast==="function")toast("⚠️ No se pudo guardar la memoria de precios ("+gbMensajeError(e)+"). Los precios de este documento sí se guardan.","warn",6000);
   }
 }
 function rememberPricesFromProposal(){
@@ -687,6 +687,7 @@ function readDespachosFromForm(){
   return currentDespachos
     .filter(d=>d&&d.fechaHora)
     .map(d=>({
+      ...d, // v7.9.24: conservar evidencia y campos adicionales durante la edición.
       id:d.id,
       fechaHora:d.fechaHora,
       direccion:d.direccion||null,
@@ -837,7 +838,7 @@ function renderMenaje(){
   }
   // Header: tabs de opciones + botones de gestión
   let html="";
-  // v7.9.23.2: en qué despacho se entrega el menaje. Sólo aparece cuando el evento
+  // v7.9.28: en qué despacho se entrega el menaje. Sólo aparece cuando el evento
   // tiene más de un despacho, que es cuando la pregunta tiene sentido. Sin elegir,
   // la remisión lo imprime en el primero cronológico, como se ha hecho siempre.
   const _despMenaje=(typeof currentDespachos!=="undefined"&&Array.isArray(currentDespachos))?currentDespachos:[];
@@ -893,7 +894,7 @@ function renderMenaje(){
   $("menaje-list").innerHTML=html;
   if($("repo-list"))renderReposicion();
 }
-// v7.9.23.2: elegir el despacho que lleva el menaje. "" vuelve al comportamiento
+// v7.9.28: elegir el despacho que lleva el menaje. "" vuelve al comportamiento
 // por defecto (primer despacho cronológico).
 function setMenajeDespacho(id){
   menajeAssignedTo=id||null;
@@ -913,28 +914,92 @@ async function savePropQuote(silent){
   try{return await _savePropQuoteImpl(silent)}
   finally{window._savePropBusy=false}
 }
+// v7.9.32 P1-R2-01: lo que el formulario de propuesta envía al guardar, en UN solo sitio.
+// Lo usan el guardado y la firma del formulario recién abierto (recordarFormularioAbierto).
+// Apertura y vencimiento se leen del campo con el mismo respaldo que usa el guardado.
+function formularioPropuesta(){
+  // v7.9.7 F1: leer despachos del form si existe el contenedor.
+  // Defensivo: si el DOM aún no tiene UI de despachos (F2 pendiente), no setea el campo
+  // → propuesta queda legacy (1 entrega derivada de eventDate/trCustom).
+  let despachosForm=undefined;
+  if(typeof readDespachosFromForm==="function"){
+    try{despachosForm=readDespachosFromForm()}catch(e){console.warn("[savePropQuote] readDespachosFromForm error:",e)}
+  }
+  const out={
+    client:$("fp-cli").value.trim()||"Sin nombre",idStr:getPropIdStr(),
+    att:$("fp-att").value,mail:$("fp-mail").value,tel:$("fp-tel").value,dir:$("fp-dir").value,
+    city:getCityNameP(),cityType:$("fp-city").value,trCustom:$("fp-tr-custom").value,
+    pers:$("fp-pers").value,momento:$("fp-momento").value,eventDate:$("fp-date").value,
+    tipoServicio:tipoServicio||"",
+    tituloMenaje:tituloMenaje||"",tituloPersonal:tituloPersonal||"",
+    condicionesLista:JSON.parse(JSON.stringify(condicionesLista)),
+    condicionesData:gbNotasALegacy(condicionesLista,DEFAULT_CONDICIONES),
+    personalData:JSON.parse(JSON.stringify(personalData)),
+    sections:JSON.parse(JSON.stringify(propSections)),
+    // v7.9.8: persistir tanto menaje[] (legacy, items de la opción activa) como menajeOptions[] (nuevo, todas las opciones)
+    menaje:JSON.parse(JSON.stringify(menajeItems)),
+    menajeOptions:JSON.parse(JSON.stringify(menajeOptions)),
+    menajeAssignedTo:menajeAssignedTo||null, // v7.9.28
+
+    propFinalSelection:{menaje:activeMenajeOptionId}, // v7.9.24: selección confirmada para PDF.
+    aperturaFrase:(($("fp-apertura")?.value||"").trim())||aperturaFrase,
+    fechaVencimiento:($("fp-fecha-venc")?.value)||fechaVencimiento,
+    condicionesData:JSON.parse(JSON.stringify(condicionesData)),
+    // v7.9.8: persistir reposicionByOption (nuevo) además de reposicionData plano (legacy compat)
+    incluirReposicion:getIncluirReposicion(),
+    reposicionByOption:JSON.parse(JSON.stringify(reposicionByOption)),
+    reposicionData:JSON.parse(JSON.stringify(reposicionData)),
+    firma:firmaProp,
+    requiereFE:!!($("fp-requiere-fe")&&$("fp-requiere-fe").checked),
+    // v7.7.4: notas internas para producción (no aparecen en PDF al cliente)
+    notasInternas:($("fp-notas-internas")?.value||"").trim()
+  };
+  // v7.9.7 F1: si form devolvió despachos, persistirlos. Sincronizar eventDate
+  // del doc con primer despacho para consistencia con KPIs/agenda legacy.
+  if(Array.isArray(despachosForm)&&despachosForm.length){
+    out.despachos=despachosForm;
+    if(despachosForm[0]&&despachosForm[0].fechaHora){
+      const isoDate=despachosForm[0].fechaHora.slice(0,10);
+      const horaPart=despachosForm[0].fechaHora.slice(11,16);
+      if(isoDate)out.eventDate=isoDate;
+      if(horaPart)out.horaEntrega=horaPart;
+    }
+  }
+  // v6.4.0 P2: la hora escrita en el formulario manda sobre la del primer despacho.
+  const hora=($("fp-hora-entrega")?.value)||"";
+  if(hora)out.horaEntrega=hora;
+  return out;
+}
 async function _savePropQuoteImpl(silent){
-  const cl=$("fp-cli").value.trim()||"Sin nombre";
+  const editingPropNumber=currentPropNumber;
+  const editorContext=window._gbEditorContexts?.proposal||0;
+  const ensureSameEditor=()=>{
+    if(currentPropNumber!==editingPropNumber||(window._gbEditorContexts?.proposal||0)!==editorContext){
+      const error=Object.assign(new Error("Cambiaste de propuesta mientras se guardaba. No se escribió el documento; vuelve a guardar desde el editor actual."),{paraUsuario:true});
+      error.code="EDITOR_CONTEXT_CHANGED";throw error;
+    }
+  };
+  const editBase=window._gbEditBases?.proposal;
   if(!cloudOnline){if(!silent){if(typeof toast==="function")toast("Sin conexión. No se puede guardar.","error");else alert("Sin conexión. No se puede guardar.")}return}
   // v4.12.7: bloquear guardado como borrador si currentPropNumber es una PF.
-  if(currentPropNumber&&currentPropNumber.startsWith("GB-PF-")){
-    if(!silent)toast("🔒 PF ("+currentPropNumber+") es registro formal, no se guarda como borrador. Para cambios: historial → 🔄 Nueva versión.","warn",7000);
+  if(editingPropNumber&&editingPropNumber.startsWith("GB-PF-")){
+    if(!silent)toast("🔒 PF ("+editingPropNumber+") es registro formal, no se guarda como borrador. Para cambios: historial → 🔄 Nueva versión.","warn",7000);
     return;
   }
   // v5.5.0: matriz de edición reemplaza el bloqueo duro v4.13.0
   let oldDoc=null;
   let statusActual="enviada";
-  if(currentPropNumber){
+  if(editingPropNumber){
     try{
       const {db,doc,getDoc}=window.fb;
-      const snap=await getDoc(doc(db,"proposals",currentPropNumber));
+      const snap=await getDoc(doc(db,"proposals",editingPropNumber));
       if(snap.exists()){
         oldDoc=snap.data();
         statusActual=oldDoc.status||"enviada";
         if(["anulada","convertida","superseded"].includes(statusActual)){
           if(!silent){
             const _lbl=(STATUS_META[statusActual]||{}).label||statusActual;
-            toast("🔒 Propuesta \""+_lbl+"\" ("+currentPropNumber+") no se puede modificar. Duplica (📋) y arranca una nueva.","warn",6000);
+            toast("🔒 Propuesta \""+_lbl+"\" ("+editingPropNumber+") no se puede modificar. Duplica (📋) y arranca una nueva.","warn",6000);
           }
           return;
         }
@@ -950,11 +1015,12 @@ async function _savePropQuoteImpl(silent){
       }
     }catch(e){console.warn("No se pudo verificar status previo:",e)}
   }
+  ensureSameEditor();
   try{
     // v7.9.7.6: showLoader movido DESPUÉS del modal de versionado.
     // Antes aparecía "Generando consecutivo..." superpuesto con el modal
     // "¿Guardar como versión nueva?" mientras el usuario decidía. Bug visual.
-    let pNum=currentPropNumber;
+    let pNum=editingPropNumber;
     let creatingChild=false;
     if(pNum&&oldDoc&&shouldVersionWithSuffix(oldDoc,"proposal")){
       if(!silent){
@@ -974,15 +1040,14 @@ async function _savePropQuoteImpl(silent){
     }
     if(!silent)showLoader("Generando consecutivo...");
     if(!pNum)pNum=await getNextNumber("proposal");
-    await autoSaveClientFromProp();
-    propSections.forEach(sec=>sec.options.forEach(opt=>opt.items.forEach(it=>{if(!it.catId&&it.name){try{registerCustomProduct(it.name,it.desc||"",it.price||0,"")}catch(e){console.warn("[registerCustomProduct propuesta]",it.name,e)}}})));
+    ensureSameEditor();
     aperturaFrase=$("fp-apertura").value.trim()||aperturaFrase;
     fechaVencimiento=$("fp-fecha-venc").value||fechaVencimiento;
     let prevStatus="enviada",prevApprovalData=null,prevPropFinalRef=null,prevPagos=null,prevEntregaData=null,prevComentarioCliente=null,prevProductionDate=null,prevProduced=null,prevHoraEntrega=null,prevPdfHistorial=null,prevPdfRegenCount=null,prevEditHistory=null,prevOptionGroupId=null,prevFeData=null;
     // v7.9.13 DAT-01: campos operativos adicionales que antes se perdían al sobreescribir el doc
-    const EXTRA_PRESERVE_FIELDS=["ajustes","saldoData","pago_changelog","auditTrail","itemsProducidos","followUpStatus","followUpLog","replacedBy","replaces","expectsReplacement","needsSync","anuladaData"];
+    const EXTRA_PRESERVE_FIELDS=OPERATIONAL_FIELDS; // v7.9.24: contrato compartido.
     const prevExtras={};
-    if(currentPropNumber&&!creatingChild&&oldDoc){
+    if(editingPropNumber&&!creatingChild&&oldDoc){
       if(oldDoc.status)prevStatus=oldDoc.status;
       if(oldDoc.approvalData)prevApprovalData=oldDoc.approvalData;
       if(oldDoc.propFinalRef)prevPropFinalRef=oldDoc.propFinalRef;
@@ -999,59 +1064,20 @@ async function _savePropQuoteImpl(silent){
       if(oldDoc.feData)prevFeData=oldDoc.feData;
       // v7.9.13 DAT-01: preservar también los campos operativos extra
       EXTRA_PRESERVE_FIELDS.forEach(k=>{if(typeof oldDoc[k]!=="undefined")prevExtras[k]=oldDoc[k]});
-      if($("fp-requiere-fe"))$("fp-requiere-fe").checked=!!oldDoc.requiereFE;
+      // v7.9.32 P1-R2-03: la factura ya no se fuerza al valor guardado (parche de v7.1: el
+      // editor no cargaba la casilla). Ahora la carga loadPropQuote y el cambio se respeta.
     }else if(creatingChild){
       prevStatus="enviada"; // hija siempre arranca limpia pre-confirmación
     }
-    // v7.9.7 F1: leer despachos del form si existe el contenedor.
-    // Defensivo: si el DOM aún no tiene UI de despachos (F2 pendiente), no setea el campo
-    // → propuesta queda legacy (1 entrega derivada de eventDate/trCustom).
-    let despachosForm=undefined;
-    if(typeof readDespachosFromForm==="function"){
-      try{despachosForm=readDespachosFromForm()}catch(e){console.warn("[savePropQuote] readDespachosFromForm error:",e)}
-    }
+    const formulario=formularioPropuesta(); // v7.9.32: el mismo lector que firma el formulario al abrir
     const pObj={
       quoteNumber:pNum,type:"prop",year:APP_YEAR,
       dateISO:new Date().toISOString(),
       // v7.9.13 DAT-08: persistir también fecha local (dateISO en UTC desfasa el día en UTC-5). dateISO se mantiene por retrocompatibilidad.
       dateLocal:gbTodayIso(),
-      client:cl,idStr:getPropIdStr(),
-      att:$("fp-att").value,mail:$("fp-mail").value,tel:$("fp-tel").value,dir:$("fp-dir").value,
-      city:getCityNameP(),cityType:$("fp-city").value,trCustom:$("fp-tr-custom").value,
-      pers:$("fp-pers").value,momento:$("fp-momento").value,eventDate:$("fp-date").value,
-      tipoServicio:tipoServicio||"",
-      tituloMenaje:tituloMenaje||"",tituloPersonal:tituloPersonal||"",
-      condicionesLista:JSON.parse(JSON.stringify(condicionesLista)),
-      condicionesData:gbNotasALegacy(condicionesLista,DEFAULT_CONDICIONES),
-      personalData:JSON.parse(JSON.stringify(personalData)),
-      sections:JSON.parse(JSON.stringify(propSections)),
-      // v7.9.8: persistir tanto menaje[] (legacy, items de la opción activa) como menajeOptions[] (nuevo, todas las opciones)
-      menaje:JSON.parse(JSON.stringify(menajeItems)),
-      menajeOptions:JSON.parse(JSON.stringify(menajeOptions)),
-      menajeAssignedTo:menajeAssignedTo||null, // v7.9.23.2
-
-      aperturaFrase:aperturaFrase,fechaVencimiento:fechaVencimiento,
-      condicionesData:JSON.parse(JSON.stringify(condicionesData)),
-      // v7.9.8: persistir reposicionByOption (nuevo) además de reposicionData plano (legacy compat)
-      incluirReposicion:getIncluirReposicion(),
-      reposicionByOption:JSON.parse(JSON.stringify(reposicionByOption)),
-      reposicionData:JSON.parse(JSON.stringify(reposicionData)),
-      firma:firmaProp,status:prevStatus,
-      requiereFE:!!($("fp-requiere-fe")&&$("fp-requiere-fe").checked),
-      // v7.7.4: notas internas para producción (no aparecen en PDF al cliente)
-      notasInternas:($("fp-notas-internas")?.value||"").trim()
+      ...formulario,
+      status:prevStatus
     };
-    // v7.9.7 F1: si form devolvió despachos, persistirlos. Sincronizar eventDate
-    // del doc con primer despacho para consistencia con KPIs/agenda legacy.
-    if(Array.isArray(despachosForm)&&despachosForm.length){
-      pObj.despachos=despachosForm;
-      if(despachosForm[0]&&despachosForm[0].fechaHora){
-        const isoDate=despachosForm[0].fechaHora.slice(0,10);
-        const horaPart=despachosForm[0].fechaHora.slice(11,16);
-        if(isoDate)pObj.eventDate=isoDate;
-        if(horaPart)pObj.horaEntrega=horaPart;
-      }
-    }
     if(prevApprovalData)pObj.approvalData=prevApprovalData;
     // v7.9.13 DAT-01: re-aplicar campos operativos extra preservados
     Object.keys(prevExtras).forEach(k=>{pObj[k]=prevExtras[k]});
@@ -1089,9 +1115,10 @@ async function _savePropQuoteImpl(silent){
     }
     if(nuevosHistory.length>0)pObj.editHistory=nuevosHistory;
     if(creatingChild){
-      pObj.parentQuote=currentPropNumber;
+      pObj.parentQuote=editingPropNumber;
     }
     if(!silent)showLoader("Guardando en la nube...");
+    let adoptadosGuardado=[]; // v7.9.32 CL-R2-01: campos que ganó la otra sesión en este guardado
     // v6.3.0 E3-1: al crear versión hija, save-hijo + mark-padre-superseded deben ser ATÓMICOS.
     // Antes (v5.5.0-v6.2.0): dos operaciones separadas → race condition si cae red entre ellas.
     // Ahora: runTransaction que hace ambas o ninguna.
@@ -1100,28 +1127,46 @@ async function _savePropQuoteImpl(silent){
     // Ahora: si la tx falla, error visible + abort — NUNCA escribir por fuera de la transacción.
     if(creatingChild){
       const {db,doc,runTransaction,setDoc,serverTimestamp}=window.fb;
-      const parentRef=doc(db,"proposals",currentPropNumber);
+      const parentRef=doc(db,"proposals",editingPropNumber);
       const childRef=doc(db,"proposals",pObj.quoteNumber);
+      let hijoConfirmado=null;
       try{
-        await runTransaction(db,async(tx)=>{
+        hijoConfirmado=await runTransaction(db,async(tx)=>{
           const parentSnap=await tx.get(parentRef);
           if(!parentSnap.exists()){
-            throw new Error("Padre "+currentPropNumber+" no existe");
+            throw Object.assign(new Error("La propuesta original ya no existe. Vuelve a abrir el historial."),{paraUsuario:true,detalle:"Padre "+editingPropNumber+" no existe"});
           }
-          tx.set(childRef,{...pObj,createdAt:serverTimestamp()});
+          const parent=parentSnap.data();
+          if(["anulada","convertida","superseded"].includes(parent.status))throw Object.assign(new Error("La propuesta original cambió de estado. Vuelve a abrirla."),{paraUsuario:true});
+          if((parent.status||"enviada")!==(oldDoc.status||"enviada")||(parent.pagos||[]).length||(parent.ajustes||[]).length)throw Object.assign(new Error("La propuesta tiene un cambio de estado o movimientos financieros. Revisa el original antes de crear otra versión."),{paraUsuario:true});
+          // v7.9.26 REV-01: ver app-cotizar.js — misma comparación a tres bandas.
+          const adoptar=resolveEditableConflicts(pObj,parent,editBase,editingPropNumber);
+          adoptadosGuardado=adoptar;
+          if((await tx.get(childRef)).exists())throw Object.assign(new Error("La versión nueva ya existe. Vuelve a abrir la propuesta original."),{paraUsuario:true});
+          ensureSameEditor();
+          const childObj=aplicarAdopcion(pObj,parent,adoptar); // v7.9.31 ADV-02: sin undefined
+          recalcularTotalTrasAdoptar(childObj,adoptar,"proposal"); // v7.9.30: total coherente con lo adoptado
+          tx.set(childRef,{...childObj,createdAt:serverTimestamp()});
           tx.update(parentRef,{
             status:"superseded",
             supersededBy:pNum,
             updatedAt:serverTimestamp()
           });
+          return childObj;
         });
       }catch(txErr){
         console.error("[v7.9.13 DAT-11] runTransaction falló en creatingChild (propuesta). NO se escribió nada:",txErr);
         hideLoader();
-        if(typeof toast==="function")toast("❌ No se pudo guardar la versión nueva — reintenta.","error",6000);
+        if(typeof toast==="function")toast("No se guardó la versión nueva: "+(typeof gbMensajeError==="function"?gbMensajeError(txErr):txErr.message),"error",9000);
         return;
       }
-      const padre=(quotesCache||[]).find(x=>x.id===currentPropNumber&&x.kind==="proposal");
+      // v7.9.33 CL-R2-01 (revisión de Codex, ronda 3): ver app-cotizar.js. Lo local sale del hijo CONFIRMADO, como
+      // en el guardado directo. Antes caché, base, snapshot y auxiliares usaban el objeto del
+      // formulario, sin lo que el hijo adoptó de la otra sesión (p. ej. un reagendamiento).
+      const hijo={...hijoConfirmado};
+      Object.keys(pObj).forEach(k=>delete pObj[k]);
+      Object.assign(pObj,hijo);
+      const padre=(quotesCache||[]).find(x=>x.id===editingPropNumber&&x.kind==="proposal");
       if(padre){padre.status="superseded";padre.supersededBy=pNum}
     }else{
       // v7.9.10: guardado directo en transacción contra lost-update (ver DR-LU-1).
@@ -1131,19 +1176,31 @@ async function _savePropQuoteImpl(silent){
       const {db,doc,runTransaction,serverTimestamp}=window.fb;
       const ref=doc(db,"proposals",pObj.quoteNumber);
       try{
-        await runTransaction(db,async(tx)=>{
+        const committed=await runTransaction(db,async(tx)=>{
           const snap=await tx.get(ref);
           if(snap.exists()){
             const fresh=snap.data();
+            if(!editingPropNumber)throw Object.assign(new Error("El número generado ya existe. Reintenta para obtener otro."),{paraUsuario:true});
+            const adoptar=resolveEditableConflicts(pObj,fresh,editBase,editingPropNumber); // v7.9.26 REV-01
+            adoptadosGuardado=adoptar;
             if(["anulada","convertida","superseded"].includes(fresh.status)){
               throw new Error("STATUS_BLOQUEADO_CONCURRENTE:"+fresh.status);
             }
-            const finalObj=mergeOperationalFields(pObj,fresh);
-            tx.set(ref,{...finalObj,createdAt:serverTimestamp()});
+            const finalObj=mergeOperationalFields(pObj,fresh,adoptar);
+            recalcularTotalTrasAdoptar(finalObj,adoptar,"proposal"); // v7.9.30: total coherente con lo adoptado
+            ensureSameEditor();
+            tx.set(ref,{...finalObj,createdAt:fresh.createdAt||serverTimestamp(),updatedAt:serverTimestamp()});
+            return finalObj;
           }else{
+            if(editingPropNumber)throw Object.assign(new Error("La propuesta fue eliminada. No se recreó; guarda tus cambios y revisa el historial."),{paraUsuario:true});
+            ensureSameEditor();
             tx.set(ref,{...pObj,createdAt:serverTimestamp()});
+            return pObj;
           }
         });
+        const confirmed={...committed};
+        Object.keys(pObj).forEach(k=>delete pObj[k]);
+        Object.assign(pObj,confirmed); // v7.9.24: reflejar los datos operativos frescos.
       }catch(txErr){
         if(typeof txErr.message==="string"&&txErr.message.startsWith("STATUS_BLOQUEADO_CONCURRENTE:")){
           if(!silent){hideLoader();toast&&toast("⚠️ Otro usuario archivó/anuló esta propuesta mientras editabas. Recarga (Archivo) y revisa antes de volver a guardar.","warn",7000);}
@@ -1151,7 +1208,7 @@ async function _savePropQuoteImpl(silent){
         }
         console.error("[v7.9.13 DAT-11] runTransaction falló en save directo (propuesta). NO se escribió nada:",txErr);
         hideLoader();
-        if(typeof toast==="function")toast("❌ No se pudo guardar — reintenta.","error",6000);
+        if(typeof toast==="function")toast("No se guardó: "+(typeof gbMensajeError==="function"?gbMensajeError(txErr):txErr.message),"error",9000);
         return;
       }
     }
@@ -1164,40 +1221,51 @@ async function _savePropQuoteImpl(silent){
         else quotesCache.unshift(cacheEntry);
       }
     }catch(e){console.warn("No se pudo sincronizar quotesCache:",e)}
+    // v7.9.25: primero se confirma la propuesta; luego se actualizan auxiliares.
+    await autoSaveClientDocument(pObj);
+    for(const sec of pObj.sections||[])for(const opt of sec.options||[])for(const it of opt.items||[]){
+      if(!it.catId&&it.name){try{await registerCustomProduct(it.name,it.desc||"",it.price||0,"")}
+      catch(e){console.warn("[registerCustomProduct propuesta]",it.name,e);if(typeof toast==="function")toast('⚠️ Se guardó la propuesta, pero "'+it.name+'" no se pudo registrar en el catálogo.',"warn",7000)}}
+    }
     // v7.9.13 UX-04: si falla el enlace del reemplazo pendiente, avisar (mismo fix que app-cotizar)
     if(!creatingChild&&typeof linkPendingReplacement==="function"){try{await linkPendingReplacement(pNum,"proposal",pObj.client)}catch(e){console.warn("linkPendingReplacement:",e);if(typeof toast==="function")toast("⚠️ Se guardó, pero no se pudo enlazar el reemplazo pendiente con la propuesta anulada. Revisa en Historial.","error",7000)}}
-    // Guardar referencias para UI post-guardado
-    window._lastSavedProp={
-      id:pNum,
-      cambios:cambiosDetectados,
-      statusPrevio:statusActual,
-      creatingChild:creatingChild,
-      afectaCliente:cambiosAfectanCliente(cambiosDetectados),
-      hayPagos:Array.isArray(prevPagos)&&prevPagos.length>0,
-      totalAnterior:(oldDoc&&oldDoc.total)||0,
-      totalNuevo:pObj.total
-    };
-    const padreNumeroProp=currentPropNumber;
-    currentPropNumber=pNum;
-    rememberPricesFromProposal();
-    if(!silent){
-      hideLoader();
-      if(creatingChild){
-        if(typeof toast==="function")toast("✅ Nueva versión creada: "+pNum+" · La anterior ("+padreNumeroProp+") quedó archivada.","success",5000);
-        else toast("✅ Nueva versión creada: "+pNum+". La anterior ("+padreNumeroProp+") quedó archivada.","success",5000);
-      }else if(cambiosDetectados.length>0&&statusActual==="en_produccion"){
-        if(typeof toast==="function")toast("⚠️ Propuesta en producción modificada. Aviso visible al equipo.","warn",5000);
-      }else{
-        if(typeof toast==="function")toast("✅ Guardado: "+pNum,"success");
-        else toast("✅ Guardado: "+pNum,"success");
+    const padreNumeroProp=editingPropNumber;
+    const editorStillSame=currentPropNumber===editingPropNumber&&(window._gbEditorContexts?.proposal||0)===editorContext;
+    if(editorStillSame){
+      // v7.9.33 CL-R2-01: ver app-cotizar.js — si se adoptaron campos, recargar lo confirmado.
+      if(adoptadosGuardado.length)loadPropQuote({...pObj});
+      else rememberEditBase("proposal",pNum,pObj,{formulario});
+      window._lastSavedProp={id:pNum,cambios:cambiosDetectados,statusPrevio:statusActual,creatingChild:creatingChild,afectaCliente:cambiosAfectanCliente(cambiosDetectados),hayPagos:Array.isArray(prevPagos)&&prevPagos.length>0,totalAnterior:(oldDoc&&oldDoc.total)||0,totalNuevo:pObj.total};
+      currentPropNumber=pNum;
+      rememberPricesFromProposal();
+      if(!silent){
+        hideLoader();
+        if(creatingChild){
+          if(typeof toast==="function")toast("✅ Nueva versión creada: "+pNum+" · La anterior ("+padreNumeroProp+") quedó archivada.","success",5000);
+          else toast("✅ Nueva versión creada: "+pNum+". La anterior ("+padreNumeroProp+") quedó archivada.","success",5000);
+        }else if(cambiosDetectados.length>0&&statusActual==="en_produccion"){
+          if(typeof toast==="function")toast("⚠️ Propuesta en producción modificada. Aviso visible al equipo.","warn",5000);
+        }else{
+          if(typeof toast==="function")toast("✅ Guardado: "+pNum,"success");
+          else toast("✅ Guardado: "+pNum,"success");
+        }
+        // v7.9.33: el aviso nombra sólo lo que cambió en pantalla; un valor adoptado igual al que
+        // ya se veía (p. ej. un valor por defecto que la otra sesión escribió) no se menciona.
+        if(adoptadosGuardado.length&&typeof toast==="function"){
+          const _enPantalla=editableFieldSignatures(formulario,{formulario:true}),_confirmado=editableFieldSignatures(pObj);
+          const incorporados=adoptadosGuardado.filter(c=>_enPantalla[c]!==_confirmado[c]);
+          if(incorporados.length)toast("Se incorporaron cambios hechos en otra sesión: "+etiquetasDeCampos(incorporados).join(", ")+".","info",7000);
+        }
       }
-    }
-    // v5.5.0: refrescar banners tras guardar
-    if(typeof renderPropEditBanners==="function")renderPropEditBanners();
-  }catch(e){if(!silent)hideLoader();if(typeof toast==="function")toast("Error al guardar: "+e.message,"error",6000);else alert("Error al guardar: "+e.message);console.error(e)}
+      if(typeof renderPropEditBanners==="function")renderPropEditBanners();
+    }else if(!silent)hideLoader();
+    return {ok:true,id:pNum,document:{...pObj}};
+  }catch(e){if(!silent)hideLoader();/* v7.9.31 P2-01: tambien este catch exterior traduce los permisos negados (p. ej. getNextNumber rechazado por las reglas de counters) */const _msgErr=(typeof gbMensajeError==="function"?gbMensajeError(e):e.message);if(typeof toast==="function")toast("Error al guardar: "+_msgErr,"error",6000);else alert("Error al guardar: "+_msgErr);console.error(e)}
 }
 
 function loadPropQuote(q){
+  markEditorContext("proposal");
+  rememberEditBase("proposal",q.quoteNumber||null,q);
   $("fp-cli").value=q.client||"";
   const idParts=(q.idStr||"").split(" ");
   if($("fp-idtype"))$("fp-idtype").value=idParts[0]||"";
@@ -1206,15 +1274,19 @@ function loadPropQuote(q){
   $("fp-pers").value=q.pers||"";$("fp-momento").value=q.momento||"";$("fp-date").value=q.eventDate||"";
   // v6.4.0 P2: cargar horaEntrega editable
   if($("fp-hora-entrega"))$("fp-hora-entrega").value=q.horaEntrega||"";
+  // v7.9.32 P1-R2-02: ciudad, ciudad escrita y transporte se vacían antes de cargar; antes,
+  // una propuesta sin ciudad conservaba los de la anterior y el guardado los reescribía,
+  // con su transporte dentro del total.
+  $("fp-city").value="";$("fp-city-custom").value="";if($("fp-tr-custom"))$("fp-tr-custom").value="";
   if(q.city){
     const known=["La Calera","Bogotá","Chía","Cajicá"];
     if(q.cityType){$("fp-city").value=q.cityType;if(q.cityType==="Otra"){$("fp-city-custom").value=q.city||""}}
     else if(known.includes(q.city)){$("fp-city").value=q.city}
     else{$("fp-city").value="Otra";$("fp-city-custom").value=q.city}
     if($("fp-tr-custom"))$("fp-tr-custom").value=q.trCustom||"";
-    updTrP();
   }
-  propSections=q.sections||[];
+  updTrP();
+  propSections=JSON.parse(JSON.stringify(q.sections||[]));
   // v7.9.8: hidratar menajeOptions desde q.menajeOptions (nuevo) o derivar de q.menaje[] legacy
   if(Array.isArray(q.menajeOptions)&&q.menajeOptions.length){
     menajeOptions=JSON.parse(JSON.stringify(q.menajeOptions));
@@ -1264,22 +1336,30 @@ function loadPropQuote(q){
   setFirma("prop",firmaProp);
   // v7.7.4: cargar notas internas para producción (campo del doc, opcional)
   if($("fp-notas-internas"))$("fp-notas-internas").value=q.notasInternas||"";
+  // v7.9.32 P1-R2-03: la marca de factura se carga como cualquier campo (antes no se
+  // cargaba y el guardado la forzaba al valor guardado, así que no se podía cambiar).
+  if($("fp-requiere-fe"))$("fp-requiere-fe").checked=!!q.requiereFE;
   currentPropNumber=q.quoteNumber||null;
   window._lastSavedProp=null; // limpiar estado de última edición
   showClientHistoryPanel(q.client||"","prop");
   renderPropSections();renderMenaje();renderPersonal();renderCondiciones();renderReposicion();
   // v5.5.0: renderizar banners de edición (letrero, 🕒, diferencia-anticipo)
   if(typeof renderPropEditBanners==="function")renderPropEditBanners();
+  recordarFormularioAbierto("proposal"); // v7.9.32 P1-R2-01
 }
 
 // ─── PROPUESTA FINAL ───────────────────────────────────────
 async function openPropFinalFlow(propId,ev){
   if(ev){ev.stopPropagation();ev.preventDefault()}
+  if(window._generarPfBusy){toast("Espera a que termine la propuesta final en curso.","warn",5000);return}
   if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión. Necesitamos internet para cargar la propuesta.","error",5000);else alert("Sin conexión. Necesitamos internet para cargar la propuesta.");return}
+  const requestSeq=(window._propFinalFlowSeq||0)+1;
+  window._propFinalFlowSeq=requestSeq;
   try{
     showLoader("Cargando propuesta...");
     const {db,doc,getDoc}=window.fb;
     const snap=await getDoc(doc(db,"proposals",propId));
+    if(window._propFinalFlowSeq!==requestSeq)throw Object.assign(new Error("El selector cambió mientras se cargaba. Vuelve a abrir la propuesta."),{paraUsuario:true});
     hideLoader();
     if(!snap.exists()){if(typeof toast==="function")toast("No se encontró la propuesta","error");else alert("No se encontró la propuesta");return}
     propFinalSource={id:propId,...snap.data()};
@@ -1287,9 +1367,13 @@ async function openPropFinalFlow(propId,ev){
     (propFinalSource.sections||[]).forEach(sec=>{if(sec.options&&sec.options.length){propFinalSelection[sec.id]=sec.options[0].id}});
     renderPropFinalPicker();
     $("propfinal-modal").classList.remove("hidden");
-  }catch(e){hideLoader();toast("Error: "+e.message,"error");console.error(e)}
+  }catch(e){hideLoader();window.__regenerating_pf=null;toast("Error: "+gbMensajeError(e),"error");console.error(e)}
 }
-function closePropFinalModal(){$("propfinal-modal").classList.add("hidden");propFinalSource=null;propFinalSelection={}}
+function closePropFinalModal(){
+  if(window._generarPfBusy){toast("Espera a que termine la propuesta final en curso.","warn",5000);return false}
+  window._propFinalFlowSeq=(window._propFinalFlowSeq||0)+1;
+  $("propfinal-modal").classList.add("hidden");propFinalSource=null;propFinalSelection={};window.__regenerating_pf=null;return true
+}
 function pfSelectOption(sectionId,optionId){propFinalSelection[sectionId]=optionId;renderPropFinalPicker()}
 
 function renderPropFinalPicker(){
@@ -1310,91 +1394,61 @@ function renderPropFinalPicker(){
     html+='</div>';
   });
   $("pf-sections-list").innerHTML=html;
-  let totalMenu=0,totalCatering=0;
-  secs.forEach(sec=>{
-    const optId=propFinalSelection[sec.id];
-    const opt=(sec.options||[]).find(o=>o.id===optId);
-    if(!opt)return;
-    const isCat=/servicio\s*de\s*catering|coordinaci[oó]n/i.test(sec.name||"");
-    const sub=(opt.items||[]).reduce((s,it)=>s+(it.price||0)*(it.qty||0),0);
-    if(isCat)totalCatering+=sub;else totalMenu+=sub;
-  });
-  const menaje=(propFinalSource.menaje||[]).reduce((s,m)=>s+(parseInt(m.price)||0)*(parseInt(m.qty)||0),0);
-  const pd=propFinalSource.personalData||{meseros:{},auxiliares:{}};
-  const pm=pd.meseros,pa=pd.auxiliares;
-  const mSub=(parseFloat(pm.cantidad)||0)*((parseFloat(pm.valor4h)||0)+(parseFloat(pm.horasExtra)||0)*(parseFloat(pm.valorHoraExtra)||0));
-  const aSub=(parseFloat(pa.cantidad)||0)*((parseFloat(pa.valor4h)||0)+(parseFloat(pa.horasExtra)||0)*(parseFloat(pa.valorHoraExtra)||0));
-  const personal=mSub+aSub;
-  let transp=0;
-  if(propFinalSource.cityType==="Otra")transp=parseInt(propFinalSource.trCustom)||0;
-  else if(propFinalSource.cityType&&TR[propFinalSource.cityType])transp=TR[propFinalSource.cityType].p;
-  const total=totalMenu+totalCatering+menaje+personal+transp;
+  // Misma fórmula que el documento final, incluidas alternativas y despachos.
+  const selectedSections=secs.map(sec=>({...sec,options:(sec.options||[]).filter(o=>o.id===propFinalSelection[sec.id])}));
+  const total=computePropTotal({...propFinalSource,sections:selectedSections});
   $("pf-total").textContent=fm(total);
 }
 
 async function generarPropuestaFinal(){
+  // v7.9.25: evitar doble envío mientras se confirma la misma selección.
+  if(window._generarPfBusy)return;
+  window._generarPfBusy=true;
+  try{return await _generarPropuestaFinalImpl()}
+  finally{window._generarPfBusy=false}
+}
+async function _generarPropuestaFinalImpl(){
   if(!propFinalSource)return;
   if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión.","error");else alert("Sin conexión.");return}
-  const secs=propFinalSource.sections||[];
-  const sinSeleccion=secs.filter(s=>(s.options||[]).length>0&&!propFinalSelection[s.id]);
+  const src={id:propFinalSource.id,...JSON.parse(JSON.stringify(propFinalSource))};
+  const flowSeq=window._propFinalFlowSeq||0;
+  const regeneration=window.__regenerating_pf?{...window.__regenerating_pf}:null;
+  const selection={...propFinalSelection};
+  const secs=src.sections||[];
+  const sinSeleccion=secs.filter(s=>(s.options||[]).length>0&&!selection[s.id]);
   if(sinSeleccion.length){if(typeof toast==="function")toast("Falta escoger opción en: "+sinSeleccion.map(s=>s.name).join(", "),"warn",5000);else alert("Falta escoger opción en: "+sinSeleccion.map(s=>s.name).join(", "));return}
   try{
     showLoader("Generando Propuesta Final...");
     const pfSections=secs.map(sec=>{
-      const optId=propFinalSelection[sec.id];
+      const optId=selection[sec.id];
       const keepOpt=(sec.options||[]).find(o=>o.id===optId);
-      return {id:sec.id,name:sec.name,options:keepOpt?[JSON.parse(JSON.stringify(keepOpt))]:[]};
+      return {...sec,options:keepOpt?[JSON.parse(JSON.stringify(keepOpt))]:[]};
     }).filter(s=>s.options.length);
     const pfNum=await getNextNumber("propfinal");
-    const src=propFinalSource;
-    propSections=pfSections;
-    // v7.9.8: cargar menajeOptions desde src (PropFinal source) preservando opciones + selección
-    if(Array.isArray(src.menajeOptions)&&src.menajeOptions.length){
-      menajeOptions=JSON.parse(JSON.stringify(src.menajeOptions));
-    }else{
-      const legacyItems=Array.isArray(src.menaje)?JSON.parse(JSON.stringify(src.menaje)):[];
-      menajeOptions=[{id:"opA_legacy_"+Date.now(),label:"Opción A",items:legacyItems}];
-    }
+    if(window._propFinalFlowSeq!==flowSeq||propFinalSource?.id!==src.id)throw Object.assign(new Error("El selector cambió durante la generación. No se guardó; vuelve a abrir la propuesta."),{paraUsuario:true});
+    // Preparar una instantánea local: el editor sólo cambia después del commit.
+    const pfMenajeOptions=Array.isArray(src.menajeOptions)&&src.menajeOptions.length
+      ?JSON.parse(JSON.stringify(src.menajeOptions))
+      :[{id:"opA_legacy_"+Date.now(),label:"Opción A",items:Array.isArray(src.menaje)?JSON.parse(JSON.stringify(src.menaje)):[]}];
     const srcSelOpId=src?.propFinalSelection?.menaje;
-    activeMenajeOptionId=(srcSelOpId&&menajeOptions.find(o=>o.id===srcSelOpId))
+    const pfActiveMenajeOptionId=(srcSelOpId&&pfMenajeOptions.find(o=>o.id===srcSelOpId))
       ?srcSelOpId
-      :menajeOptions[0].id;
-    menajeItems=JSON.parse(JSON.stringify(src.menaje||[]));
-    personalData=JSON.parse(JSON.stringify(src.personalData||{meseros:{},auxiliares:{}}));
-    tipoServicio=src.tipoServicio||"";
-    tituloMenaje=src.tituloMenaje||"";tituloPersonal=src.tituloPersonal||"";
-    incluirReposicion=(typeof src.incluirReposicion==="boolean")?src.incluirReposicion:null;
-    condicionesLista=gbNotasNormalizar(src.condicionesLista,src.condicionesData,DEFAULT_CONDICIONES,CONDICIONES_TITULOS);
-    condicionesData=JSON.parse(JSON.stringify(src.condicionesData||{}));
-    reposicionData=JSON.parse(JSON.stringify(src.reposicionData||{}));
-    // v7.9.8: hidratar reposicionByOption del source o derivar legacy
+      :pfMenajeOptions[0].id;
+    const pfMenajeItems=JSON.parse(JSON.stringify(src.menaje||[]));
+    const pfPersonalData=JSON.parse(JSON.stringify(src.personalData||{meseros:{},auxiliares:{}}));
+    const pfCondicionesLista=gbNotasNormalizar(src.condicionesLista,src.condicionesData,DEFAULT_CONDICIONES,CONDICIONES_TITULOS);
+    const pfReposicionData=JSON.parse(JSON.stringify(src.reposicionData||{}));
+    let pfReposicionByOption;
     if(src.reposicionByOption&&typeof src.reposicionByOption==="object"&&!Array.isArray(src.reposicionByOption)){
-      reposicionByOption=JSON.parse(JSON.stringify(src.reposicionByOption));
+      pfReposicionByOption=JSON.parse(JSON.stringify(src.reposicionByOption));
     }else{
-      reposicionByOption={};
+      pfReposicionByOption={};
       if(src.reposicionData&&typeof src.reposicionData==="object"){
-        reposicionByOption[activeMenajeOptionId]=JSON.parse(JSON.stringify(src.reposicionData));
+        pfReposicionByOption[pfActiveMenajeOptionId]=JSON.parse(JSON.stringify(src.reposicionData));
       }
     }
-    if(!reposicionByOption[activeMenajeOptionId])reposicionByOption[activeMenajeOptionId]={};
-    _syncActiveMenajeRefs();
-    firmaProp=src.firma||"jp";
-    aperturaFrase="Confirmación final del servicio de catering acordado con las opciones seleccionadas por el cliente.";
-    fechaVencimiento=src.fechaVencimiento||"";
-    $("fp-cli").value=src.client||"";
-    $("fp-att").value=src.att||"";
-    $("fp-mail").value=src.mail||"";
-    $("fp-tel").value=src.tel||"";
-    $("fp-dir").value=src.dir||"";
-    $("fp-pers").value=src.pers||"";
-    $("fp-momento").value=src.momento||"";
-    $("fp-date").value=src.eventDate||"";
-    $("fp-city").value=src.cityType||"";
-    $("fp-tr-custom").value=src.trCustom||"";
-    $("fp-city-custom").value=src.city||"";
-    $("fp-apertura").value=aperturaFrase;
-    $("fp-fecha-venc").value=fechaVencimiento;
-    if(src.idStr){const parts=src.idStr.split(" ");if(parts.length>=2){$("fp-idtype").value=parts[0];$("fp-idnum").value=parts.slice(1).join(" ")}}
+    if(!pfReposicionByOption[pfActiveMenajeOptionId])pfReposicionByOption[pfActiveMenajeOptionId]={};
+    const pfApertura="Confirmación final del servicio de catering acordado con las opciones seleccionadas por el cliente.";
     const pfObj={
       quoteNumber:pfNum,type:"propfinal",year:APP_YEAR,
       dateISO:new Date().toISOString(),
@@ -1404,67 +1458,67 @@ async function generarPropuestaFinal(){
       att:src.att||"",mail:src.mail||"",tel:src.tel||"",dir:src.dir||"",
       city:src.city||"",cityType:src.cityType||"",trCustom:src.trCustom||"",
       pers:src.pers||"",momento:src.momento||"",eventDate:src.eventDate||"",
-      tipoServicio:tipoServicio,tituloMenaje:tituloMenaje||"",tituloPersonal:tituloPersonal||"",
-      condicionesLista:JSON.parse(JSON.stringify(condicionesLista)),
-      condicionesData:gbNotasALegacy(condicionesLista,DEFAULT_CONDICIONES),
-      personalData:personalData,
+      tipoServicio:src.tipoServicio||"",tituloMenaje:src.tituloMenaje||"",tituloPersonal:src.tituloPersonal||"",
+      condicionesLista:JSON.parse(JSON.stringify(pfCondicionesLista)),
+      condicionesData:gbNotasALegacy(pfCondicionesLista,DEFAULT_CONDICIONES),
+      personalData:pfPersonalData,
       // v7.9.8: PropFinal incluye TODAS las opciones de menaje preservadas + propFinalSelection.menaje marca la activa
-      sections:pfSections,menaje:menajeItems,
-      menajeOptions:JSON.parse(JSON.stringify(menajeOptions)),
-      menajeAssignedTo:menajeAssignedTo||null, // v7.9.23.2: la PF hereda dónde se entrega el menaje
+      sections:pfSections,menaje:pfMenajeItems,
+      menajeOptions:pfMenajeOptions,
+      menajeAssignedTo:(src&&src.menajeAssignedTo)||menajeAssignedTo||null, // v7.9.28: la PF hereda dónde se entrega el menaje
 
-      propFinalSelection:{menaje:activeMenajeOptionId},
-      aperturaFrase:aperturaFrase,fechaVencimiento:fechaVencimiento,
-      condicionesData:condicionesData,reposicionData:reposicionData,
-      incluirReposicion:getIncluirReposicion(),
-      reposicionByOption:JSON.parse(JSON.stringify(reposicionByOption)),
-      firma:firmaProp,status:"propfinal",sourceProposal:src.id
+      propFinalSelection:{menaje:pfActiveMenajeOptionId},
+      aperturaFrase:pfApertura,fechaVencimiento:src.fechaVencimiento||"",
+      reposicionData:pfReposicionData,
+      incluirReposicion:typeof src.incluirReposicion==="boolean"?src.incluirReposicion:true,
+      reposicionByOption:pfReposicionByOption,
+      firma:src.firma||"jp",status:"propfinal",sourceProposal:src.id
     };
     // v4.12.1: persistir el total real para que el dashboard sume bien
+    inheritPropFinalLogistics(pfObj,src); // v7.9.24: conservar programación y transporte.
     pfObj.total=computePropTotal(pfObj);
     // v4.12.7: si venimos de regenerar una PF vieja, marcar esa como superseded
-    if(window.__regenerating_pf){
-      pfObj.supersedes=window.__regenerating_pf.oldPfId;
-      pfObj.version=(window.__regenerating_pf.oldVersion||1)+1;
+    if(regeneration){
+      pfObj.supersedes=regeneration.oldPfId;
+      pfObj.version=(regeneration.oldVersion||1)+1;
     }
-    const {db,doc,runTransaction,updateDoc,serverTimestamp}=window.fb;
-    // v7.9.13 DAT-06: crear PF + marcar propuesta como convertida en UNA transacción atómica.
-    // Antes: setDoc + updateDoc separados → si caía la red entre ambos quedaba PF creada
-    // con la propuesta base aún "enviada". El catch externo ya muestra toast 'error'.
-    await runTransaction(db,async(tx)=>{
-      tx.set(doc(db,"propfinals",pfNum),{...pfObj,createdAt:serverTimestamp()});
-      tx.update(doc(db,"proposals",src.id),{status:"convertida",propFinalRef:pfNum,updatedAt:serverTimestamp()});
-    });
+    Object.assign(pfObj,await commitPropFinal(pfObj,src,regeneration,flowSeq));
     const localProp=quotesCache.find(x=>x.id===src.id&&x.kind==="proposal");
     if(localProp){localProp.status="convertida";localProp.propFinalRef=pfNum}
-    // v4.12.7: marcar la PF anterior como superseded (reemplazada por la nueva)
-    if(window.__regenerating_pf){
-      const oldId=window.__regenerating_pf.oldPfId;
-      try{
-        await updateDoc(doc(db,"propfinals",oldId),{
-          status:"superseded",
-          supersededBy:pfNum,
-          supersededAt:new Date().toISOString(),
-          updatedAt:serverTimestamp()
-        });
-        const oldLocal=quotesCache.find(x=>x.id===oldId);
-        if(oldLocal){oldLocal.status="superseded";oldLocal.supersededBy=pfNum}
-      }catch(e){
-        // v7.9.13 UX-04: avisar (antes solo console.warn) — quedan 2 PF vigentes a la vez
-        console.warn("No se pudo marcar PF vieja como superseded:",e);
-        if(typeof toast==="function")toast("⚠️ Se creó "+pfNum+", pero NO se pudo archivar la PF anterior ("+oldId+"). Quedaron 2 PF vigentes — márcala como reemplazada manualmente desde Historial.","error",9000);
-      }
+    // v7.9.25: caché sólo después del reemplazo confirmado en la misma transacción.
+    if(regeneration){
+      const oldLocal=quotesCache.find(x=>x.id===regeneration.oldPfId);
+      if(oldLocal){oldLocal.status="superseded";oldLocal.supersededBy=pfNum}
       window.__regenerating_pf=null;
     }
     quotesCache.unshift({kind:"proposal",id:pfNum,...pfObj,createdAt:{toDate:()=>new Date()}});
-    currentPropNumber=pfNum;
-    window.__pfMode=true;
+    markEditorContext("proposal");
     hideLoader();
+    window._generarPfBusy=false;
     closePropFinalModal();
-    await genPropPDF();
-    window.__pfMode=false;
+    await emitirPdfPropFinal(pfNum,pfObj); // v7.9.30 REV-04: sin quedarse con el editor
     renderHist();
-  }catch(e){hideLoader();window.__pfMode=false;window.__regenerating_pf=null;toast("Error generando Propuesta Final: "+e.message,"error");console.error(e)}
+  }catch(e){hideLoader();window.__pfMode=false;window.__regenerating_pf=null;toast("Error generando Propuesta Final: "+gbMensajeError(e),"error");console.error(e)}
+}
+
+// v7.9.30 REV-04: emitir el PDF de la PF recién confirmada SIN quedarse con el editor.
+// Antes, generar una PF dejaba currentPropNumber apuntando a la PF aunque el editor
+// siguiera mostrando otra propuesta —o nada—: el siguiente «Guardar» del editor iba
+// hacia la PF, la comprobación de base lo rechazaba, y los cambios sin guardar de la
+// propuesta abierta quedaban atascados hasta recargar. «Renovar la base con la PF»
+// habría sido peor: el guardado habría escrito el contenido del editor DENTRO de la PF.
+// Lo correcto es devolverle al editor el documento que tenía. El PDF no lo necesita:
+// genPropPDF toma el número del documento confirmado que recibe.
+async function emitirPdfPropFinal(pfNum,pfObj){
+  const anterior=currentPropNumber;
+  currentPropNumber=pfNum;
+  window.__pfMode=true;
+  try{await genPropPDF(pfObj)}
+  finally{
+    window.__pfMode=false;
+    // Si durante la emisión se abrió otro documento, se respeta.
+    if(currentPropNumber===pfNum)currentPropNumber=anterior;
+  }
 }
 
 // v4.12.7: Regenerar una Propuesta Final con cambios (cliente pidió modificaciones).
@@ -1512,27 +1566,89 @@ async function regeneratePropFinal(pfId,ev){
   }catch(e){
     hideLoader();
     window.__regenerating_pf=null;
-    toast("Error: "+e.message,"error");
+    toast("Error: "+gbMensajeError(e),"error");
     console.error(e);
   }
 }
 
 // ─── PDF PROPUESTA ─────────────────────────────────────────
-async function genPropPDF(){
+// v7.9.24: copiar logística explícitamente, sin arrastrar estado/IDs de la propuesta base.
+function inheritPropFinalLogistics(target,source){
+  for(const key of ["despachos","horaEntrega","eventDate","productionDate","notasInternas","requiereFE","city","cityType","trCustom","dir"]){
+    if(source[key]!==undefined)target[key]=JSON.parse(JSON.stringify(source[key]));
+  }
+  return target;
+}
+
+// v7.9.25: lectura/validación de todos los documentos antes de cualquier escritura.
+async function commitPropFinal(pfObj,source,regeneration,flowSeq){
+  const {db,doc,runTransaction,serverTimestamp}=window.fb;
+  const sourceRef=doc(db,"proposals",source.id),newRef=doc(db,"propfinals",pfObj.quoteNumber);
+  return runTransaction(db,async tx=>{
+    const sourceSnap=await tx.get(sourceRef);
+    if(!sourceSnap.exists())throw Object.assign(new Error("La propuesta base ya no existe."),{paraUsuario:true});
+    const fresh=sourceSnap.data();
+    if(["anulada","superseded"].includes(fresh.status)||fresh.status==="convertida"&&!regeneration)throw Object.assign(new Error("La propuesta cambió de estado. Vuelve a abrir el selector."),{paraUsuario:true});
+    assertEditableUnchanged(fresh,{id:source.id,signature:editableDocumentSignature(source)},source.id);
+    if((await tx.get(newRef)).exists())throw Object.assign(new Error("El número de propuesta final ya existe. Reintenta."),{paraUsuario:true});
+    let oldRef=null,old=null;
+    if(regeneration){
+      if(regeneration.sourceProposalId!==source.id||fresh.propFinalRef!==regeneration.oldPfId)throw Object.assign(new Error("La PF vigente cambió. Revisa el historial antes de regenerar."),{paraUsuario:true});
+      oldRef=doc(db,"propfinals",regeneration.oldPfId);
+      const oldSnap=await tx.get(oldRef);
+      if(!oldSnap.exists())throw Object.assign(new Error("La PF anterior ya no existe."),{paraUsuario:true});
+      old=oldSnap.data();
+      if(old.sourceProposal!==source.id||!["propfinal","enviada"].includes(old.status))throw Object.assign(new Error("La PF anterior cambió de estado. Revisa el historial."),{paraUsuario:true});
+      if((old.pagos||[]).length||(old.ajustes||[]).length||old.orderData||old.saldoData||old.feData||old.approvalData||old.produced||old.entregaData||(old.despachos||[]).some(d=>d.producedAt||d.entregaData||d.entregadoEn||d.status&&d.status!=="pendiente")){
+        throw Object.assign(new Error("Esta PF tiene actividad operativa o financiera. No se reemplazó: revisa sus pagos y entregas antes de crear otra versión."),{paraUsuario:true});
+      }
+    }
+    if(flowSeq!==undefined&&(window._propFinalFlowSeq!==flowSeq||propFinalSource?.id!==source.id))throw Object.assign(new Error("El selector cambió durante la generación. No se guardó; vuelve a abrir la propuesta."),{paraUsuario:true});
+    const confirmed=inheritPropFinalLogistics({...pfObj},fresh);
+    confirmed.total=computePropTotal(confirmed);
+    if(old){confirmed.supersedes=regeneration.oldPfId;confirmed.version=(old.version||1)+1}
+    tx.set(newRef,{...confirmed,createdAt:serverTimestamp()});
+    tx.update(sourceRef,{status:"convertida",propFinalRef:pfObj.quoteNumber,updatedAt:serverTimestamp()});
+    if(oldRef)tx.update(oldRef,{status:"superseded",supersededBy:pfObj.quoteNumber,supersededAt:new Date().toISOString(),updatedAt:serverTimestamp()});
+    return confirmed;
+  });
+}
+
+async function genPropPDF(confirmedDoc){
   try{
     if(!cloudOnline){alert("Sin conexión.");return}
     const isFinal=!!window.__pfMode;
+    let snapshot=confirmedDoc;
     if(!isFinal){
       showLoader("Guardando propuesta...");
-      await savePropQuote(true);
-      if(!currentPropNumber){hideLoader();return}
+      const saved=await savePropQuote(true);
+      if(!saved?.ok){hideLoader();toast("No se generó el PDF: el guardado no fue confirmado.","error",7000);return}
+      snapshot=saved.document;
       hideLoader();
+    }else if(!snapshot){
+      const {db,doc,getDoc}=window.fb;
+      const stored=await getDoc(doc(db,"propfinals",currentPropNumber));
+      if(!stored.exists())throw Object.assign(new Error("No se encontró la propuesta final guardada."),{paraUsuario:true});
+      snapshot=stored.data();
     }
+    if(!snapshot?.quoteNumber)throw new Error("Falta el documento confirmado para emitir el PDF.");
+    snapshot=JSON.parse(JSON.stringify(snapshot));
+    const pdfNumber=snapshot.quoteNumber;
+    const propSections=snapshot.sections||[],menajeItems=snapshot.menaje||[],menajeOptions=snapshot.menajeOptions||[];
+    const personalData={meseros:{},auxiliares:{},...snapshot.personalData};
+    const currentDespachos=snapshot.despachos||[],reposicionByOption=snapshot.reposicionByOption||{},reposicionData=snapshot.reposicionData||{};
+    const condicionesLista=gbNotasNormalizar(snapshot.condicionesLista,snapshot.condicionesData,DEFAULT_CONDICIONES,CONDICIONES_TITULOS);
+    const fechaVencimiento=snapshot.fechaVencimiento||"",tipoServicio=snapshot.tipoServicio||"",firmaProp=snapshot.firma||"jp";
+    const activeMenajeOptionId=snapshot.propFinalSelection?.menaje||menajeOptions[0]?.id;
+    const getTitMenaje=()=>snapshot.tituloMenaje||"MENAJE";
+    const getTitPersonal=()=>snapshot.tituloPersonal||"PERSONAL DE SERVICIO";
+    const getTrP=()=>snapshot.cityType==="Otra"?{n:"Transporte "+(snapshot.city||"Otra ciudad"),p:parseInt(snapshot.trCustom)||0}:(TR[snapshot.cityType]||null);
+    const getIncluirReposicion=()=>typeof snapshot.incluirReposicion==="boolean"?snapshot.incluirReposicion:isFinal;
     const{jsPDF}=window.jspdf;const doc=new jsPDF("p","mm","letter");const W=215.9,H=279.4,mg=16;
-    const cl=$("fp-cli").value||"—",idStr=getPropIdStr(),att=$("fp-att").value||cl,mail=$("fp-mail").value,tel=$("fp-tel").value,dir=$("fp-dir").value,city=getCityNameP()||"",pers=$("fp-pers").value||"",momento=$("fp-momento").value||"",eventDate=$("fp-date").value;
+    const cl=snapshot.client||"—",idStr=snapshot.idStr||"",att=snapshot.att||cl,mail=snapshot.mail||"",tel=snapshot.tel||"",dir=snapshot.dir||"",city=snapshot.city||"",pers=snapshot.pers||"",momento=snapshot.momento||"",eventDate=snapshot.eventDate||"";
     const tw=W-mg*2;const footerH=18;
     // v7.9.13 ARQ-05: header compartido (logo + línea dorada + título + número) → app-core.js
-    let y=gbPdfHeader(doc,{titulo:isFinal?"Propuesta Final de Catering":"Propuesta de Catering",numero:currentPropNumber,tituloSize:13});
+    let y=gbPdfHeader(doc,{titulo:isFinal?"Propuesta Final de Catering":"Propuesta de Catering",numero:pdfNumber,tituloSize:13});
     y+=5;doc.setFontSize(8);doc.setFont("helvetica","normal");doc.setTextColor(80,80,80);
     let refLine=isFinal?"REF: Propuesta Final servicio catering":"REF: Propuesta servicio catering";
     if(eventDate){const p=eventDate.split("-");const ms=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];refLine+=" "+parseInt(p[2])+" de "+ms[parseInt(p[1])-1]+" de "+p[0]}
@@ -1553,7 +1669,7 @@ async function genPropPDF(){
     if(evLine)doc.text(evLine,W/2,y,{align:"center"});
     y+=4;doc.setFont("helvetica","normal");doc.setFontSize(8);doc.text("Fecha propuesta: "+dateStr(),W/2,y,{align:"center"});
     if(fechaVencimiento){y+=4;doc.setTextColor(201,169,110);doc.setFont("helvetica","bold");const fv=fechaVencimiento.split("-");const msv=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];doc.text("Propuesta válida hasta: "+parseInt(fv[2])+" de "+msv[parseInt(fv[1])-1]+" de "+fv[0],W/2,y,{align:"center"});doc.setTextColor(26,26,26)}
-    const aperturaTxt=$("fp-apertura").value.trim()||aperturaFrase;
+    const aperturaTxt=snapshot.aperturaFrase||"";
     if(aperturaTxt){y+=7;doc.setFont("helvetica","italic");doc.setFontSize(9.5);doc.setTextColor(80,80,80);const wrapped=doc.splitTextToSize(aperturaTxt,W-mg*2-10);wrapped.forEach((line,idx)=>{doc.text(line,W/2,y+idx*4.5,{align:"center"})});y+=wrapped.length*4.5;doc.setTextColor(26,26,26)}
     y+=5;
     function estH(nItems){return 10+nItems*9+9}
@@ -1856,7 +1972,7 @@ async function genPropPDF(){
     y+=4;doc.setDrawColor(201,169,110);doc.setLineWidth(0.4);doc.line(60,y,W-60,y);
     y+=7;doc.setTextColor(26,26,26);
     // v7.9.20: el PDF recorre la LISTA (respeta orden, títulos y condiciones agregadas)
-    initCondiciones();
+    // v7.9.24: condiciones tomadas del documento confirmado, no del editor mutable.
     condicionesLista.filter(n=>(n.titulo||"").trim()||(n.texto||"").trim()).forEach((n,i)=>{
       const titulo=(n.titulo||"").trim();
       const texto=n.texto||"";
@@ -1897,10 +2013,10 @@ async function genPropPDF(){
     // y "León" salía como "LeÃ³n". NFD descompone, regex quita diacríticos,
     // final reemplaza cualquier no-alfanumérico por "_".
     const clSafe=(cl||"sin").normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-zA-Z0-9]/g,"_");
-    const baseNameP=currentPropNumber+"_"+clSafe;
-    const kindP=(currentPropNumber||"").startsWith("GB-PF-")?"propfinal":"proposal";
-    await savePdfConCopiaStorage(doc,baseNameP,kindP,currentPropNumber);
-  }catch(err){alert("Error generando PDF: "+err.message);console.error(err)}
+    const baseNameP=pdfNumber+"_"+clSafe;
+    const kindP=pdfNumber.startsWith("GB-PF-")?"propfinal":"proposal";
+    await savePdfConCopiaStorage(doc,baseNameP,kindP,pdfNumber);
+  }catch(err){alert("Error generando PDF: "+gbMensajeError(err));console.error(err)}
 }
 
 // v5.5.0: render de banners dinámicos en vista de propuesta (letrero + diferencia + botón 🕒)
@@ -1957,7 +2073,7 @@ async function cancelEdicionProp(){
     });
     if(!ok)return;
     propSections=[];menajeItems=[];personalData=[];currentPropNumber=null;
-    menajeAssignedTo=null; // v7.9.23.2: la asignación de menaje no se hereda entre documentos
+    menajeAssignedTo=null; // v7.9.28: la asignación de menaje no se hereda entre documentos
     tituloMenaje="";tituloPersonal="";incluirReposicion=null; // v7.9.20/21: bloques y reposición a default
     condicionesLista=gbNotasNormalizar(null,null,DEFAULT_CONDICIONES,CONDICIONES_TITULOS);
     window._lastSavedProp=null;
@@ -1977,7 +2093,7 @@ async function cancelEdicionProp(){
     await loadQuote("proposal",currentPropNumber);
     hideLoader();
     if(typeof toast==="function")toast("Cambios descartados","success");
-  }catch(e){hideLoader();toast("Error al recargar: "+e.message,"error")}
+  }catch(e){hideLoader();toast("Error al recargar: "+gbMensajeError(e),"error")}
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2100,7 +2216,7 @@ async function genRemisionDespachoPDF(q,despachoIdx){
     if(totalDesp>1){
       doc.setFillColor(255,243,224);doc.rect(mg,y,tw,8,"F");
       doc.setFontSize(10);doc.setFont("helvetica","bold");doc.setTextColor(230,81,0);
-      // v7.9.23.2: sin emoji. helvetica de jsPDF no tiene el glifo y lo emitía como
+      // v7.9.28: sin emoji. helvetica de jsPDF no tiene el glifo y lo emitía como
       // basura ("%º D e s p a c h o"), en la línea que identifica la entrega dentro
       // del documento que firma el cliente.
       const labelDesp="Despacho "+(idx+1)+" de "+totalDesp+(despacho.notas?" · "+despacho.notas:"");
@@ -2160,7 +2276,7 @@ async function genRemisionDespachoPDF(q,despachoIdx){
       menajeItemsLocal=Array.isArray(q.menaje)?q.menaje:(typeof menajeItems!=="undefined"?menajeItems:[]);
       repoLocal=(q.reposicionData&&typeof q.reposicionData==="object")?q.reposicionData:(typeof reposicionData!=="undefined"?reposicionData:{});
     }
-    // v7.9.23.2: el menaje va en la hoja del despacho asignado (o en la primera
+    // v7.9.28: el menaje va en la hoja del despacho asignado (o en la primera
     // cronológica si no hay asignación). Antes se exigía esPrimeroCronologico
     // siempre, y un evento que entrega el menaje en un despacho posterior sacaba
     // su remisión sin lista. Además se dejaban caer en silencio los ítems sin
@@ -2203,7 +2319,7 @@ async function genRemisionDespachoPDF(q,despachoIdx){
       y=doc.lastAutoTable.finalY+5;
     }
 
-    // ── v7.9.23.2: una remisión no puede salir muda.
+    // ── v7.9.28: una remisión no puede salir muda.
     // Si la hoja no lleva ni comida ni menaje, antes se imprimía igual, con
     // aspecto de documento completo y sin listar nada; el operador se enteraba
     // delante del cliente. Ahora lo dice, y dice qué revisar.
@@ -2327,7 +2443,7 @@ async function genRemisionDespachoPDF(q,despachoIdx){
   }catch(e){
     if(typeof hideLoader==="function")hideLoader();
     console.error("[genRemisionDespachoPDF]",e);
-    if(typeof toast==="function")toast("Error generando remisión: "+e.message,"error");
-    else alert("Error: "+e.message);
+    if(typeof toast==="function")toast("Error generando remisión: "+gbMensajeError(e),"error");
+    else alert("Error: "+gbMensajeError(e));
   }
 }

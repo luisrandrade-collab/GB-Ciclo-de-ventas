@@ -109,8 +109,8 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.23.3";
-const BUILD_DATE="2026-09-13";
+const BUILD_VERSION="v7.9.33";
+const BUILD_DATE="2026-09-20";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
 // Helper único para resolver la colección Firestore de un documento por kind+id.
@@ -384,7 +384,6 @@ function menajeTocaEsteDespacho(q,despachos,despacho,esPrimeroCronologico){
   return !!esPrimeroCronologico;
 }
 
-
 // Precios de reposición de la opción activa.
 // Reglas:
 //  - Si q.reposicionData es objeto anidado {opcionId: {name: precio}}, devuelve q.reposicionData[opcionId] || {}
@@ -589,17 +588,55 @@ function gbPdfFirma(docPdf,y,opts){
 }
 
 // Footer en cada página: línea dorada + WhatsApp + Instagram.
-function gbPdfFooter(docPdf){
+// v7.9.29: opts.numerar añade "Página X de Y" centrado entre WhatsApp e Instagram.
+// Por ahora sólo lo activa la cotización —pedido de Luis: con el tope de 40 productos
+// ya sale en varias hojas y conviene que no se traspapelen—. La propuesta sigue igual.
+function gbPdfFooter(docPdf,opts){
   const W=215.9,H=279.4,mg=16;
   const pg=docPdf.getNumberOfPages();
-  for(let i=1;i<=pg;i++){docPdf.setPage(i);docPdf.setDrawColor(201,169,110);docPdf.setLineWidth(0.3);docPdf.line(30,H-14,W-30,H-14);docPdf.setFontSize(14);docPdf.setTextColor(26,26,26);docPdf.text("WhatsApp +57 310 444 1588",mg,H-7);docPdf.text("@GourmetBitesbyAndradeMatuk",W-mg,H-7,{align:"right"})}
+  const numerar=!!(opts&&opts.numerar);
+  for(let i=1;i<=pg;i++){
+    docPdf.setPage(i);docPdf.setDrawColor(201,169,110);docPdf.setLineWidth(0.3);docPdf.line(30,H-14,W-30,H-14);docPdf.setFontSize(14);docPdf.setTextColor(26,26,26);docPdf.text("WhatsApp +57 310 444 1588",mg,H-7);docPdf.text("@GourmetBitesbyAndradeMatuk",W-mg,H-7,{align:"right"});
+    if(numerar){docPdf.setFontSize(9);docPdf.setTextColor(120,120,120);docPdf.text("Página "+i+" de "+pg,W/2,H-7,{align:"center"})}
+  }
+}
+
+// v7.9.29: los errores técnicos llegaban tal cual al usuario. Un permiso negado se
+// veía como "Missing or insufficient permissions" (Firestore), "storage/unauthorized"
+// (Storage) o, en el emulador, con el detalle de la regla que falló. Quien lo ve —por
+// ejemplo Emilio, de solo consulta— no sabe qué pasó ni qué hacer.
+function gbEsErrorDePermiso(e){
+  const code=String((e&&e.code)||"").toLowerCase();
+  const msg=String((e&&e.message)||e||"");
+  return code==="permission-denied"||code.endsWith("/permission-denied")||code==="storage/unauthorized"
+    ||/missing or insufficient permissions|permission_denied|false for '(create|update|delete|get|list|read|write)'/i.test(msg);
+}
+// v7.9.32 P2-R2-04 (revisión de Codex, ronda 2): además del permiso, TODO error técnico
+// —de Firebase, de red o de programación— se sustituye por un mensaje en español; el
+// detalle queda en la consola. Los mensajes que escribe la propia app (Error simple, en
+// español, p. ej. "La cotización fue eliminada…" o el aviso de conflicto) se muestran tal cual.
+// v7.9.33 P2-R2-04 (revisión de Codex, ronda 3): v7.9.32 mostraba tal cual cualquier Error
+// común, y la app lanza errores comunes con detalle interno ("Documento X no existe en
+// Firestore (collection Y)"). La política es ahora de LISTA BLANCA: sólo se muestra el
+// texto de los errores que la app marca como aptos para el usuario (paraUsuario:true);
+// todo lo demás da un mensaje en español y el detalle queda en la consola.
+function gbMensajeError(e){
+  if(gbEsErrorDePermiso(e))return "Tu usuario no tiene permiso para hacer este cambio. Si necesitas hacerlo, pídeselo a un administrador.";
+  if(e&&e.paraUsuario&&e.message)return String(e.message);
+  const code=String((e&&e.code)||"").toLowerCase();
+  const msg=String((e&&e.message)||e||"");
+  const deRed=code==="unavailable"||code==="deadline-exceeded"||/failed to fetch|network|offline|timed? ?out/i.test(msg);
+  try{console.error("[gbMensajeError] detalle técnico:",e)}catch(_){}
+  if(deRed)return "Se perdió la conexión con el servidor o tardó demasiado. Revisa tu internet y vuelve a intentarlo.";
+  return "Ocurrió un error técnico y la operación no se completó. Vuelve a intentarlo; si se repite, avísale a un administrador.";
 }
 
 // ─── CATÁLOGO DE PRODUCTOS ─────────────────────────────────
-// v7.9.23.1: tope de productos DISTINTOS por cotizacion (no limita cantidades).
-// Era 12 desde la primera version, sin justificacion documentada y sin que el PDF
-// lo exigiera: autoTable pagina solo. El texto del letrero #limit-warn se rellena
-// desde aqui en updUI(); no volver a escribir el numero a mano en index.html.
+// v7.9.27: tope de productos DISTINTOS por cotización (no limita cantidades).
+// Era 12 desde la primera versión, sin justificación documentada y sin que el PDF
+// lo exigiera: autoTable pagina solo. Se sube a 40, que nadie topa en un evento
+// real, conservando la red de seguridad ante una carga masiva por error.
+// El texto del letrero #limit-warn se rellena desde aquí en updUI().
 const MX=40;
 const C=[
   {id:1,c:"Libanés - Mezza",n:"Hummus / Tahinne con Garbanzos",d:"Con aceite de oliva, ajo y limón",p:34000,u:"Porción 10 pers"},
@@ -858,7 +895,7 @@ async function updateStatus(docId,kind,newStatus,context,extraPatch){
     return true;
   }catch(e){
     console.error("[updateStatus] updateDoc falló",{docId,kind,newStatus,context,error:e});
-    if(typeof toast==="function")toast("Error guardando estado: "+(e.message||e),"error");
+    if(typeof toast==="function")toast("Error guardando estado: "+gbMensajeError(e),"error");
     return false;
   }
 }
@@ -1268,7 +1305,7 @@ async function openForgotPassword(){
     toast("📧 Email enviado a "+email+". Revisa bandeja y spam. Link válido 1 hora.","success",6000);
   }catch(e){
     console.warn("Reset password falló:",e);
-    toast("No se pudo enviar el email: "+(e?.message||e),"error");
+    toast("No se pudo enviar el email: "+gbMensajeError(e),"error");
   }
 }
 
@@ -1288,7 +1325,7 @@ async function logoutSession(){
     // onAuthStateChanged se encarga — detecta null y recarga
     location.reload();
   }catch(e){
-    toast("Error cerrando sesión: "+(e?.message||e),"error");
+    toast("Error cerrando sesión: "+gbMensajeError(e),"error");
   }
 }
 
@@ -1873,7 +1910,7 @@ async function _resizeImageBlob(file,maxW){
       ctx.drawImage(img,0,0,w,h);
       canvas.toBlob(b=>b?resolve(b):reject(new Error("No se pudo generar el JPEG")),"image/jpeg",0.85);
     };
-    img.onerror=()=>reject(new Error("Imagen inválida"));
+    img.onerror=()=>reject(Object.assign(new Error("Imagen inválida"),{paraUsuario:true}));
     img.src=URL.createObjectURL(file);
   });
 }
@@ -1883,7 +1920,7 @@ async function _resizeImageBlob(file,maxW){
 async function uploadFotoProductoToCloud(productId,file){
   if(!productId)throw new Error("productId requerido");
   if(!file)throw new Error("file requerido");
-  if(!cloudOnline)throw new Error("Sin conexión");
+  if(!cloudOnline)throw Object.assign(new Error("Sin conexión"),{paraUsuario:true});
   // Resize a max 800px ancho (suficiente para web + WhatsApp + PDF, típicamente <100KB)
   const blob=await _resizeImageBlob(file,800);
   const path="productos/"+productId+".jpg";
@@ -1906,7 +1943,7 @@ async function uploadFotoProductoToCloud(productId,file){
 
 async function eliminarFotoProductoFromCloud(productId){
   if(!productId)throw new Error("productId requerido");
-  if(!cloudOnline)throw new Error("Sin conexión");
+  if(!cloudOnline)throw Object.assign(new Error("Sin conexión"),{paraUsuario:true});
   const p=productosCache&&productosCache[productId];
   const path=p&&p.fotoPath?p.fotoPath:"productos/"+productId+".jpg";
   // Borrar de Storage (puede fallar si ya no existe — ignorar)
@@ -2034,6 +2071,7 @@ async function loadAjustesLogFromCloud(){
     const snap=await getDocs(collection(db,"ajustesLog"));
     ajustesLogCache=[];
     snap.forEach(d=>ajustesLogCache.push({id:d.id,...d.data()}));
+    ajustesLogCache=projectAjustesLog(ajustesLogCache);
     // Sort por fecha desc (cliente, no en query para evitar índice compuesto)
     ajustesLogCache.sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||""));
     localStorage.setItem("gb_ajustesLog_cache",JSON.stringify(ajustesLogCache));
@@ -2043,6 +2081,15 @@ async function loadAjustesLogFromCloud(){
     try{ajustesLogCache=JSON.parse(localStorage.getItem("gb_ajustesLog_cache")||"[]")}catch{}
     return ajustesLogCache;
   }
+}
+
+// v7.9.24: proyección de eventos inmutables para las vistas existentes.
+function projectAjustesLog(entries){
+  const reversals=new Map(entries.filter(e=>e.reversesLogId).map(e=>[e.reversesLogId,e]));
+  return entries.filter(e=>!e.reversesLogId).map(e=>{
+    const r=reversals.get(e.id);
+    return r?{...e,deletedAt:r.createdAtIso||r.createdAt||true,deletedBy:r.reversedBy||"",reversalId:r.id}:{...e};
+  });
 }
 
 // Crea entrada en ajustesLog. Devuelve { id, ...obj } con timestamp.
@@ -2057,45 +2104,38 @@ async function saveAjusteToCloud(obj){
   return entry;
 }
 
-// Borrado lógico (marca deletedAt + deletedBy). NO elimina del log — auditoría forense.
-// v7.9.19: reescrita (análisis integral 2026-09-04). Antes: (1) escribía q.ajustes
-// desde el CACHÉ con updateDoc ciego → podía borrar un ajuste concurrente de otra
-// sesión; (2) si el doc no estaba en quotesCache (todo lo anterior a los últimos 50
-// pedidos), se saltaba EN SILENCIO el paso de revertir: el log quedaba "eliminado" y
-// la UI decía ✅, pero el descuento seguía aplicado en el pedido. Ahora: primero se
-// revierte en el doc con transacción sobre datos FRESCOS (filtrando por logId, sin
-// depender del caché) y SOLO si eso funciona se marca el log. Devuelve {quitados}.
+// v7.9.24: reversión atómica y append-only; nunca actualiza el log original.
 async function softDeleteAjuste(ajusteLogId,docId,docKind,ajusteIdInDoc){
-  const {db,doc,updateDoc,runTransaction,serverTimestamp}=window.fb;
+  const {db,doc,runTransaction,serverTimestamp}=window.fb;
   const esElAjuste=a=>a&&(a.logId===ajusteLogId||a.id===ajusteLogId||(ajusteIdInDoc&&a.id===ajusteIdInDoc));
-  let quitados=0;
-  // 1. Revertir en el documento (fuente de verdad del saldo)
-  if(docId&&docKind){
-    const coll=docKind==="quote"?"quotes":(docKind==="proposal"?"proposals":"propfinals");
-    const ref=doc(db,coll,docId);
-    let ajustesCommit=null;
-    await runTransaction(db,async(tx)=>{
-      const snap=await tx.get(ref);
-      if(!snap.exists())throw new Error("El documento "+docId+" no existe en Firestore; no se puede revertir el ajuste (el log NO se marcó)");
-      const frescos=Array.isArray(snap.data().ajustes)?snap.data().ajustes:[];
-      const filtrados=frescos.filter(a=>!esElAjuste(a));
-      quitados=frescos.length-filtrados.length;
-      // Idempotente: si ya no estaba (reintento de la tx o ya revertido) no escribe nada
-      if(quitados>0)tx.update(ref,{ajustes:filtrados,updatedAt:serverTimestamp(),...auditStamp()});
-      ajustesCommit=filtrados;
-    });
-    const local=quotesCache.find(x=>x.id===docId);
-    if(local&&ajustesCommit)local.ajustes=ajustesCommit; // caché = lo commiteado
-  }
-  // 2. Marcar en log (solo llegamos aquí si el paso 1 no falló)
-  await updateDoc(doc(db,"ajustesLog",ajusteLogId),{
-    deletedAt:serverTimestamp(),
-    deletedBy:(currentUser&&currentUser.email)||"(sin email)"
+  const logRef=doc(db,"ajustesLog",ajusteLogId);
+  const reversalId="reversion_"+ajusteLogId;
+  const reversalRef=doc(db,"ajustesLog",reversalId);
+  const result=await runTransaction(db,async(tx)=>{
+    const original=await tx.get(logRef);
+    const reversed=await tx.get(reversalRef);
+    if(!original.exists())throw Object.assign(new Error("No existe el registro del ajuste."),{paraUsuario:true});
+    const source=original.data();
+    if(reversed.exists()||source.deletedAt)return {quitados:0};
+    if(source.reversesLogId||!source.docId||source.tipo==="nota_credito")throw Object.assign(new Error("Este registro no es un ajuste de pedido. El saldo a favor requiere su propio flujo de reversión."),{paraUsuario:true});
+    if(source.docId!==docId||source.docKind!==docKind)throw Object.assign(new Error("El ajuste cambió. Recarga el historial antes de continuar."),{paraUsuario:true});
+    const ref=doc(db,getCollectionName(source.docId,source.docKind),source.docId);
+    const snap=await tx.get(ref);
+    if(!snap.exists())throw Object.assign(new Error("No existe el documento del ajuste; no se cambió ningún dato."),{paraUsuario:true});
+    const fresh=Array.isArray(snap.data().ajustes)?snap.data().ajustes:[];
+    const ajustes=fresh.filter(a=>!esElAjuste(a));
+    const quitados=fresh.length-ajustes.length;
+    const event={tipo:"reversion",reversesLogId:ajusteLogId,docId:source.docId,docKind:source.docKind,monto:0,montoOriginal:source.monto||0,fecha:gbTodayIso(),createdAt:serverTimestamp(),createdAtIso:new Date().toISOString(),reversedBy:currentUser?.email||"",...auditStamp()};
+    if(quitados)tx.update(ref,{ajustes,updatedAt:serverTimestamp(),...auditStamp()});
+    tx.set(reversalRef,event);
+    return {quitados,ajustes,event};
   });
+  const local=quotesCache.find(x=>x.id===docId);
+  if(local&&result.ajustes)local.ajustes=result.ajustes;
   const logEntry=ajustesLogCache.find(x=>x.id===ajusteLogId);
-  if(logEntry){logEntry.deletedAt=new Date().toISOString();logEntry.deletedBy=(currentUser&&currentUser.email)||""}
-  localStorage.setItem("gb_ajustesLog_cache",JSON.stringify(ajustesLogCache));
-  return {quitados};
+  if(logEntry){logEntry.deletedAt=result.event?.createdAtIso||new Date().toISOString();logEntry.deletedBy=currentUser?.email||"";logEntry.reversalId=reversalId}
+  try{localStorage.setItem("gb_ajustesLog_cache",JSON.stringify(ajustesLogCache))}catch(e){console.warn("Cache de ajustes no disponible",e)}
+  return {quitados:result.quitados};
 }
 
 // Helper: aplica un ajuste a un doc (push al q.ajustes[] + persiste).
@@ -2120,7 +2160,7 @@ async function applyAjusteToDoc(q,docKind,ajusteEntry){
   let ajustesCommit=null;
   await runTransaction(db,async(tx)=>{
     const snap=await tx.get(ref);
-    if(!snap.exists())throw new Error("Documento "+q.id+" no existe en Firestore (collection "+coll+")");
+    if(!snap.exists())throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true,detalle:"Documento "+q.id+" no existe en Firestore (collection "+coll+")"});
     const ajustesTx=Array.isArray(snap.data().ajustes)?snap.data().ajustes.slice():[];
     // IDEMPOTENCY en reintentos: no duplicar por id
     if(!ajustesTx.some(a=>a.id===ajusteEnDoc.id))ajustesTx.push(ajusteEnDoc);
@@ -2211,7 +2251,7 @@ async function updateCustomProduct(id,campos){
     await updateDoc(doc(db,"custom_products",id),limpio);
   }catch(e){
     console.error("[updateCustomProduct]",id,e);
-    if(typeof toast==="function")toast("No se pudo guardar el cambio: "+(e?.message||"error"),"error",6000);
+    if(typeof toast==="function")toast("No se pudo guardar el cambio: "+gbMensajeError(e),"error",6000);
     throw e;
   }
   const local=customProductsCache.find(x=>x.id===id);
@@ -2228,7 +2268,7 @@ async function deleteCustomProduct(id){
     await deleteDoc(doc(db,"custom_products",id));
   }catch(e){
     console.error("[deleteCustomProduct]",id,e);
-    if(typeof toast==="function")toast("No se pudo eliminar: "+(e?.message||"error"),"error",6000);
+    if(typeof toast==="function")toast("No se pudo eliminar: "+gbMensajeError(e),"error",6000);
     throw e;
   }
   const i=customProductsCache.findIndex(x=>x.id===id);
@@ -2308,17 +2348,230 @@ async function getNextNumber(kind){
 // v7.9.13 DAT-01: ampliada — ajustes/saldoData/pago_changelog/auditTrail/itemsProducidos/
 // followUp*/replaced*/replaces/expectsReplacement/needsSync/anuladaData también son operativos:
 // editar una propuesta con perdón de saldo (ajustes[]) los borraba al guardar desde el form.
-const OPERATIONAL_FIELDS=["status","supersededBy","pagos","orderData","entregaData","produced","productionDate","approvalData","propFinalRef","comentarioCliente","pdfHistorial","pdfRegenCount","ajustes","saldoData","pago_changelog","auditTrail","itemsProducidos","followUpStatus","followUpLog","replacedBy","replaces","expectsReplacement","needsSync","anuladaData"];
+// v7.9.24: contrato único; nombres reales del seguimiento y datos operativos frescos.
+const OPERATIONAL_FIELDS=["status","supersededBy","pagos","orderData","entregaData","produced","productionDate","approvalData","propFinalRef","comentarioCliente","pdfHistorial","pdfRegenCount","ajustes","saldoData","pago_changelog","auditTrail","itemsProducidos","followUpStatus","followUpLog","followUp","followUpUpdatedAt","notasSeguimiento","perdidaData","feData","replacedBy","replaces","expectsReplacement","needsSync","anuladaData","createdAt"];
+
+// v7.9.25: comparar el contenido guardado al ABRIR el editor, no al pulsar Guardar.
+// Los avances operativos (pagos/evidencias) se reconcilian por separado.
+// v7.9.26: lista única de campos editables (antes vivía dentro de la firma).
+const EDITABLE_FIELDS=["client","idStr","att","mail","tel","dir","city","cityType","trCustom","cart","cust","deliv","eventDate","horaEntrega","momentosArr","pers","momento","tipoServicio","tituloMenaje","tituloPersonal","tituloInstruccionesPago","tituloCondiciones","notasCotLista","notasCotData","condicionesLista","condicionesData","personalData","sections","menaje","menajeOptions","propFinalSelection","aperturaFrase","fechaVencimiento","incluirReposicion","reposicionByOption","reposicionData","firma","requiereFE","notasInternas","despachos","menajeAssignedTo"];
+// v7.9.29: nombre visible de cada campo editable, para los avisos de conflicto.
+// Antes el aviso decía "(att)"; ahora dice "(Atención)". Hay una prueba que exige una
+// etiqueta para cada campo de EDITABLE_FIELDS, así que un campo nuevo no puede quedar
+// sin ella.
+const EDITABLE_FIELD_LABELS={client:"Cliente",idStr:"Documento de identidad",att:"Atención",mail:"Correo",tel:"Teléfono",dir:"Dirección",city:"Ciudad",cityType:"Tipo de ciudad",trCustom:"Transporte",cart:"Productos",cust:"Productos personalizados",deliv:"Entrega",eventDate:"Fecha de entrega",horaEntrega:"Hora de entrega",momentosArr:"Momentos",pers:"Personas",momento:"Momento",tipoServicio:"Tipo de servicio",tituloMenaje:"Título del menaje",tituloPersonal:"Título del personal",tituloInstruccionesPago:"Título de instrucciones de pago",tituloCondiciones:"Título de condiciones",notasCotLista:"Notas",notasCotData:"Notas",condicionesLista:"Condiciones",condicionesData:"Condiciones",personalData:"Personal",sections:"Secciones del menú",menaje:"Menaje",menajeOptions:"Opciones de menaje",propFinalSelection:"Selección de la propuesta final",aperturaFrase:"Frase de apertura",fechaVencimiento:"Fecha de vencimiento",incluirReposicion:"Reposición de menaje",reposicionByOption:"Valores de reposición",reposicionData:"Valores de reposición",firma:"Firma",requiereFE:"Factura electrónica",notasInternas:"Notas internas",despachos:"Despachos",menajeAssignedTo:"Despacho del menaje"};
+function etiquetasDeCampos(campos){
+  return [...new Set((campos||[]).map(c=>EDITABLE_FIELD_LABELS[c]||c))];
+}
+function gbStableJson(v){
+  function stable(x){
+    if(Array.isArray(x))return x.map(stable);
+    if(x&&typeof x==="object")return Object.fromEntries(Object.keys(x).sort().filter(k=>x[k]!==undefined).map(k=>[k,stable(x[k])]));
+    return x;
+  }
+  return JSON.stringify(stable(v));
+}
+// v7.9.26: firma POR CAMPO. Permite distinguir "lo cambió el otro" de "lo cambié yo",
+// que es lo que hace falta para no bloquear una edición comercial cuando la operación
+// sólo movió la programación de entrega (REV-01).
+function editableFieldSignatures(value,opts){
+  const out={};
+  const VACIO="\u0000vacío"; // v7.9.31 P1-01: firma de un campo presente pero vacío
+  // v7.9.31 P1-01 (revisión de Codex): v7.9.26 trataba "vacío" y "ausente" como lo
+  // mismo EN TODAS PARTES, y eso es falso para el formulario. El formulario siempre
+  // envía los campos que le pertenecen: un campo presente y vacío es una DECISIÓN del
+  // usuario ("lo quiero vacío"), no una ausencia de opinión. Tratarlo como ausente
+  // hacía que un borrado local perdiera en silencio contra un cambio remoto.
+  //  · Documentos (base y remoto): ausente, undefined, null y "" son el mismo estado
+  //    —un documento sin fecha y uno con fecha null dicen lo mismo—. Así se conserva
+  //    la corrección de REV-01 (reagendar un documento sin fecha no da conflicto falso).
+  //  · Formulario ({formulario:true}): ausente = "no opino"; presente y vacío = VACIO.
+  // v7.9.32 P1-R2-01 (revisión de Codex, ronda 2): una lista o un objeto vacíos de
+  // primer nivel son también el estado vacío. Así dos lados que vacían un campo por
+  // caminos distintos ([] frente a campo borrado) convergen en vez de chocar.
+  const esFormulario=!!(opts&&opts.formulario);
+  const esVacio=v=>v===undefined||v===null||v===""||(Array.isArray(v)&&!v.length)||(!!v&&typeof v==="object"&&!Array.isArray(v)&&!Object.keys(v).length);
+  for(const field of EDITABLE_FIELDS){
+    if(field==="despachos")continue;
+    const v=value?.[field];
+    if(!esVacio(v)){out[field]=gbStableJson(v);continue}
+    const presente=!!value&&Object.prototype.hasOwnProperty.call(value,field);
+    if(!esFormulario||presente)out[field]=VACIO;
+  }
+  // Los despachos se firman SIN su estado/evidencia: eso pertenece a operación.
+  if(Array.isArray(value?.despachos))out.despachos=gbStableJson(value.despachos.map(d=>{
+    const {status,producedAt,entregadoEn,entregaData,...editable}=d;
+    return editable;
+  }));
+  return out;
+}
+function editableDocumentSignature(value){
+  return JSON.stringify(editableFieldSignatures(value));
+}
+// v7.9.32: la base guarda también el FORMULARIO tal como quedó (formFields), porque el
+// editor normaliza al abrir —listas vacías, personal con estructura completa, opciones
+// de menaje derivadas, frase y vencimiento por defecto— y comparar el formulario con el
+// DOCUMENTO hacía parecer editado lo que sólo se normalizó (P1-R2-01).
+// opts.formulario: el objeto que arma el formulario (formularioCotizacion/Propuesta).
+// v7.9.33 CL-R2-01 (revisión de Codex, ronda 3): v7.9.32 conservaba aquí, para los campos
+// adoptados de otra sesión, la base vieja —porque el formulario seguía mostrando el valor
+// viejo—. Esa base ficticia atrapaba al usuario: un valor nuevo que escribiera en ese campo
+// parecía chocar con la otra sesión. Ahora, si un guardado adopta campos, el editor se
+// RECARGA desde el documento confirmado (ver los guardados), y la base es siempre real.
+function rememberEditBase(kind,id,value,opts){
+  window._gbEditBases=window._gbEditBases||{};
+  if(!id){window._gbEditBases[kind]=null;return}
+  const fields=editableFieldSignatures(value);
+  const base={id,signature:editableDocumentSignature(value),fields};
+  if(opts&&opts.formulario)base.formFields=editableFieldSignatures(opts.formulario,{formulario:true});
+  window._gbEditBases[kind]=base;
+}
+// v7.9.32 P1-R2-01: al terminar de abrir un documento, se firma el formulario ya cargado.
+function recordarFormularioAbierto(kind){
+  const base=window._gbEditBases?.[kind];
+  if(!base)return;
+  const leer=kind==="quote"?(typeof formularioCotizacion==="function"?formularioCotizacion:null)
+    :(typeof formularioPropuesta==="function"?formularioPropuesta:null);
+  if(leer)base.formFields=editableFieldSignatures(leer(),{formulario:true});
+}
+function markEditorContext(kind){
+  window._gbEditorContexts=window._gbEditorContexts||{};
+  window._gbEditorContexts[kind]=(window._gbEditorContexts[kind]||0)+1;
+  return window._gbEditorContexts[kind];
+}
+// Comprobación ESTRICTA: cualquier diferencia con la versión abierta aborta.
+// Se conserva para los caminos SIN formulario (conversión/regeneración de PF),
+// donde un documento fuente que cambió sí debe rechazarse.
+function assertEditableUnchanged(fresh,base,id){
+  if(!base||base.id!==id||base.signature!==editableDocumentSignature(fresh)){
+    const error=Object.assign(new Error("El contenido cambió o no se pudo verificar la versión abierta. Tus cambios siguen en el formulario; copia lo necesario y vuelve a abrir el documento antes de guardar."),{paraUsuario:true});
+    error.code="EDIT_CONFLICT";
+    throw error;
+  }
+}
+
+// v7.9.26 REV-01: comparación a TRES BANDAS (base de apertura / formulario / fresco).
+// Antes bastaba con que otra sesión tocara CUALQUIER campo firmado para rechazar el
+// guardado. Como `eventDate` y `horaEntrega` los escribe la operación —reagendar
+// (app-historial.js:834), crear pedido (:783) y aprobar (:931)— reagendar una entrega
+// dejaba el editor abierto sin poder guardar, aunque el usuario no hubiera tocado la
+// fecha. Ahora sólo hay conflicto si AMBOS lados cambiaron el MISMO campo; si sólo lo
+// cambió el otro lado, se adopta su valor. Devuelve los campos que debe ganar el fresco.
+function resolveEditableConflicts(formObj,fresh,base,id){
+  if(!base||base.id!==id||!base.fields){
+    const error=Object.assign(new Error("No se pudo verificar la versión abierta del documento. Tus cambios siguen en el formulario; copia lo necesario y vuelve a abrir el documento antes de guardar."),{paraUsuario:true});
+    error.code="EDIT_CONFLICT";
+    throw error;
+  }
+  const form=editableFieldSignatures(formObj,{formulario:true}),remote=editableFieldSignatures(fresh); // v7.9.31 P1-01
+  const adopt=[],conflictos=[];
+  for(const field of EDITABLE_FIELDS){
+    const antes=base.fields[field],ahora=remote[field];
+    if(ahora===antes)continue;                // el otro lado no lo tocó
+    // Campo ausente en el formulario = "no opino", no "lo borré": el merge ya deja
+    // ganar al fresco en ese caso (out={...freshDoc,...formObj}). No es conflicto.
+    // v7.9.32 P1-R2-01: «¿lo cambió el usuario?» se responde contra el formulario tal
+    // como quedó al abrir (formFields), no contra el documento: lo que el editor sólo
+    // normalizó no es una edición. Sin formFields (bases antiguas) se compara como antes.
+    const formAntes=base.formFields?base.formFields[field]:antes;
+    if(form[field]===undefined||form[field]===formAntes)adopt.push(field);
+    else if(form[field]===ahora)continue;     // ambos llegaron al mismo valor: nada que reconciliar
+    else conflictos.push(field);              // cada uno puso algo distinto: conflicto real
+  }
+  if(conflictos.length){
+    const error=Object.assign(new Error("El contenido cambió en otra sesión ("+etiquetasDeCampos(conflictos).join(", ")+") mientras editabas. No se guardó nada. Tus cambios siguen en el formulario; copia lo necesario y vuelve a abrir el documento."),{paraUsuario:true});
+    error.code="EDIT_CONFLICT";
+    error.fields=conflictos;
+    throw error;
+  }
+  return adopt;
+}
+
+// v7.9.24: el formulario edita logística; estado/evidencia pertenecen a operación.
+function mergeDespachosForSave(formDespachos,freshDespachos){
+  if(!Array.isArray(formDespachos))return freshDespachos;
+  const fresh=Array.isArray(freshDespachos)?freshDespachos:[];
+  const ids=new Set(formDespachos.map(d=>d.id));
+  for(const d of fresh){
+    if(!ids.has(d.id)&&(d.status&&d.status!=="pendiente"||d.entregaData||d.producedAt||d.entregadoEn)){
+      throw Object.assign(new Error("No se puede quitar un despacho con actividad registrada. Recarga y revisa sus entregas."),{paraUsuario:true});
+    }
+  }
+  return formDespachos.map(d=>{
+    const prior=fresh.find(f=>f.id===d.id);
+    if(!prior)return {...d};
+    const merged={...prior,...d};
+    for(const key of ["status","producedAt","entregadoEn","entregaData"]){
+      if(Object.prototype.hasOwnProperty.call(prior,key))merged[key]=prior[key];
+      else delete merged[key];
+    }
+    return merged;
+  });
+}
 
 // v7.9.10: construye el objeto a persistir tomando el CONTENIDO desde el form
 // (formObj) y los CAMPOS OPERATIVOS desde el doc fresco (freshDoc). editHistory
 // se mergea append-only para no perder entradas de otra sesión. Función PURA
 // (sin Firestore) para poder testearla sin emulador.
-function mergeOperationalFields(formObj,freshDoc){
+// v7.9.26: adoptFromFresh son los campos EDITABLES que cambió otra sesión y ésta no
+// tocó (los calcula resolveEditableConflicts). Sin ellos, el formulario volvería a
+// escribir su valor viejo encima — p. ej. la fecha de entrega antes de un reagendamiento.
+// v7.9.30: el TOTAL es un campo DERIVADO del contenido, y la comparación a tres bandas
+// de REV-01 (v7.9.26) no lo sabía. Si otra sesión cambiaba los productos y ésta sólo
+// tocaba, por ejemplo, «Atención», el guardado adoptaba los productos de la otra sesión
+// pero conservaba el total calculado aquí con los productos viejos: el documento quedaba
+// con productos por 500 y total 100. En cotizaciones el saldo se calcula con ese total
+// guardado (getDocTotal), así que cobro, cartera y saldo salían mal. Lo encontró la
+// prueba de cobertura de REV-03, que exige clasificar todo campo que se guarda.
+// Regla: tras adoptar campos de la otra sesión, el total se recalcula sobre lo fusionado.
+const QUOTE_TOTAL_INPUTS=["cart","cust","cityType","trCustom"];
+// Misma fórmula que getTotal()/getTr(), pero sobre un documento y no sobre el editor.
+function computeQuoteTotal(q){
+  const items=[...(Array.isArray(q.cart)?q.cart:[]),...(Array.isArray(q.cust)?q.cust:[])];
+  let tr=0;
+  if(q.cityType==="Otra")tr=parseInt(q.trCustom)||0;
+  else if(TR[q.cityType])tr=TR[q.cityType].p;
+  return items.reduce((s,i)=>s+i.p*i.qty,0)+tr;
+}
+function recalcularTotalTrasAdoptar(obj,adoptados,kind){
+  if(!obj||!Array.isArray(adoptados)||!adoptados.length)return obj;
+  if(kind==="quote"){
+    if(adoptados.some(f=>QUOTE_TOTAL_INPUTS.includes(f)))obj.total=computeQuoteTotal(obj);
+  }else if(typeof computePropTotal==="function"){
+    // En propuestas getDocTotal ya recalcula siempre; se alinea lo guardado con lo leído.
+    obj.total=computePropTotal(obj);
+  }
+  return obj;
+}
+// v7.9.31 ADV-02 (revisión de Codex): construir la versión hija adoptando campos del
+// documento vigente. Si el vigente BORRÓ un campo, la hija no debe llevarlo como
+// undefined —Firestore rechaza escribir undefined y el versionado fallaba—: se quita,
+// igual que ya hace mergeOperationalFields en el guardado directo.
+function aplicarAdopcion(formObj,fuente,adoptados){
+  if(!Array.isArray(adoptados)||!adoptados.length)return formObj;
   const out={...formObj};
+  for(const f of adoptados){
+    if(fuente&&typeof fuente[f]!=="undefined")out[f]=fuente[f];
+    else delete out[f];
+  }
+  return out;
+}
+function mergeOperationalFields(formObj,freshDoc,adoptFromFresh){
+  const out={...freshDoc,...formObj};
   if(!freshDoc)return out;
   for(const f of OPERATIONAL_FIELDS){
     if(typeof freshDoc[f]!=="undefined")out[f]=freshDoc[f];
+    else if(f==="feData")delete out[f];
+  }
+  for(const f of (adoptFromFresh||[])){
+    if(f==="despachos")continue; // lo resuelve mergeDespachosForSave, más abajo
+    if(typeof freshDoc[f]!=="undefined")out[f]=freshDoc[f];
+    else delete out[f];
+  }
+  if(Array.isArray(formObj.despachos)||Array.isArray(freshDoc.despachos)){
+    out.despachos=(adoptFromFresh||[]).includes("despachos")
+      ?freshDoc.despachos
+      :mergeDespachosForSave(formObj.despachos,freshDoc.despachos);
   }
   // editHistory: append-only. Tanto el form como el fresco comparten un PREFIJO
   // común (el historial que existía cuando esta sesión abrió el editor) y cada uno
@@ -2356,30 +2609,89 @@ async function saveProposalToCloud(pObj){
   await setDoc(doc(db,"proposals",pObj.quoteNumber),{...pObj,createdAt:serverTimestamp()});
 }
 
-async function loadAllHistory(){
+// v7.9.24: importar sólo IDs ausentes comprobándolo dentro de la transacción.
+async function restoreMissingDocument(collectionName,id,data){
+  if(!["quotes","proposals","propfinals","clients"].includes(collectionName)||typeof id!=="string"||!id||id.includes("/")){
+    throw new Error("Identificador de restauración inválido");
+  }
+  const {db,doc,runTransaction,serverTimestamp}=window.fb;
+  const ref=doc(db,collectionName,id);
+  return runTransaction(db,async(tx)=>{
+    const snap=await tx.get(ref);
+    if(snap.exists())return false;
+    const {_wrongCollection,_isPF,kind,createdAt,...clean}=data;
+    const iso=clean.createdAtISO||clean.dateISO;
+    const date=iso?new Date(iso):null;
+    clean.createdAt=date&&!isNaN(date.getTime())?date:serverTimestamp();
+    clean.restoredAt=serverTimestamp();
+    clean.restoredBy=currentUser?.email||currentUser?.displayName||"";
+    tx.set(ref,clean);
+    return true;
+  });
+}
+
+// v7.9.24: recorrer por ID incluye también documentos legacy sin createdAt.
+// El cache operativo se publica sólo al completar todas las páginas/colecciones.
+async function readHistoryCollection(collectionName,{requireFresh=false}={}){
+  const {db,collection,getDocs,getDocsFromServer,query,orderBy,documentId,limit,startAfter}=window.fb;
+  const docs=[];
+  let cursor=null,fromCache=false;
+  while(true){
+    const constraints=[orderBy(documentId()),limit(200)];
+    if(cursor)constraints.push(startAfter(cursor));
+    const request=query(collection(db,collectionName),...constraints);
+    const snap=await (requireFresh?getDocsFromServer(request):getDocs(request));
+    fromCache=fromCache||!!snap.metadata?.fromCache;
+    docs.push(...snap.docs.map(d=>({ ...d.data(),id:d.id })));
+    if(snap.docs.length<200)break;
+    cursor=snap.docs[snap.docs.length-1];
+  }
+  return {docs,fromCache};
+}
+
+// v7.9.26 REV-02: sonda barata de conectividad.
+// Los loaders de initApp capturan sus propios errores y caen a la caché local, así que
+// su éxito NO prueba que se alcanzó el servidor (SYNC-01 de la auditoría v6: por eso se
+// quitó el setCloudStatus(true) optimista). Pero dejar que cloudOnline dependa de
+// loadAllHistory —que ahora pagina TODAS las colecciones— dejaba la app usable y
+// marcando "Sin conexión" durante segundos, rechazando guardar, PDF y Propuesta Final.
+// Una sola lectura forzada al servidor sí prueba conectividad y no espera al historial.
+async function probeCloudReachable(){
   try{
-    const {db,collection,getDocs,query,orderBy,limit}=window.fb;
+    const {db,collection,query,limit,getDocsFromServer}=window.fb;
+    await getDocsFromServer(query(collection(db,"clients"),limit(1)));
+    return true;
+  }catch(e){console.warn("Sonda de conectividad falló; se mantiene sin conexión",e);return false}
+}
+
+async function loadAllHistory({requireFresh=false,transition=true}={}){
+  try{
     const out=[];
-    const qQ=query(collection(db,"quotes"),orderBy("createdAt","desc"),limit(50));
-    const qP=query(collection(db,"proposals"),orderBy("createdAt","desc"),limit(50));
-    const qPF=query(collection(db,"propfinals"),orderBy("createdAt","desc"),limit(50));
-    const [sQ,sP,sPF]=await Promise.all([getDocs(qQ),getDocs(qP),getDocs(qPF).catch(()=>({forEach:()=>{}}))]);
-    sQ.forEach(d=>out.push({kind:"quote",id:d.id,...d.data()}));
+    const [sQ,sP,sPF]=await Promise.all(["quotes","proposals","propfinals"].map(c=>readHistoryCollection(c,{requireFresh})));
+    sQ.docs.forEach(d=>out.push({...d,kind:"quote"}));
     // v4.12.7: marcar _wrongCollection si un GB-PF-* quedó guardado en proposals/
     // (pasa cuando alguien edita una PF directamente y le da "Guardar borrador")
-    sP.forEach(d=>{
+    sP.docs.forEach(d=>{
       const isWrong=d.id&&d.id.startsWith("GB-PF-");
-      out.push({kind:"proposal",id:d.id,...d.data(),...(isWrong?{_wrongCollection:true}:{})});
+      out.push({...d,kind:"proposal",...(isWrong?{_wrongCollection:true}:{})});
     });
-    sPF.forEach(d=>out.push({kind:"proposal",id:d.id,...d.data(),_isPF:true}));
-    out.sort((a,b)=>{const ta=a.createdAt?.toMillis?.()||0,tb=b.createdAt?.toMillis?.()||0;return tb-ta});
+    sPF.docs.forEach(d=>out.push({...d,kind:"proposal",_isPF:true}));
+    out.sort((a,b)=>{const ta=a.createdAt?.toMillis?.()||Date.parse(a.dateISO)||0,tb=b.createdAt?.toMillis?.()||Date.parse(b.dateISO)||0;return tb-ta});
     quotesCache=out;
-    localStorage.setItem("gb_quotes_cache",JSON.stringify(out.map(q=>({...q,createdAt:null}))));
-    autoTransitionToEnProduccion(out);
+    try{localStorage.setItem("gb_quotes_cache",JSON.stringify(out.map(q=>({...q,createdAt:null}))))}catch(e){console.warn("No se pudo conservar historial local",e)}
+    const online=![sQ,sP,sPF].some(s=>s.fromCache);
+    setCloudStatus(online);
+    if(!online&&typeof toast==="function")toast("Mostrando copia local; los datos pueden no estar actualizados.","warn",7000);
+    if(transition&&online)autoTransitionToEnProduccion(out);
     return out;
   }catch(e){
     console.error("loadAllHistory error",e);
-    try{quotesCache=JSON.parse(localStorage.getItem("gb_quotes_cache")||"[]")}catch{}
+    setCloudStatus(false);
+    if(requireFresh)throw e;
+    if(!quotesCache.length){
+      try{const cached=JSON.parse(localStorage.getItem("gb_quotes_cache")||"[]");if(Array.isArray(cached))quotesCache=cached}catch{}
+    }
+    if(typeof toast==="function")toast("No se pudo actualizar el historial. Se conserva la copia local.","warn",7000);
     return quotesCache;
   }
 }
@@ -2592,7 +2904,7 @@ async function setFollowUp(docId,kind,nuevoEstado,extra){
     return true;
   }catch(e){
     console.error("setFollowUp error",e);
-    toast("Error actualizando seguimiento: "+(e.message||e),"error");
+    toast("Error actualizando seguimiento: "+gbMensajeError(e),"error");
     return false;
   }
 }
@@ -2625,7 +2937,7 @@ async function addNotaSeguimiento(docId,kind,texto){
     return true;
   }catch(e){
     console.error("addNotaSeguimiento error",e);
-    toast("Error guardando nota: "+(e.message||e),"error");
+    toast("Error guardando nota: "+gbMensajeError(e),"error");
     return false;
   }
 }
@@ -2676,7 +2988,7 @@ async function reactivarPerdida(docId,kind,destino){
     return true;
   }catch(e){
     console.error("reactivarPerdida error",e);
-    toast("Error reactivando: "+(e.message||e),"error");
+    toast("Error reactivando: "+gbMensajeError(e),"error");
     return false;
   }
 }
@@ -2805,9 +3117,9 @@ async function initApp(){
       loadAjustesLogFromCloud(),
       loadRecetasInternasFromCloud(),
       loadCustomProducts(),
-      loadPriceMemory()
+      loadPriceMemory(),
+      probeCloudReachable().then(setCloudStatus) // v7.9.26 REV-02: habilitar sin esperar el historial
     ]);
-    setCloudStatus(true);
     refreshCliSel();
     hideLoader();
     loadAllHistory().then(()=>{
@@ -2926,17 +3238,13 @@ async function newQuote(){
     });
     if(!ok)return;
   }
-  cart=[];cust=[];currentQuoteNumber=null;
-  ["f-cli","f-idnum","f-att","f-mail","f-tel","f-dir","f-city-custom","f-tr-custom"].forEach(id=>{const el=$(id);if(el)el.value=""});
-  $("f-idtype").value="";$("f-city").value="";
+  // v7.9.32 CL-R2-02: una cotización nueva es la carga de un documento vacío. Antes esta
+  // función tenía su propia lista de campos y no vaciaba fecha, hora, momentos, notas
+  // internas ni factura: la cotización nueva heredaba los de la abierta antes.
+  cargarCotizacionEnEditor({});
   $("sel-cli").value="";
-  notasCotData={...DEFAULT_NOTAS_COT};
-  // v7.9.20: lista de notas y títulos vuelven al set por defecto
-  notasCotLista=gbNotasNormalizar(null,null,DEFAULT_NOTAS_COT,NOTAS_COT_TITULOS);
-  tituloInstruccionesPago="";tituloCondiciones="";
   // v4.12: limpiar panel de historial cliente
   const ch=$("cli-hist-panel");if(ch)ch.classList.add("hidden");
-  updTr();
   go("info");
 }
 async function newProp(){
@@ -2948,7 +3256,9 @@ async function newProp(){
   });
   if(!ok)return;
   propSections=[];menajeItems=[];currentPropNumber=null;
-  menajeAssignedTo=null; // v7.9.23.2: la asignación de menaje no se hereda entre documentos
+  menajeAssignedTo=null; // v7.9.28: la asignación de menaje no se hereda entre documentos
+  markEditorContext("proposal");
+  rememberEditBase("proposal",null,null);
   // v7.9.8.5: reset de menaje multi-opción (antes solo se reseteaba el espejo legacy menajeItems,
   // dejando filtrar menajeOptions/reposicionByOption de la propuesta anterior a la nueva).
   if(typeof menajeOptions!=="undefined")menajeOptions=[];
@@ -2958,6 +3268,11 @@ async function newProp(){
   if(typeof resetDespachos==="function")resetDespachos();
   ["fp-cli","fp-idnum","fp-att","fp-mail","fp-tel","fp-dir","fp-pers","fp-momento","fp-date","fp-city-custom","fp-tr-custom"].forEach(id=>{const el=$(id);if(el)el.value=""});
   $("fp-idtype").value="";$("fp-city").value="";$("sel-cli-p").value="";
+  // v7.9.32 CL-R2-02: la propuesta nueva tampoco hereda de la abierta antes la hora, las
+  // notas internas, la factura, los títulos, la reposición ni el vencimiento.
+  ["fp-hora-entrega","fp-notas-internas"].forEach(id=>{const el=$(id);if(el)el.value=""});
+  if($("fp-requiere-fe"))$("fp-requiere-fe").checked=false;
+  tituloMenaje="";tituloPersonal="";incluirReposicion=null;fechaVencimiento="";condicionesLista=[];
   updTrP();
   tipoServicio="";
   personalData={meseros:{cantidad:"",valor4h:"",horasExtra:"",valorHoraExtra:""},auxiliares:{cantidad:"",valor4h:"",horasExtra:"",valorHoraExtra:""}};
@@ -3152,6 +3467,13 @@ async function autoSaveClientFromProp(){
   // v7.9.13 UX-04: ídem autoSaveClientFromCot
   try{await saveClientToCloud(obj);refreshCliSel()}catch(e){console.warn("autosave client failed",e);if(typeof toast==="function")toast("No se pudo actualizar el directorio de clientes","error")}
 }
+async function autoSaveClientDocument(q){
+  if(!q?.client||!cloudOnline)return;
+  const parts=String(q.idStr||"").split(" ");
+  const obj={name:q.client,idtype:parts[0]||"",idnum:parts.slice(1).join(" "),att:q.att||"",mail:q.mail||"",tel:q.tel||"",dir:q.dir||"",city:q.cityType||q.city||"",cityCustom:q.cityType==="Otra"?(q.city||""):"",trCustom:q.trCustom||""};
+  try{await saveClientToCloud(obj);refreshCliSel()}
+  catch(e){console.warn("autosave client snapshot failed",e);if(typeof toast==="function")toast("El documento se guardó, pero no se pudo actualizar el directorio de clientes","error",6000)}
+}
 function loadClient(){
   const id=$("sel-cli").value;if(!id)return;
   const c=clientsCache.find(x=>x.id===id);if(!c)return;
@@ -3167,7 +3489,7 @@ async function delClient(){
   const c=clientsCache.find(x=>x.id===id);if(!c)return;
   if(!confirm("¿Eliminar a "+c.name+"? (esto afecta a todos los usuarios)"))return;
   try{showLoader("Eliminando...");await deleteClientFromCloud(id);refreshCliSel();hideLoader()}
-  catch(e){hideLoader();toast("Error: "+e.message,"error")}
+  catch(e){hideLoader();toast("Error: "+gbMensajeError(e),"error")}
 }
 function loadClientP(){
   const id=$("sel-cli-p").value;if(!id)return;
@@ -3284,7 +3606,7 @@ async function delHistItem(kind,id,ev){
     if(typed!=="BORRAR "+id){alert("No se eliminó — la confirmación no coincidió.");return}
   }
   try{showLoader("Eliminando...");await deleteHistoryItem(kind,id);hideLoader();renderHist();if(typeof toast==="function")toast("🗑️ "+id+" eliminado","success")}
-  catch(e){hideLoader();toast("Error: "+e.message,"error")}
+  catch(e){hideLoader();toast("Error: "+gbMensajeError(e),"error")}
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3354,7 +3676,7 @@ async function executeDelProposalOnly(){
     if(typeof toast==="function")toast("🗑️ "+propBase.id+" eliminado — la PF quedó huérfana","warn");
     renderHist();
     if(curMode==="dash"&&typeof renderDashboard==="function")renderDashboard();
-  }catch(e){hideLoader();toast("Error: "+e.message,"error");console.error(e)}
+  }catch(e){hideLoader();toast("Error: "+gbMensajeError(e),"error");console.error(e)}
 }
 async function executeDelCascade(){
   if(!_cascadeDelCtx)return;
@@ -3376,7 +3698,7 @@ async function executeDelCascade(){
     if(typeof toast==="function")toast("🗑️ Eliminados "+propBase.id+" + "+pfHija.id,"success");
     renderHist();
     if(curMode==="dash"&&typeof renderDashboard==="function")renderDashboard();
-  }catch(e){hideLoader();toast("Error en cascada: "+e.message,"error");console.error(e)}
+  }catch(e){hideLoader();toast("Error en cascada: "+gbMensajeError(e),"error");console.error(e)}
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3484,7 +3806,7 @@ async function revertDelivery(quoteId,kind,opts){
     return true;
   }catch(e){
     console.error("[revertDelivery]",e);
-    if(typeof toast==="function")toast("Error al revertir: "+e.message,"error");
+    if(typeof toast==="function")toast("Error al revertir: "+gbMensajeError(e),"error");
     return false;
   }
 }
@@ -3533,8 +3855,8 @@ async function openDocument(kind,id){
     if(m)m.classList.remove("hidden");
   }catch(e){
     hideLoader();
-    if(typeof toast==="function")toast("Error al abrir: "+e.message,"error");
-    else toast("Error al abrir: "+e.message,"error");
+    if(typeof toast==="function")toast("Error al abrir: "+gbMensajeError(e),"error");
+    else toast("Error al abrir: "+gbMensajeError(e),"error");
     console.error("[openDocument]",e);
   }
 }
@@ -3783,11 +4105,14 @@ function _openRevertDeliveryConfirmModal(opts){
 
 
 async function loadQuote(kind,id){
+  const editorKind=kind==="proposal"?"proposal":"quote";
+  const loadContext=markEditorContext(editorKind);
   try{
     const {db,doc,getDoc}=window.fb;
     const coll=getCollectionName(id,kind);
     showLoader("Cargando...");
     const snap=await getDoc(doc(db,coll,id));
+    if((window._gbEditorContexts?.[editorKind]||0)!==loadContext)return;
     hideLoader();
     if(!snap.exists()){alert("No se encontró");return}
     const q=snap.data();
@@ -3815,73 +4140,98 @@ async function loadQuote(kind,id){
       return;
     }
     setMode("cot");
-    cart=[];cust=[];
-    if(q.cart){q.cart.forEach(ci=>{const p=C.find(x=>x.id===ci.id);if(p)cart.push({...p,p:ci.p,origP:ci.origP||p.p,qty:ci.qty,edited:!!ci.edited});else cart.push({id:ci.id||Date.now()+Math.random(),n:ci.n,d:ci.d,u:ci.u,p:ci.p,origP:ci.origP||ci.p,qty:ci.qty,edited:!!ci.edited})})}
-    if(q.cust)cust=q.cust.map((ci,ix)=>({id:"x"+Date.now()+ix,...ci,custom:true}));
-    $("f-cli").value=q.client||"";
-    $("f-idtype").value=(q.idStr||"").split(" ")[0]||"";
-    $("f-idnum").value=(q.idStr||"").split(" ").slice(1).join(" ")||"";
-    $("f-att").value=q.att||"";$("f-mail").value=q.mail||"";$("f-tel").value=q.tel||"";$("f-dir").value=q.dir||"";
-    if(q.city){
-      const known=["La Calera","Bogotá","Chía","Cajicá"];
-      if(q.cityType){$("f-city").value=q.cityType;if(q.cityType==="Otra"){$("f-city-custom").value=q.city||""}}
-      else if(known.includes(q.city)){$("f-city").value=q.city}
-      else{$("f-city").value="Otra";$("f-city-custom").value=q.city}
-      if($("f-tr-custom"))$("f-tr-custom").value=q.trCustom||"";
-      updTr();
-    }
-    currentQuoteNumber=q.quoteNumber||id;
-    // v5.5.0 FIX #4: limpiar estado de última edición para evitar banners stale entre docs
-    window._lastSavedQuote=null;
-    // v5.4.2 (UX-002): restaurar fecha de entrega y momentos en el formulario.
-    // Antes se guardaba en Firestore (q.eventDate + q.momentosArr desde v5.4.0)
-    // y salía en el PDF, pero los campos del form aparecían vacíos al reabrir.
-    try{
-      const fDate=$("f-date");
-      if(fDate)fDate.value=q.eventDate||"";
-      // v6.4.0 P2: cargar horaEntrega en el nuevo input editable
-      const fHora=$("f-hora-entrega");
-      if(fHora)fHora.value=q.horaEntrega||"";
-      // Reset todos los checkboxes de momentos
-      document.querySelectorAll('#f-moments input[type=checkbox]').forEach(cb=>{cb.checked=false});
-      const fOther=$("f-time-other");if(fOther)fOther.value="";
-      const fOtherWrap=$("f-time-other-wrap");if(fOtherWrap)fOtherWrap.classList.add("hidden");
-      const chkOtro=$("chk-otro");
-      // Marcar los momentos guardados
-      const moms=Array.isArray(q.momentosArr)?q.momentosArr:[];
-      const fijos=["Desayuno","Refrigerio mañana","Almuerzo","Refrigerio tarde","Comida","Cóctel noche"];
-      let customMom="";
-      moms.forEach(m=>{
-        if(fijos.includes(m)){
-          const cb=document.querySelector('#f-moments input[type=checkbox][value="'+m.replace(/"/g,'\\"')+'"]');
-          if(cb)cb.checked=true;
-        }else{
-          customMom=m; // cualquier cosa que no sea fija → va a "Otro"
-        }
-      });
-      if(customMom&&chkOtro){
-        chkOtro.checked=true;
-        if(fOther)fOther.value=customMom;
-        if(fOtherWrap)fOtherWrap.classList.remove("hidden");
-      }
-      // Refrescar estilos visuales de los labels (selected state) si existe togMom
-      document.querySelectorAll('#f-moments input[type=checkbox]').forEach(cb=>{
-        if(typeof togMom==="function")togMom(cb);
-      });
-    }catch(e){console.warn("[loadQuote] restaurar f-date/f-moments falló:",e)}
-    if(q.notasCotData&&typeof q.notasCotData==="object"){notasCotData={...q.notasCotData}}
-    else{notasCotData={...DEFAULT_NOTAS_COT}}
-    // v7.9.20: lista de notas (nueva) o conversion desde el objeto legacy
-    notasCotLista=gbNotasNormalizar(q.notasCotLista,q.notasCotData,DEFAULT_NOTAS_COT,NOTAS_COT_TITULOS);
-    tituloInstruccionesPago=q.tituloInstruccionesPago||"";
-    tituloCondiciones=q.tituloCondiciones||"";
-    if(q.firma)firmaCot=q.firma;
-    setFirma("cot",firmaCot);
-    // v7.7.4: cargar notas internas para producción (campo del doc, opcional)
-    if($("f-notas-internas"))$("f-notas-internas").value=q.notasInternas||"";
+    cargarCotizacionEnEditor({...q,quoteNumber:q.quoteNumber||id});
     showClientHistoryPanel(q.client||"","cot");
     go("review");
-  }catch(e){hideLoader();toast("Error: "+e.message,"error")}
+  }catch(e){hideLoader();toast("Error: "+gbMensajeError(e),"error")}
+}
+// v7.9.32 (P1-02, P1-R2-02 y CL-R2-02, revisiones de Codex): cargador CANÓNICO del editor
+// de cotizaciones, sacado de loadQuote. Lo usan abrir, duplicar (con una plantilla) y
+// «Nueva cotización» (con una plantilla vacía). Antes duplicar y crear tenían cada uno
+// su propia lista de campos, que se quedó atrás: el documento nuevo heredaba ciudad,
+// hora, fecha, notas internas o factura del documento abierto antes. Todo estado que el
+// guardado lea debe quedar definido AQUÍ por el documento que se carga.
+function cargarCotizacionEnEditor(q){
+  markEditorContext("quote");
+  rememberEditBase("quote",q.quoteNumber||null,q);
+  cart=[];cust=[];
+  if(q.cart){q.cart.forEach(ci=>{const p=C.find(x=>x.id===ci.id);if(p)cart.push({...p,p:ci.p,origP:ci.origP||p.p,qty:ci.qty,edited:!!ci.edited});else cart.push({id:ci.id||Date.now()+Math.random(),n:ci.n,d:ci.d,u:ci.u,p:ci.p,origP:ci.origP||ci.p,qty:ci.qty,edited:!!ci.edited})})}
+  if(q.cust)cust=q.cust.map((ci,ix)=>({id:"x"+Date.now()+ix,...ci,custom:true}));
+  $("f-cli").value=q.client||"";
+  $("f-idtype").value=(q.idStr||"").split(" ")[0]||"";
+  $("f-idnum").value=(q.idStr||"").split(" ").slice(1).join(" ")||"";
+  $("f-att").value=q.att||"";$("f-mail").value=q.mail||"";$("f-tel").value=q.tel||"";$("f-dir").value=q.dir||"";
+  // v7.9.32 P1-R2-02: la ciudad, la ciudad escrita y el transporte se vacían antes de
+  // cargar; antes, un documento sin ciudad conservaba los de la cotización anterior y
+  // el guardado los volvía a escribir, con su transporte dentro del total.
+  $("f-city").value="";$("f-city-custom").value="";if($("f-tr-custom"))$("f-tr-custom").value="";
+  if(q.city){
+    const known=["La Calera","Bogotá","Chía","Cajicá"];
+    if(q.cityType){$("f-city").value=q.cityType;if(q.cityType==="Otra"){$("f-city-custom").value=q.city||""}}
+    else if(known.includes(q.city)){$("f-city").value=q.city}
+    else{$("f-city").value="Otra";$("f-city-custom").value=q.city}
+    if($("f-tr-custom"))$("f-tr-custom").value=q.trCustom||"";
+  }
+  updTr();
+  currentQuoteNumber=q.quoteNumber||null;
+  // v5.5.0 FIX #4: limpiar estado de última edición para evitar banners stale entre docs
+  window._lastSavedQuote=null;
+  // v5.4.2 (UX-002): restaurar fecha de entrega y momentos en el formulario.
+  // Antes se guardaba en Firestore (q.eventDate + q.momentosArr desde v5.4.0)
+  // y salía en el PDF, pero los campos del form aparecían vacíos al reabrir.
+  try{
+    const fDate=$("f-date");
+    if(fDate)fDate.value=q.eventDate||"";
+    // v6.4.0 P2: cargar horaEntrega en el nuevo input editable
+    const fHora=$("f-hora-entrega");
+    if(fHora)fHora.value=q.horaEntrega||"";
+    // Reset todos los checkboxes de momentos
+    document.querySelectorAll('#f-moments input[type=checkbox]').forEach(cb=>{cb.checked=false});
+    const fOther=$("f-time-other");if(fOther)fOther.value="";
+    const fOtherWrap=$("f-time-other-wrap");if(fOtherWrap)fOtherWrap.classList.add("hidden");
+    const chkOtro=$("chk-otro");
+    if(chkOtro)chkOtro.checked=false;
+    // Marcar los momentos guardados
+    const moms=Array.isArray(q.momentosArr)?q.momentosArr:[];
+    const fijos=["Desayuno","Refrigerio mañana","Almuerzo","Refrigerio tarde","Comida","Cóctel noche"];
+    let customMom="";
+    moms.forEach(m=>{
+      if(fijos.includes(m)){
+        // v7.9.32: split/join en vez de una expresión regular con comillas, que el
+        // extractor de las pruebas (scripts/source_test_helpers.mjs) no sabe leer.
+        const cb=document.querySelector('#f-moments input[type=checkbox][value="'+m.split('"').join('\\"')+'"]');
+        if(cb)cb.checked=true;
+      }else{
+        customMom=m; // cualquier cosa que no sea fija → va a "Otro"
+      }
+    });
+    if(customMom&&chkOtro){
+      chkOtro.checked=true;
+      if(fOther)fOther.value=customMom;
+      if(fOtherWrap)fOtherWrap.classList.remove("hidden");
+    }
+    // Refrescar estilos visuales de los labels (selected state) si existe togMom
+    document.querySelectorAll('#f-moments input[type=checkbox]').forEach(cb=>{
+      if(typeof togMom==="function")togMom(cb);
+    });
+  }catch(e){console.warn("[cargarCotizacionEnEditor] restaurar f-date/f-moments falló:",e)}
+  if(q.notasCotData&&typeof q.notasCotData==="object"){notasCotData={...q.notasCotData}}
+  else{notasCotData={...DEFAULT_NOTAS_COT}}
+  // v7.9.20: lista de notas (nueva) o conversion desde el objeto legacy
+  notasCotLista=gbNotasNormalizar(q.notasCotLista,q.notasCotData,DEFAULT_NOTAS_COT,NOTAS_COT_TITULOS);
+  tituloInstruccionesPago=q.tituloInstruccionesPago||"";
+  tituloCondiciones=q.tituloCondiciones||"";
+  // v7.9.33 P1-02/CL-R2-02 (revisión de Codex, ronda 3): un documento sin firma —nuevo,
+  // legacy o duplicado de una fuente legacy— toma la firma por defecto de la cotización
+  // ("km", la misma de la declaración de firmaCot y del PDF), no la del documento anterior.
+  firmaCot=q.firma||"km";
+  setFirma("cot",firmaCot);
+  // v7.7.4: cargar notas internas para producción (campo del doc, opcional)
+  if($("f-notas-internas"))$("f-notas-internas").value=q.notasInternas||"";
+  // v7.9.32 P1-R2-03: la marca de factura se carga como cualquier campo. Antes no se
+  // cargaba y el guardado la forzaba al valor guardado, así que no se podía cambiar.
+  if($("f-requiere-fe"))$("f-requiere-fe").checked=!!q.requiereFE;
+  recordarFormularioAbierto("quote"); // v7.9.32 P1-R2-01
 }
 
 // ═══════════════════════════════════════════════════════════

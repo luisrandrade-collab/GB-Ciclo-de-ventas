@@ -47,6 +47,16 @@ check.sh
 !scripts/test_integridad_editor.mjs
 !scripts/test_dinero.mjs
 !scripts/check_drift.mjs
+!scripts/source_test_helpers.mjs
+!scripts/test_integridad_flujos.mjs
+
+# Emulador Firebase (logs locales, no deben viajar al repositorio)
+firebase-debug.log
+firestore-debug.log
+database-debug.log
+pubsub-debug.log
+ui-debug.log
+firebase-export-*/
 
 # Sistema operativo
 .DS_Store

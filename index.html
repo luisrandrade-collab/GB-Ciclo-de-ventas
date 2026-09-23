@@ -10,7 +10,7 @@
 <link rel="icon" type="image/png" href="brand/cuchillo-negro.png">
 <link rel="apple-touch-icon" href="brand/cuchillo-negro.png">
 <title>Gourmet Bites - Cotizador</title>
-<link rel="stylesheet" href="gb-tokens.css?v=7.9.23.3"><!-- v7.9.13 INF-05: cache-buster CSS -->
+<link rel="stylesheet" href="gb-tokens.css?v=7.9.33"><!-- v7.9.13 INF-05: cache-buster CSS -->
 <!-- VERSION: 2026-04-26-v7.0.0-α-cascaron-v7-dashboard-rediseñado-fsm-pedido-vs-produccion -->
 <!--
   v6.3.0 (2026-04-24) — Robustez técnica + higiene (Entrega 3 del roadmap).
@@ -59,7 +59,7 @@
 <script type="module">
 // Firebase SDK v10 — v5.0.0: Auth + Storage + persistencia offline
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy, limit, runTransaction, serverTimestamp, writeBatch, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, getDoc, getDocs, getDocsFromServer, documentId, startAfter, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy, limit, runTransaction, serverTimestamp, writeBatch, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
@@ -94,7 +94,7 @@ const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 window.fb = {
-  db, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy, limit, runTransaction, serverTimestamp, writeBatch, deleteField,
+  db, collection, doc, getDoc, getDocs, getDocsFromServer, documentId, startAfter, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy, limit, runTransaction, serverTimestamp, writeBatch, deleteField,
   // v5.0.0: Auth
   auth, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail,
   // v5.0.1: Google Sign-In + change password
@@ -2602,12 +2602,11 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <span>⚙️ Mantenimiento y backups</span>
     </div>
     <div style="background:#FFF8E1;border-left:3px solid #F57F17;padding:10px 14px;margin-bottom:14px;border-radius:6px;font-size:13px;color:#5D4037">
-      <strong>⚠️ Acciones de mantenimiento.</strong> Antes de ejecutar cualquier acción destructiva, hacé un 📥 Backup JSON.
+      <strong>⚠️ Acciones de mantenimiento.</strong> Antes de una limpieza, el administrador debe verificar que exista un respaldo reciente y un procedimiento de recuperación probado.
     </div>
     <div class="mant-grid">
-      <button class="mant-btn mant-btn-backup" onclick="exportHistoryJson()" title="Descargar JSON de respaldo con todo el historial">📥<span>Backup JSON</span></button>
-      <button class="mant-btn mant-btn-restore" onclick="triggerRestoreBackup()" title="Restaurar desde un backup JSON (modo merge aditivo)">📤<span>Restaurar JSON</span></button>
-      <button class="mant-btn mant-btn-backup-auto" onclick="openBackupInfoModal()" title="Guía backup automático Firebase">ℹ️<span>Backup auto</span></button>
+      <!-- v7.9.24: recuperación administrada fuera del flujo operativo; retirar controles JSON. -->
+      <button class="mant-btn mant-btn-backup-auto" onclick="openBackupInfoModal()" title="Alcance de los respaldos y procedimiento de recuperación">ℹ️<span>Respaldos y recuperación</span></button>
       <button class="mant-btn mant-btn-fantasmas" onclick="cleanupWrongDocs()" title="Eliminar docs fantasma">🧹<span>Limpiar fantasmas</span></button>
       <!-- v7.7.5.1: removido botón "🔁 Re-sync agenda" — del flujo viejo, ya no aplica con sync automático -->
       <button class="mant-btn mant-btn-migrar" onclick="migrarFotosStorage()" title="Migrar fotos legacy a Storage (una vez)">🗜️<span>Migrar fotos</span></button>
@@ -2733,7 +2732,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   <button class="btn bp bf" onclick="go('products')">Continuar a Productos →</button>
 </div>
 <div class="sec hidden" id="step-products">
-  <div id="limit-warn" class="limitwarn hidden"><!-- v7.9.23.1: el texto lo rellena updUI() desde MX --></div>
+  <div id="limit-warn" class="limitwarn hidden"><!-- v7.9.27: el texto lo rellena updUI() desde MX --></div>
   <div class="sbar">
     <input class="sinp" id="sbox" placeholder="Buscar producto..." oninput="renderP()">
     <button class="bg btn" style="padding:10px 14px;font-size:13px;white-space:nowrap" onclick="togCF()">+ Custom</button>
@@ -3870,33 +3869,24 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <button class="mclose" onclick="closeBackupInfoModal()">×</button>
     </div>
     <div class="mform" style="font-size:13px;line-height:1.5;color:#333">
+      <!-- v7.9.24: información verificada, no monitor en tiempo real. -->
       <div style="background:#E8F5E9;border-left:3px solid #2E7D32;padding:10px 12px;border-radius:6px;margin-bottom:14px">
-        <strong>Tu negocio ya tiene 3 niveles de protección.</strong> Este diálogo te explica cuáles funcionan solos y cuáles requieren que actives algo en la consola.
+        <strong>Última verificación: 20 de septiembre de 2026.</strong> Se encontraron respaldos diarios de Firestore con retención de 98 días y recuperación PITR habilitada por 7 días. Este panel es informativo; no comprueba el estado actual.
       </div>
       <div style="margin-bottom:16px">
-        <div style="font-weight:700;color:#1B5E20;margin-bottom:4px">Nivel 0 · Replicación automática (gratis, ya activo)</div>
-        <div style="font-size:12px;color:#555">Firebase replica tus datos en múltiples servidores con 99.999% de disponibilidad. Protege contra fallos de hardware. NO protege contra borrados accidentales tuyos.</div>
+        <div style="font-weight:700;color:#1B5E20;margin-bottom:4px">Datos de la aplicación</div>
+        <div style="font-size:12px;color:#555">Los respaldos de Firestore permiten recuperar la base de datos. La restauración se administra fuera de la app, primero en una base separada para revisar el resultado.</div>
       </div>
       <div style="margin-bottom:16px">
-        <div style="font-weight:700;color:#1B5E20;margin-bottom:4px">Nivel 1 · Backup JSON manual (gratis, ya lo tienes)</div>
-        <div style="font-size:12px;color:#555">Botón "📥 Backup JSON" arriba. Descarga todo tu historial en un archivo. Recomendación: guardarlo en Google Drive 1 vez por semana.</div>
+        <div style="font-weight:700;color:#1B5E20;margin-bottom:4px">PDF, fotos y comprobantes</div>
+        <div style="font-size:12px;color:#555">Los archivos de Storage requieren su propia protección. Tener un enlace guardado en Firestore no equivale a tener una copia del archivo. La recuperación de estos archivos está pendiente de verificación.</div>
       </div>
       <div style="margin-bottom:16px">
-        <div style="font-weight:700;color:#1B5E20;margin-bottom:4px">Nivel 2 · Point-in-Time Recovery (PITR) — REQUIERE ACTIVAR</div>
-        <div style="font-size:12px;color:#555;margin-bottom:6px">Recuperación a cualquier minuto dentro de los últimos 7 días. Costo: ~$0.30-0.50 USD/mes. Requiere plan Blaze (pay-as-you-go).</div>
-        <div style="font-size:11.5px;color:#2E7D32;background:#F1F8E9;padding:8px 10px;border-radius:6px"><strong>Cómo activarlo:</strong> Firebase Console → Firestore Database → Databases → toca tu database (default) → pestaña "Disaster recovery" → marca "Enable point-in-time recovery" → Save.</div>
-      </div>
-      <div style="margin-bottom:16px">
-        <div style="font-weight:700;color:#1B5E20;margin-bottom:4px">Nivel 3 · Scheduled Backups — REQUIERE ACTIVAR</div>
-        <div style="font-size:12px;color:#555;margin-bottom:6px">Backups diarios o semanales automáticos con retención hasta 14 semanas. Costo: ~$0.50-1.00 USD/mes adicional. Requiere plan Blaze.</div>
-        <div style="font-size:11.5px;color:#2E7D32;background:#F1F8E9;padding:8px 10px;border-radius:6px"><strong>Cómo activarlo:</strong> Mismo lugar que PITR → columna "Scheduled backups" → Edit settings → activar Daily (retención 7 días) o Weekly (retención 4 semanas) → Save.</div>
-      </div>
-      <div style="margin-bottom:16px">
-        <div style="font-weight:700;color:#1B5E20;margin-bottom:4px">Código del programa (GitHub)</div>
-        <div style="font-size:12px;color:#555">El código (HTML, JS, CSS) NO se guarda en Firebase — está en GitHub. Cada commit es una versión inmutable. Puedes volver a cualquier versión anterior desde History del repo.</div>
+        <div style="font-weight:700;color:#1B5E20;margin-bottom:4px">Código y configuración</div>
+        <div style="font-size:12px;color:#555">Git conserva las versiones confirmadas del código. Las cuentas de acceso, permisos y configuración también deben incluirse en el procedimiento de recuperación.</div>
       </div>
       <div style="background:#FFF8E1;border-left:3px solid #F57F17;padding:10px 12px;border-radius:6px;margin-top:16px;font-size:12px;color:#555">
-        <strong>Mi recomendación:</strong> activa los niveles 2 y 3 esta semana. Son 5 clics en la consola y te dan tranquilidad por ~$1.50 USD/mes. Puedes abrir la consola ahora desde el botón de abajo. El archivo INSTRUCCIONES_FIREBASE_BACKUP.md que te entregué tiene los pasos exactos con screenshots descritos.
+        <strong>Si falta información:</strong> registra qué ocurrió y avisa al administrador. Antes de restaurar, debe identificar la copia adecuada, verificarla y autorizar cómo recuperar los datos. No ejecutes limpiezas para intentar resolver una pérdida.
       </div>
       <div style="display:flex;gap:8px;margin-top:14px">
         <button class="btn" style="background:#ECEFF1;color:#455A64;flex:1" onclick="closeBackupInfoModal()">Cerrar</button>
@@ -4644,12 +4634,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js" integrity="sha384-OUW9euuUyxyHcAhTqbhI+Iyb8LMssXt/cpz0yXhs9UWG2/R/uaWdakx/4cfww7Vb" crossorigin="anonymous"></script><!-- v7.9.13 SEC-12: SRI -->
-<script src="app-assets.js?v=7.9.23.3"></script>
-<script src="app-core.js?v=7.9.23.3"></script>
-<script src="app-cotizar.js?v=7.9.23.3"></script>
-<script src="app-propuesta.js?v=7.9.23.3"></script>
-<script src="app-historial.js?v=7.9.23.3"></script>
-<script src="app-seguimiento.js?v=7.9.23.3"></script>
-<script src="app-dashboard.js?v=7.9.23.3"></script>
+<script src="app-assets.js?v=7.9.33"></script>
+<script src="app-core.js?v=7.9.33"></script>
+<script src="app-cotizar.js?v=7.9.33"></script>
+<script src="app-propuesta.js?v=7.9.33"></script>
+<script src="app-historial.js?v=7.9.33"></script>
+<script src="app-seguimiento.js?v=7.9.33"></script>
+<script src="app-dashboard.js?v=7.9.33"></script>
 </body>
 </html>

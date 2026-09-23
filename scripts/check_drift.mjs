@@ -45,8 +45,7 @@ const ENTRIES = [
   ["getMenajeItemsActivos",   "app-core.js", "scripts/test_menaje.mjs"],
   ["getReposicionActivos",    "app-core.js", "scripts/test_menaje.mjs"],
   ["tieneMenajeOpciones",     "app-core.js", "scripts/test_menaje.mjs"],
-  ["OPERATIONAL_FIELDS",      "app-core.js", "scripts/test_merge_operational.mjs"],
-  ["mergeOperationalFields",  "app-core.js", "scripts/test_merge_operational.mjs"],
+  // v7.9.24: merge-operational ejecuta directamente la fuente, ya no hay copias.
   ["computePropTotal",   "app-core.js",      "scripts/test_proptotal_transporte.mjs"], // v7.9.13 ARQ-02: fuente movida
   ["TR",                 "app-core.js",      "scripts/test_proptotal_transporte.mjs"],
   ["getItemsVendidos",   "app-dashboard.js", "scripts/test_ventas_anteriores.mjs"],

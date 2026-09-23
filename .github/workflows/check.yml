@@ -31,5 +31,7 @@ jobs:
         run: node scripts/test_integridad_editor.mjs
       - name: Run dinero unit tests
         run: node scripts/test_dinero.mjs
+      - name: Run integridad de flujos sobre fuente real
+        run: node scripts/test_integridad_flujos.mjs
       - name: Run drift check (fuente vs copias de test)
         run: node scripts/check_drift.mjs
