@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.23.1";
+const BUILD_VERSION="v7.9.23.2";
 const BUILD_DATE="2026-09-13";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
@@ -357,6 +357,33 @@ function getMenajeItemsActivos(q){
   const op=getMenajeOpcionActiva(q);
   return op&&Array.isArray(op.items)?op.items:[];
 }
+
+// v7.9.28: en qué despacho se entrega el menaje.
+// Antes la remisión asumía que era siempre el primero cronológico, así que un
+// evento que entrega el menaje en un despacho posterior sacaba su hoja sin la
+// lista y sin avisar (caso GB-P-2026-0122, despacho 7, sólo menaje).
+// Devuelve el origen de la decisión para que la hoja pueda advertirlo:
+//   asignado    → q.menajeAssignedTo apunta a un despacho que existe
+//   huerfano    → apunta a uno que ya no existe; hay que avisar y caer al primero
+//   sin_asignar → no hay asignación; se conserva el comportamiento histórico
+function getMenajeDespachoTarget(q,despachos){
+  const lista=Array.isArray(despachos)?despachos:[];
+  const asignado=q&&q.menajeAssignedTo;
+  if(!asignado)return {id:null,origen:"sin_asignar"};
+  return lista.some(d=>d&&d.id===asignado)
+    ?{id:asignado,origen:"asignado"}
+    :{id:null,origen:"huerfano"};
+}
+
+// ¿Esta hoja de remisión es la que debe llevar el menaje?
+// Se imprime UNA sola vez por evento: en la hoja asignada, o en la primera
+// cronológica cuando no hay asignación.
+function menajeTocaEsteDespacho(q,despachos,despacho,esPrimeroCronologico){
+  const target=getMenajeDespachoTarget(q,despachos);
+  if(target.origen==="asignado")return despacho&&despacho.id===target.id;
+  return !!esPrimeroCronologico;
+}
+
 
 // Precios de reposición de la opción activa.
 // Reglas:
@@ -2921,6 +2948,7 @@ async function newProp(){
   });
   if(!ok)return;
   propSections=[];menajeItems=[];currentPropNumber=null;
+  menajeAssignedTo=null; // v7.9.23.2: la asignación de menaje no se hereda entre documentos
   // v7.9.8.5: reset de menaje multi-opción (antes solo se reseteaba el espejo legacy menajeItems,
   // dejando filtrar menajeOptions/reposicionByOption de la propuesta anterior a la nueva).
   if(typeof menajeOptions!=="undefined")menajeOptions=[];

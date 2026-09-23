@@ -24,6 +24,8 @@ let menajeOptions=[]; // [{id, label, items:[{id,name,qty,price}]}]
 let activeMenajeOptionId=null;
 let reposicionByOption={}; // {opcionId: {name: precio}}
 let menajeItems=[];     // espejo: items de la opción activa
+// v7.9.23.2: id del despacho donde se entrega el menaje. null = primero cronológico.
+let menajeAssignedTo=null;
 let tipoServicio="";
 let personalData={
   meseros:{cantidad:"",valor4h:"",horasExtra:"",valorHoraExtra:""},
@@ -835,6 +837,28 @@ function renderMenaje(){
   }
   // Header: tabs de opciones + botones de gestión
   let html="";
+  // v7.9.23.2: en qué despacho se entrega el menaje. Sólo aparece cuando el evento
+  // tiene más de un despacho, que es cuando la pregunta tiene sentido. Sin elegir,
+  // la remisión lo imprime en el primero cronológico, como se ha hecho siempre.
+  const _despMenaje=(typeof currentDespachos!=="undefined"&&Array.isArray(currentDespachos))?currentDespachos:[];
+  if(_despMenaje.length>1){
+    const _huerfano=menajeAssignedTo&&!_despMenaje.some(d=>d&&d.id===menajeAssignedTo);
+    html+='<div style="margin-bottom:10px;padding:8px;background:'+(_huerfano?"#FFF3E0":"#F1F8E9")+';border:1px solid '+(_huerfano?"#FFB74D":"#C5E1A5")+';border-radius:6px">';
+    html+='<label style="font-size:11px;font-weight:600;color:#33691E;display:block;margin-bottom:4px">🚚 El menaje se entrega en</label>';
+    html+='<select onchange="setMenajeDespacho(this.value)" style="width:100%;padding:5px 8px;border:1px solid #C5E1A5;border-radius:5px;font-size:12px">';
+    html+='<option value=""'+(menajeAssignedTo?"":" selected")+'>Primer despacho (por defecto)</option>';
+    _despMenaje.forEach((d,di)=>{
+      const lbl="Despacho "+(di+1)+(d.notas?" · "+d.notas.slice(0,24):"")+(d.fechaHora?" · "+d.fechaHora.slice(0,10):"");
+      html+='<option value="'+h(d.id)+'"'+(menajeAssignedTo===d.id?" selected":"")+'>'+h(lbl)+'</option>';
+    });
+    html+='</select>';
+    html+='<div style="font-size:10px;color:'+(_huerfano?"#E65100":"#689F38")+';margin-top:4px">'+
+      (_huerfano
+        ?"⚠️ Estaba asignado a un despacho que ya no existe. Vuelve a elegirlo."
+        :"La lista de menaje y sus valores de reposición salen en la remisión de ese despacho, sólo una vez.")+
+      '</div>';
+    html+='</div>';
+  }
   if(menajeOptions.length>1){
     html+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;padding:6px;background:#FAF8F4;border-radius:6px;border:1px solid #E5DFD3">';
     menajeOptions.forEach(op=>{
@@ -868,6 +892,12 @@ function renderMenaje(){
   }).join("");
   $("menaje-list").innerHTML=html;
   if($("repo-list"))renderReposicion();
+}
+// v7.9.23.2: elegir el despacho que lleva el menaje. "" vuelve al comportamiento
+// por defecto (primer despacho cronológico).
+function setMenajeDespacho(id){
+  menajeAssignedTo=id||null;
+  renderMenaje();
 }
 function addMenajeItem(){const name=prompt("Nombre del ítem de menaje:");if(!name)return;menajeItems.push({id:"m"+Date.now(),name,qty:"",price:""});renderMenaje()}
 
@@ -998,6 +1028,8 @@ async function _savePropQuoteImpl(silent){
       // v7.9.8: persistir tanto menaje[] (legacy, items de la opción activa) como menajeOptions[] (nuevo, todas las opciones)
       menaje:JSON.parse(JSON.stringify(menajeItems)),
       menajeOptions:JSON.parse(JSON.stringify(menajeOptions)),
+      menajeAssignedTo:menajeAssignedTo||null, // v7.9.23.2
+
       aperturaFrase:aperturaFrase,fechaVencimiento:fechaVencimiento,
       condicionesData:JSON.parse(JSON.stringify(condicionesData)),
       // v7.9.8: persistir reposicionByOption (nuevo) además de reposicionData plano (legacy compat)
@@ -1195,6 +1227,7 @@ function loadPropQuote(q){
   activeMenajeOptionId=(selOpId&&menajeOptions.find(o=>o.id===selOpId))
     ?selOpId
     :menajeOptions[0].id;
+  menajeAssignedTo=q.menajeAssignedTo||null;
   tipoServicio=q.tipoServicio||"";
   tituloMenaje=q.tituloMenaje||"";tituloPersonal=q.tituloPersonal||"";
   incluirReposicion=(typeof q.incluirReposicion==="boolean")?q.incluirReposicion:null;
@@ -1378,6 +1411,8 @@ async function generarPropuestaFinal(){
       // v7.9.8: PropFinal incluye TODAS las opciones de menaje preservadas + propFinalSelection.menaje marca la activa
       sections:pfSections,menaje:menajeItems,
       menajeOptions:JSON.parse(JSON.stringify(menajeOptions)),
+      menajeAssignedTo:menajeAssignedTo||null, // v7.9.23.2: la PF hereda dónde se entrega el menaje
+
       propFinalSelection:{menaje:activeMenajeOptionId},
       aperturaFrase:aperturaFrase,fechaVencimiento:fechaVencimiento,
       condicionesData:condicionesData,reposicionData:reposicionData,
@@ -1922,6 +1957,7 @@ async function cancelEdicionProp(){
     });
     if(!ok)return;
     propSections=[];menajeItems=[];personalData=[];currentPropNumber=null;
+    menajeAssignedTo=null; // v7.9.23.2: la asignación de menaje no se hereda entre documentos
     tituloMenaje="";tituloPersonal="";incluirReposicion=null; // v7.9.20/21: bloques y reposición a default
     condicionesLista=gbNotasNormalizar(null,null,DEFAULT_CONDICIONES,CONDICIONES_TITULOS);
     window._lastSavedProp=null;
@@ -2064,7 +2100,10 @@ async function genRemisionDespachoPDF(q,despachoIdx){
     if(totalDesp>1){
       doc.setFillColor(255,243,224);doc.rect(mg,y,tw,8,"F");
       doc.setFontSize(10);doc.setFont("helvetica","bold");doc.setTextColor(230,81,0);
-      const labelDesp="🚚 Despacho "+(idx+1)+" de "+totalDesp+(despacho.notas?" · "+despacho.notas:"");
+      // v7.9.23.2: sin emoji. helvetica de jsPDF no tiene el glifo y lo emitía como
+      // basura ("%º D e s p a c h o"), en la línea que identifica la entrega dentro
+      // del documento que firma el cliente.
+      const labelDesp="Despacho "+(idx+1)+" de "+totalDesp+(despacho.notas?" · "+despacho.notas:"");
       doc.text(labelDesp.replace("🚚","►"),mg+3,y+5.5);
       y+=10;
       doc.setTextColor(26,26,26);
@@ -2121,7 +2160,20 @@ async function genRemisionDespachoPDF(q,despachoIdx){
       menajeItemsLocal=Array.isArray(q.menaje)?q.menaje:(typeof menajeItems!=="undefined"?menajeItems:[]);
       repoLocal=(q.reposicionData&&typeof q.reposicionData==="object")?q.reposicionData:(typeof reposicionData!=="undefined"?reposicionData:{});
     }
-    const tieneMenajeRender=esPrimeroCronologico&&menajeItemsLocal.length>0&&menajeItemsLocal.some(m=>m.name&&m.qty);
+    // v7.9.23.2: el menaje va en la hoja del despacho asignado (o en la primera
+    // cronológica si no hay asignación). Antes se exigía esPrimeroCronologico
+    // siempre, y un evento que entrega el menaje en un despacho posterior sacaba
+    // su remisión sin lista. Además se dejaban caer en silencio los ítems sin
+    // cantidad: ahora se imprimen con "—", porque un ítem sin cantidad sigue
+    // saliendo de la casa y debe quedar en el soporte firmado.
+    const _menajeTarget=(typeof getMenajeDespachoTarget==="function")
+      ?getMenajeDespachoTarget(q,despachos)
+      :{id:null,origen:"sin_asignar"};
+    const _menajeTocaHoja=(typeof menajeTocaEsteDespacho==="function")
+      ?menajeTocaEsteDespacho(q,despachos,despacho,esPrimeroCronologico)
+      :esPrimeroCronologico;
+    const menajeConNombre=menajeItemsLocal.filter(m=>m&&m.name);
+    const tieneMenajeRender=_menajeTocaHoja&&menajeConNombre.length>0;
     if(tieneMenajeRender){
       // Saltar página si poco espacio
       if(y>H-90){doc.addPage();y=mg}
@@ -2135,7 +2187,7 @@ async function genRemisionDespachoPDF(q,despachoIdx){
           {content:"Recibido",styles:{fontStyle:"bold",fillColor:[245,245,245],halign:"center"}}
         ]
       ];
-      menajeItemsLocal.filter(m=>m.name&&m.qty).forEach(m=>{
+      menajeConNombre.forEach(m=>{
         const repo=repoLocal[m.name];
         menajeRows.push([
           {content:String(m.qty||"—"),styles:{halign:"center",fontStyle:"bold"}},
@@ -2149,6 +2201,35 @@ async function genRemisionDespachoPDF(q,despachoIdx){
         bodyStyles:{fontSize:8,cellPadding:{top:2.5,bottom:2.5,left:4,right:4},textColor:[60,60,60],minCellHeight:8}
       });
       y=doc.lastAutoTable.finalY+5;
+    }
+
+    // ── v7.9.23.2: una remisión no puede salir muda.
+    // Si la hoja no lleva ni comida ni menaje, antes se imprimía igual, con
+    // aspecto de documento completo y sin listar nada; el operador se enteraba
+    // delante del cliente. Ahora lo dice, y dice qué revisar.
+    if(!itemsParaRemision.length&&!tieneMenajeRender){
+      if(y>H-50){doc.addPage();y=mg}
+      const _pistas=[];
+      if(_menajeTarget.origen==="huerfano")_pistas.push("El menaje está asignado a un despacho que ya no existe. Vuelve a asignarlo.");
+      else if(menajeConNombre.length&&!_menajeTocaHoja)_pistas.push("Hay menaje cargado pero se entrega en otro despacho. Si va en este, cámbialo en la propuesta.");
+      else if(!menajeConNombre.length)_pistas.push("No hay ítems de menaje con nombre en la opción seleccionada. Revisa la opción activa de menaje.");
+      _pistas.push("Revisa también la asignación de los items de comida a este despacho.");
+      doc.setFillColor(255,243,224);doc.setDrawColor(230,81,0);doc.setLineWidth(0.4);
+      const _hAviso=12+_pistas.length*4.5;
+      doc.rect(mg,y,tw,_hAviso,"FD");
+      doc.setFontSize(9.5);doc.setFont("helvetica","bold");doc.setTextColor(230,81,0);
+      doc.text("ESTA HOJA NO LISTA NINGÚN ITEM",mg+3,y+6);
+      doc.setFontSize(7.5);doc.setFont("helvetica","normal");doc.setTextColor(120,60,0);
+      let _yy=y+11;
+      _pistas.forEach(t=>{doc.text("• "+t,mg+3,_yy);_yy+=4.5});
+      y+=_hAviso+5;
+      doc.setTextColor(60,60,60);
+    }else if(_menajeTarget.origen==="huerfano"&&menajeConNombre.length&&esPrimeroCronologico){
+      // Se imprimió por el fallback, pero la asignación estaba rota: que se sepa.
+      doc.setFontSize(7.5);doc.setFont("helvetica","italic");doc.setTextColor(230,81,0);
+      doc.text("Aviso: el menaje estaba asignado a un despacho que ya no existe; se imprime en esta hoja por defecto.",mg,y);
+      doc.setFont("helvetica","normal");doc.setTextColor(60,60,60);
+      y+=5;
     }
 
     // ── Sección "Recibo del cliente"
