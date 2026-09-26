@@ -49,7 +49,7 @@ await test('PF mantiene logística y calcula dos transportes',()=>{
   final.despachos[0].transporteCosto=999;assert.equal(src.despachos[0].transporteCosto,20);
 });
 await test('cartera distingue pagos, ajustes y saldo a favor',()=>{
-  const c=loadSourceFunctions([...['getPagos','totalCobrado','totalAjustes','saldoPendiente','saldoNeto','creditoAFavor'].map(n=>['app-historial.js',n]),['app-dashboard.js','renderCarteraCard']],{carteraGetFecha:()=>'',fm:n=>String(n),h:s=>String(s)});
+  const c=loadSourceFunctions([...['getPagos','totalCobrado','totalAjustes','saldoPendiente','saldoNeto','creditoAFavor'].map(n=>['app-historial.js',n]),...opcional('app-historial.js','totalCargos','puedeCargoReposicion'),['app-dashboard.js','renderCarteraCard']],{carteraGetFecha:()=>'',fm:n=>String(n),h:s=>String(s)});
   const html=c.renderCarteraCard({total:100000,pagos:[{monto:20000}],ajustes:[{monto:30000}]},'vencido');
   assert.ok(html.includes('Cobrado 20000'));assert.ok(html.includes('Ajustes 30000'));assert.ok(html.includes('Saldo 50000'));
   assert.ok(c.renderCarteraCard({total:100,pagos:[{monto:120}]},'vencido').includes('Saldo a favor 20'));
@@ -62,7 +62,7 @@ await test('selector PF incluye transportes y excluye secciones alternativas',()
 await test('Excel informa cobrado real tanto por pedido como por día',()=>{
   const sheets={};let downloaded=false;
   const styles=Object.fromEntries(['_REP_FILL_ZEBRA','_REP_FILL_WHITE','_REP_FONT_BASE','_REP_BORDER_FULL','_REP_FMT_PESOS','_REP_FILL_DARK','_REP_FONT_TITLE','_REP_FILL_TITLE','_REP_FILL_GOLD','_REP_FONT_SECTION','_REP_FONT_HEADER','_REP_FILL_HEADER'].map(k=>[k,{}]));
-  const c=loadSourceFunctions([...['getPagos','totalCobrado','totalAjustes','saldoPendiente'].map(n=>['app-historial.js',n]),['app-dashboard.js','descargarExcel']],{...styles,reportesResultado:{docs:[{id:'q',kind:'quote',total:100000,pagos:[{monto:20000}],ajustes:[{monto:30000}]}],filtros:{desde:'2026-09-01',hasta:'2026-09-20'}},XLSX:{utils:{book_new:()=>({}),aoa_to_sheet:rows=>({rows}),book_append_sheet:(_,ws,name)=>{sheets[name]=ws.rows}},writeFile:()=>{downloaded=true}},_repCalcularKPIs:()=>({}),_reportesGetFecha:()=> '2026-09-18',_repFormatearTabla(){}});
+  const c=loadSourceFunctions([...['getPagos','totalCobrado','totalAjustes','saldoPendiente'].map(n=>['app-historial.js',n]),...opcional('app-historial.js','totalCargos'),['app-dashboard.js','descargarExcel']],{...styles,reportesResultado:{docs:[{id:'q',kind:'quote',total:100000,pagos:[{monto:20000}],ajustes:[{monto:30000}]}],filtros:{desde:'2026-09-01',hasta:'2026-09-20'}},XLSX:{utils:{book_new:()=>({}),aoa_to_sheet:rows=>({rows}),book_append_sheet:(_,ws,name)=>{sheets[name]=ws.rows}},writeFile:()=>{downloaded=true}},_repCalcularKPIs:()=>({}),_reportesGetFecha:()=> '2026-09-18',_repFormatearTabla(){}});
   c.descargarExcel();assert.ok(downloaded);assert.equal(sheets.Pedidos[1][9],20000);assert.equal(sheets['Por dia'][1][3],20000);
 });
 await test('restauración no reemplaza ID existente aunque el preview esté viejo',async()=>{
@@ -1173,7 +1173,7 @@ function pagoFixture(errorDelRunner){
   const modales=[];
   const store=new Map();
   const fb={db:{},doc:(_,c,i)=>c+'/'+i,serverTimestamp:()=>'T',runTransaction:async(_,cb)=>cb({get:async p=>({exists:()=>store.has(p),data:()=>store.get(p)}),update(){}})};
-  const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName','gbDateToIso'),...['getPagos','totalCobrado','pagoFechaIso','pagoClave','pagoPareceRepetido','submitPago','_submitPagoImpl'].map(n=>['app-historial.js',n])],{
+  const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName','gbDateToIso'),...['getPagos','totalCobrado','pagoFechaIso','pagoClave','pagoPareceRepetido','submitPago','_submitPagoImpl'].map(n=>['app-historial.js',n]),...opcional('app-historial.js','totalCargos','totalAjustes','saldoPendiente')],{
     ...common(),console:quiet,window:{fb},$:el,cloudOnline:true,pagoSrc:{id:'GB-1',kind:'quote',doc:{total:0,pagos:[]}},pagoFotoBase64:null,
     getDocTotal:()=>0,fm:String,alert(){},closePagoModal(){},renderHist(){},
     logOperacion:async({runner})=>{if(errorDelRunner)throw errorDelRunner;return runner('log1')},
@@ -1205,7 +1205,7 @@ function repetidoFixture({pagos,doc,fecha='2026-09-22',monto='500',tipo='parcial
   const d=doc||{total:1000,pagos};
   const store=new Map([['quotes/GB-1',plain(d)]]);const escritos=[];const modales=[];
   const fb={db:{},doc:(_,c,i)=>c+'/'+i,serverTimestamp:()=>'T',runTransaction:async(_,cb)=>cb({get:async p=>({exists:()=>store.has(p),data:()=>store.get(p)}),update(p,v){escritos.push(v)}})};
-  const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName','gbDateToIso'),...['getPagos','totalCobrado','pagoFechaIso','pagoClave','pagoPareceRepetido','submitPago','_submitPagoImpl'].map(n=>['app-historial.js',n])],{
+  const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName','gbDateToIso'),...['getPagos','totalCobrado','pagoFechaIso','pagoClave','pagoPareceRepetido','submitPago','_submitPagoImpl'].map(n=>['app-historial.js',n]),...opcional('app-historial.js','totalCargos','totalAjustes','saldoPendiente')],{
     ...common(),window:{fb},$:el,cloudOnline:true,pagoSrc:{id:'GB-1',kind:'quote',doc:d},pagoFotoBase64:null,
     getDocTotal:q=>q.total||0,fm:n=>'$'+n,_showPagoSuccessModal:async()=>{},curMode:'hist',escapeHtml:s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'),closePagoModal(){},renderHist(){},
     logOperacion:async({runner})=>runner('log1'),
@@ -1280,7 +1280,7 @@ function carreraFixture({cache=[],fresco=[],frescoEnEscritura=null,respuestas=[]
       v.forEach(({p,x})=>{escrituras.push({p,v:x});doc={...doc,...plain(x)}});
       return r;
     }};
-  const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName','gbDateToIso','logOperacion'),...['getPagos','totalCobrado','pagoFechaIso','pagoClave','pagoPareceRepetido','submitPago','_submitPagoImpl'].map(n=>['app-historial.js',n])],{
+  const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName','gbDateToIso','logOperacion'),...['getPagos','totalCobrado','pagoFechaIso','pagoClave','pagoPareceRepetido','submitPago','_submitPagoImpl'].map(n=>['app-historial.js',n]),...opcional('app-historial.js','totalCargos','totalAjustes','saldoPendiente')],{
     ...common(),window:{fb},$:el,cloudOnline:true,pagoSrc:{id:'GB-1',kind:'quote',doc:{total:1000,pagos:cache.map(p=>({...p}))}},pagoFotoBase64:null,
     fbReady:async()=>{},BUILD_VERSION:'test',
     getDocTotal:q=>q.total||0,fm:n=>'$'+n,_showPagoSuccessModal:async()=>{},curMode:'hist',
@@ -1354,5 +1354,345 @@ await test('P2-01 monto guardado con marcado: el aviso muestra el número compar
   assert.ok(!/<img|onerror/.test(m.body),m.body);
   assert.ok(m.body.includes('$500'),m.body);
   assert.equal(f.escrituras.length,0);
+});
+// ═══ v7.9.35 P-35: cargos por reposición de menaje (vaso roto de $15.000) ═══
+const hist=(...n)=>n.map(x=>['app-historial.js',x]);
+const menajeCore=core('getMenajeOpciones','getMenajeOpcionActiva','getMenajeItemsActivos','getReposicionActivos','gbDateToIso');
+// Copia de h() de app-core.js: el extractor no admite sus regex con comillas.
+const hReal=s=>s==null?'':String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+const cargoFns=['getPagos','totalCobrado','totalAjustes','totalCargos','saldoPendiente','saldoNeto','creditoAFavor','pagoFechaIso','pagoTipoLabel','puedeCargoReposicion','cargoLineas','cargoCalcular','plantillaCobroCargo','cargosVerPagosHtml'];
+const fmReal=n=>'$'+n.toLocaleString('es-CO');
+const cargosCtx=(extra={})=>loadSourceFunctions([...menajeCore,...opcional('app-historial.js',...cargoFns)],{...common(),fm:fmReal,h:hReal,getDocTotal:q=>q.total||0,GB_DATOS_PAGO:'',...extra});
+const vaso={id:'cg1',clientId:'cg1',tipo:'reposicion_menaje',items:[{name:'Vaso',qty:1,precio:15000}],monto:15000,fecha:'2026-09-26'};
+const eventoPagado=()=>({kind:'proposal',status:'entregado',client:'Cliente',total:100000,pagos:[{fecha:'2026-09-20',monto:100000,metodo:'Nequi',tipo:'saldo'}],menaje:[{name:'Vaso',qty:50}],reposicionData:{Vaso:15000}});
+const pagoRepo={fecha:'2026-09-27',monto:15000,metodo:'Nequi',tipo:'reposicion_menaje'};
+await test('P-35 totalCargos suma los vigentes, ignora los anulados y lee montos con parseInt',()=>{
+  const c=cargosCtx();
+  assert.equal(c.totalCargos({cargos:[vaso,{...vaso,id:'x',monto:'5000'},{...vaso,id:'y',deletedAt:'2026-09-27'},{monto:'<b>'}]}),20000);
+  assert.equal(c.totalCargos({}),0);assert.equal(c.totalCargos(null),0);
+});
+await test('P-35 saldoPendiente y saldoNeto incluyen los cargos; getDocTotal no cambia',()=>{
+  const c=cargosCtx();
+  const q={...eventoPagado(),cargos:[vaso]};
+  assert.equal(c.saldoPendiente(q),15000);assert.equal(c.saldoNeto(q),15000);assert.equal(c.creditoAFavor(q),0);
+  const t=loadSourceFunctions(core('TR','computePropTotal','getDocTotal'));
+  assert.equal(t.getDocTotal({kind:'quote',total:100000,cargos:[vaso]}),100000);
+  assert.equal(t.getDocTotal({kind:'proposal',sections:[seccion('s1')],cargos:[vaso]}),100000);
+});
+await test('P-35 caso real: pagado completo + vaso de $15.000 → pendiente 15.000; pago de reposición → 0 y sin saldo a favor',()=>{
+  const c=cargosCtx();
+  const q={...eventoPagado(),cargos:[vaso]};
+  assert.equal(c.saldoPendiente(q),15000);
+  q.pagos.push(pagoRepo);
+  assert.equal(c.saldoPendiente(q),0);assert.equal(c.creditoAFavor(q),0);
+  const d=loadSourceFunctions([...hist('getPagos','totalCobrado','totalAjustes'),...opcional('app-historial.js','totalCargos'),['app-dashboard.js','getSobrepagosCliente']],{getDocTotal:x=>x.total||0});
+  assert.deepEqual(plain(d.getSobrepagosCliente([q])),{total:0,detalle:[]},'la reposición pagada no es saldo a favor');
+  assert.equal(d.getSobrepagosCliente([{...q,cargos:[]}]).total,15000,'sin cargo, el mismo pago sí sería sobrepago');
+});
+await test('P-35 D2: cargo sólo en propuestas vendidas con menaje; no en cotizaciones, sin menaje, sin vender ni archivadas',()=>{
+  const c=cargosCtx();
+  const base=eventoPagado();
+  for(const status of ['aprobada','en_produccion','entregado'])assert.equal(c.puedeCargoReposicion({...base,status}),true,status);
+  for(const status of ['enviada','propfinal','anulada','superseded','convertida',undefined])assert.equal(c.puedeCargoReposicion({...base,status}),false,String(status));
+  assert.equal(c.puedeCargoReposicion({...base,kind:'quote'}),false,'cotización');
+  assert.equal(c.puedeCargoReposicion({...base,menaje:[]}),false,'sin menaje');
+});
+await test('P-35 modal: precios de la tabla de reposición de la opción aprobada; cantidad 0 no suma; total entero',()=>{
+  const c=cargosCtx();
+  const q={kind:'proposal',menajeOptions:[{id:'A',label:'A',items:[{name:'Copa'}]},{id:'B',label:'B',items:[{name:'Vaso'},{name:'Plato'}]}],propFinalSelection:{menaje:'B'},reposicionData:{A:{Copa:9000},B:{Vaso:15000,Plato:'12000'}}};
+  assert.deepEqual(plain(c.cargoLineas(q)),[{name:'Vaso',precio:15000},{name:'Plato',precio:12000}]);
+  assert.deepEqual(plain(c.cargoCalcular([{name:'Vaso',qty:'2',precio:'15000'},{name:'Plato',qty:'0',precio:'12000'}])),{items:[{name:'Vaso',qty:2,precio:15000}],monto:30000});
+  assert.equal(c.cargoCalcular([{name:'Vaso',qty:'0',precio:'15000'},{name:'Plato',qty:'-1',precio:'12000'}]).monto,0);
+});
+
+function cargoFixture({doc=eventoPagado(),fresco=null,reintentoTx=false,respuestas=[],qty='1',precio=null,prompts=[]}={}){
+  const {el}=domSimulado();
+  let almacen={...plain(fresco||doc)};const escrituras=[];const modales=[];const toasts=[];let reintentado=false;
+  const fb={db:{},doc:(_,c,i)=>c+'/'+i,serverTimestamp:()=>'T',
+    setDoc:async(p,v)=>{escrituras.push({p,v})},updateDoc:async(p,v)=>{escrituras.push({p,v})},
+    runTransaction:async(_,cb)=>{
+      const intento=async()=>{const v=[];const r=await cb({get:async()=>({exists:()=>true,data:()=>plain(almacen)}),update(p,x){v.push({p,x})}});return {r,v}};
+      let {r,v}=await intento();
+      if(reintentoTx&&!reintentado){reintentado=true;({r,v}=await intento())} // contención: el primer intento se descarta
+      v.forEach(({p,x})=>{escrituras.push({p,v:x});almacen={...almacen,...plain(x)}});
+      return r;
+    }};
+  const cache={...plain(doc),id:'GB-P-1',kind:'proposal'};
+  const c=loadSourceFunctions([...menajeCore,...core('getCollectionName','logOperacion','gbMensajeError','gbEsErrorDePermiso'),
+    ...opcional('app-historial.js',...cargoFns,'openCargoModal','closeCargoModal','cargoFilasDelFormulario','cargoRecalcular','submitCargo','_submitCargoImpl','anularCargo')],{
+    ...common(),window:{fb},$:el,cloudOnline:true,quotesCache:[cache],fbReady:async()=>{},BUILD_VERSION:'test',fm:fmReal,h:hReal,getDocTotal:q=>q.total||0,GB_DATOS_PAGO:'',
+    toast:(m)=>toasts.push(m),renderHist(){},openVerPagosModal(){},curMode:'hist',prompt:()=>prompts.length?prompts.shift():'',
+    confirmModal:async o=>{modales.push(o);return respuestas.length?respuestas.shift():true}});
+  const abrir=()=>{c.openCargoModal('GB-P-1','proposal');
+    for(const m of String(el('cg-items').innerHTML).matchAll(/id="(cg-(?:qty|precio)-\d+)" value="([^"]*)"/g))el(m[1]).value=m[2]; // como el navegador
+    el('cg-qty-0').value=qty;if(precio!=null)el('cg-precio-0').value=precio;el('cg-fecha').value='2026-09-26';el('cg-notas').value='Vaso roto por un invitado'};
+  const alDoc=()=>escrituras.filter(e=>e.p==='proposals/GB-P-1');
+  return {c,el,cache,escrituras,alDoc,modales,toasts,abrir,almacen:()=>almacen};
+}
+await test('P-35 registrar cargo: una escritura en transacción, con auditoría, y el pendiente sube',async()=>{
+  const f=cargoFixture();
+  f.abrir();
+  assert.equal(String(f.el('cg-precio-0').value),'15000','precio de la tabla de reposición');
+  await f.c.submitCargo();
+  assert.equal(f.alDoc().length,1);
+  const cargos=f.almacen().cargos;
+  assert.equal(cargos.length,1);
+  assert.equal(cargos[0].monto,15000);assert.equal(cargos[0].tipo,'reposicion_menaje');
+  assert.deepEqual(cargos[0].items,[{name:'Vaso',qty:1,precio:15000}]);
+  assert.equal(cargos[0].fecha,'2026-09-26');assert.ok(cargos[0].logId&&cargos[0].clientId&&cargos[0].registradoEn);
+  assert.ok(f.escrituras.some(e=>/^operacionesLog\//.test(e.p)&&e.v.operacion==='registrarCargo'),'queda en la auditoría');
+  assert.equal(f.cache.cargos.length,1,'la caché se sincroniza con lo escrito');
+  assert.equal(cargosCtx().saldoPendiente(f.cache),15000);
+  assert.ok(!f.c.window._submitCargoBusy);
+});
+await test('P-35 registrar cargo: total 0 no guarda; «Cancelar» en la confirmación no guarda',async()=>{
+  const a=cargoFixture({qty:'0'});a.abrir();await a.c.submitCargo();
+  assert.equal(a.escrituras.length,0);
+  const b=cargoFixture({respuestas:[false]});b.abrir();await b.c.submitCargo();
+  assert.equal(b.escrituras.length,0);assert.ok(!b.c.window._submitCargoBusy);
+});
+await test('P-35 registrar cargo: el reintento de la transacción deja un solo cargo',async()=>{
+  const f=cargoFixture({reintentoTx:true});f.abrir();await f.c.submitCargo();
+  assert.equal(f.almacen().cargos.length,1);
+});
+await test('P-35 registrar cargo: relee dentro de la transacción; conserva el pago y el cargo de otra sesión',async()=>{
+  const otro={...vaso,id:'otro',clientId:'otro',monto:8000};
+  const fresco={...eventoPagado(),pagos:[...eventoPagado().pagos,pagoRepo],cargos:[otro]};
+  const f=cargoFixture({fresco});f.abrir();await f.c.submitCargo();
+  const d=f.almacen();
+  assert.equal(d.cargos.length,2);assert.equal(d.cargos[0].id,'otro');
+  assert.equal(d.pagos.length,2,'el pago de la otra sesión sigue');
+});
+await test('P-35 anular cargo: exige motivo; marca deletedAt; el pendiente baja; anular dos veces no escribe',async()=>{
+  const doc={...eventoPagado(),cargos:[vaso]};
+  const abrirVer=f=>{f.c.window.__verPagosId='GB-P-1';f.c.window.__verPagosKind='proposal'};
+  const sin=cargoFixture({doc,prompts:['']});abrirVer(sin);
+  await sin.c.anularCargo(0);
+  assert.equal(sin.escrituras.length,0,'sin motivo no escribe');
+  const f=cargoFixture({doc,prompts:['El vaso apareció en la bodega']});abrirVer(f);
+  await f.c.anularCargo(0);
+  const c0=f.almacen().cargos[0];
+  assert.ok(c0.deletedAt);assert.equal(c0.motivo,'El vaso apareció en la bodega');assert.equal(c0.deletedBy,'fixture@example.invalid');
+  assert.equal(c0.monto,15000,'el cargo se conserva (borrado lógico)');
+  assert.equal(cargosCtx().saldoPendiente(f.almacen()),0);
+  assert.ok(f.escrituras.some(e=>/^operacionesLog\//.test(e.p)&&e.v.operacion==='anularCargo'),'queda en la auditoría');
+  const antes=f.escrituras.length;
+  await f.c.anularCargo(0);
+  assert.equal(f.escrituras.length,antes,'ya anulado en la caché: no escribe');
+  const g=cargoFixture({doc,fresco:{...doc,cargos:[{...vaso,deletedAt:'2026-09-27',motivo:'otra sesión'}]},prompts:['Anulado otra vez por error']});abrirVer(g);
+  await g.c.anularCargo(0);
+  assert.equal(g.alDoc().length,0,'ya anulado en el estado fresco: no reescribe');
+  assert.equal(g.almacen().cargos[0].motivo,'otra sesión');
+});
+await test('P-35 guardar la propuesta en el editor no pisa un cargo que otra sesión registró',async()=>{
+  const c=loadSourceFunctions(mergeEntries);
+  assert.deepEqual(plain(c.mergeOperationalFields({client:'x',cargos:[]},{client:'y',cargos:[vaso]}).cargos),[vaso],'el formulario viejo sin el cargo no lo borra');
+  const f=propReal({p:{client:'Cliente',att:'Compras',status:'entregado',sections:[seccion('s1')]}});
+  await f.abrir('p');
+  f.doc('p').cargos=[vaso];
+  f.el('fp-att').value='Ventas';
+  const r=await f.guardar();
+  assert.equal(r?.ok,true,JSON.stringify(f.messages));
+  assert.deepEqual(plain(f.doc('p').cargos),[vaso]);
+});
+await test('P-35 versión hija bloqueada si hay cargos; el cargador canónico no lee cargos (duplicar no los copia)',()=>{
+  const src=source('app-propuesta.js');
+  const lineas=src.split('\n').filter(l=>/\((parent|old)\.ajustes\|\|\[\]\)\.length/.test(l));
+  assert.equal(lineas.length,2);
+  for(const l of lineas)assert.ok(/\((parent|old)\.cargos\|\|\[\]\)\.length/.test(l),l.trim().slice(0,140));
+  for(const f of ['loadPropQuote','duplicateQuote']){
+    const file=f==='duplicateQuote'?'app-historial.js':'app-propuesta.js';
+    const s=source(file);const i=s.search(new RegExp('function\\s+'+f+'\\s*\\('));
+    assert.ok(i>=0&&!/cargos/.test(s.slice(i,s.indexOf('\n}\n',i))),f+' no debe leer ni copiar cargos');
+  }
+});
+await test('P-35 WhatsApp: ítems, total y cláusula; montos con parseInt; datos de pago sólo si existen',()=>{
+  const c=cargosCtx();
+  const q={...eventoPagado(),quoteNumber:'GB-P-2026-0122-7'};
+  const cargo={...vaso,monto:'15000<img src=x>',items:[{name:'Vaso',qty:'1',precio:'15000<b>'}]};
+  const t=c.plantillaCobroCargo(q,cargo);
+  assert.ok(t.includes('GB-P-2026-0122-7'),t);assert.ok(/1 × Vaso/.test(t),t);assert.ok(t.includes('$15.000'),t);
+  assert.ok(!/<img|<b>/.test(t),t);assert.ok(/responsabilidad por menaje/i.test(t),t);
+  assert.ok(!/Datos de pago/i.test(t),'sin GB_DATOS_PAGO no se inventan datos');
+  assert.ok(cargosCtx({GB_DATOS_PAGO:'Nequi 300 000 0000'}).plantillaCobroCargo(q,cargo).includes('Nequi 300 000 0000'));
+});
+await test('P-35 «Ver pagos»: los cargos se muestran escapados, con su estado',()=>{
+  const c=cargosCtx();
+  const q={cargos:[{...vaso,items:[{name:'<img src=x onerror=alert(1)>',qty:1,precio:15000}],notas:'<script>x</script>',monto:'15000<b>'},{...vaso,id:'y',deletedAt:'2026-09-27',motivo:'<i>apareció</i>'}]};
+  const html=c.cargosVerPagosHtml(q);
+  assert.ok(!/<img|<script|<b>|<i>/.test(html),html);
+  assert.ok(html.includes('$15.000'));assert.ok(/Anulado/.test(html));
+  assert.equal(c.cargosVerPagosHtml({}),'');
+  assert.equal(c.pagoTipoLabel('reposicion_menaje'),'Reposición de menaje');
+});
+await test('P-35 lectores del pendiente: cumplido, notas de la hoja, estado de pago y tarjeta cuentan los cargos',()=>{
+  const q={...eventoPagado(),cargos:[vaso]};
+  const g={getDocTotal:x=>x.total||0,fm:fmReal,h:String,STATUS_META:{}};
+  const base=[...hist('getPagos','totalCobrado','totalAjustes','saldoPendiente'),...opcional('app-historial.js','totalCargos')];
+  const k=loadSourceFunctions([...base,...core('isCumplido'),['app-dashboard.js','hojaNotasPago'],['app-dashboard.js','_estadoPago']],g);
+  assert.equal(k.isCumplido(q),false,'debe la reposición: no está cumplido');
+  assert.equal(k.hojaNotasPago(q),'SALDO $15.000');
+  assert.notEqual(k._estadoPago(q).cls,'pagado');
+  const pagado={...q,pagos:[...q.pagos,pagoRepo]};
+  assert.equal(k.isCumplido(pagado),true);assert.equal(k.hojaNotasPago(pagado),'CANCELADO');assert.equal(k._estadoPago(pagado).cls,'pagado');
+  const r=loadSourceFunctions([...base,['app-historial.js','_actionBtnsPorContexto'],['app-historial.js','renderDocCard']],{...g,quotesCache:[],canEdit:()=>false,requiresWarning:()=>false,canAnular:()=>false,puedeCargoReposicion:()=>false});
+  const card=r.renderDocCard({...q,id:'GB-P-1'},'cartera',{showSaldo:true});
+  assert.ok(card.includes('Cobrado $100.000'),card);assert.ok(card.includes('Saldo $15.000'),card);
+});
+await test('P-35 registrar pago tras el cargo: el modal de éxito no muestra la reposición como crédito a favor',async()=>{
+  const {el}=domSimulado();
+  Object.assign(el('pm-fecha'),{value:'2026-09-27'});Object.assign(el('pm-monto'),{value:'15000'});
+  Object.assign(el('pm-metodo'),{value:'Nequi'});Object.assign(el('pm-tipo'),{value:'reposicion_menaje'});Object.assign(el('pm-notas'),{value:''});
+  el('pm-submit-btn').style={};
+  const d={...eventoPagado(),cargos:[vaso]};let almacen=plain(d);const exitos=[];const modales=[];
+  const fb={db:{},doc:(_,c,i)=>c+'/'+i,serverTimestamp:()=>'T',runTransaction:async(_,cb)=>cb({get:async()=>({exists:()=>true,data:()=>plain(almacen)}),update(p,v){almacen={...almacen,...plain(v)}}})};
+  const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName','gbDateToIso'),...hist('getPagos','totalCobrado','pagoFechaIso','pagoClave','pagoPareceRepetido','submitPago','_submitPagoImpl'),...opcional('app-historial.js','totalCargos','totalAjustes','saldoPendiente')],{
+    ...common(),window:{fb},$:el,cloudOnline:true,pagoSrc:{id:'GB-P-1',kind:'proposal',doc:plain(d)},pagoFotoBase64:null,
+    getDocTotal:q=>q.total||0,fm:fmReal,_showPagoSuccessModal:async o=>{exitos.push(o)},curMode:'hist',escapeHtml:String,closePagoModal(){},renderHist(){},
+    logOperacion:async({runner})=>runner('log1'),confirmModal:async o=>{modales.push(o);return true}});
+  await c.submitPago();
+  assert.equal(almacen.pagos.length,2);
+  assert.ok(!modales.some(m=>/Monto distinto/.test(m.title)),'pagar exactamente la reposición no avisa monto distinto');
+  assert.equal(exitos.length,1);
+  assert.ok(!/Crédito a favor/.test(exitos[0].saldoLabel),exitos[0].saldoLabel);
+  assert.ok(/Saldo: \$0/.test(exitos[0].saldoLabel),exitos[0].saldoLabel);
+});
+// ═══ v7.9.35 ronda 1 bis de Codex (gpt-5.6-sol): 4 P2 y 1 P3 ═══
+// R1B-P2-1: registrar pago usa el saldo canónico (descuenta ajustes).
+function pagoConAjusteFixture({monto='15000',respuestas=[]}={}){
+  const {el}=domSimulado();
+  Object.assign(el('pm-fecha'),{value:'2026-09-27'});Object.assign(el('pm-monto'),{value:monto});
+  Object.assign(el('pm-metodo'),{value:'Nequi'});Object.assign(el('pm-tipo'),{value:'reposicion_menaje'});Object.assign(el('pm-notas'),{value:''});
+  el('pm-submit-btn').style={};
+  // Evento de $100.000, ajuste de $10.000, cobrado $90.000, cargo de $15.000: pendiente canónico $15.000.
+  const d={kind:'proposal',status:'entregado',total:100000,pagos:[{fecha:'2026-09-20',monto:90000,metodo:'Nequi',tipo:'saldo'}],ajustes:[{id:'a1',monto:10000}],cargos:[vaso],menaje:[{name:'Vaso',qty:50}],reposicionData:{Vaso:15000}};
+  let almacen=plain(d);const exitos=[];const modales=[];
+  const fb={db:{},doc:(_,c,i)=>c+'/'+i,serverTimestamp:()=>'T',runTransaction:async(_,cb)=>cb({get:async()=>({exists:()=>true,data:()=>plain(almacen)}),update(p,v){almacen={...almacen,...plain(v)}}})};
+  const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName','gbDateToIso'),
+    ...hist('getPagos','totalCobrado','totalAjustes','saldoPendiente','pagoFechaIso','pagoClave','pagoPareceRepetido','submitPago','_submitPagoImpl','openPagoModal'),...opcional('app-historial.js','totalCargos')],{
+    ...common(),window:{fb},$:el,cloudOnline:true,pagoSrc:{id:'GB-P-1',kind:'proposal',doc:plain(d)},pagoFotoBase64:null,quotesCache:[{...plain(d),id:'GB-P-1'}],
+    getDocTotal:q=>q.total||0,fm:fmReal,_showPagoSuccessModal:async o=>{exitos.push(o)},curMode:'hist',escapeHtml:String,closePagoModal(){},renderHist(){},
+    logOperacion:async({runner})=>runner('log1'),confirmModal:async o=>{modales.push(o);return respuestas.length?respuestas.shift():true}});
+  return {c,el,exitos,modales,almacen:()=>almacen};
+}
+await test('R1B-P2-1 con ajuste: el modal de pago propone el pendiente canónico, no avisa monto distinto y el éxito dice $0',async()=>{
+  const f=pagoConAjusteFixture();
+  f.c.openPagoModal('GB-P-1','proposal');
+  assert.equal(String(f.el('pm-monto').value),'15000','monto por defecto = pendiente canónico');
+  assert.ok(/Pendiente: <strong>\$15\.000/.test(f.el('pm-resumen').innerHTML),f.el('pm-resumen').innerHTML);
+  f.c.pagoSrc={id:'GB-P-1',kind:'proposal',doc:f.c.pagoSrc.doc};
+  Object.assign(f.el('pm-monto'),{value:'15000'});Object.assign(f.el('pm-metodo'),{value:'Nequi'});
+  await f.c.submitPago();
+  assert.ok(!f.modales.some(m=>/Monto distinto/.test(m.title)),JSON.stringify(f.modales.map(m=>m.title)));
+  assert.equal(f.exitos.length,1);
+  assert.ok(/Saldo: \$0/.test(f.exitos[0].saldoLabel),f.exitos[0].saldoLabel);
+});
+// R1B-P2-2: D2 se aplica al estado fresco dentro de la transacción.
+await test('R1B-P2-2 la propuesta se anuló en otra sesión mientras el modal estaba abierto: no escribe el cargo',async()=>{
+  for(const cambio of [{status:'anulada'},{status:'enviada'},{menaje:[],menajeOptions:[]}]){
+    const f=cargoFixture({fresco:{...eventoPagado(),...cambio}});
+    f.abrir();await f.c.submitCargo();
+    assert.equal(f.alDoc().length,0,JSON.stringify(cambio)+': no se escribe en el documento');
+    assert.ok(!(f.almacen().cargos||[]).length,JSON.stringify(cambio));
+    assert.ok(f.toasts.some(t=>/no se registró el cargo/i.test(t)),JSON.stringify(f.toasts));
+    assert.ok(!f.c.window._submitCargoBusy);
+  }
+});
+// R1B-P2-3: estados de pago con el saldo canónico.
+await test('R1B-P2-3 lectores de estado: cortesía con cargo, porcentaje con cargo y pedido saldado con ajuste',async()=>{
+  const g={getDocTotal:x=>x.total||0,fm:fmReal,h:hReal,STATUS_META:{}};
+  const base=[...hist('getPagos','totalCobrado','totalAjustes','saldoPendiente'),...opcional('app-historial.js','totalCargos')];
+  const k=loadSourceFunctions([...base,...core('isCumplido'),['app-dashboard.js','hojaNotasPago'],['app-dashboard.js','_estadoPago']],g);
+  // (1) cortesía entregada con cargo impago
+  const cortesia={kind:'proposal',status:'entregado',total:0,pagos:[],cargos:[vaso]};
+  assert.equal(k.isCumplido(cortesia),false,'cortesía con reposición por cobrar no está cumplida');
+  assert.equal(k.hojaNotasPago(cortesia),'SALDO $15.000');
+  assert.ok(k._estadoPago(cortesia)&&k._estadoPago(cortesia).cls!=='pagado',JSON.stringify(k._estadoPago(cortesia)));
+  const cortesiaPagada={...cortesia,pagos:[pagoRepo]};
+  assert.equal(k.isCumplido(cortesiaPagada),true);assert.equal(k.hojaNotasPago(cortesiaPagada),'CANCELADO');assert.equal(k._estadoPago(cortesiaPagada).cls,'pagado');
+  assert.equal(k.isCumplido({kind:'proposal',status:'entregado',total:0,pagos:[]}),true,'la cortesía sin cargos sigue siendo cumplida');
+  // (2) evento pagado con cargo impago: no puede decir 100 %
+  const e=k._estadoPago({...eventoPagado(),cargos:[vaso]});
+  assert.equal(e.cls,'anticipo');assert.ok(!/100%/.test(e.label),e.label);
+  // (3) pedido saldado con un ajuste (decisión de Luis: saldo canónico)
+  const ajustado={kind:'quote',status:'entregado',total:100000,pagos:[{fecha:'2026-09-20',monto:90000,tipo:'saldo'}],ajustes:[{id:'a1',monto:10000}]};
+  assert.equal(k.isCumplido(ajustado),true);assert.equal(k.hojaNotasPago(ajustado),'CANCELADO');assert.equal(k._estadoPago(ajustado).cls,'pagado');
+  const vp=loadSourceFunctions([...base,...hist('pagoTipoLabel','pagoFechaIso','cargosVerPagosHtml','openVerPagosModal')],{...g,...common(),h:hReal,$:domSimulado().el,window:{},quotesCache:[{...ajustado,id:'Q1'},{...eventoPagado(),cargos:[vaso],id:'P1'},{...ajustado,pagos:[{fecha:'2026-09-20',monto:50000,tipo:'anticipo'}],id:'Q2'}]});
+  vp.openVerPagosModal('Q1','quote');assert.ok(/\(100%\)/.test(vp.$('vp-resumen').innerHTML),vp.$('vp-resumen').innerHTML);
+  vp.openVerPagosModal('Q2','quote');assert.ok(/\(55%\)/.test(vp.$('vp-resumen').innerHTML),'50.000 de 90.000 que se deben tras el ajuste: '+vp.$('vp-resumen').innerHTML);
+  vp.openVerPagosModal('P1','proposal');assert.ok(!/\(100%\)/.test(vp.$('vp-resumen').innerHTML),vp.$('vp-resumen').innerHTML);
+  const src=source('app-historial.js');
+  const linea=src.split('\n').find(l=>/const pagadoBadge=/.test(l));
+  assert.ok(/_saldo<=0/.test(linea),'«Pagado ✓» sigue el saldo canónico: '+linea.trim().slice(0,160));
+});
+// R1B-P2-4: el botón del cargo no ejecuta un ID restaurado con comillas.
+await test('R1B-P2-4 el onclick del botón del cargo lleva el ID como dato, aunque traiga comillas',async()=>{
+  const c=loadSourceFunctions(hist('_btnCargoReposicion'),{h:hReal});
+  const id="GB-P-X');globalThis.__xss=1;//",kind="proposal";
+  const html=c._btnCargoReposicion({id,kind});
+  const attr=/onclick="([^"]*)"/.exec(html);
+  assert.ok(attr,html);
+  const js=attr[1].replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');
+  const vm=await import('node:vm');const ctx=vm.createContext({llamadas:[],event:{}});
+  vm.runInContext('function openCargoModal(...a){llamadas.push(a)}',ctx);
+  vm.runInContext(js,ctx);
+  assert.equal(ctx.__xss,undefined,'no se ejecuta código del ID');
+  assert.equal(ctx.llamadas.length,1);assert.equal(ctx.llamadas[0][0],id);assert.equal(ctx.llamadas[0][1],kind);
+});
+// R1B-P3-1: anular un cargo que otra sesión ya anuló no se registra como una anulación nueva.
+await test('R1B-P3-1 anulación que no hizo nada: el log la marca sin cambios y la interfaz lo dice',async()=>{
+  const doc={...eventoPagado(),cargos:[vaso]};
+  const g=cargoFixture({doc,fresco:{...doc,cargos:[{...vaso,deletedAt:'2026-09-27',motivo:'otra sesión'}]},prompts:['Anulado otra vez por error']});
+  g.c.window.__verPagosId='GB-P-1';g.c.window.__verPagosKind='proposal';
+  await g.c.anularCargo(0);
+  assert.equal(g.alDoc().length,0);
+  const cierre=g.escrituras.find(e=>/^operacionesLog\//.test(e.p)&&e.v.resultado==='exito');
+  assert.ok(cierre&&cierre.v.payloadExtra&&cierre.v.payloadExtra.sinCambios===true,JSON.stringify(cierre&&cierre.v));
+  assert.ok(g.toasts.some(t=>/ya estaba anulado/i.test(t)),JSON.stringify(g.toasts));
+  assert.ok(!g.toasts.some(t=>/^Cargo anulado$/.test(t)));
+});
+// ═══ v7.9.35 ronda 2 de Codex (gpt-5.6-sol): 2 P2 y 1 P3 ═══
+// R2-P2-1: D2 permite el cargo en los tres estados vendidos; el botón debe estar en todas las vistas de Pedidos.
+await test('R2-P2-1 el botón del cargo sale en Pedidos aprobados, en producción, producidos y por entregar',async()=>{
+  const g={...cargosCtx(),getDocTotal:x=>x.total||0,fm:fmReal,h:hReal,STATUS_META:{},quotesCache:[],canEdit:()=>false,requiresWarning:()=>false,canAnular:()=>false};
+  const r=loadSourceFunctions([...hist('_btnCargoReposicion','_actionBtnsPorContexto')],g);
+  const casos=[['pedidos-aprobados','aprobada'],['pedidos-produccion','en_produccion'],['pedidos-producidos','en_produccion'],['entregar','en_produccion'],['entregadas','entregado'],['cartera','entregado']];
+  for(const [ctx,status] of casos){
+    const btns=r._actionBtnsPorContexto({...eventoPagado(),id:'GB-P-1',status,produced:ctx==='pedidos-producidos'||ctx==='entregar'},ctx);
+    assert.equal(btns.filter(b=>/Cargo por reposición/.test(b)).length,1,ctx+': '+btns.join(' '));
+  }
+  const sinMenaje=r._actionBtnsPorContexto({...eventoPagado(),id:'GB-P-1',status:'aprobada',menaje:[]},'pedidos-aprobados');
+  assert.ok(!sinMenaje.some(b=>/Cargo por reposición/.test(b)),'sin menaje no hay botón');
+});
+// R2-P2-2: el drill-down «Entregado» mira el saldo antes que la cortesía.
+function dashEntregado(docs){
+  let lista=null;
+  const g={getDocTotal:x=>x.total||0,fm:fmReal,h:hReal,quotesCache:docs,_dashDetailTipoActual:null,
+    getDashRange:()=>({start:'2026-09-01',end:'2026-09-30',label:'sep'}),_renderDashGroupedList:o=>{lista=o}};
+  const d=loadSourceFunctions([...hist('getPagos','totalCobrado','totalAjustes','saldoPendiente'),...opcional('app-historial.js','totalCargos'),...core('isCumplido','isCortesia'),['app-dashboard.js','openDashDetail']],g);
+  d.openDashDetail('entregado');
+  return lista.rows.map(x=>x.extra);
+}
+await test('R2-P2-2 Entregado: una cortesía que debe reposición muestra el saldo, no «Cortesía»',async()=>{
+  const base={kind:'proposal',status:'entregado',eventDate:'2026-09-20',total:0,pagos:[]};
+  const [debe,pagada,sinCargo]=dashEntregado([{...base,cargos:[vaso]},{...base,cargos:[vaso],pagos:[pagoRepo]},{...base}]);
+  assert.ok(/Saldo \$15\.000/.test(debe)&&!/Cortesía/.test(debe),debe);
+  assert.ok(!/Saldo/.test(pagada),pagada);
+  assert.ok(/Cortesía/.test(sinCargo),sinCargo);
+});
+// R2-P3-1: «Pagado ✓» parte del total canónico (getDocTotal), no de q.total.
+await test('R2-P3-1 «Pagado ✓» en una propuesta antigua sin q.total: usa getDocTotal',async()=>{
+  const src=source('app-historial.js');
+  const ini=src.indexOf('const _pagos=getPagos(q);');const lin=src.indexOf('const pagadoBadge=',ini);
+  assert.ok(ini>0&&lin>ini,'bloque del distintivo');
+  const trozo=src.slice(ini,src.indexOf('\n',lin));
+  const c=loadSourceFunctions([...hist('getPagos','totalCobrado','totalAjustes','saldoPendiente'),...opcional('app-historial.js','totalCargos')],{getDocTotal:x=>x.total||x._calculado||0});
+  const vm=await import('node:vm');vm.runInContext('function _badge(q){'+trozo+';return pagadoBadge}',c);
+  const antigua={kind:'proposal',status:'entregado',_calculado:100000,pagos:[{fecha:'2026-09-20',monto:100000,tipo:'saldo'}]};
+  assert.ok(/Pagado ✓/.test(c._badge(antigua)),'sin q.total, saldada según getDocTotal: '+c._badge(antigua));
+  assert.ok(!/Pagado ✓/.test(c._badge({...antigua,pagos:[{fecha:'2026-09-20',monto:50000,tipo:'anticipo'}]})),'con saldo no es Pagado');
+  const cortesia={kind:'proposal',status:'entregado',total:0,pagos:[],cargos:[vaso]};
+  assert.ok(/Pagado ✓/.test(c._badge({...cortesia,pagos:[pagoRepo]})),'cortesía con la reposición pagada');
+  assert.ok(!/Pagado ✓/.test(c._badge(cortesia)),'cortesía que debe la reposición');
 });
 console.log(`${passed} escenarios de integridad pasaron (adaptadores en memoria; no emulador Firebase).`);

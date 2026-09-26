@@ -10,7 +10,7 @@
 <link rel="icon" type="image/png" href="brand/cuchillo-negro.png">
 <link rel="apple-touch-icon" href="brand/cuchillo-negro.png">
 <title>Gourmet Bites - Cotizador</title>
-<link rel="stylesheet" href="gb-tokens.css?v=7.9.34"><!-- v7.9.13 INF-05: cache-buster CSS -->
+<link rel="stylesheet" href="gb-tokens.css?v=7.9.35"><!-- v7.9.13 INF-05: cache-buster CSS -->
 <!-- VERSION: 2026-04-26-v7.0.0-α-cascaron-v7-dashboard-rediseñado-fsm-pedido-vs-produccion -->
 <!--
   v6.3.0 (2026-04-24) — Robustez técnica + higiene (Entrega 3 del roadmap).
@@ -3465,7 +3465,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <div id="pm-resumen" class="saldo-pend" style="background:#FFF3E0;border-color:#FB8C00;color:#E65100"></div>
       <div class="mf-row">
         <div class="mf-field"><label>Fecha del pago *</label><input type="date" id="pm-fecha"></div>
-        <div class="mf-field"><label>Tipo</label><select id="pm-tipo"><option value="anticipo">Anticipo</option><option value="parcial">Pago parcial</option><option value="saldo">Saldo final</option></select></div>
+        <div class="mf-field"><label>Tipo</label><select id="pm-tipo"><option value="anticipo">Anticipo</option><option value="parcial">Pago parcial</option><option value="saldo">Saldo final</option><option value="reposicion_menaje">Reposición de menaje</option></select></div>
       </div>
       <div class="mf-row">
         <div class="mf-field"><label>Monto *</label><input type="number" id="pm-monto" placeholder="0" inputmode="numeric"></div>
@@ -3526,6 +3526,26 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
         <textarea id="aj-motivo" placeholder="Ej: La Mona consignó $13.000 menos. Cliente buena, no vale la pena cobrar el faltante." rows="3"></textarea>
       </div>
       <button class="mf-submit" style="background:#FB8C00" onclick="submitAjuste()">Guardar ajuste</button>
+    </div>
+  </div>
+</div>
+
+<!-- v7.9.35 P-35 Modal: Cargo por reposición de menaje -->
+<div id="cargo-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeCargoModal()">
+  <div class="modal-box" style="max-height:92vh">
+    <div class="modal-head" style="background:linear-gradient(135deg,#8E24AA,#4A148C)">
+      <span class="mtitle">🍷 Cargo por reposición de menaje</span>
+      <button class="mclose" onclick="closeCargoModal()">×</button>
+    </div>
+    <div class="mform">
+      <div class="mf-intro" style="background:#F3E5F5;border-color:#BA68C8;color:#4A148C">Menaje roto o perdido por los invitados o por terceros. Si lo causó el personal de Gourmet Bites, <strong>no se cobra</strong> (cláusula de responsabilidad por menaje). El cargo sube el saldo pendiente; el cliente lo paga con un pago de tipo «Reposición de menaje».</div>
+      <div class="mf-field"><label>Documento</label><input type="text" id="cg-num" readonly style="background:var(--gb-cream);font-weight:700"></div>
+      <div class="mf-field"><label>Cliente</label><input type="text" id="cg-cli" readonly style="background:var(--gb-cream)"></div>
+      <div class="mf-field"><label>Menaje del evento · cantidad a cobrar</label><div id="cg-items"></div></div>
+      <div id="cg-total" class="saldo-pend" style="background:#F3E5F5;border-color:#8E24AA;color:#4A148C"></div>
+      <div class="mf-field"><label>Fecha del cargo</label><input type="date" id="cg-fecha"></div>
+      <div class="mf-field"><label>Qué pasó (opcional)</label><textarea id="cg-notas" placeholder="Ej: en la recogida faltaba 1 vaso; roto por un invitado."></textarea></div>
+      <button id="cg-submit-btn" class="mf-submit" style="background:#8E24AA" onclick="submitCargo()">Registrar cargo</button>
     </div>
   </div>
 </div>
@@ -4634,12 +4654,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js" integrity="sha384-OUW9euuUyxyHcAhTqbhI+Iyb8LMssXt/cpz0yXhs9UWG2/R/uaWdakx/4cfww7Vb" crossorigin="anonymous"></script><!-- v7.9.13 SEC-12: SRI -->
-<script src="app-assets.js?v=7.9.34"></script>
-<script src="app-core.js?v=7.9.34"></script>
-<script src="app-cotizar.js?v=7.9.34"></script>
-<script src="app-propuesta.js?v=7.9.34"></script>
-<script src="app-historial.js?v=7.9.34"></script>
-<script src="app-seguimiento.js?v=7.9.34"></script>
-<script src="app-dashboard.js?v=7.9.34"></script>
+<script src="app-assets.js?v=7.9.35"></script>
+<script src="app-core.js?v=7.9.35"></script>
+<script src="app-cotizar.js?v=7.9.35"></script>
+<script src="app-propuesta.js?v=7.9.35"></script>
+<script src="app-historial.js?v=7.9.35"></script>
+<script src="app-seguimiento.js?v=7.9.35"></script>
+<script src="app-dashboard.js?v=7.9.35"></script>
 </body>
 </html>

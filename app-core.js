@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.34";
+const BUILD_VERSION="v7.9.35";
 const BUILD_DATE="2026-09-20";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
@@ -1034,10 +1034,13 @@ function isCumplido(q){
   if(!q)return false;
   if((q.status||"")!=="entregado")return false;
   const total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||q.totalReal||0);
-  // v6.0.2: total=0 (cortesía/muestra) entregado = cumplido automático
-  if(!total||total<=0)return true;
+  const cargos=(typeof totalCargos==="function")?totalCargos(q):0;
+  // v6.0.2: total=0 (cortesía/muestra) entregado = cumplido automático. v7.9.35: salvo que deba una reposición.
+  if((!total||total<=0)&&!cargos)return true;
+  // v7.9.35 R1B-P2-3: saldo canónico (cargos y ajustes); un pedido saldado con un ajuste queda cumplido (decisión de Luis).
+  if(typeof saldoPendiente==="function")return saldoPendiente(q)<=0;
   const cobrado=(typeof totalCobrado==="function")?totalCobrado(q):0;
-  return cobrado>=total;
+  return cobrado>=total+cargos;
 }
 
 // v6.0.2: ¿es una cortesía/muestra?
@@ -2349,7 +2352,7 @@ async function getNextNumber(kind){
 // followUp*/replaced*/replaces/expectsReplacement/needsSync/anuladaData también son operativos:
 // editar una propuesta con perdón de saldo (ajustes[]) los borraba al guardar desde el form.
 // v7.9.24: contrato único; nombres reales del seguimiento y datos operativos frescos.
-const OPERATIONAL_FIELDS=["status","supersededBy","pagos","orderData","entregaData","produced","productionDate","approvalData","propFinalRef","comentarioCliente","pdfHistorial","pdfRegenCount","ajustes","saldoData","pago_changelog","auditTrail","itemsProducidos","followUpStatus","followUpLog","followUp","followUpUpdatedAt","notasSeguimiento","perdidaData","feData","replacedBy","replaces","expectsReplacement","needsSync","anuladaData","createdAt"];
+const OPERATIONAL_FIELDS=["status","supersededBy","pagos","orderData","entregaData","produced","productionDate","approvalData","propFinalRef","comentarioCliente","pdfHistorial","pdfRegenCount","ajustes","cargos","saldoData","pago_changelog","auditTrail","itemsProducidos","followUpStatus","followUpLog","followUp","followUpUpdatedAt","notasSeguimiento","perdidaData","feData","replacedBy","replaces","expectsReplacement","needsSync","anuladaData","createdAt"];
 
 // v7.9.25: comparar el contenido guardado al ABRIR el editor, no al pulsar Guardar.
 // Los avances operativos (pagos/evidencias) se reconcilian por separado.

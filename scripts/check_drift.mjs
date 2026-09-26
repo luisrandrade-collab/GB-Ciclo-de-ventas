@@ -28,6 +28,7 @@ const ENTRIES = [
   ["getPagos",            "app-historial.js",  "scripts/test_dinero.mjs"],
   ["totalCobrado",        "app-historial.js",  "scripts/test_dinero.mjs"],
   ["totalAjustes",        "app-historial.js",  "scripts/test_dinero.mjs"],
+  ["totalCargos",         "app-historial.js",  "scripts/test_dinero.mjs"], // v7.9.35 P-35
   ["saldoPendiente",      "app-historial.js",  "scripts/test_dinero.mjs"],
   ["saldoNeto",           "app-historial.js",  "scripts/test_dinero.mjs"],
   ["creditoAFavor",       "app-historial.js",  "scripts/test_dinero.mjs"],

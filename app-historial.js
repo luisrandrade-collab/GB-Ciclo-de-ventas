@@ -65,20 +65,32 @@ function totalAjustes(q){
     return s+(m>0?m:0); // solo suma positivos (descuentos al cliente)
   },0);
 }
+// v7.9.35 P-35: cargos por reposición de menaje (vaso roto, pieza perdida). Suben lo que
+// debe el cliente sin cambiar el total del evento (getDocTotal). Sólo cuentan los no
+// anulados (deletedAt). Montos con parseInt, igual que totalCobrado (P-36: fm no escapa).
+function totalCargos(q){
+  if(!q||!Array.isArray(q.cargos))return 0;
+  return q.cargos.reduce((s,c)=>{
+    if(!c||c.deletedAt)return s;
+    const m=parseInt(c.monto)||0;
+    return s+(m>0?m:0);
+  },0);
+}
 // v4.12.1: usar getDocTotal — para propuestas viejas sin q.total recalcula igual que el PDF
 // v7.8.3: descontar también los ajustes (perdones, descuentos) del saldo pendiente.
 // v7.9.3.2: saldoPendiente devuelve solo lo positivo (Math.max conserva la semántica de "deuda del cliente").
 // Para detectar sobrepagos (crédito a favor del cliente), usar saldoNeto() o creditoAFavor().
+// v7.9.35: suma los cargos por reposición.
 function saldoPendiente(q){
   const t=(typeof getDocTotal==="function"?getDocTotal(q):(q.total||q.totalReal||0));
-  return Math.max(0,t-totalCobrado(q)-totalAjustes(q));
+  return Math.max(0,t+totalCargos(q)-totalCobrado(q)-totalAjustes(q));
 }
 
 // v7.9.3.2: saldo neto SIN clamp — útil para detectar sobrepagos.
 // Negativo = sobrepago (crédito a favor cliente). Positivo = deuda. Cero = exacto.
 function saldoNeto(q){
   const t=(typeof getDocTotal==="function"?getDocTotal(q):(q.total||q.totalReal||0));
-  return t-totalCobrado(q)-totalAjustes(q);
+  return t+totalCargos(q)-totalCobrado(q)-totalAjustes(q);
 }
 
 // v7.9.3.2: monto de crédito a favor del cliente (siempre positivo).
@@ -87,6 +99,9 @@ function creditoAFavor(q){
   const neto=saldoNeto(q);
   return neto<0?-neto:0;
 }
+
+// v7.9.35: nombre visible del tipo de pago.
+function pagoTipoLabel(t){return t==="reposicion_menaje"?"Reposición de menaje":(t||"pago")}
 
 // ─── HISTORIAL render ──────────────────────────────────────
 // v5.1.0: Sistema de ARCHIVOS + FILTROS + BUSCADOR
@@ -421,8 +436,9 @@ async function renderHist(){
     const _pagos=getPagos(q);
     const _cobrado=totalCobrado(q);
     const _saldo=saldoPendiente(q);
-    const _total=q.total||0;
-    const pagadoBadge=(_total>0&&_cobrado>=_total)?'<span class="hc-pagado-ok">💰 Pagado ✓</span>':(q.saldoData?'<span class="hc-saldo-ok">💰 Saldo ✓</span>':'');
+    const _total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||0); // v7.9.35 R2-P3-1: total canónico, también en propuestas antiguas sin q.total
+    // v7.9.35: «Pagado» sigue el saldo canónico (reposición y ajustes incluidos; R1B-P2-3).
+    const pagadoBadge=((_total>0||totalCargos(q)>0)&&_saldo<=0)?'<span class="hc-pagado-ok">💰 Pagado ✓</span>':(q.saldoData?'<span class="hc-saldo-ok">💰 Saldo ✓</span>':'');
     const prodBadge=q.produced?'<span class="hc-prod-ok">🔪 Producido</span>':(status==="en_produccion"?'<span class="hc-prod-warn" style="background:#FFF3E0;color:#E65100;border:1px solid #FFB74D;border-radius:6px;padding:2px 8px;font-size:0.8em">⚠️ Sin producir</span>':'');
     const comentBadge=q.comentarioCliente?.texto?'<span class="hc-coment-ok">💬 Comentario</span>':'';
     const feBadge=q.requiereFE?(q.feData?'<span class="hc-fe-ok">🧾 FE ✓</span>':'<span class="hc-fe-pending">🧾 FE pendiente</span>'):'';
@@ -525,7 +541,8 @@ async function renderHist(){
     }
     const _puedePago=(!isProp&&["pedido","en_produccion","entregado"].includes(status))||(isProp&&["aprobada","en_produccion","entregado"].includes(status));
     if(_puedePago&&_saldo>0)actionBtns.push('<button class="btn hc-btn-pago" onclick="openPagoModal(\''+q.id+'\',event)">💵 Registrar pago</button>');
-    if(_pagos.length>0)actionBtns.push('<button class="btn hc-btn-pagos-ver" onclick="openVerPagosModal(\''+q.id+'\',event)">📒 Ver pagos ('+_pagos.length+')</button>');
+    if(_pagos.length>0||(q.cargos||[]).length>0)actionBtns.push('<button class="btn hc-btn-pagos-ver" onclick="openVerPagosModal(\''+q.id+'\',event)">📒 Ver pagos ('+_pagos.length+')</button>');
+    if(puedeCargoReposicion(q))actionBtns.push(_btnCargoReposicion(q)); // v7.9.35 P-35
     if(!["superseded","convertida","anulada"].includes(status)){
       const _feLabel=q.feData?'🧾 FE ✓':(q.requiereFE?'🧾 FE pendiente':'🧾 FE');
       actionBtns.push('<button class="btn hc-btn-fe" onclick="event.stopPropagation();openFeModal(\''+q.id+'\',\''+q.kind+'\')">'+_feLabel+'</button>');
@@ -1091,12 +1108,15 @@ function openPagoModal(docId,kindOrEv,evMaybe){
   $("pm-cli").value=q.client||"";
   const total=(typeof getDocTotal==="function"?getDocTotal(q):(q.total||q.totalReal||0));
   const cobrado=totalCobrado(q);
-  const pend=Math.max(0,total-cobrado);
-  $("pm-resumen").innerHTML="Total: <strong>"+fm(total)+"</strong> · Cobrado: <strong>"+fm(cobrado)+"</strong> · Pendiente: <strong>"+fm(pend)+"</strong>";
+  const cargos=totalCargos(q);
+  const pend=saldoPendiente(q); // v7.9.35 R1B-P2-1: saldo canónico (con cargos y ajustes)
+  // v7.9.35: si hay reposición sin pagar, el tipo por defecto es ése y el monto, lo que falta de ella.
+  const repoSinPagar=Math.max(0,cargos-getPagos(q).filter(p=>p.tipo==="reposicion_menaje").reduce((s,p)=>s+(parseInt(p.monto)||0),0));
+  $("pm-resumen").innerHTML="Total: <strong>"+fm(total)+"</strong>"+(cargos?" · Reposición: <strong>"+fm(cargos)+"</strong>":"")+" · Cobrado: <strong>"+fm(cobrado)+"</strong> · Pendiente: <strong>"+fm(pend)+"</strong>";
   $("pm-fecha").value=gbTodayIso();
-  $("pm-monto").value=pend||"";
+  $("pm-monto").value=(repoSinPagar?Math.min(pend,repoSinPagar):pend)||"";
   $("pm-metodo").value="";
-  $("pm-tipo").value=cobrado===0?"anticipo":(pend>0?"parcial":"saldo");
+  $("pm-tipo").value=repoSinPagar&&pend>0?"reposicion_menaje":(cobrado===0?"anticipo":(pend>0?"parcial":"saldo"));
   $("pm-notas").value="";
   $("pago-modal").classList.remove("hidden");
 }
@@ -1119,8 +1139,9 @@ function openAjusteModal(docId,kindOrEv,evMaybe){
   const total=(typeof getDocTotal==="function"?getDocTotal(q):(q.total||q.totalReal||0));
   const cobrado=totalCobrado(q);
   const ajustes=(typeof totalAjustes==="function")?totalAjustes(q):0;
-  const pend=Math.max(0,total-cobrado-ajustes);
-  let resumenHtml="Total: <strong>"+fm(total)+"</strong> · Cobrado: <strong>"+fm(cobrado)+"</strong>";
+  const cargos=totalCargos(q);
+  const pend=Math.max(0,total+cargos-cobrado-ajustes);
+  let resumenHtml="Total: <strong>"+fm(total)+"</strong>"+(cargos?" · Reposición: <strong>"+fm(cargos)+"</strong>":"")+" · Cobrado: <strong>"+fm(cobrado)+"</strong>";
   if(ajustes>0)resumenHtml+=" · Ajustes previos: <strong>"+fm(ajustes)+"</strong>";
   resumenHtml+=" · Pendiente: <strong>"+fm(pend)+"</strong>";
   $("aj-resumen").innerHTML=resumenHtml;
@@ -1206,6 +1227,260 @@ async function submitAjuste(){
     console.error("submitAjuste error",e);
     toast("Error: "+gbMensajeError(e),"error");
   }
+}
+
+// ─── v7.9.35 P-35: CARGO POR REPOSICIÓN DE MENAJE ─────────
+// Menaje roto o perdido por invitados o terceros (cláusula c5). El cargo sube lo que debe el
+// cliente; lo paga con un pago normal de tipo «Reposición de menaje». Append-only en q.cargos;
+// anular = borrado lógico con motivo, como los ajustes.
+// D1: datos de pago de la cuenta de cobro. Vacío = no se imprimen (Luis los dará después).
+const GB_DATOS_PAGO="";
+// D2: sólo propuestas vendidas con menaje; una propuesta sin aprobar no tiene menaje entregado.
+function puedeCargoReposicion(q){
+  return !!q&&q.kind==="proposal"&&["aprobada","en_produccion","entregado"].includes(q.status||"enviada")&&getMenajeItemsActivos(q).length>0;
+}
+// Menaje de la opción aprobada, con el precio de su tabla de reposición.
+function cargoLineas(q){
+  const rep=getReposicionActivos(q)||{};
+  return getMenajeItemsActivos(q).filter(it=>it&&it.name).map(it=>({name:String(it.name),precio:parseInt(rep[it.name])||0}));
+}
+// Sólo las filas con cantidad y precio; monto = Σ cantidad × precio, en enteros.
+function cargoCalcular(filas){
+  const items=(filas||[]).map(f=>({name:String(f.name||""),qty:parseInt(f.qty)||0,precio:parseInt(f.precio)||0})).filter(f=>f.qty>0&&f.precio>0);
+  return {items,monto:items.reduce((s,f)=>s+f.qty*f.precio,0)};
+}
+function _btnCargoReposicion(q){
+  // R1B-P2-4: los argumentos van como literales JSON escapados para el atributo; un ID con comillas no se ejecuta.
+  return '<button class="btn" style="background:#F3E5F5;color:#4A148C;border:1px solid #BA68C8" onclick="openCargoModal('+h(JSON.stringify(String(q.id)))+','+h(JSON.stringify(String(q.kind)))+',event)">🍷 Cargo por reposición</button>';
+}
+let cargoSrc=null;
+function openCargoModal(docId,kindOrEv,evMaybe){
+  let kind,ev;
+  if(typeof kindOrEv==="string"){kind=kindOrEv;ev=evMaybe}
+  else{ev=kindOrEv;kind=null}
+  if(ev){ev.stopPropagation();ev.preventDefault()}
+  const q=quotesCache.find(x=>x.id===docId&&(!kind||x.kind===kind));
+  if(!q||!puedeCargoReposicion(q)){toast("Este documento no tiene menaje para cobrar","warn");return}
+  const lineas=cargoLineas(q);
+  cargoSrc={id:docId,kind:q.kind,doc:q,lineas};
+  $("cg-num").value=q.quoteNumber||q.id;
+  $("cg-cli").value=q.client||"";
+  const inp='width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px;box-sizing:border-box';
+  $("cg-items").innerHTML='<table style="width:100%;border-collapse:collapse;font-size:12.5px;margin:6px 0">'+
+    '<tr style="text-align:left;color:#666"><th>Ítem</th><th style="width:62px">Cant.</th><th style="width:96px">Valor unit.</th><th style="width:82px;text-align:right">Subtotal</th></tr>'+
+    lineas.map((l,i)=>'<tr><td style="padding:3px 4px 3px 0">'+h(l.name)+'</td>'+
+      '<td><input type="number" id="cg-qty-'+i+'" value="0" min="0" inputmode="numeric" oninput="cargoRecalcular()" style="'+inp+'"></td>'+
+      '<td><input type="number" id="cg-precio-'+i+'" value="'+l.precio+'" min="0" inputmode="numeric" oninput="cargoRecalcular()" style="'+inp+'"></td>'+
+      '<td id="cg-sub-'+i+'" style="text-align:right">$0</td></tr>').join("")+
+    '</table>';
+  $("cg-fecha").value=gbTodayIso();
+  $("cg-notas").value="";
+  cargoRecalcular();
+  $("cargo-modal").classList.remove("hidden");
+}
+function closeCargoModal(){$("cargo-modal").classList.add("hidden");cargoSrc=null}
+function cargoFilasDelFormulario(){
+  return (cargoSrc?cargoSrc.lineas:[]).map((l,i)=>({name:l.name,qty:$("cg-qty-"+i).value,precio:$("cg-precio-"+i).value}));
+}
+function cargoRecalcular(){
+  const filas=cargoFilasDelFormulario();
+  filas.forEach((f,i)=>{const el=$("cg-sub-"+i);if(el)el.textContent=fm(Math.max(0,(parseInt(f.qty)||0)*(parseInt(f.precio)||0)))});
+  $("cg-total").innerHTML="Total a cobrar: <strong>"+fm(cargoCalcular(filas).monto)+"</strong>";
+}
+async function submitCargo(){
+  if(window._submitCargoBusy)return; // doble clic
+  window._submitCargoBusy=true;
+  try{await _submitCargoImpl()}finally{window._submitCargoBusy=false}
+}
+async function _submitCargoImpl(){
+  if(!cargoSrc)return;
+  if(!cloudOnline){toast("Sin conexión","error");return}
+  const {items,monto}=cargoCalcular(cargoFilasDelFormulario());
+  if(monto<=0){toast("Escribe la cantidad de al menos un ítem, con su valor","warn");return}
+  const fecha=$("cg-fecha").value||gbTodayIso();
+  const notas=$("cg-notas").value.trim();
+  const src=cargoSrc;
+  const ok=await confirmModal({
+    title:"🍷 Registrar cargo por reposición",
+    body:"<div style='font-size:13px;line-height:1.6'>"+items.map(it=>it.qty+" × "+h(it.name)+" · "+fm(it.qty*it.precio)).join("<br>")+
+      "<br><br>Total: <strong>"+fm(monto)+"</strong> a cargo de "+h(src.doc.client||"el cliente")+". El saldo pendiente sube en ese valor.</div>",
+    okLabel:"Registrar cargo",
+    cancelLabel:"Cancelar",
+    tone:"warn"
+  });
+  if(!ok)return;
+  const clientId="cargo_"+Date.now()+"_"+Math.random().toString(36).slice(2,9);
+  const nuevo={id:clientId,clientId,tipo:"reposicion_menaje",items,monto,fecha,notas:notas.slice(0,500),registradoEn:new Date().toISOString(),registradoPor:currentUser?.email||""};
+  showLoader("Registrando cargo...");
+  try{
+    await logOperacion({
+      operacion:"registrarCargo",
+      docId:src.id,
+      docKind:src.kind,
+      payload:{clientId,monto,fecha,items:items.length},
+      runner:async(logId)=>{
+        const {db,doc,runTransaction,serverTimestamp}=window.fb;
+        const ref=doc(db,getCollectionName(src.id,src.kind),src.id);
+        nuevo.logId=logId;
+        let commit=null;
+        // Relee dentro de la transacción: conserva pagos y cargos de otra sesión; idempotente por clientId.
+        await runTransaction(db,async(tx)=>{
+          const snap=await tx.get(ref);
+          if(!snap.exists())throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true});
+          // R1B-P2-2: D2 se aplica al estado fresco; otra sesión pudo anular la propuesta o quitarle el menaje.
+          if(!puedeCargoReposicion({...snap.data(),kind:src.kind}))throw Object.assign(new Error("La propuesta ya no está vendida o ya no tiene menaje. Recarga el historial."),{paraUsuario:true});
+          const cargos=Array.isArray(snap.data().cargos)?snap.data().cargos.slice():[];
+          if(!cargos.some(c=>c.clientId===clientId))cargos.push(nuevo);
+          tx.update(ref,{cargos,updatedAt:serverTimestamp(),...auditStamp()});
+          commit=cargos;
+        });
+        src.doc.cargos=commit;
+        return {payloadExtra:{totalCargosDespues:commit.length}};
+      }
+    });
+    hideLoader();
+    closeCargoModal();
+    toast("✅ Cargo registrado: "+fm(monto)+". El cobro se envía desde «Ver pagos».","success",6000);
+    renderHist();
+    if(curMode==="dash"&&typeof renderDashboard==="function")renderDashboard();
+    if(typeof renderCartera==="function")renderCartera();
+  }catch(e){
+    hideLoader();
+    console.error("[submitCargo]",e);
+    toast("No se registró el cargo: "+gbMensajeError(e),"error",8000);
+  }
+}
+// El índice viene de la lista de «Ver pagos» (caché); la transacción lo busca por id en el estado fresco.
+async function anularCargo(idx){
+  const docId=window.__verPagosId,kind=window.__verPagosKind;
+  const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
+  const c=q&&Array.isArray(q.cargos)?q.cargos[idx]:null;
+  if(!c||c.deletedAt)return;
+  const motivo=String(prompt("Motivo para anular el cargo de "+fm(parseInt(c.monto)||0)+" (obligatorio):")||"").trim();
+  if(motivo.length<5){if(motivo)toast("El motivo debe tener al menos 5 caracteres","warn");return}
+  showLoader("Anulando cargo...");
+  let sinCambios=false;
+  try{
+    await logOperacion({
+      operacion:"anularCargo",
+      docId,
+      docKind:kind,
+      payload:{cargoId:c.id,monto:parseInt(c.monto)||0,motivo:motivo.slice(0,200)},
+      runner:async()=>{
+        const {db,doc,runTransaction,serverTimestamp}=window.fb;
+        const ref=doc(db,getCollectionName(docId,kind),docId);
+        let commit=null;
+        await runTransaction(db,async(tx)=>{
+          const snap=await tx.get(ref);
+          if(!snap.exists())throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true});
+          const cargos=Array.isArray(snap.data().cargos)?snap.data().cargos.slice():[];
+          const i=cargos.findIndex(x=>x&&x.id===c.id);
+          if(i<0)throw Object.assign(new Error("El cargo ya no está en el documento. Recarga el historial."),{paraUsuario:true});
+          if(!cargos[i].deletedAt){ // anulado ya en otra sesión: no se reescribe
+            cargos[i]={...cargos[i],deletedAt:new Date().toISOString(),deletedBy:currentUser?.email||"",motivo:motivo.slice(0,500)};
+            tx.update(ref,{cargos,updatedAt:serverTimestamp(),...auditStamp()});
+            sinCambios=false;
+          }else sinCambios=true;
+          commit=cargos;
+        });
+        q.cargos=commit;
+        // R1B-P3-1: el log distingue la anulación que no cambió nada.
+        return sinCambios?{payloadExtra:{sinCambios:true}}:undefined;
+      }
+    });
+    hideLoader();
+    toast(sinCambios?"El cargo ya estaba anulado (otra sesión); no se cambió nada.":"Cargo anulado",sinCambios?"warn":"success");
+    openVerPagosModal(docId,kind);
+    renderHist();
+    if(typeof renderCartera==="function")renderCartera();
+  }catch(e){
+    hideLoader();
+    console.error("[anularCargo]",e);
+    toast("No se anuló el cargo: "+gbMensajeError(e),"error",8000);
+  }
+}
+// Texto plano para WhatsApp (va a un textarea y a wa.me, no a HTML).
+function plantillaCobroCargo(q,c){
+  const lineas=(c.items||[]).map(it=>{const n=parseInt(it.qty)||0,p=parseInt(it.precio)||0;return "• "+n+" × "+it.name+" a "+fm(p)+" = "+fm(n*p)}).join("\n");
+  return "Hola "+(q.client||"")+", ¡esperamos que el evento haya salido muy bien! Te escribimos de Gourmet Bites.\n\n"+
+    "En la recogida del menaje del pedido "+(q.quoteNumber||q.id)+" encontramos lo siguiente:\n"+lineas+"\n\n"+
+    "Total reposición: "+fm(parseInt(c.monto)||0)+"\n\n"+
+    "Según la condición de responsabilidad por menaje de la propuesta, los daños causados por los invitados o por terceros se cobran conforme a la tabla de reposición."+
+    (GB_DATOS_PAGO?"\n\nDatos de pago:\n"+GB_DATOS_PAGO:"")+
+    "\n\n¡Muchas gracias! 🙏";
+}
+function _cargoDeVerPagos(idx){
+  const q=quotesCache.find(x=>x.id===window.__verPagosId&&x.kind===window.__verPagosKind);
+  const c=q&&Array.isArray(q.cargos)?q.cargos[idx]:null;
+  return c?{q,c}:null;
+}
+function enviarCobroCargo(idx){
+  const r=_cargoDeVerPagos(idx);if(!r)return;
+  closeVerPagosModal();
+  openSaldoWhatsAppModal(r.q.id,r.q.kind);
+  $("wa-saldo-msg").value=plantillaCobroCargo(r.q,r.c);
+}
+// D3: sin consecutivo propio; se identifica con el número del documento y la fecha del cargo.
+function genCuentaCobroCargoPDF(idx){
+  const r=_cargoDeVerPagos(idx);if(!r)return;
+  if(!window.jspdf||!window.jspdf.jsPDF){alert("jsPDF no cargado");return}
+  const {q,c}=r;
+  try{
+    const {jsPDF}=window.jspdf;
+    const docPdf=new jsPDF("p","mm","letter");
+    const W=215.9,mg=16,tw=W-mg*2;
+    const dmy=s=>String(s||"").slice(0,10).split("-").reverse().join("/");
+    const num=q.quoteNumber||q.id;
+    let y=gbPdfHeader(docPdf,{titulo:"CUENTA DE COBRO · REPOSICIÓN DE MENAJE",tituloSize:13,numero:num+" · reposición "+dmy(c.fecha)});
+    y+=9;
+    docPdf.setFont("helvetica","normal");docPdf.setFontSize(10);docPdf.setTextColor(26,26,26);
+    docPdf.text("Cliente: "+(q.client||""),mg,y);y+=5;
+    docPdf.text("Documento de origen: "+num,mg,y);y+=5;
+    if(q.eventDate){docPdf.text("Fecha del evento: "+dmy(q.eventDate),mg,y);y+=5}
+    y+=3;
+    const body=(c.items||[]).map(it=>{const n=parseInt(it.qty)||0,p=parseInt(it.precio)||0;return [String(it.name||""),String(n),fm(p),fm(n*p)]});
+    body.push([{content:"TOTAL",colSpan:3,styles:{fontStyle:"bold",halign:"right"}},{content:fm(parseInt(c.monto)||0),styles:{fontStyle:"bold",halign:"right"}}]);
+    docPdf.autoTable({startY:y,margin:{left:mg,right:mg,bottom:20},head:[["Ítem","Cant.","Valor unitario","Subtotal"]],body,theme:"grid",
+      headStyles:{fillColor:[201,169,110],textColor:[26,26,26],fontSize:9},bodyStyles:{fontSize:9,textColor:[40,40,40]},
+      columnStyles:{0:{cellWidth:tw*.46},1:{halign:"center",cellWidth:tw*.12},2:{halign:"right",cellWidth:tw*.21},3:{halign:"right",cellWidth:tw*.21}}});
+    y=docPdf.lastAutoTable.finalY+9;
+    const c5=(gbNotasNormalizar(q.condicionesLista,q.condicionesData,DEFAULT_CONDICIONES,CONDICIONES_TITULOS)||[]).find(n=>n&&n.id==="c5");
+    const bloque=(titulo,texto)=>{
+      const ls=docPdf.splitTextToSize(texto,tw);
+      if(y+6+ls.length*4>255){docPdf.addPage();y=20}
+      docPdf.setFont("helvetica","bold");docPdf.setFontSize(9);docPdf.setTextColor(26,26,26);docPdf.text(titulo,mg,y);y+=4.5;
+      docPdf.setFont("helvetica","normal");docPdf.setFontSize(8.5);docPdf.setTextColor(60,60,60);docPdf.text(ls,mg,y);y+=ls.length*4+5;
+    };
+    bloque("Responsabilidad por menaje",(c5&&c5.texto)||DEFAULT_CONDICIONES.c5);
+    if(GB_DATOS_PAGO)bloque("Datos de pago",GB_DATOS_PAGO);
+    gbPdfFooter(docPdf);
+    const clSafe=(q.client||"sin").normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-zA-Z0-9]/g,"_");
+    docPdf.save("Cuenta_cobro_reposicion_"+clSafe+"_"+num+"_"+String(c.fecha||"").slice(0,10)+".pdf");
+  }catch(e){
+    console.error("[genCuentaCobroCargoPDF]",e);
+    toast("No se generó la cuenta de cobro: "+gbMensajeError(e),"error");
+  }
+}
+// Sección «Cargos por reposición» de «Ver pagos». Todo texto guardado va escapado; montos con parseInt.
+function cargosVerPagosHtml(q){
+  const cargos=q&&Array.isArray(q.cargos)?q.cargos:[];
+  if(!cargos.length)return "";
+  return '<div style="margin:12px 0 4px;font-weight:700;color:#4A148C">🍷 Cargos por reposición</div>'+cargos.map((c,i)=>{
+    const anulado=!!c.deletedAt;
+    const items=(c.items||[]).map(it=>(parseInt(it.qty)||0)+" × "+h(it.name)).join(", ");
+    return '<div class="pago-item"'+(anulado?' style="opacity:.6"':'')+'>'+
+      '<div class="pago-item-top"><span class="pago-item-monto"'+(anulado?' style="text-decoration:line-through"':'')+'>'+fm(parseInt(c.monto)||0)+'</span><span class="pago-item-tipo">'+(anulado?'Anulado':'Reposición de menaje')+'</span></div>'+
+      '<div class="pago-item-meta">'+h(pagoFechaIso(c.fecha))+' · '+items+'</div>'+
+      (c.notas?'<div class="pago-item-meta" style="margin-top:3px">📝 '+h(c.notas)+'</div>':'')+
+      (anulado
+        ?'<div class="pago-item-meta" style="margin-top:3px">Motivo de anulación: '+h(c.motivo)+'</div>'
+        :'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">'+
+          '<button class="pago-adj-btn" onclick="enviarCobroCargo('+i+')">💬 Enviar cobro</button>'+
+          '<button class="pago-adj-btn" onclick="genCuentaCobroCargoPDF('+i+')">📄 Cuenta de cobro</button>'+
+          '<button class="pago-adj-btn" onclick="anularCargo('+i+')">✖ Anular cargo</button>'+
+        '</div>')+
+    '</div>';
+  }).join("");
 }
 
 // Helper: agrega saldoAFavor a un cliente. Si el cliente no existe en
@@ -1367,7 +1642,7 @@ async function _submitPagoImpl(){
   // VALIDATION: monto vs saldo pendiente
   const totalDoc=(typeof getDocTotal==="function"?getDocTotal(pagoSrc.doc):(pagoSrc.doc.total||0));
   const cobradoLocal=totalCobrado(pagoSrc.doc);
-  const saldoLocal=Math.max(0,totalDoc-cobradoLocal);
+  const saldoLocal=saldoPendiente(pagoSrc.doc); // v7.9.35 R1B-P2-1: saldo canónico (con cargos y ajustes)
   if(saldoLocal>0&&Math.abs(monto-saldoLocal)>=100){
     const diff=Math.abs(monto-saldoLocal);
     const direccion=monto<saldoLocal?"<strong style='color:#C62828'>Quedará saldo pendiente</strong>":"<strong style='color:#E65100'>Sobrepago (crédito a favor cliente)</strong>";
@@ -1502,7 +1777,8 @@ async function _submitPagoImpl(){
 
     // PERSISTENT SUCCESS MODAL (en vez de toast efímero)
     cobradoNuevo=(pagosFreshFinal||[]).reduce((s,p)=>s+(parseInt(p.monto)||0),0);
-    saldoNuevo=totalDoc-cobradoNuevo;
+    // v7.9.35: la reposición pagada no es crédito a favor. R1B-P2-1: los ajustes también cuentan.
+    saldoNuevo=totalDoc+totalCargos(fresh||pagoSrc.doc)-cobradoNuevo-totalAjustes(fresh||pagoSrc.doc);
     const cliente=(fresh&&fresh.client)||"(sin cliente)";
     const num=(fresh&&(fresh.quoteNumber||fresh.id))||pagoSrc.id;
     const saldoLabel=saldoNuevo>0
@@ -1626,12 +1902,15 @@ function openVerPagosModal(docId,kindOrEv,evMaybe){
   $("vp-cli").value=q.client||"";
   const total=(typeof getDocTotal==="function"?getDocTotal(q):(q.total||q.totalReal||0));
   const cobrado=totalCobrado(q);
-  const pend=Math.max(0,total-cobrado);
-  const pct=total>0?Math.round(cobrado*100/total):0;
-  $("vp-resumen").innerHTML='Total: <strong>'+fm(total)+'</strong> · Cobrado: <strong>'+fm(cobrado)+'</strong> ('+pct+'%) · Pendiente: <strong>'+fm(pend)+'</strong>'+
+  // v7.9.35: Total evento · Reposición · Cobrado · Ajustes · Pendiente
+  const cargos=totalCargos(q),ajustes=totalAjustes(q);
+  const pend=saldoPendiente(q);
+  // R1B-P2-3: avance sobre lo que se debe (cobrado + pendiente canónico); 100 % sólo si no falta nada.
+  const pct=pend<=0?(total+cargos>0?100:0):Math.floor(Math.max(0,cobrado)*100/(Math.max(0,cobrado)+pend));
+  $("vp-resumen").innerHTML='Total evento: <strong>'+fm(total)+'</strong>'+(cargos?' · Reposición: <strong>'+fm(cargos)+'</strong>':'')+' · Cobrado: <strong>'+fm(cobrado)+'</strong> ('+pct+'%)'+(ajustes?' · Ajustes: <strong>'+fm(ajustes)+'</strong>':'')+' · Pendiente: <strong>'+fm(pend)+'</strong>'+
     '<div class="pagos-progress"><div class="pagos-progress-fill" style="width:'+pct+'%"></div></div>';
   const pagos=getPagos(q);
-  if(!pagos.length){$("vp-list").innerHTML='<div class="dash-met-empty">Aún no hay pagos registrados.</div>'}
+  if(!pagos.length){$("vp-list").innerHTML='<div class="dash-met-empty">Aún no hay pagos registrados.</div>'+cargosVerPagosHtml(q)}
   else{
     $("vp-list").innerHTML=pagos.map((p,idx)=>{
       // v5.0: soporta fotoUrl (Storage) o foto base64 legacy
@@ -1649,11 +1928,11 @@ function openVerPagosModal(docId,kindOrEv,evMaybe){
       );
       const editBtn='<button style="margin-left:auto;background:none;border:1px solid #ccc;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;color:#555" onclick="event.stopPropagation();editPago('+idx+')">✏️ Editar</button>';
       return '<div class="pago-item" id="pago-item-'+idx+'">'+
-        '<div class="pago-item-top"><span class="pago-item-monto">'+fm(p.monto)+'</span><span class="pago-item-tipo">'+h(p.tipo)+'</span>'+editBtn+'</div>'+
+        '<div class="pago-item-top"><span class="pago-item-monto">'+fm(p.monto)+'</span><span class="pago-item-tipo">'+h(pagoTipoLabel(p.tipo))+'</span>'+editBtn+'</div>'+
         '<div class="pago-item-meta">'+h(p.fecha)+' · '+h(p.metodo)+legBadge+'</div>'+
         (p.notas?'<div class="pago-item-meta" style="margin-top:3px">📝 '+h(p.notas)+'</div>':'')+fotoHtml+adjuntarHtml+
       '</div>';
-    }).join("");
+    }).join("")+cargosVerPagosHtml(q);
   }
   $("verpagos-modal").classList.remove("hidden");
 }
@@ -1674,7 +1953,7 @@ function editPago(idx){
       '<div><label style="font-size:10px;color:#888;display:block">Monto</label><input type="number" id="pe-monto-'+idx+'" value="'+Math.abs(p.monto)+'" style="width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px" inputmode="numeric"></div>'+
       '<div><label style="font-size:10px;color:#888;display:block">Fecha</label><input type="date" id="pe-fecha-'+idx+'" value="'+(p.fecha||"")+'" style="width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px"></div>'+
       '<div><label style="font-size:10px;color:#888;display:block">Método / Banco</label><select id="pe-metodo-'+idx+'" style="width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px"><option value="Nequi">Nequi</option><option value="Daviplata">Daviplata</option><option value="Banco Falabella">Banco Falabella</option><option value="Efectivo">Efectivo</option><option value="Transferencia">Transferencia</option><option value="Otro">Otro</option><option value="Sin especificar">Sin especificar</option></select></div>'+
-      '<div><label style="font-size:10px;color:#888;display:block">Tipo</label><select id="pe-tipo-'+idx+'" style="width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px"><option value="anticipo">Anticipo</option><option value="abono">Abono</option><option value="saldo">Saldo</option><option value="devolucion">Devolución</option></select></div>'+
+      '<div><label style="font-size:10px;color:#888;display:block">Tipo</label><select id="pe-tipo-'+idx+'" style="width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px"><option value="anticipo">Anticipo</option><option value="abono">Abono</option><option value="saldo">Saldo</option><option value="reposicion_menaje">Reposición de menaje</option><option value="devolucion">Devolución</option></select></div>'+
     '</div>'+
     '<div style="margin-top:6px"><label style="font-size:10px;color:#888;display:block">Notas</label><input type="text" id="pe-notas-'+idx+'" value="'+h(p.notas||"")+'" style="width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px" placeholder="Notas opcionales"></div>'+
     '<div style="margin-top:8px;display:flex;gap:8px;justify-content:flex-end">'+
@@ -3575,7 +3854,8 @@ function _actionBtnsPorContexto(q,contexto){
   const btnHistorial=()=>(Array.isArray(q.editHistory)&&q.editHistory.length>0)
     ?'<button class="btn hc-btn-timeline" onclick="event.stopPropagation();openEditHistoryModal(\''+id+'\',\''+kind+'\')" title="Historial de cambios">🕒 '+q.editHistory.length+'</button>':'';
   const btnPagar=()=>(_saldo>0)?'<button class="btn hc-btn-pago" onclick="openPagoModal(\''+id+'\',event)">💵 Registrar pago</button>':'';
-  const btnVerPagos=()=>(_pagos.length>0)?'<button class="btn hc-btn-pagos-ver" onclick="openVerPagosModal(\''+id+'\',event)">📒 Ver pagos ('+_pagos.length+')</button>':'';
+  const btnVerPagos=()=>(_pagos.length>0||(q.cargos||[]).length>0)?'<button class="btn hc-btn-pagos-ver" onclick="openVerPagosModal(\''+id+'\',event)">📒 Ver pagos ('+_pagos.length+')</button>':'';
+  const btnCargo=()=>puedeCargoReposicion(q)?_btnCargoReposicion(q):''; // v7.9.35 P-35
   const btnFE=()=>{
     if(["superseded","convertida","anulada"].includes(status))return "";
     const lbl=q.feData?'🧾 FE ✓':(q.requiereFE?'🧾 FE pendiente':'🧾 FE');
@@ -3649,6 +3929,7 @@ function _actionBtnsPorContexto(q,contexto){
       btns.push(btnAnular());
       btns.push(btnPagar());
       btns.push(btnVerPagos());
+      btns.push(btnCargo());
       btns.push(btnFE());
       btns.push(btnPdfs());
       break;
@@ -3667,6 +3948,7 @@ function _actionBtnsPorContexto(q,contexto){
       btns.push(btnAnular());
       btns.push(btnPagar());
       btns.push(btnVerPagos());
+      btns.push(btnCargo());
       btns.push(btnFE());
       btns.push(btnPdfs());
       break;
@@ -3681,6 +3963,7 @@ function _actionBtnsPorContexto(q,contexto){
       btns.push(btnIcs());
       btns.push(btnPagar());
       btns.push(btnVerPagos());
+      btns.push(btnCargo());
       btns.push(btnFE());
       btns.push(btnPdfs());
       break;
@@ -3694,6 +3977,7 @@ function _actionBtnsPorContexto(q,contexto){
       btns.push(btnFotosKathy());
       btns.push(btnPagar());
       btns.push(btnVerPagos());
+      btns.push(btnCargo());
       btns.push(btnFE());
       btns.push(btnPdfs());
       break;
@@ -3717,6 +4001,7 @@ function _actionBtnsPorContexto(q,contexto){
     case "cartera":
       btns.push(btnPagar());
       btns.push(btnVerPagos());
+      btns.push(btnCargo());
       break;
   }
 
@@ -3745,7 +4030,7 @@ function renderDocCard(q,contexto,opciones){
   const status=q.status||"enviada";
   const total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||0);
   const saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
-  const cobrado=total-saldo;
+  const cobrado=totalCobrado(q); // v7.9.35: total − saldo ya no es lo cobrado (hay cargos y ajustes)
   const fmt=typeof fm==="function"?fm:(n=>"$"+(n||0).toLocaleString());
   const escape=typeof h==="function"?h:(s=>String(s||""));
   const fecha=q.eventDate||(q.orderData||{}).fechaEntrega||(q.approvalData||{}).fechaEntrega||q.fechaEntrega||"";

@@ -35,13 +35,20 @@ function totalAjustes(q){
     return s+(m>0?m:0); // solo suma positivos (descuentos al cliente)
   },0);
 }
-function saldoPendiente(q){
+function totalCargos(q){
+  if(!q||!Array.isArray(q.cargos))return 0;
+  return q.cargos.reduce((s,c)=>{
+    if(!c||c.deletedAt)return s;
+    const m=parseInt(c.monto)||0;
+    return s+(m>0?m:0);
+  },0);
+}function saldoPendiente(q){
   const t=(typeof getDocTotal==="function"?getDocTotal(q):(q.total||q.totalReal||0));
-  return Math.max(0,t-totalCobrado(q)-totalAjustes(q));
+  return Math.max(0,t+totalCargos(q)-totalCobrado(q)-totalAjustes(q));
 }
 function saldoNeto(q){
   const t=(typeof getDocTotal==="function"?getDocTotal(q):(q.total||q.totalReal||0));
-  return t-totalCobrado(q)-totalAjustes(q);
+  return t+totalCargos(q)-totalCobrado(q)-totalAjustes(q);
 }
 function creditoAFavor(q){
   const neto=saldoNeto(q);

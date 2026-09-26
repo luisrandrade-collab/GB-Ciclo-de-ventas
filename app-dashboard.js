@@ -892,12 +892,12 @@ function _estadoPago(q){
   // Solo aplica a pedidos/aprobadas/entregados
   if(!["pedido","aprobada","en_produccion","entregado"].includes(s))return null;
   const total=getDocTotal(q);
-  if(total<=0)return null;
+  if(total<=0&&!totalCargos(q))return null; // v7.9.35: una cortesía con reposición sí tiene estado de pago
   const cobrado=typeof totalCobrado==="function"?totalCobrado(q):0;
-  const pend=Math.max(0,total-cobrado);
-  if(pend===0)return {cls:"pagado",emoji:"💰",label:"Pagado"};
+  const pend=saldoPendiente(q); // v7.9.35 R1B-P2-3: saldo canónico (cargos y ajustes)
+  if(pend<=0)return {cls:"pagado",emoji:"💰",label:"Pagado"};
   if(cobrado>0){
-    const pct=Math.round((cobrado/total)*100);
+    const pct=Math.floor(cobrado*100/(cobrado+pend)); // avance sobre lo que se debe; nunca 100 % con pendiente
     return {cls:"anticipo",emoji:"💵",label:"Anticipo "+pct+"%"};
   }
   return {cls:"sin-anticipo",emoji:"⚠️",label:"Sin anticipo"};
@@ -1507,7 +1507,8 @@ function openDashDetail(tipo){
         const _cortesia=(typeof isCortesia==="function")&&isCortesia(q);
         const _saldoPend=saldoPendiente(q);
         let extraTxt="Entregado: "+fEnt;
-        if(_cortesia)extraTxt='<span class="dd-badge-cortesia">🎁 Cortesía</span> · '+extraTxt;
+        // v7.9.35 R2-P2-2: una cortesía que debe reposición muestra su saldo, no «Cortesía».
+        if(_cortesia&&_saldoPend<=0)extraTxt='<span class="dd-badge-cortesia">🎁 Cortesía</span> · '+extraTxt;
         else if(_cumplido)extraTxt='<span class="dd-badge-cumplido">✅ Cumplida</span> · '+extraTxt;
         else if(_saldoPend>0)extraTxt='<span class="dd-badge-saldo">💰 Saldo '+fm(_saldoPend)+'</span> · '+extraTxt;
         rows.push({q,monto:t,extra:extraTxt});
@@ -1524,7 +1525,7 @@ function openDashDetail(tipo){
         totalSum+=pend;
         // v5.4.3: calcular días desde entrega (si ya fue entregado)
         const diasData=_diasDesdeEntrega(q);
-        let extraTxt="Cobrado: "+fm(totalCobrado(q))+" / Total: "+fm(getDocTotal(q));
+        let extraTxt="Cobrado: "+fm(totalCobrado(q))+" / Total: "+fm(getDocTotal(q))+(totalCargos(q)?" + reposición "+fm(totalCargos(q)):""); // v7.9.35
         if(diasData){
           const colorTag=diasData.cls?'<span class="dd-dias-tag '+diasData.cls+'">'+diasData.dias+'d</span>':'<span class="dd-dias-tag neutro">'+diasData.dias+'d</span>';
           extraTxt=colorTag+' desde entrega · '+extraTxt;
@@ -1544,12 +1545,14 @@ function openDashDetail(tipo){
     // Lista de PAGOS individuales (no docs) — agrupar por método al final como resumen
     const pagosLista=[];
     const porMetodo={};METODOS_PAGO.forEach(m=>porMetodo[m]=0);
+    let repoSum=0; // v7.9.35: la reposición de menaje va como línea propia
     quotesCache.forEach(q=>{
       if(_excluido(q))return;
       getPagos(q).forEach(p=>{
         if(inRange(p.fecha)){
           const monto=parseInt(p.monto)||0;
           totalSum+=monto;
+          if(p.tipo==="reposicion_menaje")repoSum+=monto;
           const met=METODOS_PAGO.includes(p.metodo)?p.metodo:"Otro";
           porMetodo[met]+=monto;
           pagosLista.push({q,p,monto,met});
@@ -1562,12 +1565,13 @@ function openDashDetail(tipo){
     METODOS_PAGO.forEach(m=>{
       if(porMetodo[m]>0)resumen+='<div class="dd-resumen-row"><span>'+m+'</span><strong>'+fm(porMetodo[m])+'</strong></div>';
     });
+    if(repoSum)resumen+='<div class="dd-resumen-row"><span>De ello, reposición de menaje</span><strong>'+fm(repoSum)+'</strong></div>';
     resumen+='</div>';
     const pagosHtml=pagosLista.map(({q,p,monto,met})=>{
       const fotoIcon=(p.fotoUrl||p.foto)?' 📷':'';
       return '<div class="dd-row" onclick="closeDashDetail();openVerPagosModal(\''+q.id+'\',\''+q.kind+'\')">'+
         '<div class="dd-row-top"><div class="dd-row-cli">'+h(q.client||"—")+fotoIcon+'</div><div class="dd-row-monto">'+fm(monto)+'</div></div>'+ // v7.9.13: SEC-01 escape cliente (gap del fix v7.9.8.5)
-        '<div class="dd-row-meta">'+p.fecha+' · '+met+' · '+(p.tipo||"pago")+(p.notas?' · '+h(p.notas.slice(0,40)):'')+'</div>'+ // v7.9.13: SEC-01 escape notas
+        '<div class="dd-row-meta">'+p.fecha+' · '+met+' · '+h(pagoTipoLabel(p.tipo))+(p.notas?' · '+h(p.notas.slice(0,40)):'')+'</div>'+ // v7.9.13: SEC-01 escape notas
       '</div>';
     }).join("");
     $("dd-title").textContent=title;
@@ -2710,7 +2714,7 @@ function openPipelineDetail(bucket){
       }
       // v6.0.2 Item 9: chip WhatsApp
       const waChip=' <span class="dd-inline-wa" onclick="event.stopPropagation();openSaldoWhatsAppModal(\''+q.id+'\',\''+q.kind+'\')" title="Enviar recordatorio por WhatsApp">💬 WhatsApp</span>';
-      extra=diasTag+"Cobrado "+fm(cobr)+" / Total "+fm(getDocTotal(q))+waChip;
+      extra=diasTag+"Cobrado "+fm(cobr)+" / Total "+fm(getDocTotal(q))+(totalCargos(q)?" + reposición "+fm(totalCargos(q)):"")+waChip; // v7.9.35
     }else if(q.eventDate){
       extra="Evento: "+q.eventDate;
     }
@@ -3160,8 +3164,8 @@ function hojaNotasPago(q){
   if(typeof isCumplido==="function"&&isCumplido(q))return "CANCELADO";
   const total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||q.totalReal||0);
   const cobrado=(typeof totalCobrado==="function")?totalCobrado(q):0;
-  if(total>0&&cobrado>=total)return "CANCELADO";
   const saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):Math.max(0,total-cobrado);
+  if((total>0||totalCargos(q)>0)&&saldo<=0)return "CANCELADO"; // v7.9.35 R1B-P2-3: saldo canónico
   if(saldo<=0&&total===0)return "CORTESÍA";
   return "SALDO "+fm(saldo);
 }
@@ -7374,7 +7378,8 @@ function getSobrepagosCliente(docs){
     const cob=typeof totalCobrado==="function"?totalCobrado(q):0;
     const ajustes=typeof totalAjustes==="function"?totalAjustes(q):0;
     // saldo "real" del doc = total - ajustes ya aplicados al saldo (perdón/descuento)
-    const facturable=Math.max(0,dt-ajustes);
+    // v7.9.35: + cargos por reposición; la reposición pagada no es saldo a favor.
+    const facturable=Math.max(0,dt+(typeof totalCargos==="function"?totalCargos(q):0)-ajustes);
     const sobrepago=cob-facturable;
     if(sobrepago>=100){ // ignoramos centavos/redondeos < $100
       detalle.push({q,total:dt,cobrado:cob,sobrepago});
@@ -7436,7 +7441,7 @@ function buildHistorialEntries(docs){
       out.push({
         tipo:"pago",
         fecha:p.fecha,
-        descripcion:(esDevol?"Devolución · ":"Pago "+(p.tipo||"")+" · ")+(p.metodo||"Sin método"),
+        descripcion:(esDevol?"Devolución · ":"Pago "+(p.tipo?pagoTipoLabel(p.tipo):"")+" · ")+(p.metodo||"Sin método"),
         monto:p.monto,
         esDevolucion:esDevol,
         q:q
@@ -7972,7 +7977,7 @@ async function renderCarteraHistorico(){
   const cardsHtml=limited.map(({pago,doc})=>{
     const fotoSrc=pago.fotoUrl||pago.foto;
     const fotoIcon=fotoSrc?'<span title="Tiene comprobante" style="margin-left:6px">📎</span>':'';
-    const tipoLbl=(pago.tipo||"abono").charAt(0).toUpperCase()+(pago.tipo||"abono").slice(1);
+    const tipoLbl=pagoTipoLabel(pago.tipo||"abono").charAt(0).toUpperCase()+pagoTipoLabel(pago.tipo||"abono").slice(1);
     const notas=pago.notas?'<div style="font-size:11px;color:#666;margin-top:4px">📝 '+(typeof h==="function"?h(pago.notas):pago.notas)+'</div>':'';
     return '<div style="background:white;border:1px solid #e0e0e0;border-left:3px solid #1B5E20;border-radius:8px;padding:10px 14px;margin:0 4px 8px;cursor:pointer" onclick="openVerPagosModal(\''+doc.id+'\',\''+doc.kind+'\')">'+
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">'+
@@ -8004,6 +8009,7 @@ function renderCarteraCard(q,urgencia){
   const saldo=saldoPendiente(q);
   const cobrado=totalCobrado(q); // v7.9.24: un ajuste no es dinero recibido.
   const ajustado=totalAjustes(q);
+  const cargos=totalCargos(q); // v7.9.35 P-35
   const credito=creditoAFavor(q);
   const fecha=carteraGetFecha(q);
   const hora=q.horaEntrega||(q.orderData||{}).horaEntrega||"";
@@ -8021,6 +8027,7 @@ function renderCarteraCard(q,urgencia){
       '</div>'+
       '<div style="text-align:right;font-size:11px;color:#888;line-height:1.5">'+
         '<div>Total '+fmt(total)+'</div>'+
+        (cargos?'<div>Reposición '+fmt(cargos)+'</div>':'')+
         '<div>Cobrado '+fmt(cobrado)+'</div>'+
         (ajustado?'<div>Ajustes '+fmt(ajustado)+'</div>':'')+
         (credito?'<div>Saldo a favor '+fmt(credito)+'</div>':'')+
@@ -8030,7 +8037,8 @@ function renderCarteraCard(q,urgencia){
     '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">'+
       '<button class="btn hc-btn-pago" onclick="openPagoModal(\''+id+'\',event)">💵 Cobrar</button>'+
       '<button class="btn" style="background:#FFF3E0;color:#E65100;border:1px solid #FB8C00" onclick="openAjusteModal(\''+id+'\',event)">⚖️ Ajustar saldo</button>'+
-      (_pagos.length?'<button class="btn hc-btn-pagos-ver" onclick="openVerPagosModal(\''+id+'\',event)">📒 Ver pagos ('+_pagos.length+')</button>':'')+
+      (_pagos.length||(q.cargos||[]).length?'<button class="btn hc-btn-pagos-ver" onclick="openVerPagosModal(\''+id+'\',event)">📒 Ver pagos ('+_pagos.length+')</button>':'')+
+      (puedeCargoReposicion(q)?_btnCargoReposicion(q):'')+
     '</div>'+
     '</div>';
 }

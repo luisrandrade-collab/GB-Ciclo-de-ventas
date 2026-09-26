@@ -1138,7 +1138,7 @@ async function _savePropQuoteImpl(silent){
           }
           const parent=parentSnap.data();
           if(["anulada","convertida","superseded"].includes(parent.status))throw Object.assign(new Error("La propuesta original cambió de estado. Vuelve a abrirla."),{paraUsuario:true});
-          if((parent.status||"enviada")!==(oldDoc.status||"enviada")||(parent.pagos||[]).length||(parent.ajustes||[]).length)throw Object.assign(new Error("La propuesta tiene un cambio de estado o movimientos financieros. Revisa el original antes de crear otra versión."),{paraUsuario:true});
+          if((parent.status||"enviada")!==(oldDoc.status||"enviada")||(parent.pagos||[]).length||(parent.ajustes||[]).length||(parent.cargos||[]).length)throw Object.assign(new Error("La propuesta tiene un cambio de estado o movimientos financieros. Revisa el original antes de crear otra versión."),{paraUsuario:true});
           // v7.9.26 REV-01: ver app-cotizar.js — misma comparación a tres bandas.
           const adoptar=resolveEditableConflicts(pObj,parent,editBase,editingPropNumber);
           adoptadosGuardado=adoptar;
@@ -1599,7 +1599,7 @@ async function commitPropFinal(pfObj,source,regeneration,flowSeq){
       if(!oldSnap.exists())throw Object.assign(new Error("La PF anterior ya no existe."),{paraUsuario:true});
       old=oldSnap.data();
       if(old.sourceProposal!==source.id||!["propfinal","enviada"].includes(old.status))throw Object.assign(new Error("La PF anterior cambió de estado. Revisa el historial."),{paraUsuario:true});
-      if((old.pagos||[]).length||(old.ajustes||[]).length||old.orderData||old.saldoData||old.feData||old.approvalData||old.produced||old.entregaData||(old.despachos||[]).some(d=>d.producedAt||d.entregaData||d.entregadoEn||d.status&&d.status!=="pendiente")){
+      if((old.pagos||[]).length||(old.ajustes||[]).length||(old.cargos||[]).length||old.orderData||old.saldoData||old.feData||old.approvalData||old.produced||old.entregaData||(old.despachos||[]).some(d=>d.producedAt||d.entregaData||d.entregadoEn||d.status&&d.status!=="pendiente")){
         throw Object.assign(new Error("Esta PF tiene actividad operativa o financiera. No se reemplazó: revisa sus pagos y entregas antes de crear otra versión."),{paraUsuario:true});
       }
     }
