@@ -1173,7 +1173,7 @@ function pagoFixture(errorDelRunner){
   const modales=[];
   const store=new Map();
   const fb={db:{},doc:(_,c,i)=>c+'/'+i,serverTimestamp:()=>'T',runTransaction:async(_,cb)=>cb({get:async p=>({exists:()=>store.has(p),data:()=>store.get(p)}),update(){}})};
-  const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName'),...['getPagos','totalCobrado','submitPago'].map(n=>['app-historial.js',n])],{
+  const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName','gbDateToIso'),...['getPagos','totalCobrado','pagoFechaIso','pagoClave','pagoPareceRepetido','submitPago','_submitPagoImpl'].map(n=>['app-historial.js',n])],{
     ...common(),console:quiet,window:{fb},$:el,cloudOnline:true,pagoSrc:{id:'GB-1',kind:'quote',doc:{total:0,pagos:[]}},pagoFotoBase64:null,
     getDocTotal:()=>0,fm:String,alert(){},closePagoModal(){},renderHist(){},
     logOperacion:async({runner})=>{if(errorDelRunner)throw errorDelRunner;return runner('log1')},
@@ -1196,4 +1196,163 @@ await test('R3-C pago que falla por un error técnico común: aviso en español,
   }
 });
 
+// v7.9.34 P-02: aviso de pago repetido (caso real: anticipo registrado dos veces en GB-P-2026-0122-7).
+function repetidoFixture({pagos,doc,fecha='2026-09-22',monto='500',tipo='parcial',respuestas=[]}){
+  const {el}=domSimulado();
+  Object.assign(el('pm-fecha'),{value:fecha});Object.assign(el('pm-monto'),{value:monto});
+  Object.assign(el('pm-metodo'),{value:'Nequi'});Object.assign(el('pm-tipo'),{value:tipo});Object.assign(el('pm-notas'),{value:''});
+  el('pm-submit-btn').style={};el('pm-submit-btn').textContent='Registrar pago';
+  const d=doc||{total:1000,pagos};
+  const store=new Map([['quotes/GB-1',plain(d)]]);const escritos=[];const modales=[];
+  const fb={db:{},doc:(_,c,i)=>c+'/'+i,serverTimestamp:()=>'T',runTransaction:async(_,cb)=>cb({get:async p=>({exists:()=>store.has(p),data:()=>store.get(p)}),update(p,v){escritos.push(v)}})};
+  const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName','gbDateToIso'),...['getPagos','totalCobrado','pagoFechaIso','pagoClave','pagoPareceRepetido','submitPago','_submitPagoImpl'].map(n=>['app-historial.js',n])],{
+    ...common(),window:{fb},$:el,cloudOnline:true,pagoSrc:{id:'GB-1',kind:'quote',doc:d},pagoFotoBase64:null,
+    getDocTotal:q=>q.total||0,fm:n=>'$'+n,_showPagoSuccessModal:async()=>{},curMode:'hist',escapeHtml:s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'),closePagoModal(){},renderHist(){},
+    logOperacion:async({runner})=>runner('log1'),
+    confirmModal:async o=>{modales.push(o);return respuestas.length?respuestas.shift():true}
+  });
+  return {c,modales,escritos};
+}
+const anticipo={fecha:'2026-09-22',monto:500,metodo:'Nequi',tipo:'anticipo',registradoEn:'2026-09-22T15:00:00Z'};
+const esRepetido=m=>/pago repetido/i.test(m.title);
+await test('P-02 mismo monto y misma fecha: avisa; «Cancelar» no escribe y conserva el formulario',async()=>{
+  const {c,modales,escritos}=repetidoFixture({pagos:[anticipo],respuestas:[false]});
+  await c.submitPago();
+  assert.ok(modales.some(esRepetido),JSON.stringify(modales.map(m=>m.title)));
+  assert.equal(escritos.length,0,'no debe escribir');
+  assert.ok(!c.window._submitPagoBusy,'el formulario no queda bloqueado');
+});
+await test('P-02 mismo caso y «Sí, es otro pago»: registra normalmente',async()=>{
+  const {c,modales,escritos}=repetidoFixture({pagos:[anticipo],respuestas:[true,true]});
+  await c.submitPago();
+  assert.ok(modales.some(esRepetido));
+  assert.equal(escritos.length,1);assert.equal(escritos[0].pagos.length,2);
+});
+await test('P-02 segundo anticipo del mismo monto con otra fecha: avisa',async()=>{
+  const {c,modales,escritos}=repetidoFixture({pagos:[anticipo],fecha:'2026-09-25',tipo:'anticipo',respuestas:[false]});
+  await c.submitPago();
+  assert.ok(modales.some(esRepetido));assert.equal(escritos.length,0);
+});
+await test('P-02 saldo 50/50 igual al anticipo, otra fecha y tipo saldo: NO avisa',async()=>{
+  const {c,modales,escritos}=repetidoFixture({pagos:[anticipo],fecha:'2026-09-25',tipo:'saldo'});
+  await c.submitPago();
+  assert.ok(!modales.some(esRepetido),JSON.stringify(modales.map(m=>m.title)));
+  assert.equal(escritos.length,1);
+});
+await test('P-02 monto distinto el mismo día: NO avisa por repetido',async()=>{
+  const {c,modales}=repetidoFixture({pagos:[anticipo],monto:'300',respuestas:[true]});
+  await c.submitPago();
+  assert.ok(!modales.some(esRepetido));
+});
+await test('P-02 documento legacy (anticipo fabricado por getPagos) con mismo monto y fecha: avisa',async()=>{
+  const {c,modales}=repetidoFixture({doc:{total:1000,approvalData:{anticipo:500,fechaAprobacion:'2026-09-22',metodoPago:'Nequi'}},respuestas:[false]});
+  await c.submitPago();
+  assert.ok(modales.some(esRepetido));
+});
+await test('P-02 una devolución del mismo valor no cuenta como pago repetido',async()=>{
+  const {c,modales}=repetidoFixture({pagos:[anticipo,{fecha:'2026-09-23',monto:-500,metodo:'Nequi',tipo:'devolucion'}],monto:'500',fecha:'2026-09-23',tipo:'parcial'});
+  await c.submitPago();
+  assert.ok(!modales.some(esRepetido));
+});
+await test('P-02 el aviso escapa lo que escribió el usuario',async()=>{
+  const {c,modales}=repetidoFixture({pagos:[{...anticipo,metodo:'<img src=x onerror=alert(1)>'}],respuestas:[false]});
+  await c.submitPago();
+  const m=modales.find(esRepetido);
+  assert.ok(m&&!m.body.includes('<img'),m&&m.body);
+});
+
+// v7.9.34 R2 — P1-01 de Codex: el aviso debe aplicarse al estado FRESCO que se escribe, no a la
+// caché. Usa el logOperacion REAL para contar también las escrituras de auditoría.
+function carreraFixture({cache=[],fresco=[],frescoEnEscritura=null,respuestas=[],reintentoTx=false,fecha='2026-09-22',monto='500',tipo='parcial',manual=false}){
+  const {el}=domSimulado();
+  Object.assign(el('pm-fecha'),{value:fecha});Object.assign(el('pm-monto'),{value:monto});
+  Object.assign(el('pm-metodo'),{value:'Nequi'});Object.assign(el('pm-tipo'),{value:tipo});Object.assign(el('pm-notas'),{value:''});
+  el('pm-submit-btn').style={};el('pm-submit-btn').textContent='Registrar pago';
+  let doc={total:1000,pagos:plain(fresco)};
+  const escrituras=[];const modales=[];const pendientes=[];let lecturas=0,reintentado=false;
+  const snap=()=>({exists:()=>true,data:()=>plain(doc)});
+  const fb={db:{},doc:(_,c,i)=>c+'/'+i,serverTimestamp:()=>'T',
+    setDoc:async(p,v)=>{escrituras.push({p,v})},updateDoc:async(p,v)=>{escrituras.push({p,v})},
+    runTransaction:async(_,cb)=>{
+      const intento=async()=>{const v=[];const r=await cb({get:async()=>{lecturas++;if(frescoEnEscritura&&lecturas>=2)doc.pagos=plain(frescoEnEscritura);return snap()},update(p,x){v.push({p,x})}});return {r,v}};
+      let {r,v}=await intento();
+      if(reintentoTx&&v.length&&!reintentado){reintentado=true;({r,v}=await intento())} // contención: el primer intento se descarta
+      v.forEach(({p,x})=>{escrituras.push({p,v:x});doc={...doc,...plain(x)}});
+      return r;
+    }};
+  const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName','gbDateToIso','logOperacion'),...['getPagos','totalCobrado','pagoFechaIso','pagoClave','pagoPareceRepetido','submitPago','_submitPagoImpl'].map(n=>['app-historial.js',n])],{
+    ...common(),window:{fb},$:el,cloudOnline:true,pagoSrc:{id:'GB-1',kind:'quote',doc:{total:1000,pagos:cache.map(p=>({...p}))}},pagoFotoBase64:null,
+    fbReady:async()=>{},BUILD_VERSION:'test',
+    getDocTotal:q=>q.total||0,fm:n=>'$'+n,_showPagoSuccessModal:async()=>{},curMode:'hist',
+    escapeHtml:s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'),closePagoModal(){},renderHist(){},
+    confirmModal:o=>{modales.push(o);if(manual)return new Promise(r=>pendientes.push(r));return Promise.resolve(respuestas.length?respuestas.shift():true)}
+  });
+  const alDoc=()=>escrituras.filter(e=>e.p==='quotes/GB-1');
+  return {c,modales,escrituras,alDoc,pendientes,doc:()=>doc};
+}
+const pagoOtraSesion={...anticipo,clientId:'pago_otra_sesion'};
+await test('P1-01 canónica: caché sin pagos y el pago repetido sólo en el estado fresco: avisa; «Cancelar» = cero escrituras',async()=>{
+  const f=carreraFixture({cache:[],fresco:[pagoOtraSesion],respuestas:[false]});
+  await f.c.submitPago();
+  assert.equal(f.modales.filter(esRepetido).length,1,JSON.stringify(f.modales.map(m=>m.title)));
+  assert.equal(f.escrituras.length,0,'ni documento ni auditoría: '+JSON.stringify(f.escrituras));
+  assert.ok(!f.c.window._submitPagoBusy,'la guarda queda libre');
+});
+await test('P1-01 «Sí, es otro pago» tras el aviso del estado fresco: exactamente un pago nuevo y el aviso no reaparece',async()=>{
+  const f=carreraFixture({cache:[],fresco:[pagoOtraSesion],respuestas:[true,true]});
+  await f.c.submitPago();
+  assert.equal(f.modales.filter(esRepetido).length,1);
+  assert.equal(f.alDoc().length,1);assert.equal(f.doc().pagos.length,2);
+});
+await test('P1-01 carrera dentro de la escritura: el pago llega entre la lectura previa y la transacción; no escribe sin confirmar',async()=>{
+  const a=carreraFixture({cache:[],fresco:[],frescoEnEscritura:[pagoOtraSesion],respuestas:[true,false]}); // monto distinto: sí; repetido: cancelar
+  await a.c.submitPago();
+  assert.equal(a.modales.filter(esRepetido).length,1,JSON.stringify(a.modales.map(m=>m.title)));
+  assert.equal(a.alDoc().length,0,'el documento no se toca');
+  assert.equal(a.doc().pagos.length,1);
+  assert.ok(!a.c.window._submitPagoBusy);
+  const b=carreraFixture({cache:[],fresco:[],frescoEnEscritura:[pagoOtraSesion],respuestas:[true,true]});
+  await b.c.submitPago();
+  assert.equal(b.modales.filter(esRepetido).length,1,'se pregunta una sola vez');
+  assert.equal(b.alDoc().length,1);assert.equal(b.doc().pagos.length,2);
+});
+await test('P1-01 reintento de la transacción tras confirmar: sigue siendo exactamente un pago',async()=>{
+  const f=carreraFixture({cache:[pagoOtraSesion],fresco:[pagoOtraSesion],respuestas:[true],reintentoTx:true});
+  await f.c.submitPago();
+  assert.equal(f.modales.filter(esRepetido).length,1);
+  assert.equal(f.alDoc().length,1);assert.equal(f.doc().pagos.length,2);
+  assert.equal(new Set(f.doc().pagos.map(p=>p.clientId)).size,2);
+});
+await test('P3-02 dos invocaciones con el aviso abierto: la segunda no espera ni escribe; una sola escritura',async()=>{
+  const f=carreraFixture({cache:[pagoOtraSesion],fresco:[pagoOtraSesion],manual:true});
+  const p1=f.c.submitPago();
+  for(let i=0;i<20&&!f.pendientes.length;i++)await new Promise(r=>setTimeout(r,0));
+  assert.equal(f.pendientes.length,1,'el aviso está abierto');
+  const resuelta=await Promise.race([f.c.submitPago().then(()=>true),new Promise(r=>setTimeout(()=>r(false),200))]);
+  assert.ok(resuelta,'la segunda invocación termina de inmediato');
+  assert.equal(f.modales.length,1,'no abre un segundo aviso');
+  f.pendientes.shift()(true);
+  await p1;
+  assert.equal(f.alDoc().length,1);assert.equal(f.doc().pagos.length,2);
+  assert.ok(!f.c.window._submitPagoBusy);
+});
+await test('P3-01 fecha guardada como Timestamp de Firestore: también avisa',async()=>{
+  const ts={...pagoOtraSesion,fecha:{toDate:()=>new Date(2026,8,22,15)}};
+  const f=carreraFixture({cache:[ts],fresco:[ts],respuestas:[false]});
+  await f.c.submitPago();
+  assert.equal(f.modales.filter(esRepetido).length,1);
+  assert.equal(f.escrituras.length,0);
+});
+
+// v7.9.34 R3 — P2-01 de Codex (ronda 2): el monto guardado no puede llegar como HTML al aviso.
+await test('P2-01 monto guardado con marcado: el aviso muestra el número comparado, sin HTML',async()=>{
+  const sucio={...pagoOtraSesion,monto:'500<img src=x onerror=alert(1)>'};
+  const f=carreraFixture({cache:[sucio],fresco:[sucio],respuestas:[false]});
+  await f.c.submitPago();
+  const m=f.modales.find(esRepetido);
+  assert.ok(m,'el pago coincide por parseInt y avisa');
+  assert.ok(!/<img|onerror/.test(m.body),m.body);
+  assert.ok(m.body.includes('$500'),m.body);
+  assert.equal(f.escrituras.length,0);
+});
 console.log(`${passed} escenarios de integridad pasaron (adaptadores en memoria; no emulador Firebase).`);

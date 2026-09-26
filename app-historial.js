@@ -36,6 +36,24 @@ function getPagos(q){
   return out;
 }
 function totalCobrado(q){return getPagos(q).reduce((s,p)=>s+(parseInt(p.monto)||0),0)}
+// v7.9.34 P-02: pago que parece ya registrado. Mismo monto y (misma fecha de pago, o
+// es otro anticipo). No basta el monto: con anticipo y saldo del 50 % los dos pagos
+// legítimos valen lo mismo; los separa la fecha. Devoluciones no cuentan.
+// R2: `aceptados` son las claves de los pagos que el usuario ya confirmó como distintos.
+// El monto se lee con parseInt, igual que totalCobrado: el aviso cuenta lo mismo que los totales.
+function pagoFechaIso(v){ // P3-01: la fecha puede llegar como Timestamp de Firestore o Date
+  if(v&&typeof v.toDate==="function")v=v.toDate();
+  return v&&typeof v.getFullYear==="function"?gbDateToIso(v):String(v||"").slice(0,10);
+}
+function pagoClave(p){
+  return p.clientId||[pagoFechaIso(p.fecha),parseInt(p.monto)||0,p.metodo||"",p.tipo||"",p.registradoEn||""].join("|");
+}
+function pagoPareceRepetido(q,nuevo,aceptados){
+  const f=pagoFechaIso(nuevo.fecha);
+  return getPagos(q).find(p=>p.tipo!=="devolucion"&&(parseInt(p.monto)||0)===nuevo.monto
+    &&(pagoFechaIso(p.fecha)===f||(nuevo.tipo==="anticipo"&&p.tipo==="anticipo"))
+    &&!(aceptados&&aceptados.has(pagoClave(p))))||null;
+}
 // v7.8.3: suma de ajustes positivos aplicados al doc (perdón, descuento, corrección).
 // Solo cuenta los no eliminados (sin deletedAt). Notas crédito (Caso D) NO van al
 // q.ajustes[] del doc — se guardan como cliente.saldoAFavor (ver app-historial cliente).
@@ -1293,10 +1311,16 @@ function previewPagoFoto(ev){
 
 async function submitPago(){
   // GUARD anti-double-click. El _submitPagoBusy global bloquea entradas concurrentes.
+  // v7.9.34 R2 (P3-02 de Codex): se toma AL ENTRAR y cubre también los avisos; antes se
+  // tomaba después de ellos y dos clics podían pasar a la vez. Se libera siempre.
   if(window._submitPagoBusy){
     console.warn("[submitPago] ya hay un submit en curso, ignorando click duplicado");
     return;
   }
+  window._submitPagoBusy=true;
+  try{await _submitPagoImpl()}finally{window._submitPagoBusy=false}
+}
+async function _submitPagoImpl(){
   if(!pagoSrc)return;
   if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión","error");else alert("Sin conexión");return}
   const fecha=$("pm-fecha").value;if(!fecha){alert("Fecha");return}
@@ -1304,6 +1328,41 @@ async function submitPago(){
   const metodo=$("pm-metodo").value;if(!metodo){alert("Método");return}
   const tipo=$("pm-tipo").value||"parcial";
   const notas=$("pm-notas").value.trim();
+
+  // v7.9.34 P-02: aviso de pago repetido, antes que el de monto distinto al saldo.
+  // R2 (P1-01 de Codex): la caché puede no tener un pago que otra sesión acaba de registrar.
+  // Se avisa con la caché, luego con una lectura fresca, y la transacción que escribe vuelve
+  // a aplicar la regla a su snapshot: nunca añade un repetido que el usuario no confirmó.
+  const datosPago={fecha,monto,tipo};
+  const aceptados=new Set();
+  const confirmarRepetido=async previo=>{
+    const dmy=s=>escapeHtml(String(s||"").split("-").reverse().join("/"));
+    // R3 (P2-01 de Codex): se muestra el número que compara la regla; el monto guardado
+    // nunca llega como HTML (fm no escapa).
+    const reg=previo.registradoEn?new Date(previo.registradoEn):null;
+    const ok=await confirmModal({
+      title:"⚠ Posible pago repetido",
+      body:"<div style='font-size:13px;line-height:1.6'>Ya hay un pago de <strong>"+fm(parseInt(previo.monto)||0)+"</strong> del <strong>"+dmy(pagoFechaIso(previo.fecha))+"</strong>"+
+        " ("+escapeHtml(previo.metodo||"sin método")+", "+escapeHtml(previo.tipo||"pago")+(reg&&!isNaN(reg)?", registrado el "+dmy(gbDateToIso(reg)):"")+")."+
+        "<br><br>¿Es un pago distinto?</div>",
+      okLabel:"Sí, es otro pago",
+      cancelLabel:"Cancelar",
+      tone:"warn"
+    });
+    if(ok)aceptados.add(pagoClave(previo));
+    return ok;
+  };
+  let previo=pagoPareceRepetido(pagoSrc.doc,datosPago,aceptados);
+  if(previo&&!await confirmarRepetido(previo))return;
+  try{
+    const {db,doc,runTransaction}=window.fb;
+    const ref=doc(db,getCollectionName(pagoSrc.id,pagoSrc.kind),pagoSrc.id);
+    while((previo=await runTransaction(db,async tx=>{const s=await tx.get(ref);return s.exists()?pagoPareceRepetido(s.data(),datosPago,aceptados):null}))){
+      if(!await confirmarRepetido(previo))return;
+    }
+  }catch(e){
+    console.warn("[submitPago] la lectura previa falló; la transacción de escritura vuelve a comprobar:",e&&e.message);
+  }
 
   // VALIDATION: monto vs saldo pendiente
   const totalDoc=(typeof getDocTotal==="function"?getDocTotal(pagoSrc.doc):(pagoSrc.doc.total||0));
@@ -1323,7 +1382,6 @@ async function submitPago(){
   }
 
   // SETUP: lock UI
-  window._submitPagoBusy=true;
   const submitBtn=$("pm-submit-btn");
   const _btnOrigText=submitBtn?submitBtn.textContent:"Registrar pago";
   if(submitBtn){
@@ -1364,7 +1422,10 @@ async function submitPago(){
   try{
     showLoader("Registrando pago...");
     // v7.9.4: envolver con logOperacion para audit trail.
-    const opResult=await logOperacion({
+    // v7.9.34 R2: si la transacción encontró un repetido sin confirmar, se pregunta y se
+    // reintenta con el MISMO clientId, así confirmar nunca produce más de un pago.
+    let opResult;
+    for(;;){try{opResult=await logOperacion({
       operacion:"registrarPago",
       docId:pagoSrc.id,
       docKind:pagoSrc.kind,
@@ -1402,6 +1463,10 @@ async function submitPago(){
           if(pagosTx.some(p=>p.clientId===clientId)){
             console.warn("[submitPago] clientId ya existe en Firestore (intento idempotente)",clientId);
           }else{
+            // v7.9.34 R2 (P1-01): la regla se aplica al snapshot que se escribe. Un repetido
+            // sin confirmar aborta la transacción SIN escribir; se pregunta fuera de ella.
+            const repetido=pagoPareceRepetido(freshTx,datosPago,aceptados);
+            if(repetido)throw Object.assign(new Error("No se registró el pago: hay un posible pago repetido sin confirmar."),{paraUsuario:true,pagoRepetido:repetido});
             pagosTx.push(nuevo);
           }
           tx.update(ref,{
@@ -1422,7 +1487,12 @@ async function submitPago(){
 
         return {payloadExtra:{totalPagosDespues:pagosCommit.length}};
       }
-    });
+    });break}catch(e){
+      if(!(e&&e.pagoRepetido))throw e;
+      hideLoader();
+      if(!await confirmarRepetido(e.pagoRepetido))return;
+      showLoader("Registrando pago...");
+    }}
 
     console.log("[submitPago] success",{clientId,logId:opResult.logId,durationMs:Date.now()-t0,totalPagos:totalPagosFinal});
     exito=true;
@@ -1463,7 +1533,6 @@ async function submitPago(){
       submitBtn.style.opacity="";
       submitBtn.style.cursor="";
     }
-    window._submitPagoBusy=false;
 
     // v7.9.29: ante un permiso negado, reintentar nunca funcionaría —el usuario no
     // tiene permiso, no es un problema de conexión—. Se explica y NO se ofrece reintentar.
@@ -1504,7 +1573,7 @@ async function submitPago(){
     // v7.9.7.2: liberar el flag SIEMPRE, no solo en exito. Antes: si try y catch
     // nunca se ejecutaban (await colgado infinito), el flag quedaba en true forever
     // y bloqueaba todos los pagos siguientes. Caso original Andrea+Emilia 12/05/2026.
-    window._submitPagoBusy=false;
+    // v7.9.34 R2: ahora lo libera submitPago, que envuelve esta función.
     // Restaurar boton si quedo en estado "Guardando..." (defensa adicional al catch
     // que ya lo hace en path normal de error).
     if(submitBtn&&submitBtn.disabled){
