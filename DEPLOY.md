@@ -2,7 +2,7 @@
 
 Procedimiento operativo para deploy de la app, las rules de Firebase, y los rollbacks correspondientes.
 
-**Mantener este archivo actualizado al cambiar infraestructura.** Última revisión: 2026-09-23 (estado de producción v7.9.33). Anterior: 2026-09-13 (v7.9.23 — carpeta renombrada a `Gourmet Bites APP` y nueva convención de archivo de versiones).
+**Mantener este archivo actualizado al cambiar infraestructura.** Última revisión: 2026-09-26 (estado de producción v7.9.35; gancho `pre-push` y respaldo antes del push). Anterior: 2026-09-23 (v7.9.33).
 
 ---
 
@@ -25,7 +25,10 @@ Procedimiento operativo para deploy de la app, las rules de Firebase, y los roll
 - `firebase` CLI instalado: `npm install -g firebase-tools`
 - Login: `firebase login`
 - Proyecto activo: `firebase use gourmet-bites-cotizador` (o usar `--project gourmet-bites-cotizador` en cada comando)
-- Repo limpio: `git status` debe estar clean en `main` antes de cualquier deploy
+- Repo limpio: `git status` en `main` sin cambios fuera del lote (sólo quedan sin seguimiento `AGENTS.md` y `_IA/`, que nunca se suben)
+- Revisión independiente con veredicto apto y recorrido en el emulador de lo que cambió
+- **Frase canónica de Luis** escrita textual: `APROBADO POR LUIS PARA QUE <herramienta> EJECUTE: <alcance>`. «ok», «sí» o «adelante» no autorizan commit, push ni despliegue
+- Gancho local `.git/hooks/pre-push` (no versionado): bloquea todo push salvo que `.git/gb_push_autorizado` contenga esa frase textual. Es de un solo uso: el gancho borra el archivo al publicar. Nunca usar `--no-verify`
 
 ---
 
@@ -60,12 +63,19 @@ Verificar que no quedó ninguno sin actualizar:
 grep -n '?v=' index.html
 ```
 
-### 4. Commit + push (frontend)
+### 4. Commit, respaldo y push (frontend)
+
+Orden obligatorio: **local → respaldo en OneDrive (paso 7) → GitHub**.
 
 ```bash
-git add app-core.js index.html
+# Añadir los archivos del lote uno por uno (nunca git add . ni -A: el repositorio es público)
+git add app-core.js
+git add index.html
 git commit -m "feat(v7.X.Y.Z): <resumen>"
-git push origin HEAD:main
+# Respaldo "Ver X.Y.Z" del commit (paso 7) ANTES del push
+# Autorizar el push con la frase canónica textual (un solo uso)
+printf '%s\n' 'APROBADO POR LUIS PARA QUE <herramienta> EJECUTE: <alcance>' > .git/gb_push_autorizado
+git push origin main
 ```
 
 GitHub Pages auto-despliega en 1-2 min. Verificar con:
@@ -90,9 +100,9 @@ Manual:
 3. Login → registrar pago de prueba → verificar entrada en Herramientas > Auditoría
 4. Si la versión tocó alguna operación crítica, validar el flujo específico
 
-### 7. Archivo de versiones (al cierre de versión)
+### 7. Archivo de versiones (respaldo antes del push)
 
-Convención vigente desde 2026-09-13 (reemplaza el patrón anterior en Downloads, que ya no se usa).
+Convención vigente desde 2026-09-13 (reemplaza el patrón anterior en Downloads, que ya no se usa). Se arma después del commit y **antes del push** (paso 4).
 
 Carpeta `Ver X.Y.Z` (mismo formato que `Ver 6.40`) con:
 - el código en la raíz (`git archive` del commit de la versión)
@@ -130,7 +140,11 @@ git revert <hash-bug>           # crea commit que deshace los cambios (preferido
 git reset --hard <hash-anterior> && git push --force-with-lease origin main
 # (CUIDADO: --force a main solo si está absolutamente justificado)
 
-# 3. Pages auto-redeploya en 1-2 min
+# 3. El push del revert también exige la frase canónica en .git/gb_push_autorizado
+printf '%s\n' 'APROBADO POR LUIS PARA QUE <herramienta> EJECUTE: <alcance>' > .git/gb_push_autorizado
+git push origin main
+
+# 4. Pages auto-redeploya en 1-2 min
 ```
 
 ### Rollback de rules (Firestore o Storage)
@@ -177,11 +191,12 @@ Si tras hard reload sigue sirviendo versión vieja:
 
 ---
 
-## Estado del deploy actual (al 2026-09-23)
+## Estado del deploy actual (al 2026-09-26)
 
-- **Versión en producción:** v7.9.33 (commit `e930f7a`, publicada el 2026-09-22). Anterior: v7.9.23.3 (`fb90c7a`).
-- **Rollback de v7.9.33:** `git revert e930f7a` + push. Sólo frontend: las rules no cambiaron en esta versión y las publicadas son idénticas a `firestore.rules` y `storage.rules` del repositorio (verificado el 2026-09-22).
-- **CI (`.github/workflows/check.yml`, "pre-deploy check"):** `check.mjs`, siete suites unitarias, `test_integridad_flujos.mjs` (incorporada en v7.9.33, sobre la fuente real) y `check_drift.mjs`. En verde en `e930f7a`.
+- **Versión en producción:** v7.9.35 (commit `bf91102`, publicada el 2026-09-26): cargo y pago de reposición de menaje, y estados de pago con el saldo canónico. Anterior: v7.9.34 (`a0fc2be`, aviso de pago repetido); antes, v7.9.33 (`e930f7a`).
+- **Rollback de v7.9.35:** `git revert bf91102` + push (con la frase en `.git/gb_push_autorizado`). Sólo frontend: las rules, las functions, `firebase.json` y el CI no cambiaron desde v7.9.33. La última comparación de las rules publicadas contra las del repositorio (idénticas) es del 2026-09-22.
+- **CI (`.github/workflows/check.yml`, "pre-deploy check"):** `check.mjs`, siete suites unitarias, `test_integridad_flujos.mjs` (sobre la fuente real; 184 escenarios en v7.9.35) y `check_drift.mjs`. En verde en `bf91102`, igual que `pages build and deployment`.
+- **Push protegido:** gancho local `pre-push` con la frase canónica (ver Pre-requisitos).
 - **Emulador local:** `firebase.json` incluye el bloque `emulators` (auth 9099, firestore 8080, storage 9199, UI 4000). Usar siempre un proyecto `demo-*`, nunca `gourmet-bites-cotizador`.
 - **Repositorio público:** GitHub Pages publica la raíz del repo. Añadir al commit sólo los archivos de la versión, uno por uno (nunca `git add .`); la documentación interna no se sube.
 - **URL app:** https://app.gourmetbites.com.co (CNAME → GitHub Pages)
