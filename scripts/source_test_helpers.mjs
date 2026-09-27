@@ -4,7 +4,8 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
-export const source=file=>readFileSync(resolve(root,file),'utf8');
+// v7.9.36: normaliza CRLF → LF; en un checkout de Windows (core.autocrlf) las búsquedas de '\n}\n' fallaban.
+export const source=file=>readFileSync(resolve(root,file),'utf8').replace(/\r\n/g,'\n');
 const drift=source('scripts/check_drift.mjs');
 const extractor=vm.createContext({});
 vm.runInContext(drift.slice(drift.indexOf('function extractFn('),drift.indexOf('// Normaliza:')),extractor);

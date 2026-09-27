@@ -7896,6 +7896,7 @@ async function ajusteLogConfirmDelete(logId){
     else toast("Ajuste eliminado · saldo del documento revertido","success");
     renderCarteraAjustesLog();
     if(typeof renderCartera==="function"&&curMode==="cartera")renderCartera();
+    if(typeof docPreviewRefresh==="function")docPreviewRefresh(); // v7.9.36
   }catch(e){
     hideLoader();
     toast("Error: "+gbMensajeError(e),"error");

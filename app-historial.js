@@ -1222,6 +1222,7 @@ async function submitAjuste(){
     if(typeof renderHist==="function")renderHist();
     if(typeof renderCartera==="function"&&curMode==="cartera")renderCartera();
     if(typeof renderDashboard==="function"&&curMode==="dash")renderDashboard();
+    if(typeof docPreviewRefresh==="function")docPreviewRefresh(); // v7.9.36
   }catch(e){
     hideLoader();
     console.error("submitAjuste error",e);
@@ -1344,6 +1345,7 @@ async function _submitCargoImpl(){
     renderHist();
     if(curMode==="dash"&&typeof renderDashboard==="function")renderDashboard();
     if(typeof renderCartera==="function")renderCartera();
+    if(typeof docPreviewRefresh==="function")docPreviewRefresh(); // v7.9.36
   }catch(e){
     hideLoader();
     console.error("[submitCargo]",e);
@@ -1393,6 +1395,7 @@ async function anularCargo(idx){
     openVerPagosModal(docId,kind);
     renderHist();
     if(typeof renderCartera==="function")renderCartera();
+    if(typeof docPreviewRefresh==="function")docPreviewRefresh(); // v7.9.36
   }catch(e){
     hideLoader();
     console.error("[anularCargo]",e);
@@ -1798,6 +1801,7 @@ async function _submitPagoImpl(){
     renderHist();
     if(curMode==="dash")renderDashboard();
     if(typeof renderCartera==="function")renderCartera();
+    if(typeof docPreviewRefresh==="function")docPreviewRefresh(); // v7.9.36
   }catch(e){
     console.error("[submitPago] ERROR",{clientId,durationMs:Date.now()-t0,error:e&&e.message,stack:e&&e.stack});
     hideLoader();
@@ -2049,6 +2053,7 @@ async function savePagoEdit(idx){
     // v7.2 F5: auto-refresh Cartera y Historico tras editar pago.
     if(typeof renderHist==="function")renderHist();
     if(typeof renderCartera==="function")renderCartera();
+    if(typeof docPreviewRefresh==="function")docPreviewRefresh(); // v7.9.36
   }catch(e){hideLoader();toast("Error: "+gbMensajeError(e),"error")}
 }
 

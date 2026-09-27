@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.35";
+const BUILD_VERSION="v7.9.36";
 const BUILD_DATE="2026-09-20";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
@@ -415,6 +415,12 @@ function tieneMenajeOpciones(q){
 const APP_YEAR=new Date().getFullYear();
 // v5.0: estado del usuario autenticado — se actualiza en onAuthStateChanged
 let currentUser=null;
+// v7.9.36: espejo de isHumanAdmin() de firestore.rules (check_drift.mjs lo vigila).
+// Sólo decide qué botones se muestran; la barrera real son las reglas.
+const GB_ADMIN_EMAILS=["luisrandrade@gmail.com","juanpandrade2005@gmail.com","kathy.matuk@gmail.com"];
+function canCurrentUserWrite(){
+  return !!(currentUser&&currentUser.emailVerified&&GB_ADMIN_EMAILS.includes(String(currentUser.email||"").toLowerCase()));
+}
 
 // v7.7.5.1: helpers de fecha en zona LOCAL.
 // Antes se usaba toISOString().slice(0,10) que devuelve UTC. Después de las 19:00
@@ -3889,6 +3895,16 @@ function _docPreviewRender(q,kind,id){
     const fmt=(typeof fm==="function")?fm:(n=>"$"+n);
     const cobrado=(typeof totalCobrado==="function")?totalCobrado(q):0;
     const saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):Math.max(0,total-cobrado);
+    // v7.9.36: confirmado o entregado → Total, Pagado y Saldo siempre visibles (también en propuestas).
+    const confirmado=_docPreviewConfirmado(q,isProp);
+    const cargos=(typeof totalCargos==="function")?totalCargos(q):0;
+    const ajustes=(typeof totalAjustes==="function")?totalAjustes(q):0;
+    const dineroD=confirmado
+      ?((cargos>0?'<div class="dp-row"><span class="dp-k">Reposición</span><span class="dp-v">'+h(fmt(cargos))+'</span></div>':"")+
+        (ajustes>0?'<div class="dp-row"><span class="dp-k">Descuentos</span><span class="dp-v">−'+h(fmt(ajustes))+'</span></div>':"")+
+        '<div class="dp-row"><span class="dp-k">Pagado</span><span class="dp-v">'+h(fmt(cobrado))+'</span></div>'+
+        '<div class="dp-row"><span class="dp-k">Saldo</span><span class="dp-v" style="font-weight:700;color:'+(saldo>0?'#E65100':'#2E7D32')+'">'+(saldo>0?h(fmt(saldo)):'✅ Pagado 100%')+'</span></div>')
+      :((!isProp&&cobrado>0)?('<div class="dp-row"><span class="dp-k">Cobrado</span><span class="dp-v">'+h(fmt(cobrado))+(saldo>0?' · <span style="color:#E65100">Saldo '+h(fmt(saldo))+'</span>':' · ✅ Pagado 100%')+'</span></div>'):"");
     const numProductos=((q.cart||[]).length+(q.cust||[]).length);
     const productosRes=isProp
       ?((q.sections||[]).length+" sección"+((q.sections||[]).length!==1?"es":"")+" · "+(q.pers||"?")+" personas")
@@ -3904,8 +3920,8 @@ function _docPreviewRender(q,kind,id){
       pdfNotice+
       '<div class="dp-summary">'+
         '<div class="dp-row"><span class="dp-k">Contenido</span><span class="dp-v">'+h(productosRes)+'</span></div>'+
-        (!isProp?('<div class="dp-row"><span class="dp-k">Total</span><span class="dp-v" style="font-weight:700;color:#2E7D32">'+h(fmt(total))+'</span></div>'):"")+
-        ((!isProp&&cobrado>0)?('<div class="dp-row"><span class="dp-k">Cobrado</span><span class="dp-v">'+h(fmt(cobrado))+(saldo>0?' · <span style="color:#E65100">Saldo '+h(fmt(saldo))+'</span>':' · ✅ Pagado 100%')+'</span></div>'):"")+
+        ((!isProp||confirmado)?('<div class="dp-row"><span class="dp-k">Total</span><span class="dp-v" style="font-weight:700;color:#2E7D32">'+h(fmt(total))+'</span></div>'):"")+
+        dineroD+
         eventD+dirD+telD+comentD+
       '</div>';
   }
@@ -3922,6 +3938,16 @@ function _docPreviewRender(q,kind,id){
     // WhatsApp solo si hay saldo pendiente (reusa openSaldoWhatsAppModal existente)
     if(saldo>0&&total>0&&typeof openSaldoWhatsAppModal==="function"){
       btns.push('<button class="btn dp-btn-wa" onclick="docPreviewWhatsApp()">💬 WhatsApp saldo</button>');
+    }
+    // v7.9.36: pagos desde la ventana (misma elegibilidad que la tarjeta del historial); sólo quien puede escribir.
+    if(typeof canCurrentUserWrite==="function"&&canCurrentUserWrite()){
+      if(_docPreviewConfirmado(q,isProp)&&saldo>0&&typeof openPagoModal==="function"){
+        btns.push('<button class="btn dp-btn-pago" onclick="docPreviewPago()">💵 Registrar pago</button>');
+      }
+      const nPagos=(typeof getPagos==="function")?getPagos(q).length:0;
+      if((nPagos>0||(q.cargos||[]).length>0)&&typeof openVerPagosModal==="function"){
+        btns.push('<button class="btn dp-btn-verpagos" onclick="docPreviewVerPagos()">📒 Ver pagos ('+nPagos+')</button>');
+      }
     }
     // Editar si la matriz lo permite
     const editable=(typeof canEdit==="function")?canEdit(q):true;
@@ -3951,6 +3977,31 @@ function _docPreviewRender(q,kind,id){
     }
     footerEl.innerHTML=btns.join("");
   }
+}
+
+// v7.9.36: cotización en pedido/en_produccion/entregado; propuesta en aprobada/en_produccion/entregado.
+function _docPreviewConfirmado(q,isProp){
+  const st=q.status||"enviada";
+  return isProp?["aprobada","en_produccion","entregado"].includes(st):["pedido","en_produccion","entregado"].includes(st);
+}
+// v7.9.36: la ventana queda abierta debajo (z-index menor) y se repinta al volver el dinero.
+function docPreviewPago(){
+  if(!_docPreviewCtx)return;
+  openPagoModal(_docPreviewCtx.id,_docPreviewCtx.kind);
+}
+function docPreviewVerPagos(){
+  if(!_docPreviewCtx)return;
+  openVerPagosModal(_docPreviewCtx.id,_docPreviewCtx.kind);
+}
+function docPreviewRefresh(){
+  if(!_docPreviewCtx)return;
+  const m=$("doc-preview-modal");
+  if(!m||m.classList.contains("hidden"))return;
+  const {kind,id}=_docPreviewCtx;
+  const q=(quotesCache||[]).find(x=>x.id===id&&x.kind===kind);
+  if(!q)return;
+  _docPreviewCtx.q=q;
+  _docPreviewRender(q,kind,id);
 }
 
 function closeDocPreviewModal(){

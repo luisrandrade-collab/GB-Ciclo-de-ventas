@@ -151,9 +151,20 @@ for (const [name, srcFile, testFile] of ENTRIES) {
   }
 }
 
+// v7.9.36: la lista GB_ADMIN_EMAILS del cliente debe ser la misma de isHumanAdmin() en firestore.rules.
+{
+  const label = "GB_ADMIN_EMAILS (app-core.js ↔ isHumanAdmin de firestore.rules)";
+  const emails = (txt) => (txt ? [...txt.matchAll(/'([^']+@[^']+)'|"([^"]+@[^"]+)"/g)].map((m) => (m[1] || m[2]).toLowerCase()).sort() : null);
+  const cli = emails((read("app-core.js").match(/const\s+GB_ADMIN_EMAILS\s*=\s*\[([^\]]*)\]/) || [])[1]);
+  const reg = emails((read("firestore.rules").match(/function\s+isHumanAdmin\s*\(\)\s*\{[\s\S]*?in\s*\[([^\]]*)\]/) || [])[1]);
+  if (!cli || !reg || !cli.length) { console.log(`  ${c.r}❌${c.x} ${label} — no pude extraer una de las listas`); errors++; }
+  else if (cli.join(",") === reg.join(",")) console.log(`  ${c.g}✅${c.x} ${label}`);
+  else { console.log(`  ${c.r}❌${c.x} ${label} — DESINCRONIZADA\n      cliente: ${cli.join(", ")}\n      reglas:  ${reg.join(", ")}`); errors++; }
+}
+
 console.log("");
 if (errors === 0) {
-  console.log(`${c.g}${c.b}✅ ${ENTRIES.length} copias sincronizadas${c.x}`);
+  console.log(`${c.g}${c.b}✅ ${ENTRIES.length + 1} copias sincronizadas${c.x}`);
   process.exit(0);
 } else {
   console.log(`${c.r}${c.b}❌ ${errors} copia(s) desincronizada(s) — actualizar el test correspondiente${c.x}`);

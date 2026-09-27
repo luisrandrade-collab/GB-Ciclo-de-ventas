@@ -1695,4 +1695,56 @@ await test('R2-P3-1 «Pagado ✓» en una propuesta antigua sin q.total: usa get
   assert.ok(/Pagado ✓/.test(c._badge({...cortesia,pagos:[pagoRepo]})),'cortesía con la reposición pagada');
   assert.ok(!/Pagado ✓/.test(c._badge(cortesia)),'cortesía que debe la reposición');
 });
+// v7.9.36: pagos en la ventana de detalle.
+const adminEmails=[...source('app-core.js').match(/const\s+GB_ADMIN_EMAILS\s*=\s*\[([^\]]*)\]/)[1].matchAll(/"([^"]+)"/g)].map(m=>m[1]);
+function previewCtx(q,{writer=true}={}){
+  const el={};const $=id=>(el[id]??={innerHTML:'',textContent:'',classList:{contains:()=>false}});
+  const c=loadSourceFunctions([['app-core.js','_docPreviewConfirmado'],['app-core.js','_docPreviewRender'],['app-core.js','docPreviewRefresh']],{
+    $,h:x=>String(x).replace(/</g,'&lt;'),fm:n=>'$'+n,STATUS_META:{},
+    getDocTotal:d=>d.total||0,totalCobrado:d=>(d.pagos||[]).reduce((a,b)=>a+b.monto,0),totalCargos:d=>(d.cargos||[]).reduce((a,b)=>a+b.monto,0),totalAjustes:()=>0,
+    saldoPendiente:d=>Math.max(0,(d.total||0)+(d.cargos||[]).reduce((a,b)=>a+b.monto,0)-(d.pagos||[]).reduce((a,b)=>a+b.monto,0)),
+    getPagos:d=>d.pagos||[],canCurrentUserWrite:()=>writer,openPagoModal(){},openVerPagosModal(){},canEdit:()=>true,quotesCache:[q],_docPreviewCtx:null});
+  c.render=()=>{c._docPreviewRender(q,q.kind,q.id);return {body:el['dp-body'].innerHTML,foot:el['dp-footer'].innerHTML}};
+  return c;
+}
+await test('v7.9.36 canCurrentUserWrite: sólo administradores con correo verificado; Emilio y sin sesión no',()=>{
+  const run=u=>loadSourceFunctions([['app-core.js','canCurrentUserWrite']],{currentUser:u,GB_ADMIN_EMAILS:adminEmails}).canCurrentUserWrite();
+  assert.equal(run({email:'kathy.matuk@gmail.com',emailVerified:true}),true);
+  assert.equal(run({email:'Kathy.Matuk@gmail.com',emailVerified:true}),true);
+  assert.equal(run({email:'kathy.matuk@gmail.com',emailVerified:false}),false);
+  assert.equal(run({email:'eammv1997@gmail.com',emailVerified:true}),false);
+  assert.equal(run(null),false);
+});
+await test('v7.9.36 ventana de detalle: Total, Pagado y Saldo en pedidos y propuestas aprobadas; botones según saldo, pagos y permiso',()=>{
+  const entregada={id:'GB-2026-0173',kind:'quote',status:'entregado',total:175000,pagos:[]};
+  let r=previewCtx(entregada).render();
+  assert.ok(/Pagado/.test(r.body)&&/Saldo/.test(r.body)&&/175000/.test(r.body),'cotización entregada sin pagos');
+  assert.ok(/Registrar pago/.test(r.foot)&&!/Ver pagos/.test(r.foot));
+  r=previewCtx({...entregada,pagos:[{monto:175000}]}).render();
+  assert.ok(/Pagado 100%/.test(r.body)&&!/Registrar pago/.test(r.foot)&&/Ver pagos \(1\)/.test(r.foot),'saldada: sólo ver pagos');
+  r=previewCtx(entregada,{writer:false}).render();
+  assert.ok(/Saldo/.test(r.body)&&!/Registrar pago|Ver pagos/.test(r.foot),'sólo lectura ve el saldo pero no los botones');
+  r=previewCtx({id:'GB-P-2026-0001',kind:'proposal',status:'aprobada',total:500000,pagos:[{monto:200000}],cargos:[{monto:15000}]}).render();
+  assert.ok(/Total/.test(r.body)&&/Reposición/.test(r.body)&&/315000/.test(r.body)&&/Registrar pago/.test(r.foot),'propuesta aprobada con reposición');
+  r=previewCtx({id:'GB-2026-0200',kind:'quote',status:'enviada',total:90000,pagos:[]}).render();
+  assert.ok(!/Pagado|Registrar pago/.test(r.body+r.foot),'cotización enviada: igual que antes');
+  r=previewCtx({id:'GB-P-2026-0002',kind:'proposal',status:'enviada',total:90000,pagos:[]}).render();
+  assert.ok(!/Total|Registrar pago/.test(r.body+r.foot),'propuesta enviada: igual que antes');
+});
+await test('v7.9.36 docPreviewRefresh repinta con el documento del caché sólo si la ventana está abierta',()=>{
+  const q={id:'GB-2026-0173',kind:'quote',status:'entregado',total:175000,pagos:[]};
+  const c=previewCtx(q);let pintado=null;c._docPreviewRender=(d)=>{pintado=d};
+  c._docPreviewCtx={id:q.id,kind:q.kind,q:{...q}};
+  c.quotesCache[0]={...q,pagos:[{monto:50000}]};
+  c.docPreviewRefresh();
+  assert.equal(pintado.pagos.length,1);assert.equal(c._docPreviewCtx.q.pagos.length,1);
+  pintado=null;c.$('doc-preview-modal').classList={contains:x=>x==='hidden'};c.docPreviewRefresh();
+  assert.equal(pintado,null,'oculta: no repinta');
+});
+await test('v7.9.36 los seis manejadores de dinero refrescan la ventana de detalle tras guardar',()=>{
+  for(const [file,f] of [['app-historial.js','submitAjuste'],['app-historial.js','_submitCargoImpl'],['app-historial.js','anularCargo'],['app-historial.js','_submitPagoImpl'],['app-historial.js','savePagoEdit'],['app-dashboard.js','ajusteLogConfirmDelete']]){
+    const body=source(file);const i=body.search(new RegExp('function\\s+'+f+'\\s*\\('));
+    assert.ok(i>=0,f);assert.ok(/docPreviewRefresh\(\)/.test(body.slice(i,body.indexOf('\n}\n',i))),f+' debe llamar docPreviewRefresh');
+  }
+});
 console.log(`${passed} escenarios de integridad pasaron (adaptadores en memoria; no emulador Firebase).`);

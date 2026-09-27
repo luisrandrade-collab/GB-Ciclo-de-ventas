@@ -10,7 +10,7 @@
 <link rel="icon" type="image/png" href="brand/cuchillo-negro.png">
 <link rel="apple-touch-icon" href="brand/cuchillo-negro.png">
 <title>Gourmet Bites - Cotizador</title>
-<link rel="stylesheet" href="gb-tokens.css?v=7.9.35"><!-- v7.9.13 INF-05: cache-buster CSS -->
+<link rel="stylesheet" href="gb-tokens.css?v=7.9.36"><!-- v7.9.13 INF-05: cache-buster CSS -->
 <!-- VERSION: 2026-04-26-v7.0.0-α-cascaron-v7-dashboard-rediseñado-fsm-pedido-vs-produccion -->
 <!--
   v6.3.0 (2026-04-24) — Robustez técnica + higiene (Entrega 3 del roadmap).
@@ -451,6 +451,8 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
 .firma-opt.act{background:var(--gb-neutral-900);color:var(--gb-neutral-0);border-color:var(--gb-neutral-900)}
 .firma-opt .sub{display:block;font-size:9px;opacity:.7;font-weight:400;margin-top:2px}
 .modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:flex-end;justify-content:center;animation:fadeIn .2s}
+/* v7.9.36: la ventana de detalle queda debajo de las que se abren desde ella (pago, ver pagos) */
+#doc-preview-modal{z-index:299}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 .modal-box{background:var(--gb-cream);width:100%;max-width:600px;max-height:85vh;border-radius:16px 16px 0 0;overflow:hidden;display:flex;flex-direction:column;animation:slideUp .3s}
 @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
@@ -4654,12 +4656,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js" integrity="sha384-OUW9euuUyxyHcAhTqbhI+Iyb8LMssXt/cpz0yXhs9UWG2/R/uaWdakx/4cfww7Vb" crossorigin="anonymous"></script><!-- v7.9.13 SEC-12: SRI -->
-<script src="app-assets.js?v=7.9.35"></script>
-<script src="app-core.js?v=7.9.35"></script>
-<script src="app-cotizar.js?v=7.9.35"></script>
-<script src="app-propuesta.js?v=7.9.35"></script>
-<script src="app-historial.js?v=7.9.35"></script>
-<script src="app-seguimiento.js?v=7.9.35"></script>
-<script src="app-dashboard.js?v=7.9.35"></script>
+<script src="app-assets.js?v=7.9.36"></script>
+<script src="app-core.js?v=7.9.36"></script>
+<script src="app-cotizar.js?v=7.9.36"></script>
+<script src="app-propuesta.js?v=7.9.36"></script>
+<script src="app-historial.js?v=7.9.36"></script>
+<script src="app-seguimiento.js?v=7.9.36"></script>
+<script src="app-dashboard.js?v=7.9.36"></script>
 </body>
 </html>
