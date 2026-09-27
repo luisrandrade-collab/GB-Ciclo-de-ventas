@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.9.36";
+const BUILD_VERSION="v7.10.0";
 const BUILD_DATE="2026-09-20";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
@@ -420,6 +420,71 @@ let currentUser=null;
 const GB_ADMIN_EMAILS=["luisrandrade@gmail.com","juanpandrade2005@gmail.com","kathy.matuk@gmail.com"];
 function canCurrentUserWrite(){
   return !!(currentUser&&currentUser.emailVerified&&GB_ADMIN_EMAILS.includes(String(currentUser.email||"").toLowerCase()));
+}
+// v7.10.0: nueva empresa del Régimen Simple (plan v5, carril A). Todo queda APAGADO mientras
+// falten fechaInicio, razón social o NIT. preciosIncluyenINC=true: decisión de Luis del 2026-09-27 (D-07).
+const GB_EMISOR={
+  accountingEntityId:"GB_SAS_SIMPLE",
+  razonSocial:"",nit:"",dv:"",
+  regimen:"SIMPLE",municipio:"La Calera",ciiu:["5621","5619","5629"],
+  fechaInicio:null,
+  preciosIncluyenINC:true
+};
+// Regla de corte provisional (2026-09-27, a confirmar con los abogados): fecha de ENTREGA >= inicio.
+function gbEmisorConfigurado(){
+  return !!(GB_EMISOR.fechaInicio&&GB_EMISOR.razonSocial&&GB_EMISOR.nit);
+}
+function gbEmisorActivo(fechaIso){
+  return !!(gbEmisorConfigurado()&&fechaIso&&String(fechaIso).slice(0,10)>=GB_EMISOR.fechaInicio);
+}
+function gbEmisorSnapshot(){
+  return {accountingEntityId:GB_EMISOR.accountingEntityId,razonSocial:GB_EMISOR.razonSocial,nit:GB_EMISOR.nit,dv:GB_EMISOR.dv,regimen:GB_EMISOR.regimen,municipio:GB_EMISOR.municipio,ciiu:GB_EMISOR.ciiu.slice(),preciosIncluyenINC:GB_EMISOR.preciosIncluyenINC};
+}
+// "NIT 830018305-1" → {tipo:"NIT",num:"830018305-1"}
+function gbParseIdStr(idStr){
+  const s=String(idStr||"").trim();
+  const m=s.match(/^(NIT|CC|CE)\s+(.+)$/i);
+  return m?{tipo:m[1].toUpperCase(),num:m[2].trim()}:{tipo:"",num:s};
+}
+// Nota legal de cotizaciones y propuestas con la nueva empresa activa (reemplaza la de persona natural).
+// e: el emisorSnapshot de un documento sellado; sin él, la constante vigente.
+function gbTextoLegalSimple(e){
+  e=e||GB_EMISOR;
+  const inc=e.preciosIncluyenINC===true?" Los precios incluyen el Impuesto Nacional al Consumo (INC) del 8 %, que se discrimina en la factura electrónica."
+    :e.preciosIncluyenINC===false?" A los precios se suma el Impuesto Nacional al Consumo (INC) del 8 %, que se discrimina en la factura electrónica.":"";
+  return "Gourmet Bites by Andrade Matuk opera bajo "+e.razonSocial+" (NIT "+e.nit+(e.dv?"-"+e.dv:"")+"), contribuyente del Régimen Simple de Tributación (SIMPLE); no sujeto a retención en la fuente a título de renta ni de ICA."+inc;
+}
+// PDF de un negocio sellado: la nota legal (n4 / c7) sale del emisorSnapshot del documento, no del texto
+// guardado ni de si la empresa está activa hoy. En c7 se conserva lo de anticipo y saldo.
+function gbNotaLegalSellada(lista,docu,id,titulo){
+  if(!docu||!docu.emisorSnapshot)return lista;
+  const legal=gbTextoLegalSimple(docu.emisorSnapshot);
+  const n=lista.find(x=>x.id===id);
+  if(!n){lista.push({id:id,titulo:titulo,texto:legal});return lista}
+  const i=n.texto.indexOf("Para reservar la fecha");
+  n.texto=legal+(i>=0?" "+n.texto.slice(i):"");
+  return lista;
+}
+// Datos del cliente para facturar (Luis, 2026-09-27): nombre, identificación, correo, dirección y teléfono.
+function gbFiscalValidar(d){
+  if(!d||!String(d.nombre||"").trim())return "Falta el nombre del cliente";
+  if(d.consumidorFinal)return null;
+  const faltan=[];
+  if(!d.tipoId||!String(d.numId||"").trim())faltan.push("identificación");
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(d.mail||"").trim()))faltan.push("correo");
+  if(!String(d.dir||"").trim())faltan.push("dirección");
+  if(!String(d.tel||"").trim())faltan.push("teléfono");
+  return faltan.length?"Faltan datos para facturar: "+faltan.join(", "):null;
+}
+// Campos aditivos que se escriben en el negocio al confirmarlo (inmutables; reagendar no los cambia).
+function gbFiscalSello(d,fechaConfirm){
+  const t=s=>String(s||"").trim();
+  const cf=d.consumidorFinal
+    ?{consumidorFinal:true,nombre:t(d.nombre),tipoId:"",numId:"222222222222",mail:t(d.mail),dir:t(d.dir),tel:t(d.tel)}
+    :{consumidorFinal:false,nombre:t(d.nombre),tipoId:d.tipoId,numId:t(d.numId),mail:t(d.mail),dir:t(d.dir),tel:t(d.tel)};
+  cf.fechaConfirmacion=fechaConfirm;
+  cf.capturadoEn=new Date().toISOString();
+  return {accountingEntityId:GB_EMISOR.accountingEntityId,emisorSnapshot:gbEmisorSnapshot(),clienteFiscal:cf};
 }
 
 // v7.7.5.1: helpers de fecha en zona LOCAL.
@@ -2358,7 +2423,8 @@ async function getNextNumber(kind){
 // followUp*/replaced*/replaces/expectsReplacement/needsSync/anuladaData también son operativos:
 // editar una propuesta con perdón de saldo (ajustes[]) los borraba al guardar desde el form.
 // v7.9.24: contrato único; nombres reales del seguimiento y datos operativos frescos.
-const OPERATIONAL_FIELDS=["status","supersededBy","pagos","orderData","entregaData","produced","productionDate","approvalData","propFinalRef","comentarioCliente","pdfHistorial","pdfRegenCount","ajustes","cargos","saldoData","pago_changelog","auditTrail","itemsProducidos","followUpStatus","followUpLog","followUp","followUpUpdatedAt","notasSeguimiento","perdidaData","feData","replacedBy","replaces","expectsReplacement","needsSync","anuladaData","createdAt"];
+// v7.10.0: accountingEntityId, emisorSnapshot y clienteFiscal se sellan al confirmar; el editor no los pisa.
+const OPERATIONAL_FIELDS=["status","supersededBy","pagos","orderData","entregaData","produced","productionDate","approvalData","propFinalRef","comentarioCliente","pdfHistorial","pdfRegenCount","ajustes","cargos","saldoData","pago_changelog","auditTrail","itemsProducidos","followUpStatus","followUpLog","followUp","followUpUpdatedAt","notasSeguimiento","perdidaData","feData","replacedBy","replaces","expectsReplacement","needsSync","anuladaData","createdAt","accountingEntityId","emisorSnapshot","clienteFiscal"];
 
 // v7.9.25: comparar el contenido guardado al ABRIR el editor, no al pulsar Guardar.
 // Los avances operativos (pagos/evidencias) se reconcilian por separado.

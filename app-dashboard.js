@@ -3343,6 +3343,22 @@ window.openRecaudoMetodoModal=openRecaudoMetodoModal;
 window.closeRecaudoMetodoModal=closeRecaudoMetodoModal;
 window.renderRecaudoMetodoModalContent=renderRecaudoMetodoModalContent;
 
+// v7.10.0: negocios de la nueva empresa entregados sin factura electrónica registrada (plan v5, A1).
+function gbPorFacturar(){
+  return (quotesCache||[]).filter(q=>!q._wrongCollection&&q.accountingEntityId===GB_EMISOR.accountingEntityId&&q.status==="entregado"&&!(q.feData&&q.feData.cufe));
+}
+function gbPorFacturarHtml(){
+  const arr=gbPorFacturar();
+  if(!arr.length)return "";
+  const puede=typeof canCurrentUserWrite==="function"&&canCurrentUserWrite();
+  return '<div id="cartera-por-facturar" style="margin-bottom:18px;border:1px solid #FFB74D;background:#FFF8E1;border-radius:10px;padding:10px">'+
+    '<div style="font-weight:700;font-size:13px;color:#E65100;margin-bottom:6px">🧾 Por facturar ('+arr.length+')</div>'+
+    arr.map(q=>'<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 0;border-top:1px solid #FFE0B2;font-size:13px">'+
+      '<span><strong>'+h(q.quoteNumber||q.id)+'</strong> · '+h(q.client||"")+' · '+h(q.eventDate||"")+' · '+h(fm(getDocTotal(q)+totalCargos(q)))+'</span>'+
+      (puede?'<button class="btn" data-fe-id="'+h(q.id)+'" data-fe-kind="'+h(q.kind)+'" onclick="openFeModal(this.dataset.feId,this.dataset.feKind)">🧾 Registrar factura</button>':"")+
+    '</div>').join("")+
+    '</div>';
+}
 async function renderCartera(){
   if(!quotesCache.length){try{await loadAllHistory()}catch{}}
   const summaryEl=$("cartera-summary");
@@ -3384,7 +3400,7 @@ async function renderCartera(){
 
   // Estado vacio
   if(!docs.length){
-    listEl.innerHTML='<div style="padding:48px 20px;text-align:center;color:#888;font-size:14px">'+
+    listEl.innerHTML=gbPorFacturarHtml()+'<div style="padding:48px 20px;text-align:center;color:#888;font-size:14px">'+
       '<div style="font-size:48px;margin-bottom:12px">✨</div>'+
       '<div style="font-weight:700;color:#555;margin-bottom:6px">Sin saldos pendientes</div>'+
       '<div style="font-size:12px">Todos los docs vivos estan cobrados al dia.</div>'+
@@ -3395,7 +3411,7 @@ async function renderCartera(){
   // Render por grupo
   const labels={vencido:"🔴 Vencidos",esta_semana:"🟡 Esta semana",proximas:"🟢 Proximas",sin_fecha:"⚪ Sin fecha asignada"};
   const colors={vencido:"#C62828",esta_semana:"#E65100",proximas:"#1B5E20",sin_fecha:"#757575"};
-  let html="";
+  let html=gbPorFacturarHtml(); // v7.10.0
   ["vencido","esta_semana","proximas","sin_fecha"].forEach(g=>{
     const arr=grupos[g];
     if(!arr.length)return;
@@ -3631,6 +3647,19 @@ async function renderReportes(){
         '<button class="btn" style="background:#1B5E20;color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px" onclick="descargarExcel()" id="rep-btn-excel" disabled style="opacity:.5">📥 Descargar Excel</button>'+
       '</div>'+
     '</div>'+
+    // v7.10.0: exporte contable de la nueva empresa (plan v5 §4.7, A2a); oculto mientras falten fecha de inicio, razón social o NIT
+    (gbEmisorConfigurado()?('<div style="margin:14px 0;padding:12px;border:1px solid #FFB74D;background:#FFF8E1;border-radius:10px">'+
+      '<div style="font-weight:700;font-size:13px;color:#E65100;margin-bottom:8px">🧾 Exporte contable · nueva empresa</div>'+
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'+
+        [["mes","Este mes"],["mes_ant","Mes anterior"],["bim","Este bimestre"],["bim_ant","Bimestre anterior"]].map(a=>'<button class="btn" style="font-size:12px;padding:5px 10px" onclick="gbExporteAtajo(\''+a[0]+'\')">'+a[1]+'</button>').join("")+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">'+
+        '<div><label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Desde</label><input type="date" id="rep-cont-desde" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px"></div>'+
+        '<div><label style="font-size:11px;color:#555;display:block;margin-bottom:3px">Hasta</label><input type="date" id="rep-cont-hasta" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px"></div>'+
+      '</div>'+
+      '<button class="btn" style="background:#E65100;color:#fff;border:none;padding:8px 16px;border-radius:6px;font-weight:600;font-size:13px" onclick="descargarExporteContable()">📥 Exporte contable (Excel)</button>'+
+      '<div style="font-size:11px;color:#777;margin-top:6px">Ventas por fecha de la factura electrónica, pagos por fecha de pago, excepciones y cuadre. Sólo negocios de la nueva empresa.</div>'+
+    '</div>'):"")+
     '<div id="rep-resultado"></div>';
   setTimeout(()=>generarReporte(),50);
 }
@@ -6035,6 +6064,99 @@ function descargarExcel(){
   const fname="gourmet-bites-reporte-"+filtros.desde+"-a-"+filtros.hasta+".xlsx";
   XLSX.writeFile(wb,fname);
   if(typeof toast==="function")toast("📥 Excel descargado: "+fname,"success");
+}
+
+// ═══ v7.10.0: EXPORTE CONTABLE de la nueva empresa (plan v5 §4.7, A2a) ═══
+// Rango por atajo: mes o bimestre SIMPLE (ene-feb, mar-abr, …) del día dado, o el anterior.
+function gbRangoAtajo(tipo,hoyIso){
+  const y=+hoyIso.slice(0,4),m=+hoyIso.slice(5,7);
+  const iso=(yy,mm,dd)=>yy+"-"+String(mm).padStart(2,"0")+"-"+String(dd).padStart(2,"0");
+  let y1=y,m1=m,meses=1;
+  if(tipo==="mes_ant"){m1=m-1;if(m1<1){m1=12;y1=y-1}}
+  else if(tipo==="bim"){m1=m%2===0?m-1:m;meses=2}
+  else if(tipo==="bim_ant"){m1=(m%2===0?m-1:m)-2;if(m1<1){m1+=12;y1=y-1}meses=2}
+  const m2=m1+meses-1;
+  return {desde:iso(y1,m1,1),hasta:iso(y1,m2,new Date(y1,m2,0).getDate())};
+}
+function gbExporteAtajo(tipo){
+  const r=gbRangoAtajo(tipo,gbTodayIso());
+  $("rep-cont-desde").value=r.desde;$("rep-cont-hasta").value=r.hasta;
+}
+// Hojas del exporte. Ventas: una fila por FE registrada con fecha en el rango. Pagos: por fecha de pago.
+function gbExporteContable(docs,desde,hasta,emisor){
+  const en=f=>{const x=String(f||"").slice(0,10);return !!x&&x>=desde&&x<=hasta};
+  const todos=(docs||[]).filter(q=>!q._wrongCollection);
+  const propios=todos.filter(q=>q.accountingEntityId===emisor.accountingEntityId);
+  // Una FE emitida nunca desaparece: el negocio anulado con CUFE sigue en Ventas y va a Excepciones.
+  const negocios=propios.filter(q=>q.status!=="anulada"||(q.feData&&q.feData.cufe));
+  const ventas=[],pagos=[],excepciones=[],facturados=[];
+  const num=q=>q.quoteNumber||q.id;
+  // Facturas repetidas (la app sólo las revisa al guardar): el CUFE entre todos los negocios; el prefijo-número,
+  // sólo en la numeración de la empresa (las facturas de persona natural no la consumen).
+  const vistos={},contar=k=>{vistos[k]=(vistos[k]||0)+1};
+  for(const q of todos){const fe=q.feData||{};if(fe.cufe)contar("c:"+gbFeCufe(fe.cufe))}
+  for(const q of propios){const fe=q.feData||{};if(fe.numero)contar("n:"+gbFeClave(fe.prefijo,fe.numero))}
+  for(const q of negocios){
+    const cf=q.clienteFiscal||{},fe=q.feData||{};
+    const entregaReal=(q.entregaData&&q.entregaData.fechaEntrega)||q.fechaEntrega||"";
+    const fechaFeOk=gbFeFechaValida(fe.fecha);
+    if(fe.cufe&&fechaFeOk&&en(fe.fecha)){
+      facturados.push(q);
+      ventas.push({fechaFE:fe.fecha,factura:(fe.prefijo?fe.prefijo+"-":"")+fe.numero,cufe:fe.cufe,
+        tipoId:cf.consumidorFinal?"Consumidor final":(cf.tipoId||""),numId:cf.numId||"",cliente:cf.nombre||q.client||"",
+        municipio:q.city||"",ciiu:q.kind==="proposal"?"5621":"5619",base:fe.base||0,inc:fe.inc||0,iva:fe.iva||0,total:fe.total||0,
+        negocio:num(q),fechaProgramada:q.eventDate||"",fechaEntregaReal:entregaReal,estado:fe.estado||"emitida"});
+      if(fe.motivoDiferencia)excepciones.push({tipo:"Factura con total distinto al pedido",negocio:num(q),detalle:fe.motivoDiferencia});
+      if(q.status==="anulada")excepciones.push({tipo:"Factura de negocio anulado",negocio:num(q),detalle:"Negocio anulado con factura "+fe.cufe+": requiere nota crédito"});
+      const errFe=gbFeDatosError(fe);
+      if(errFe)excepciones.push({tipo:"Factura con datos incompletos",negocio:num(q),detalle:errFe});
+      const errCli=gbFiscalValidar(q.clienteFiscal);
+      if(errCli)excepciones.push({tipo:"Cliente sin datos fiscales completos",negocio:num(q),detalle:errCli});
+      if(vistos["c:"+gbFeCufe(fe.cufe)]>1||(fe.numero&&vistos["n:"+gbFeClave(fe.prefijo,fe.numero)]>1))excepciones.push({tipo:"Factura repetida",negocio:num(q),detalle:"CUFE o prefijo-número también registrado en otro negocio"});
+    }
+    if(fe.cufe&&!fechaFeOk&&(en(fe.fecha)||en(entregaReal||q.eventDate)))excepciones.push({tipo:"Factura sin fecha válida",negocio:num(q),detalle:"Factura "+fe.cufe+" sin fecha de expedición válida"});
+    if(q.status==="entregado"&&!fe.cufe&&en(entregaReal||q.eventDate))excepciones.push({tipo:"Por facturar",negocio:num(q),detalle:"Entregado sin factura electrónica registrada"});
+    if(q.eventDate&&emisor.fechaInicio&&q.eventDate<emisor.fechaInicio&&en(q.eventDate))excepciones.push({tipo:"A caballo del corte",negocio:num(q),detalle:"Entrega "+q.eventDate+" antes del inicio de la empresa ("+emisor.fechaInicio+")"});
+    for(const p of getPagos(q)){
+      const f=pagoFechaIso(p.fecha);
+      if(!en(f))continue;
+      const clase=metodoFiscal(p.metodo);
+      pagos.push({fecha:f,valor:parseInt(p.monto)||0,metodo:p.metodo||"Sin especificar",clase:clase,tipo:p.tipo||"",negocio:num(q),cliente:cf.nombre||q.client||""});
+      if(clase==="sin_clasificar")excepciones.push({tipo:"Pago sin método clasificado",negocio:num(q),detalle:(p.metodo||"Sin especificar")+" · "+f+" · "+(parseInt(p.monto)||0)});
+    }
+  }
+  // El otro sentido del corte: confirmado sin sello de la empresa (p. ej. reagendado) con entrega desde el inicio.
+  for(const q of todos){
+    if(q.accountingEntityId===emisor.accountingEntityId||!(REPORTES_VENDIDO_STATUS[q.kind]||[]).includes(q.status))continue;
+    if(q.eventDate&&emisor.fechaInicio&&q.eventDate>=emisor.fechaInicio&&en(q.eventDate))excepciones.push({tipo:"A caballo del corte",negocio:num(q),detalle:"Confirmado sin datos de la nueva empresa; entrega "+q.eventDate+" desde su inicio ("+emisor.fechaInicio+")"});
+  }
+  const suma=(a,k)=>a.reduce((t,r)=>t+(Number(r[k])||0),0);
+  const deClase=c=>suma(pagos.filter(p=>p.clase===c),"valor");
+  const cuadre=[
+    ["Ventas facturadas (total)",suma(ventas,"total")],["  Base",suma(ventas,"base")],["  INC",suma(ventas,"inc")],["  IVA",suma(ventas,"iva")],
+    ["Pagos recibidos",suma(pagos,"valor")],["  Por medio electrónico",deClase("electronico")],["  En efectivo",deClase("efectivo")],["  Sin clasificar",deClase("sin_clasificar")],
+    ["  De ellos, anticipos",suma(pagos.filter(p=>p.tipo==="anticipo"),"valor")],
+    ["Cargos de reposición en negocios facturados",facturados.reduce((t,q)=>t+totalCargos(q),0)],
+    ["Descuentos y ajustes en negocios facturados",facturados.reduce((t,q)=>t+totalAjustes(q),0)]
+  ];
+  return {ventas,pagos,excepciones,cuadre};
+}
+function descargarExporteContable(){
+  const desde=$("rep-cont-desde").value,hasta=$("rep-cont-hasta").value;
+  if(!desde||!hasta||desde>hasta){toast("Elige un rango de fechas válido (o un atajo)","warn");return}
+  if(!gbEmisorConfigurado()){toast("La nueva empresa todavía no está activa: no hay datos que exportar","warn",6000);return}
+  if(typeof XLSX==="undefined"){toast("No cargó la librería de Excel; recarga la página","error");return}
+  const r=gbExporteContable(quotesCache,desde,hasta,GB_EMISOR);
+  const wb=XLSX.utils.book_new();
+  const hoja=(nombre,enc,filas)=>XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([enc].concat(filas)),nombre);
+  hoja("Ventas",["Fecha factura","Factura","CUFE","Tipo ID","Número ID","Cliente","Municipio","CIIU","Base","INC","IVA","Total","Negocio","Fecha programada","Entrega real","Estado"],
+    r.ventas.map(v=>[v.fechaFE,v.factura,v.cufe,v.tipoId,v.numId,v.cliente,v.municipio,v.ciiu,v.base,v.inc,v.iva,v.total,v.negocio,v.fechaProgramada,v.fechaEntregaReal,v.estado]));
+  hoja("Pagos",["Fecha","Valor","Método","Clase","Tipo","Negocio","Cliente"],r.pagos.map(p=>[p.fecha,p.valor,p.metodo,p.clase,p.tipo,p.negocio,p.cliente]));
+  hoja("Excepciones",["Tipo","Negocio","Detalle"],r.excepciones.map(e=>[e.tipo,e.negocio,e.detalle]));
+  hoja("Cuadre",["Concepto","Valor"],r.cuadre.concat([[],["Empresa",GB_EMISOR.razonSocial+" · NIT "+GB_EMISOR.nit+(GB_EMISOR.dv?"-"+GB_EMISOR.dv:"")],["Período",desde+" a "+hasta],["Generado",new Date().toISOString()]]));
+  const fname="gourmet-bites-exporte-contable-"+desde+"-a-"+hasta+".xlsx";
+  XLSX.writeFile(wb,fname);
+  toast("📥 Exporte contable descargado"+(r.excepciones.length?" · "+r.excepciones.length+" excepción(es) por revisar":""),r.excepciones.length?"warn":"success",6000);
 }
 
 // ═══════════════════════════════════════════════════════════

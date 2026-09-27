@@ -10,6 +10,8 @@ const DEFAULT_NOTAS_COT={
   n3:"Cambios en cantidades o productos se aceptan hasta 24 horas antes de la fecha de entrega. La cantidad confirmada en ese momento será la cantidad facturada, se consuma o no la totalidad de los productos solicitados.",
   n4:"Gourmet Bites by Andrade Matuk opera bajo Juan Pablo Andrade Matuk — Persona Natural No Responsable de IVA (C.C. 1.032.876.662). Los valores cotizados no incluyen IVA. Se emite factura electrónica sin discriminación del impuesto conforme al régimen tributario aplicable."
 };
+// v7.10.0: con la nueva empresa activa hoy, la nota legal por defecto es la del Régimen Simple (los documentos ya creados conservan la suya).
+if(gbEmisorActivo(gbTodayIso()))DEFAULT_NOTAS_COT.n4=gbTextoLegalSimple();
 const NOTAS_COT_TITULOS={
   n1:"Confirmación y Anticipo",
   n2:"Política de Cancelación",
@@ -601,7 +603,8 @@ async function genPDF(){
     const snapshot=JSON.parse(JSON.stringify(saved.document));
     const pdfNumber=saved.id;
     all=[...(snapshot.cart||[]),...(snapshot.cust||[])];
-    const notasCotLista=gbNotasNormalizar(snapshot.notasCotLista,snapshot.notasCotData,DEFAULT_NOTAS_COT,NOTAS_COT_TITULOS);
+    // v7.10.0: un negocio sellado imprime la nota legal de su emisorSnapshot.
+    const notasCotLista=gbNotaLegalSellada(gbNotasNormalizar(snapshot.notasCotLista,snapshot.notasCotData,DEFAULT_NOTAS_COT,NOTAS_COT_TITULOS),snapshot,"n4",NOTAS_COT_TITULOS.n4);
     const firmaCot=snapshot.firma||"km";
     const getTitPago=()=>snapshot.tituloInstruccionesPago||DEFAULT_TIT_PAGO;
     const getTitCondiciones=()=>snapshot.tituloCondiciones||DEFAULT_TIT_CONDICIONES;

@@ -48,6 +48,8 @@ const DEFAULT_CONDICIONES={
   c6:"Para eventos de más de 100 personas, Gourmet Bites ofrece sin costo una prueba del menú seleccionado, una vez confirmado el evento y pagado el anticipo. Para eventos de menos de 100 personas, la prueba es opcional y tiene un costo equivalente al valor unitario del producto más el transporte, a coordinar con el cliente una vez confirmado el evento.",
   c7:"Gourmet Bites by Andrade Matuk opera bajo Juan Pablo Andrade Matuk — Persona Natural No Responsable de IVA (C.C. 1.032.876.662). Los valores cotizados no incluyen IVA. Se emite factura electrónica sin discriminación del impuesto conforme al régimen tributario aplicable. Para reservar la fecha se requiere el pago de un anticipo del 50% del valor total del servicio. El 50% restante deberá ser cancelado a más tardar 24 horas después de finalizado el evento."
 };
+// v7.10.0: con la nueva empresa activa hoy, la condición c7 empieza con la nota legal del Régimen Simple; el resto (anticipo y saldo) se conserva.
+if(gbEmisorActivo(gbTodayIso()))DEFAULT_CONDICIONES.c7=gbTextoLegalSimple()+" "+DEFAULT_CONDICIONES.c7.slice(DEFAULT_CONDICIONES.c7.indexOf("Para reservar la fecha"));
 const CONDICIONES_TITULOS={
   c1:"Política de Cancelación",c2:"Confirmación de Comensales",c3:"Manejo de Alimentos Remanentes",
   c4:"Montaje y Retiro",c5:"Responsabilidad por Menaje",c6:"Prueba de Comida",c7:"Responsable Tributario y Pagos"
@@ -1637,7 +1639,8 @@ async function genPropPDF(confirmedDoc){
     const propSections=snapshot.sections||[],menajeItems=snapshot.menaje||[],menajeOptions=snapshot.menajeOptions||[];
     const personalData={meseros:{},auxiliares:{},...snapshot.personalData};
     const currentDespachos=snapshot.despachos||[],reposicionByOption=snapshot.reposicionByOption||{},reposicionData=snapshot.reposicionData||{};
-    const condicionesLista=gbNotasNormalizar(snapshot.condicionesLista,snapshot.condicionesData,DEFAULT_CONDICIONES,CONDICIONES_TITULOS);
+    // v7.10.0: un negocio sellado imprime la nota legal de su emisorSnapshot.
+    const condicionesLista=gbNotaLegalSellada(gbNotasNormalizar(snapshot.condicionesLista,snapshot.condicionesData,DEFAULT_CONDICIONES,CONDICIONES_TITULOS),snapshot,"c7",CONDICIONES_TITULOS.c7);
     const fechaVencimiento=snapshot.fechaVencimiento||"",tipoServicio=snapshot.tipoServicio||"",firmaProp=snapshot.firma||"jp";
     const activeMenajeOptionId=snapshot.propFinalSelection?.menaje||menajeOptions[0]?.id;
     const getTitMenaje=()=>snapshot.tituloMenaje||"MENAJE";

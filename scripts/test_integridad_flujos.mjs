@@ -141,15 +141,16 @@ for(const mode of ['quote','proposal','final']){
   await test('PDF '+mode+' usa snapshot confirmado y termina emisión',async()=>{
     const texts=[],tables=[],emitted=[],errors=[];
     const doc=new Proxy({lastAutoTable:{finalY:35},splitTextToSize:s=>[s],text:s=>texts.push(s),autoTable:o=>tables.push(o.body)}, {get:(t,p)=>p in t?t[p]:(()=>{})});
-    const snapshot={quoteNumber:'CONFIRMADO',client:'Cliente guardado',cart:[{n:'Producto guardado',p:100,qty:1}],total:150,sections:[{name:'Menu',options:[{label:'A',items:[{name:'Producto guardado',price:100,qty:1}]}]}],despachos:[{id:'d1',transporteCosto:20},{id:'d2',transporteCosto:30}],menaje:[],notasCotLista:[],condicionesLista:[]};
+    const snapshot={quoteNumber:'CONFIRMADO',client:'Cliente guardado',cart:[{n:'Producto guardado',p:100,qty:1}],total:150,sections:[{name:'Menu',options:[{label:'A',items:[{name:'Producto guardado',price:100,qty:1}]}]}],despachos:[{id:'d1',transporteCosto:20},{id:'d2',transporteCosto:30}],menaje:[],notasCotLista:[],condicionesLista:[],emisorSnapshot:{razonSocial:'Empresa Sellada SAS',nit:'900',dv:'1',preciosIncluyenINC:true}};
     if(mode==='final')snapshot.quoteNumber='GB-PF-CONFIRMADO';
     const name=mode==='quote'?'genPDF':'genPropPDF';
     const file=mode==='quote'?'app-cotizar.js':'app-propuesta.js';
     const saved=async()=>({ok:true,id:snapshot.quoteNumber,document:snapshot});
-    const c=loadSourceFunctions([[file,name]],{...common(),alert:s=>errors.push(s),window:{__pfMode:mode==='final',jspdf:{jsPDF:function(){return doc}}},allIt:()=>[{}],cloudOnline:true,saveCurrentQuote:saved,savePropQuote:saved,currentQuoteNumber:'EDITOR',currentPropNumber:'EDITOR',gbNotasNormalizar:x=>x||[],DEFAULT_NOTAS_COT:{},NOTAS_COT_TITULOS:{},DEFAULT_CONDICIONES:{},CONDICIONES_TITULOS:{},DEFAULT_TIT_PAGO:'Pago',DEFAULT_TIT_CONDICIONES:'Condiciones',TR:{},fm:String,dateStr:()=> 'fixture',gbPdfHeader:()=>20,gbPdfFirma:()=>20,gbPdfFooter(){},FIRMANTES:{km:{},jp:{}},savePdfConCopiaStorage:async(_doc,filename,kind,id)=>emitted.push({filename,kind,id})});
+    const c=loadSourceFunctions([[file,name],['app-core.js','gbNotaLegalSellada'],['app-core.js','gbTextoLegalSimple']],{...common(),GB_EMISOR:{},alert:s=>errors.push(s),window:{__pfMode:mode==='final',jspdf:{jsPDF:function(){return doc}}},allIt:()=>[{}],cloudOnline:true,saveCurrentQuote:saved,savePropQuote:saved,currentQuoteNumber:'EDITOR',currentPropNumber:'EDITOR',gbNotasNormalizar:x=>x||[],DEFAULT_NOTAS_COT:{},NOTAS_COT_TITULOS:{},DEFAULT_CONDICIONES:{},CONDICIONES_TITULOS:{},DEFAULT_TIT_PAGO:'Pago',DEFAULT_TIT_CONDICIONES:'Condiciones',TR:{},fm:String,dateStr:()=> 'fixture',gbPdfHeader:()=>20,gbPdfFirma:()=>20,gbPdfFooter(){},FIRMANTES:{km:{},jp:{}},savePdfConCopiaStorage:async(_doc,filename,kind,id)=>emitted.push({filename,kind,id})});
     await c[name](mode==='final'?snapshot:undefined);
     assert.deepEqual(errors,[]);assert.equal(emitted.length,1);assert.equal(emitted[0].id,snapshot.quoteNumber);assert.equal(emitted[0].kind,mode==='final'?'propfinal':mode);
     assert.ok(texts.some(s=>String(s).includes('Cliente guardado')));assert.ok(JSON.stringify(tables).includes('Producto guardado'));
+    assert.ok(texts.some(s=>String(s).includes('Empresa Sellada SAS (NIT 900-1)')),'v7.10.0: nota legal del emisorSnapshot en el PDF');
     assert.ok(!JSON.stringify(emitted).includes('EDITOR'));
     if(mode!=='quote')assert.ok(JSON.stringify(tables).includes('150'));
   });

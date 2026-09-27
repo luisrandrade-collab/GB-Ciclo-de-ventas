@@ -22,7 +22,13 @@
 //         en openAnularModal.
 // ═══════════════════════════════════════════════════════════
 
-const METODOS_PAGO=["Efectivo","Nequi","Daviplata","Banco Falabella","Transferencia","Otro"];
+const METODOS_PAGO=["Efectivo","Nequi","Daviplata","Banco Falabella","Transferencia","Tarjeta","Pasarela","Otro"]; // v7.10.0: + Tarjeta y Pasarela
+// v7.10.0: clase fiscal del método (plan v5 §4.5): lo cobrado por medio electrónico da el descuento del ET 912.
+function metodoFiscal(m){
+  if(m==="Efectivo")return "efectivo";
+  if(["Nequi","Daviplata","Banco Falabella","Transferencia","Tarjeta","Pasarela"].includes(m))return "electronico";
+  return "sin_clasificar";
+}
 
 // ─── PAGOS: helpers (migración + cálculos) ─────────────────
 function getPagos(q){
@@ -650,6 +656,33 @@ async function quickMarkViva(docId,kind,ev){
 }
 
 // ─── ORDER MODAL ───────────────────────────────────────────
+// v7.10.0: bloque «Datos para facturar» de las ventanas de confirmación (om = cotización, am = propuesta).
+// Sólo aparece si el negocio es de la nueva empresa: fecha de entrega (o la de confirmación, si no hay) >= inicio.
+function gbFiscalFechaCorte(p){return $(p+"-entrega-fecha").value||$(p+"-fecha").value}
+function gbFiscalActualizar(p){const box=$(p+"-fiscal");if(box)box.classList.toggle("hidden",!gbEmisorActivo(gbFiscalFechaCorte(p)))}
+function gbFiscalToggleCF(p){$(p+"-fis-datos").classList.toggle("hidden",$(p+"-fis-cf").checked)}
+function gbFiscalPrefill(p,q){
+  if(!$(p+"-fiscal"))return;
+  const id=gbParseIdStr(q.idStr);
+  $(p+"-fis-cf").checked=false;
+  $(p+"-fis-tipo").value=id.tipo;
+  $(p+"-fis-num").value=id.num;
+  $(p+"-fis-mail").value=q.mail||"";
+  $(p+"-fis-dir").value=q.dir||"";
+  $(p+"-fis-tel").value=q.tel||"";
+  $(p+"-fecha").onchange=()=>gbFiscalActualizar(p);
+  $(p+"-entrega-fecha").onchange=()=>gbFiscalActualizar(p);
+  gbFiscalToggleCF(p);
+  gbFiscalActualizar(p);
+}
+// null si el negocio no es de la nueva empresa; {error} si faltan datos; si no, los campos a sellar.
+function gbFiscalLeerSello(p,nombre,fechaConfirm){
+  if(!gbEmisorActivo(gbFiscalFechaCorte(p)))return null;
+  const d={consumidorFinal:$(p+"-fis-cf").checked,nombre:nombre,tipoId:$(p+"-fis-tipo").value,numId:$(p+"-fis-num").value,
+    mail:$(p+"-fis-mail").value,dir:$(p+"-fis-dir").value,tel:$(p+"-fis-tel").value};
+  const err=gbFiscalValidar(d);
+  return err?{error:err}:gbFiscalSello(d,fechaConfirm);
+}
 function openOrderModal(quoteId,ev){
   if(ev){ev.stopPropagation();ev.preventDefault()}
   const q=quotesCache.find(x=>x.id===quoteId&&x.kind==="quote");
@@ -733,6 +766,7 @@ function openOrderModal(quoteId,ev){
     $("om-notas-prod").style.borderColor="";
   }
   $("om-num").dataset.quoteId=q.id;
+  gbFiscalPrefill("om",q); // v7.10.0
   $("order-modal").classList.remove("hidden");
 }
 function closeOrderModal(){$("order-modal").classList.add("hidden")}
@@ -746,6 +780,9 @@ async function submitMarkAsOrder(){
   const horaEntrega=$("om-entrega-hora").value;
   if(!fechaEntrega){alert("Ingresa la fecha de entrega");return}
   if(!horaEntrega){alert("Ingresa la hora de entrega");return}
+  // v7.10.0: datos para facturar si el negocio es de la nueva empresa.
+  const selloFiscal=gbFiscalLeerSello("om",(quotesCache.find(x=>x.id===quoteId&&x.kind==="quote")||{}).client||$("om-cli").value,fecha);
+  if(selloFiscal&&selloFiscal.error){toast("⚠️ "+selloFiscal.error,"warn",6000);return}
   // v5.4.0 (Bloque C): producción ahora es EDITABLE. Default sigue siendo entrega-1d
   // pero el usuario puede ponerla el mismo día de la entrega si así lo necesita.
   // Validaciones: no puede ser en el pasado, no puede ser después de la entrega.
@@ -820,6 +857,7 @@ async function submitMarkAsOrder(){
           producedAt:produced?new Date().toISOString():null,
           updatedAt:serverTimestamp()
         };
+        if(selloFiscal)Object.assign(patch,selloFiscal); // v7.10.0
         // v7.9.13 DAT-02: el anticipo se APPENDEA a los pagos frescos del doc.
         // Antes patch.pagos=pagos PISABA pagos ya registrados (lost update).
         if(pagos.length){
@@ -837,6 +875,7 @@ async function submitMarkAsOrder(){
           local.eventDate=fechaEntrega;local.horaEntrega=horaEntrega;
           local.productionDate=productionDate;local.produced=produced;
           local.producedAt=patch.producedAt;
+          if(selloFiscal)Object.assign(local,selloFiscal); // v7.10.0
           if(patch.pagos)local.pagos=patch.pagos; // v7.9.13 DAT-02: cache con el array completo (frescos + anticipo)
           if(patch.needsSync)local.needsSync=true;
         }
@@ -916,6 +955,7 @@ function openApproveModal(propId,kind,ev){
   }
   $("am-num").dataset.propId=p.id;
   $("am-num").dataset.propKind=kind;
+  gbFiscalPrefill("am",p); // v7.10.0
   $("approve-modal").classList.remove("hidden");
 }
 function closeApproveModal(){$("approve-modal").classList.add("hidden")}
@@ -926,6 +966,9 @@ async function submitApproveProposal(){
   if(!propId)return;
   if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión","error");else alert("Sin conexión.");return}
   const fecha=$("am-fecha").value;if(!fecha){alert("Ingresa la fecha de aprobación");return}
+  // v7.10.0: datos para facturar si el negocio es de la nueva empresa.
+  const selloFiscal=gbFiscalLeerSello("am",(quotesCache.find(x=>x.id===propId&&x.kind===kind)||{}).client||$("am-cli").value,fecha);
+  if(selloFiscal&&selloFiscal.error){toast("⚠️ "+selloFiscal.error,"warn",6000);return}
   const anticipo=parseInt($("am-anticipo").value)||0;
   const metodo=$("am-metodo").value;
   const notas=$("am-notas").value.trim();
@@ -963,6 +1006,7 @@ async function submitApproveProposal(){
         const {db,doc,getDoc,updateDoc,serverTimestamp}=window.fb;
         const coll=getCollectionName(propId,kind);
         const patch={status:"aprobada",approvalData:approvalData,updatedAt:serverTimestamp()};
+        if(selloFiscal)Object.assign(patch,selloFiscal); // v7.10.0
         if(fechaEntrega)patch.eventDate=fechaEntrega;
         if(horaEntrega)patch.horaEntrega=horaEntrega;
         // v7.9.13 DAT-02: el anticipo se APPENDEA a los pagos frescos del doc.
@@ -978,6 +1022,7 @@ async function submitApproveProposal(){
         await updateDoc(doc(db,coll,propId),patch);
         const local=quotesCache.find(x=>x.id===propId&&x.kind===kind);
         if(local){local.status="aprobada";local.approvalData=approvalData;if(fechaEntrega)local.eventDate=fechaEntrega;if(horaEntrega)local.horaEntrega=horaEntrega;if(patch.pagos)local.pagos=patch.pagos;if(patch.needsSync)local.needsSync=true} // v7.9.13 DAT-02: cache con array completo
+        if(local&&selloFiscal)Object.assign(local,selloFiscal); // v7.10.0
       }
     });
     hideLoader();closeApproveModal();
@@ -1115,7 +1160,9 @@ function openPagoModal(docId,kindOrEv,evMaybe){
   $("pm-resumen").innerHTML="Total: <strong>"+fm(total)+"</strong>"+(cargos?" · Reposición: <strong>"+fm(cargos)+"</strong>":"")+" · Cobrado: <strong>"+fm(cobrado)+"</strong> · Pendiente: <strong>"+fm(pend)+"</strong>";
   $("pm-fecha").value=gbTodayIso();
   $("pm-monto").value=(repoSinPagar?Math.min(pend,repoSinPagar):pend)||"";
-  $("pm-metodo").value="";
+  // v7.10.0: recuerda el último método usado en este navegador (un toque menos).
+  let _ultMet="";try{_ultMet=localStorage.getItem("gb_ultimo_metodo_pago")||""}catch(e){}
+  $("pm-metodo").value=(typeof METODOS_PAGO!=="undefined"&&METODOS_PAGO.includes(_ultMet))?_ultMet:"";
   $("pm-tipo").value=repoSinPagar&&pend>0?"reposicion_menaje":(cobrado===0?"anticipo":(pend>0?"parcial":"saldo"));
   $("pm-notas").value="";
   $("pago-modal").classList.remove("hidden");
@@ -1802,6 +1849,7 @@ async function _submitPagoImpl(){
     if(curMode==="dash")renderDashboard();
     if(typeof renderCartera==="function")renderCartera();
     if(typeof docPreviewRefresh==="function")docPreviewRefresh(); // v7.9.36
+    try{localStorage.setItem("gb_ultimo_metodo_pago",metodo)}catch(e){} // v7.10.0
   }catch(e){
     console.error("[submitPago] ERROR",{clientId,durationMs:Date.now()-t0,error:e&&e.message,stack:e&&e.stack});
     hideLoader();
@@ -1956,7 +2004,7 @@ function editPago(idx){
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:4px 0">'+
       '<div><label style="font-size:10px;color:#888;display:block">Monto</label><input type="number" id="pe-monto-'+idx+'" value="'+Math.abs(p.monto)+'" style="width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px" inputmode="numeric"></div>'+
       '<div><label style="font-size:10px;color:#888;display:block">Fecha</label><input type="date" id="pe-fecha-'+idx+'" value="'+(p.fecha||"")+'" style="width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px"></div>'+
-      '<div><label style="font-size:10px;color:#888;display:block">Método / Banco</label><select id="pe-metodo-'+idx+'" style="width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px"><option value="Nequi">Nequi</option><option value="Daviplata">Daviplata</option><option value="Banco Falabella">Banco Falabella</option><option value="Efectivo">Efectivo</option><option value="Transferencia">Transferencia</option><option value="Otro">Otro</option><option value="Sin especificar">Sin especificar</option></select></div>'+
+      '<div><label style="font-size:10px;color:#888;display:block">Método / Banco</label><select id="pe-metodo-'+idx+'" style="width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px"><option value="Nequi">Nequi</option><option value="Daviplata">Daviplata</option><option value="Banco Falabella">Banco Falabella</option><option value="Efectivo">Efectivo</option><option value="Transferencia">Transferencia</option><option value="Tarjeta">Tarjeta</option><option value="Pasarela">Pasarela de pago</option><option value="Otro">Otro</option><option value="Sin especificar">Sin especificar</option></select></div>'+
       '<div><label style="font-size:10px;color:#888;display:block">Tipo</label><select id="pe-tipo-'+idx+'" style="width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px"><option value="anticipo">Anticipo</option><option value="abono">Abono</option><option value="saldo">Saldo</option><option value="reposicion_menaje">Reposición de menaje</option><option value="devolucion">Devolución</option></select></div>'+
     '</div>'+
     '<div style="margin-top:6px"><label style="font-size:10px;color:#888;display:block">Notas</label><input type="text" id="pe-notas-'+idx+'" value="'+h(p.notas||"")+'" style="width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px" placeholder="Notas opcionales"></div>'+
@@ -2995,6 +3043,8 @@ function openAnularModal(docId,kind,ev){
     toast("Solo se pueden anular pedidos en estado Pedido, Aprobada o En producción. Estado actual: "+(STATUS_META[status]?.label||status),"warn",6000);
     return;
   }
+  // v7.10.0 (decisión de Luis): una factura electrónica emitida no desaparece; anular o regresar exige nota crédito (v7.10.1).
+  if(q.feData&&q.feData.cufe){toast("❌ Este pedido tiene factura electrónica registrada: anularlo o regresarlo requiere nota crédito.","warn",8000);return}
   // v6.0.0: si ya fue cobrado al 100%, bloquear la anulación desde el modal también
   // (defensa en profundidad — el botón UI ya lo oculta via canAnular).
   const _total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||q.totalReal||0);
@@ -3114,6 +3164,7 @@ async function submitAnular(){
             throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true,detalle:"Documento "+docId+" no existe en Firestore (collection "+coll+")"});
           }
           const freshTx=snap.data();
+          if(freshTx.feData&&freshTx.feData.cufe)throw Object.assign(new Error("Este pedido tiene factura electrónica registrada: anularlo o regresarlo requiere nota crédito."),{paraUsuario:true});
 
           const patch={updatedAt:serverTimestamp()};
           if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
@@ -3134,6 +3185,8 @@ async function submitAnular(){
             patch.producedAt=null;
             patch.needsSync=false;
             patch.lastSyncAt=null;
+            // v7.10.0: el sello fiscal se borra; la nueva confirmación decide la empresa.
+            patch.accountingEntityId=null;patch.emisorSnapshot=null;patch.clienteFiscal=null;
           }
 
           if(devPago){
@@ -3162,6 +3215,7 @@ async function submitAnular(){
             local.productionDate=null;
             local.produced=false;
             local.producedAt=null;
+            local.accountingEntityId=null;local.emisorSnapshot=null;local.clienteFiscal=null; // v7.10.0
           }
           if(pagosCommit)local.pagos=pagosCommit;
           local.needsSync=false;
@@ -3584,6 +3638,75 @@ async function unlinkOptionGroup(docIdA,kindA,docIdB,kindB){
 
 let _feBase64=null;
 
+// v7.10.0: lee y valida los datos de una factura de la nueva empresa (plan v5 §4.3).
+// Devuelve null si no se llenó nada, {error} o {campos}.
+function gbFeLeer(q,numero){
+  const v=id=>($(id)&&$(id).value||"").trim();
+  const n=id=>{const x=v(id);return x===""?null:parseInt(x.replace(/[^0-9-]/g,""),10)};
+  const prefijo=v("fe-prefijo"),cufe=v("fe-cufe"),fecha=v("fe-fecha"),motivo=v("fe-motivo");
+  const base=n("fe-base"),inc=n("fe-inc"),iva=n("fe-iva"),total=n("fe-total");
+  if(!numero&&!cufe&&base==null&&inc==null&&total==null)return null;
+  return gbFeValidar(q,{prefijo,numero,cufe,fecha,base,inc,iva,total,motivo},quotesCache);
+}
+// CUFE y prefijo-número se comparan y guardan sin espacios; el CUFE en minúsculas, el prefijo-número en mayúsculas.
+function gbFeCufe(s){return String(s||"").replace(/\s+/g,"").toLowerCase()}
+function gbFeClave(prefijo,numero){return (String(prefijo||"")+"-"+String(numero||"")).replace(/\s+/g,"").toUpperCase()}
+// Todos los negocios leídos del servidor (no de la caché), para buscar facturas repetidas justo antes de guardar.
+async function gbFeDocsFrescos(){
+  const cols=[["quotes","quote"],["proposals","proposal"],["propfinals","proposal"]];
+  const res=await Promise.all(cols.map(c=>readHistoryCollection(c[0],{requireFresh:true})));
+  return res.flatMap((r,i)=>r.docs.map(x=>({...x,kind:cols[i][1],_isPF:i===2})));
+}
+// "AAAA-MM-DD" que existe en el calendario (2026-02-30 no).
+function gbFeFechaValida(s){
+  const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s||"");
+  if(!m)return false;
+  const f=new Date(Date.UTC(+m[1],+m[2]-1,+m[3]));
+  return f.getUTCMonth()===+m[2]-1&&f.getUTCDate()===+m[3];
+}
+// Validación fiscal común del modal (gbFeValidar) y del exporte (gbExporteContable): el primer problema o null.
+function gbFeDatosError(d){
+  const faltan=[];
+  if(!String(d.numero||"").trim())faltan.push("número");
+  if(!gbFeCufe(d.cufe))faltan.push("CUFE");
+  if(!gbFeFechaValida(d.fecha))faltan.push("fecha de expedición");
+  if(!Number.isFinite(d.base))faltan.push("base");
+  if(!Number.isFinite(d.inc))faltan.push("INC");
+  if(!Number.isFinite(d.total))faltan.push("total");
+  if(faltan.length)return "Faltan datos de la factura: "+faltan.join(", ");
+  const iva=Number.isFinite(d.iva)?d.iva:0;
+  if(d.base<0||d.inc<0||iva<0||d.total<0)return "Los valores de la factura no pueden ser negativos";
+  if(d.base+d.inc+iva!==d.total)return "Base + INC + IVA ("+(d.base+d.inc+iva)+") no da el total de la factura ("+d.total+")";
+  return null;
+}
+// Una FE con CUFE ya emitida no se borra ni se cambia desde el modal: eso es una nota crédito (v7.10.1).
+// Sí se puede volver a guardar igual (p. ej. para adjuntar el PDF). actual: el negocio; patch: lo que se va a escribir.
+function gbFeBloqueo(actual,patch){
+  const fe=actual&&actual.feData;
+  if(!fe||!fe.cufe)return null;
+  const cambia=patch.requiereFE===false||patch.feData===null
+    ||(patch.feData!==undefined&&["prefijo","numero","cufe","fecha","base","inc","iva","total"].some(k=>String(fe[k]??"")!==String(patch.feData[k]??"")));
+  return cambia?"Esta factura electrónica ya fue emitida (tiene CUFE): quitarla o cambiarla requiere nota crédito.":null;
+}
+function gbFeValidar(q,d,todos){
+  d={...d,prefijo:String(d.prefijo||"").replace(/\s+/g,"").toUpperCase(),numero:String(d.numero||"").replace(/\s+/g,"").toUpperCase(),cufe:gbFeCufe(d.cufe)};
+  const errDatos=gbFeDatosError(d);
+  if(errDatos)return {error:errDatos};
+  const iva=Number.isFinite(d.iva)?d.iva:0;
+  const clave=gbFeClave(d.prefijo,d.numero);
+  // El mismo negocio es mismo id, mismo kind y misma colección (una PF y una propuesta pueden compartir id).
+  const mismo=x=>x===q||(x.id===q.id&&x.kind===q.kind&&!x._isPF===!q._isPF);
+  // El CUFE es único en todos los negocios; el prefijo-número, sólo en la numeración del mismo emisor
+  // (las facturas de persona natural, sin sello, no consumen la numeración de la empresa).
+  const otro=(todos||[]).find(x=>!mismo(x)&&x.feData&&((x.feData.cufe&&gbFeCufe(x.feData.cufe)===d.cufe)
+    ||(q.accountingEntityId&&x.accountingEntityId===q.accountingEntityId&&x.feData.numero&&gbFeClave(x.feData.prefijo,x.feData.numero)===clave)));
+  if(otro)return {error:"Esa factura ya está registrada en "+(otro.quoteNumber||otro.id)};
+  const totalNegocio=(typeof getDocTotal==="function"?getDocTotal(q):(q.total||0))+(typeof totalCargos==="function"?totalCargos(q):0);
+  if(d.total!==totalNegocio&&!d.motivo)return {error:"El total de la factura ("+d.total+") no coincide con el del pedido ("+totalNegocio+"): escribe el motivo"};
+  const campos={prefijo:d.prefijo,numero:d.numero,cufe:d.cufe,fecha:d.fecha,base:d.base,inc:d.inc,iva:iva,total:d.total,estado:"emitida",accountingEntityId:q.accountingEntityId};
+  if(d.total!==totalNegocio)campos.motivoDiferencia=d.motivo;
+  return {campos};
+}
 function openFeModal(docId,kind){
   const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
   if(!q){toast("Documento no encontrado","error");return}
@@ -3606,8 +3729,25 @@ function openFeModal(docId,kind){
       +'</div>';
   }
 
-  body+='<div style="margin-bottom:10px"><label style="font-size:12px;font-weight:600;color:#555">Número de factura (opcional)</label>'
+  body+='<div style="margin-bottom:10px"><label style="font-size:12px;font-weight:600;color:#555">Número de factura '+(q.accountingEntityId===GB_EMISOR.accountingEntityId?'*':'(opcional)')+'</label>'
     +'<input type="text" id="fe-numero" class="fin" placeholder="Ej: FE-12345" value="'+(q.feData?.numero||"")+'" style="margin-top:4px"></div>';
+
+  // v7.10.0: en negocios de la nueva empresa se registran los datos de la factura emitida fuera de la app.
+  if(q.accountingEntityId===GB_EMISOR.accountingEntityId){
+    const f=q.feData||{};
+    const campo=(id,lbl,val,tipo)=>'<div style="margin-bottom:6px"><label style="font-size:11px;font-weight:600;color:#555">'+lbl+'</label><input type="'+(tipo||"text")+'" id="'+id+'" class="fin" value="'+h(val==null?"":String(val))+'" style="margin-top:2px"'+(tipo==="number"?' inputmode="numeric"':"")+'></div>';
+    body+='<div style="padding:10px;border:1px solid #FFB74D;background:#FFF8E1;border-radius:8px;margin-bottom:10px">'
+      +'<div style="font-weight:700;font-size:12px;color:#E65100;margin-bottom:6px">Datos de la factura · nueva empresa (* obligatorios)</div>'
+      +campo("fe-prefijo","Prefijo",f.prefijo)
+      +campo("fe-cufe","CUFE *",f.cufe)
+      +campo("fe-fecha","Fecha de expedición *",f.fecha||gbTodayIso(),"date")
+      +campo("fe-base","Base (sin impuestos) *",f.base,"number")
+      +campo("fe-inc","INC *",f.inc,"number")
+      +campo("fe-iva","IVA (si hay)",f.iva,"number")
+      +campo("fe-total","Total de la factura *",f.total,"number")
+      +campo("fe-motivo","Motivo, si el total no coincide con el del pedido",f.motivoDiferencia)
+      +'</div>';
+  }
 
   body+='<div style="margin-bottom:10px"><label style="font-size:12px;font-weight:600;color:#555">Adjuntar imagen de FE (PDF/PNG/JPG)</label>'
     +'<input type="file" id="fe-foto" accept="image/*,.pdf" onchange="previewFeFoto(event)" style="margin-top:4px;font-size:12px">'
@@ -3650,27 +3790,38 @@ async function submitFe(docId,kind){
   const requiereFE=!!($("fe-requiere")&&$("fe-requiere").checked);
   const numero=($("fe-numero")&&$("fe-numero").value.trim())||"";
   const coll=getCollectionName(docId,kind);
+  // v7.10.0: serverTimestamp no es global (sólo existe en window.fb); desde v7.1 esta línea lanzaba ReferenceError y el registro de FE nunca guardaba.
+  const {serverTimestamp}=window.fb;
   const patch={requiereFE:requiereFE,updatedAt:serverTimestamp(),...auditStamp()};
 
-  if(requiereFE||_feBase64||numero){
+  // v7.10.0: validación de la factura en negocios de la nueva empresa.
+  const feFiscal=(q.accountingEntityId===GB_EMISOR.accountingEntityId&&$("fe-cufe"))?gbFeLeer(q,numero):null;
+  if(feFiscal&&feFiscal.error){toast("⚠️ "+feFiscal.error,"warn",6500);return}
+  if(requiereFE||_feBase64||numero||feFiscal){
     const feData=q.feData?{...q.feData}:{};
     if(numero)feData.numero=numero;
+    if(feFiscal)Object.assign(feData,feFiscal.campos);
     feData.fecha=feData.fecha||gbTodayIso();
-    if(_feBase64){
-      try{
-        if(typeof showLoader==="function")showLoader("Subiendo imagen...");
-        const {url}=await uploadFotoFromBase64(_feBase64,"fe",docId,"facturas");
-        feData.fotoUrl=url;
-        delete feData.foto;
-      }catch(e){
-        console.warn("Upload FE falló, guardo base64:",e);
-        feData.foto=_feBase64;
-      }
-    }
     patch.feData=feData;
   }else if(!requiereFE&&q.feData&&!q.feData.fotoUrl&&!q.feData.foto){
     patch.feData=null;
   }
+  const bloqueo=gbFeBloqueo(q,patch);
+  if(bloqueo){toast("❌ "+bloqueo,"warn",8000);return}
+  if(_feBase64){
+    try{
+      if(typeof showLoader==="function")showLoader("Subiendo imagen...");
+      const {url}=await uploadFotoFromBase64(_feBase64,"fe",docId,"facturas");
+      patch.feData.fotoUrl=url;
+      delete patch.feData.foto;
+    }catch(e){
+      console.warn("Upload FE falló, guardo base64:",e);
+      patch.feData.foto=_feBase64;
+    }
+  }
+  // Negocio de la nueva empresa: sellado, o con entrega desde el inicio (otra sesión pudo sellarlo y facturarlo).
+  // Los demás (persona natural) guardan como en v7.9.36, con updateDoc.
+  const nuevaEmpresa=q.accountingEntityId===GB_EMISOR.accountingEntityId||gbEmisorActivo(q.eventDate);
 
   try{
     if(typeof showLoader==="function")showLoader("Guardando...");
@@ -3686,8 +3837,33 @@ async function submitFe(docId,kind){
         numeroPrefix:numero?numero.slice(0,40):""
       },
       runner:async()=>{
-        const {db,doc,updateDoc,serverTimestamp}=window.fb;
-        await updateDoc(doc(db,coll,docId),patch);
+        const {db,doc,runTransaction,updateDoc}=window.fb;
+        if(!nuevaEmpresa){
+          await updateDoc(doc(db,coll,docId),patch);
+        }else{
+          // v7.10.0 (decisión de Luis «doble revisión»): la factura se revalida con datos frescos justo antes de guardar:
+          // duplicados contra los negocios leídos del servidor y total contra el documento leído en la transacción.
+          // Riesgo residual aceptado (sin registro único de CUFE en Firestore): dos sesiones que guarden la misma factura
+          // en los mismos segundos pueden pasar ambas; el exporte las marca como «Factura repetida».
+          const frescos=feFiscal?await gbFeDocsFrescos():null;
+          await runTransaction(db,async tx=>{
+            const snap=await tx.get(doc(db,coll,docId));
+            if(!snap.exists())throw Object.assign(new Error("El documento ya no existe; no se guardó la factura. Recarga el historial."),{paraUsuario:true});
+            const fresco=snap.data();
+            if(feFiscal){
+              if(fresco.accountingEntityId!==GB_EMISOR.accountingEntityId)throw Object.assign(new Error("Este pedido ya no tiene los datos de la nueva empresa (lo cambiaron en otra sesión); no se guardó la factura. Recarga el historial."),{paraUsuario:true});
+              const r=gbFeValidar({...fresco,id:docId,kind:kind,_isPF:coll==="propfinals"},{...feFiscal.campos,motivo:($("fe-motivo")&&$("fe-motivo").value.trim())||""},frescos);
+              if(r.error)throw Object.assign(new Error(r.error),{paraUsuario:true});
+              const {motivoDiferencia,...resto}=patch.feData;
+              patch.feData={...resto,...r.campos};
+            }
+            const b=gbFeBloqueo(fresco,patch);
+            if(b)throw Object.assign(new Error(b),{paraUsuario:true});
+            // Caché sin sello y documento fresco ya sellado (confirmado en otra sesión): este modal no pidió los datos fiscales.
+            if(q.accountingEntityId!==GB_EMISOR.accountingEntityId&&fresco.accountingEntityId===GB_EMISOR.accountingEntityId)throw Object.assign(new Error("Este pedido ya tiene los datos de la nueva empresa (lo confirmaron en otra sesión); la factura requiere CUFE y valores. Recarga el historial."),{paraUsuario:true});
+            tx.update(doc(db,coll,docId),patch);
+          });
+        }
         q.requiereFE=requiereFE;
         if(patch.feData!==undefined)q.feData=patch.feData;
         return {payloadExtra:{tieneNumero:!!numero}};
@@ -3697,6 +3873,7 @@ async function submitFe(docId,kind){
     toast("🧾 Factura electrónica actualizada","success");
     if(typeof closeConfirmModal==="function")closeConfirmModal();
     renderHist();
+    if(typeof renderCartera==="function"&&curMode==="cartera")renderCartera(); // v7.10.0: Por facturar
     if(curMode==="dash"&&typeof renderDashboard==="function")renderDashboard();
   }catch(e){
     if(typeof hideLoader==="function")hideLoader();

@@ -10,7 +10,7 @@
 <link rel="icon" type="image/png" href="brand/cuchillo-negro.png">
 <link rel="apple-touch-icon" href="brand/cuchillo-negro.png">
 <title>Gourmet Bites - Cotizador</title>
-<link rel="stylesheet" href="gb-tokens.css?v=7.9.36"><!-- v7.9.13 INF-05: cache-buster CSS -->
+<link rel="stylesheet" href="gb-tokens.css?v=7.10.0"><!-- v7.9.13 INF-05: cache-buster CSS -->
 <!-- VERSION: 2026-04-26-v7.0.0-α-cascaron-v7-dashboard-rediseñado-fsm-pedido-vs-produccion -->
 <!--
   v6.3.0 (2026-04-24) — Robustez técnica + higiene (Entrega 3 del roadmap).
@@ -3403,6 +3403,20 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <div class="mf-intro">El cliente aprobó la cotización y la confirma como pedido. Deja registro de cuándo aprobó, anticipo, fechas y cualquier nota relevante para producción.</div>
       <div class="mf-field"><label>Consecutivo</label><input type="text" id="om-num" readonly style="background:var(--gb-cream);font-weight:700"></div>
       <div class="mf-field"><label>Cliente</label><input type="text" id="om-cli" readonly style="background:var(--gb-cream)"></div>
+      <!-- v7.10.0: datos para facturar (sólo negocios de la nueva empresa; oculto si está apagada) -->
+      <div id="om-fiscal" class="hidden" style="border:1px solid #FFB74D;background:#FFF8E1;border-radius:8px;padding:10px;margin:8px 0">
+        <div style="font-weight:700;font-size:13px;color:#E65100;margin-bottom:6px">🧾 Datos para facturar · nueva empresa</div>
+        <div class="mf-field mf-check"><label class="mf-check-lbl"><input type="checkbox" id="om-fis-cf" onchange="gbFiscalToggleCF('om')"> Consumidor final (el cliente no da datos)</label></div>
+        <div id="om-fis-datos">
+          <div class="mf-row">
+            <div class="mf-field"><label>Tipo de identificación *</label><select id="om-fis-tipo"><option value="">—</option><option value="NIT">NIT</option><option value="CC">CC</option><option value="CE">CE</option></select></div>
+            <div class="mf-field"><label>Número *</label><input type="text" id="om-fis-num" placeholder="Ej: 830018305-1"></div>
+          </div>
+          <div class="mf-field"><label>Correo para la factura *</label><input type="email" id="om-fis-mail" placeholder="correo@ejemplo.com"></div>
+          <div class="mf-field"><label>Dirección *</label><input type="text" id="om-fis-dir"></div>
+          <div class="mf-field"><label>Teléfono *</label><input type="tel" id="om-fis-tel"></div>
+        </div>
+      </div>
       <div class="mf-field"><label>Fecha en que el cliente aprobó</label><input type="date" id="om-fecha"></div>
       <div class="mf-row">
         <div class="mf-field"><label>Fecha de entrega *</label><input type="date" id="om-entrega-fecha" required></div>
@@ -3416,7 +3430,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <div class="mf-field"><label>⚠️ Notas de producción (Kathy/JP) — irán al .ics <span style="font-size:10px;color:#888;font-weight:400">· se pre-llenan con las notas de la cotización</span></label><textarea id="om-notas-prod" placeholder="Ej: sin nueces · regalo para María, incluir nota 'Feliz cumple' · doble tahinne · alergia gluten..."></textarea></div>
       <div class="mf-row">
         <div class="mf-field"><label>Monto del anticipo</label><input type="number" id="om-anticipo" placeholder="0" inputmode="numeric"></div>
-        <div class="mf-field"><label>Método de pago</label><select id="om-metodo"><option value="">— Sin anticipo aún —</option><option value="Nequi">Nequi</option><option value="Daviplata">Daviplata</option><option value="Banco Falabella">Banco Falabella</option><option value="Efectivo">Efectivo</option><option value="Transferencia">Transferencia</option><option value="Otro">Otro</option></select></div>
+        <div class="mf-field"><label>Método de pago</label><select id="om-metodo"><option value="">— Sin anticipo aún —</option><option value="Nequi">Nequi</option><option value="Daviplata">Daviplata</option><option value="Banco Falabella">Banco Falabella</option><option value="Efectivo">Efectivo</option><option value="Transferencia">Transferencia</option><option value="Tarjeta">Tarjeta</option><option value="Pasarela">Pasarela de pago</option><option value="Otro">Otro</option></select></div>
       </div>
       <div class="mf-field"><label>Notas generales del pedido (opcional)</label><textarea id="om-notas" placeholder="Detalles del pedido, comprobante, contacto, etc."></textarea></div>
       <button class="mf-submit" onclick="submitMarkAsOrder()">Confirmar como pedido</button>
@@ -3435,6 +3449,20 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <div class="mf-intro blue">El cliente firmó la Propuesta Final. Registra el momento en que confirmó para dejar trazabilidad del pedido.</div>
       <div class="mf-field"><label>Consecutivo</label><input type="text" id="am-num" readonly style="background:var(--gb-cream);font-weight:700"></div>
       <div class="mf-field"><label>Cliente</label><input type="text" id="am-cli" readonly style="background:var(--gb-cream)"></div>
+      <!-- v7.10.0: datos para facturar (sólo negocios de la nueva empresa; oculto si está apagada) -->
+      <div id="am-fiscal" class="hidden" style="border:1px solid #FFB74D;background:#FFF8E1;border-radius:8px;padding:10px;margin:8px 0">
+        <div style="font-weight:700;font-size:13px;color:#E65100;margin-bottom:6px">🧾 Datos para facturar · nueva empresa</div>
+        <div class="mf-field mf-check"><label class="mf-check-lbl"><input type="checkbox" id="am-fis-cf" onchange="gbFiscalToggleCF('am')"> Consumidor final (el cliente no da datos)</label></div>
+        <div id="am-fis-datos">
+          <div class="mf-row">
+            <div class="mf-field"><label>Tipo de identificación *</label><select id="am-fis-tipo"><option value="">—</option><option value="NIT">NIT</option><option value="CC">CC</option><option value="CE">CE</option></select></div>
+            <div class="mf-field"><label>Número *</label><input type="text" id="am-fis-num" placeholder="Ej: 830018305-1"></div>
+          </div>
+          <div class="mf-field"><label>Correo para la factura *</label><input type="email" id="am-fis-mail" placeholder="correo@ejemplo.com"></div>
+          <div class="mf-field"><label>Dirección *</label><input type="text" id="am-fis-dir"></div>
+          <div class="mf-field"><label>Teléfono *</label><input type="tel" id="am-fis-tel"></div>
+        </div>
+      </div>
       <div class="mf-field"><label>Fecha de aprobación del cliente</label><input type="date" id="am-fecha"></div>
       <div class="mf-row">
         <div class="mf-field"><label>Fecha de entrega</label><input type="date" id="am-entrega-fecha"></div>
@@ -3442,7 +3470,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       </div>
       <div class="mf-row">
         <div class="mf-field"><label>Monto anticipo 50%</label><input type="number" id="am-anticipo" placeholder="0" inputmode="numeric"></div>
-        <div class="mf-field"><label>Método de pago</label><select id="am-metodo"><option value="">— Sin anticipo aún —</option><option value="Nequi">Nequi</option><option value="Daviplata">Daviplata</option><option value="Banco Falabella">Banco Falabella</option><option value="Efectivo">Efectivo</option><option value="Transferencia">Transferencia</option><option value="Otro">Otro</option></select></div>
+        <div class="mf-field"><label>Método de pago</label><select id="am-metodo"><option value="">— Sin anticipo aún —</option><option value="Nequi">Nequi</option><option value="Daviplata">Daviplata</option><option value="Banco Falabella">Banco Falabella</option><option value="Efectivo">Efectivo</option><option value="Transferencia">Transferencia</option><option value="Tarjeta">Tarjeta</option><option value="Pasarela">Pasarela de pago</option><option value="Otro">Otro</option></select></div>
       </div>
       <div class="mf-field"><label>⚠️ Notas de producción — irán al .ics <span style="font-size:10px;color:#888;font-weight:400">· se pre-llenan con el momento de la propuesta</span></label><textarea id="am-notas-prod" placeholder="Detalles para que Kathy/JP tengan en cuenta el día de producción"></textarea></div>
       <div class="mf-field"><label>Notas generales (opcional)</label><textarea id="am-notas" placeholder="Comprobante, confirmación, contacto, etc."></textarea></div>
@@ -3471,7 +3499,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       </div>
       <div class="mf-row">
         <div class="mf-field"><label>Monto *</label><input type="number" id="pm-monto" placeholder="0" inputmode="numeric"></div>
-        <div class="mf-field"><label>Método *</label><select id="pm-metodo"><option value="">— Selecciona —</option><option value="Efectivo">Efectivo</option><option value="Nequi">Nequi</option><option value="Daviplata">Daviplata</option><option value="Banco Falabella">Banco Falabella</option><option value="Transferencia">Otra transferencia</option><option value="Otro">Otro</option></select></div>
+        <div class="mf-field"><label>Método *</label><select id="pm-metodo"><option value="">— Selecciona —</option><option value="Efectivo">Efectivo</option><option value="Nequi">Nequi</option><option value="Daviplata">Daviplata</option><option value="Banco Falabella">Banco Falabella</option><option value="Transferencia">Otra transferencia</option><option value="Tarjeta">Tarjeta</option><option value="Pasarela">Pasarela de pago</option><option value="Otro">Otro</option></select></div>
       </div>
       <div class="mf-field">
         <label>Foto del comprobante (opcional — cámara o galería)</label>
@@ -3775,7 +3803,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
             <option value="Daviplata">Daviplata</option>
             <option value="Banco Falabella">Banco Falabella</option>
             <option value="Transferencia">Transferencia</option>
-            <option value="Otro">Otro</option>
+            <option value="Tarjeta">Tarjeta</option><option value="Pasarela">Pasarela de pago</option><option value="Otro">Otro</option>
           </select>
           <input type="text" class="fin" id="an-dev-notas" placeholder="Notas devolución (opcional)" />
           <div style="font-size:10px;color:var(--gb-neutral-500);margin-top:6px">Si dejas el monto en 0 o vacío, no se registra devolución. Los pagos previos quedan intactos como histórico.</div>
@@ -4656,12 +4684,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js" integrity="sha384-OUW9euuUyxyHcAhTqbhI+Iyb8LMssXt/cpz0yXhs9UWG2/R/uaWdakx/4cfww7Vb" crossorigin="anonymous"></script><!-- v7.9.13 SEC-12: SRI -->
-<script src="app-assets.js?v=7.9.36"></script>
-<script src="app-core.js?v=7.9.36"></script>
-<script src="app-cotizar.js?v=7.9.36"></script>
-<script src="app-propuesta.js?v=7.9.36"></script>
-<script src="app-historial.js?v=7.9.36"></script>
-<script src="app-seguimiento.js?v=7.9.36"></script>
-<script src="app-dashboard.js?v=7.9.36"></script>
+<script src="app-assets.js?v=7.10.0"></script>
+<script src="app-core.js?v=7.10.0"></script>
+<script src="app-cotizar.js?v=7.10.0"></script>
+<script src="app-propuesta.js?v=7.10.0"></script>
+<script src="app-historial.js?v=7.10.0"></script>
+<script src="app-seguimiento.js?v=7.10.0"></script>
+<script src="app-dashboard.js?v=7.10.0"></script>
 </body>
 </html>
