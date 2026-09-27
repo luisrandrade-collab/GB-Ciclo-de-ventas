@@ -2,7 +2,7 @@
 
 Procedimiento operativo para deploy de la app, las rules de Firebase, y los rollbacks correspondientes.
 
-**Mantener este archivo actualizado al cambiar infraestructura.** Última revisión: 2026-09-26 (estado de producción v7.9.35; gancho `pre-push` y respaldo antes del push). Anterior: 2026-09-23 (v7.9.33).
+**Mantener este archivo actualizado al cambiar infraestructura.** Última revisión: 2026-09-27 (estado de producción v7.9.36; cuenta de `gh` y modo de la sesión antes del push). Anterior: 2026-09-26 (v7.9.35).
 
 ---
 
@@ -29,6 +29,8 @@ Procedimiento operativo para deploy de la app, las rules de Firebase, y los roll
 - Revisión independiente con veredicto apto y recorrido en el emulador de lo que cambió
 - **Frase canónica de Luis** escrita textual: `APROBADO POR LUIS PARA QUE <herramienta> EJECUTE: <alcance>`. «ok», «sí» o «adelante» no autorizan commit, push ni despliegue
 - Gancho local `.git/hooks/pre-push` (no versionado): bloquea todo push salvo que `.git/gb_push_autorizado` contenga esa frase textual. Es de un solo uso: el gancho borra el archivo al publicar. Nunca usar `--no-verify`
+- Cuenta de GitHub: git toma la credencial de `gh`. Si la cuenta activa no es `luisrandrade-collab` (p. ej. `mihv-admin`), el push da 403: `gh auth switch --user luisrandrade-collab` antes y volver a la anterior después
+- Si el push lo hace Claude Code, la sesión debe estar en modo manual (en modo Auto el clasificador lo bloquea aunque exista la frase)
 
 ---
 
@@ -191,11 +193,11 @@ Si tras hard reload sigue sirviendo versión vieja:
 
 ---
 
-## Estado del deploy actual (al 2026-09-26)
+## Estado del deploy actual (al 2026-09-27)
 
-- **Versión en producción:** v7.9.35 (commit `bf91102`, publicada el 2026-09-26): cargo y pago de reposición de menaje, y estados de pago con el saldo canónico. Anterior: v7.9.34 (`a0fc2be`, aviso de pago repetido); antes, v7.9.33 (`e930f7a`).
-- **Rollback de v7.9.35:** `git revert bf91102` + push (con la frase en `.git/gb_push_autorizado`). Sólo frontend: las rules, las functions, `firebase.json` y el CI no cambiaron desde v7.9.33. La última comparación de las rules publicadas contra las del repositorio (idénticas) es del 2026-09-22.
-- **CI (`.github/workflows/check.yml`, "pre-deploy check"):** `check.mjs`, siete suites unitarias, `test_integridad_flujos.mjs` (sobre la fuente real; 184 escenarios en v7.9.35) y `check_drift.mjs`. En verde en `bf91102`, igual que `pages build and deployment`.
+- **Versión en producción:** v7.9.36 (commit `83d011f`, publicada el 2026-09-27): la ventana de detalle muestra Total, Pagado y Saldo y permite registrar y ver pagos. Anterior: v7.9.35 (`bf91102`, reposición de menaje; `ec5d5c8` sólo DEPLOY.md); antes, v7.9.34 (`a0fc2be`).
+- **Rollback de v7.9.36:** `git revert 83d011f` + push (con la frase en `.git/gb_push_autorizado`). Sólo frontend: las rules, las functions, `firebase.json` y el CI no cambiaron desde v7.9.33. La última comparación de las rules publicadas contra las del repositorio (idénticas) es del 2026-09-22.
+- **CI (`.github/workflows/check.yml`, "pre-deploy check"):** `check.mjs`, siete suites unitarias, `test_integridad_flujos.mjs` (sobre la fuente real; 188 escenarios en v7.9.36) y `check_drift.mjs` (23 comprobaciones, incluida la lista de administradores del cliente frente a `firestore.rules`). En verde en `83d011f`, igual que `pages build and deployment`.
 - **Push protegido:** gancho local `pre-push` con la frase canónica (ver Pre-requisitos).
 - **Emulador local:** `firebase.json` incluye el bloque `emulators` (auth 9099, firestore 8080, storage 9199, UI 4000). Usar siempre un proyecto `demo-*`, nunca `gourmet-bites-cotizador`.
 - **Repositorio público:** GitHub Pages publica la raíz del repo. Añadir al commit sólo los archivos de la versión, uno por uno (nunca `git add .`); la documentación interna no se sube.
