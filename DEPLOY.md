@@ -2,7 +2,7 @@
 
 Procedimiento operativo para deploy de la app, las rules de Firebase, y los rollbacks correspondientes.
 
-**Mantener este archivo actualizado al cambiar infraestructura.** Última revisión: 2026-09-27 (estado de producción v7.9.36; cuenta de `gh` y modo de la sesión antes del push). Anterior: 2026-09-26 (v7.9.35).
+**Mantener este archivo actualizado al cambiar infraestructura.** Última revisión: 2026-09-27 (estado de producción v7.10.1; respaldo previo comprobado en Google Drive en vez de carpetas «Ver»). Anterior: 2026-09-27 (v7.9.36).
 
 ---
 
@@ -67,14 +67,14 @@ grep -n '?v=' index.html
 
 ### 4. Commit, respaldo y push (frontend)
 
-Orden obligatorio: **local → respaldo en OneDrive (paso 7) → GitHub**.
+Orden obligatorio: **local → Google Drive al día (paso 7) → GitHub**.
 
 ```bash
 # Añadir los archivos del lote uno por uno (nunca git add . ni -A: el repositorio es público)
 git add app-core.js
 git add index.html
 git commit -m "feat(v7.X.Y.Z): <resumen>"
-# Respaldo "Ver X.Y.Z" del commit (paso 7) ANTES del push
+# Google Drive sin subidas pendientes del proyecto (paso 7) ANTES del push
 # Autorizar el push con la frase canónica textual (un solo uso)
 printf '%s\n' 'APROBADO POR LUIS PARA QUE <herramienta> EJECUTE: <alcance>' > .git/gb_push_autorizado
 git push origin main
@@ -102,21 +102,13 @@ Manual:
 3. Login → registrar pago de prueba → verificar entrada en Herramientas > Auditoría
 4. Si la versión tocó alguna operación crítica, validar el flujo específico
 
-### 7. Archivo de versiones (respaldo antes del push)
+### 7. Respaldo antes del push (Google Drive)
 
-Convención vigente desde 2026-09-13 (reemplaza el patrón anterior en Downloads, que ya no se usa). Se arma después del commit y **antes del push** (paso 4).
+**La carpeta del proyecto está respaldada por Google Drive de forma continua** (`C:\Proyectos` es raíz de copia de seguridad del equipo; confirmado por Luis el 2026-09-27, con la marca verde de Drive en cada archivo). Por eso **ya no se arman carpetas `Ver X.Y.Z`** ni hay un paso de respaldo que ejecutar: antes del push (paso 4) basta con que Drive no tenga subidas pendientes del proyecto.
 
-Carpeta `Ver X.Y.Z` (mismo formato que `Ver 6.40`) con:
-- el código en la raíz (`git archive` del commit de la versión)
-- `_internos/` completo (sin `codex-maintenance-*`)
-- `HANDOFF.md`, `context.txt` (resumen ejecutivo) y `LEEME.txt` (cómo restaurar)
-- `gourmet-bites-vX.Y.Z.zip` dentro de la carpeta
+Sólo si hay duda: copiar `mirror_sqlite.db` (con `-wal` y `-shm`) de `%LOCALAPPDATA%\Google\DriveFS\<cuenta>\`, comparar el MD5 de los archivos del commit con `cloud_md5_checksum` y revisar `pending_uploads` y `queued_uploads`.
 
-Flujo:
-1. Se prepara en `OneDrive - HBCorp SAS\_Para mover a Archivo de versiones APP\Ver X.Y.Z\`, verificando cantidad de archivos y bytes contra el origen.
-2. Luis la arrastra desde el Explorador a `OneDrive - HBCorp SAS\Documentos\gourmet-bites\Archivo de versiones APP\`. Esa carpeta no admite escritura por script (carpeta conocida de OneDrive).
-
-`OneDrive - HBCorp SAS\07_Gourmet_Bites_ERP\` guarda solo material de negocio; ahí no van versiones.
+Las carpetas `Ver` ya preparadas en `OneDrive - HBCorp SAS\_Para mover a Archivo de versiones APP\` siguen ahí hasta que Luis las mueva.
 
 ### 8. Actualizar Onboarding
 
@@ -195,9 +187,11 @@ Si tras hard reload sigue sirviendo versión vieja:
 
 ## Estado del deploy actual (al 2026-09-27)
 
-- **Versión en producción:** v7.9.36 (commit `83d011f`, publicada el 2026-09-27): la ventana de detalle muestra Total, Pagado y Saldo y permite registrar y ver pagos. Anterior: v7.9.35 (`bf91102`, reposición de menaje; `ec5d5c8` sólo DEPLOY.md); antes, v7.9.34 (`a0fc2be`).
-- **Rollback de v7.9.36:** `git revert 83d011f` + push (con la frase en `.git/gb_push_autorizado`). Sólo frontend: las rules, las functions, `firebase.json` y el CI no cambiaron desde v7.9.33. La última comparación de las rules publicadas contra las del repositorio (idénticas) es del 2026-09-22.
-- **CI (`.github/workflows/check.yml`, "pre-deploy check"):** `check.mjs`, siete suites unitarias, `test_integridad_flujos.mjs` (sobre la fuente real; 188 escenarios en v7.9.36) y `check_drift.mjs` (23 comprobaciones, incluida la lista de administradores del cliente frente a `firestore.rules`). En verde en `83d011f`, igual que `pages build and deployment`.
+- **Versión en producción:** v7.10.1 (commit `fc7ec13`, publicada el 2026-09-27): compras con datos fiscales, notas crédito y exporte con Compras, Clientes y Resumen por período. Anterior: v7.10.0 (`4ce8b73`, preparación del Régimen Simple); antes, v7.9.36 (`83d011f`; `976d528` sólo DEPLOY.md).
+- **Régimen Simple apagado:** v7.10.0 y v7.10.1 están en producción pero no se ven ni actúan hasta llenar fecha de inicio, razón social, NIT y DV en `GB_EMISOR` (`app-core.js`). Encenderlo es una versión propia, con revisión.
+- **Rollback de v7.10.1:** `git revert fc7ec13` + push (con la frase en `.git/gb_push_autorizado`); vuelve a v7.10.0. Para volver a v7.9.36, revertir también `4ce8b73`. Sólo frontend: las rules, las functions y `firebase.json` no cambiaron desde v7.9.33. La última comparación de las rules publicadas contra las del repositorio (idénticas) es del 2026-09-22.
+- **CI (`.github/workflows/check.yml`, "pre-deploy check"):** `check.mjs`, ocho suites unitarias (desde v7.10.0 incluye `test_regimen_simple.mjs`, 38 pruebas en v7.10.1), `test_integridad_flujos.mjs` (sobre la fuente real; 188 escenarios) y `check_drift.mjs` (23 comprobaciones, incluida la lista de administradores del cliente frente a `firestore.rules`). En verde en `fc7ec13`, igual que `pages build and deployment`.
+- **Remoto:** `https://luisrandrade-collab@github.com/luisrandrade-collab/GB-Ciclo-de-ventas.git`, con la cuenta en la URL. GB publica siempre con `luisrandrade-collab`, nunca con `mihv-admin`.
 - **Push protegido:** gancho local `pre-push` con la frase canónica (ver Pre-requisitos).
 - **Emulador local:** `firebase.json` incluye el bloque `emulators` (auth 9099, firestore 8080, storage 9199, UI 4000). Usar siempre un proyecto `demo-*`, nunca `gourmet-bites-cotizador`.
 - **Repositorio público:** GitHub Pages publica la raíz del repo. Añadir al commit sólo los archivos de la versión, uno por uno (nunca `git add .`); la documentación interna no se sube.
