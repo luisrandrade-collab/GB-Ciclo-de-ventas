@@ -109,8 +109,12 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.10.2";
+const BUILD_VERSION="v8.0.0";
 const BUILD_DATE="2026-09-20";
+// v8.0.0 (D-v8-09): bandera del rediseño R1. Tapa sólo lo nuevo: Inicio, Negocios (y la ficha en T3), barra
+// inferior, entradas del menú y arranque en Inicio. F5 y los campos nuevos quedan siempre activos. Apagada, la app
+// es v7.10.2 más los arreglos de T1. Se enciende para todos a la vez tras la prueba de Kathy y JP (D-v8-03).
+const GB_REDISENO_R1=true;
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
 // Helper único para resolver la colección Firestore de un documento por kind+id.
@@ -539,11 +543,10 @@ async function savePdf(doc,filename){
 //   docId        · ID del doc en Firestore (ej: "GB-2026-0110")
 //
 // Flujo:
-//   1. Calcula el próximo número de versión leyendo pdfRegenCount del q en cache
-//   2. Nombre local: baseName.pdf (v1) o baseName_v02.pdf, _v03.pdf...
-//   3. Sube blob a Storage en pdfs/{kind}/{docId}/v{N}_{timestamp}.pdf
+//   1-2. Nombre local: baseName.pdf (v1) o baseName_v02.pdf, _v03.pdf... según la versión final
+//   3. Sube blob a Storage en pdfs/{kind}/{docId}/{timestamp}_{aleatorio}.pdf (v8.0.0 R2)
 //   4. Obtiene downloadURL
-//   5. Actualiza Firestore: pdfRegenCount++, pdfHistorial push {version,url,fecha,generadoPor}
+//   5. Transacción sobre el doc fresco: versión = pdfRegenCount+1, pdfHistorial push {version,url,fecha,generadoPor}
 //   6. Llama savePdf local (share/descarga)
 //
 // Retrocompat: si algo de Storage falla, el PDF local igual se entrega al
@@ -554,17 +557,17 @@ async function savePdfConCopiaStorage(doc,baseName,kind,docId){
     console.warn("[savePdfConCopiaStorage] faltan kind/docId, uso savePdf simple");
     return savePdf(doc,baseName+".pdf");
   }
-  // 1. Calcular próxima versión
+  // 1. Colección y caché
   // v7.8.9: usar helper único. NOTA — caso histórico que usaba kind==="propfinal" como
   // distinción explícita; el helper detecta GB-PF-* por ID, que es la fuente de verdad.
   const coll=getCollectionName(docId,kind);
   const q=(quotesCache||[]).find(x=>x.id===docId);
-  const prevCount=(q&&typeof q.pdfRegenCount==="number")?q.pdfRegenCount:0;
-  const nextVersion=prevCount+1;
   // 2. Nombre local: v1 sin sufijo para no cambiar comportamiento esperado,
   //    v2+ con _v02, _v03 para que ordenen bien en descargas
-  const versionSuffix=nextVersion===1?"":"_v"+String(nextVersion).padStart(2,"0");
-  const localFilename=baseName+versionSuffix+".pdf";
+  const nombreLocal=v=>baseName+(v===1?"":"_v"+String(v).padStart(2,"0"))+".pdf";
+  // v8.0.0 R2 (Codex P1): la versión la asigna la transacción desde el documento fresco. La de la
+  // caché sólo nombra la descarga cuando no hubo copia en la nube (sin conexión o falla).
+  let version=((q&&typeof q.pdfRegenCount==="number")?q.pdfRegenCount:0)+1;
   // Preparar blob una sola vez (reusar para Storage y para savePdf)
   let blob=null;
   try{blob=doc.output("blob")}
@@ -579,29 +582,39 @@ async function savePdfConCopiaStorage(doc,baseName,kind,docId){
     try{
       await fbReady();
       const stamp=_now.getFullYear()+"-"+_p(_now.getMonth()+1)+"-"+_p(_now.getDate())+"_"+_p(_now.getHours())+"h"+_p(_now.getMinutes());
-      const storagePath="pdfs/"+kind+"/"+docId+"/v"+String(nextVersion).padStart(2,"0")+"_"+stamp+".pdf";
+      // v8.0.0 R2 (Codex P1): la ruta ya no lleva la versión sino un identificador único, así que dos
+      // sesiones nunca apuntan al mismo objeto (storage.rules sólo permite crear). Orden: 1) subir a la
+      // ruta única; 2) la transacción relee el documento, asigna la versión y añade la entrada. Si la
+      // transacción falla después de subir, el archivo queda huérfano en Storage (sin referencia, no
+      // pisa nada; las reglas no permiten borrarlo desde la app) y se marca pdfUploadFailed.
+      const storagePath="pdfs/"+kind+"/"+docId+"/"+stamp+"_"+Math.random().toString(36).slice(2,11)+".pdf";
       const url=await uploadToStorage(blob,storagePath);
       // Actualizar pdfHistorial y pdfRegenCount en Firestore
-      const {db,doc:fsDoc,updateDoc,serverTimestamp}=window.fb;
-      const entry={
-        version:nextVersion,
-        url:url,
-        path:storagePath,
-        fecha:_now.toISOString(),
-        generadoPor:(currentUser&&(currentUser.displayName||currentUser.email))||"desconocido",
-        filename:localFilename
-      };
-      const prevHist=(q&&Array.isArray(q.pdfHistorial))?q.pdfHistorial:[];
-      const newHist=prevHist.concat([entry]);
-      await updateDoc(fsDoc(db,coll,docId),{
-        pdfRegenCount:nextVersion,
-        pdfHistorial:newHist,
-        pdfUploadFailed:false, // v5.4.3: limpiar flag si había uno previo
-        updatedAt:serverTimestamp()
+      const {db,doc:fsDoc,runTransaction,serverTimestamp}=window.fb;
+      const generadoPor=(currentUser&&(currentUser.displayName||currentUser.email))||"desconocido";
+      // v8.0.0 F5 (contrato v2.1): el registro del PDF es una operación aparte que relee el documento y
+      // añade su entrada al pdfHistorial FRESCO. Antes reescribía el del caché y borraba el que otra
+      // sesión hubiera registrado entretanto. No toca ningún campo editable.
+      const ref=fsDoc(db,coll,docId);
+      const registrado=await runTransaction(db,async tx=>{
+        const snap=await tx.get(ref);
+        if(!snap.exists())throw new Error("El documento del PDF ya no existe: "+docId);
+        const fresco=snap.data();
+        const count=(parseInt(fresco.pdfRegenCount)||0)+1;
+        const entry={version:count,url:url,path:storagePath,fecha:_now.toISOString(),generadoPor,filename:nombreLocal(count)};
+        const hist=(Array.isArray(fresco.pdfHistorial)?fresco.pdfHistorial:[]).concat([entry]);
+        tx.update(ref,{
+          pdfRegenCount:count,
+          pdfHistorial:hist,
+          pdfUploadFailed:false, // v5.4.3: limpiar flag si había uno previo
+          updatedAt:serverTimestamp()
+        });
+        return {hist,count};
       });
       // Actualizar cache local
-      if(q){q.pdfRegenCount=nextVersion;q.pdfHistorial=newHist;q.pdfUploadFailed=false}
-      console.log("[savePdfConCopiaStorage] v"+nextVersion+" subida OK:",storagePath);
+      if(q){q.pdfRegenCount=registrado.count;q.pdfHistorial=registrado.hist;q.pdfUploadFailed=false}
+      version=registrado.count;
+      console.log("[savePdfConCopiaStorage] v"+version+" subida OK:",storagePath);
     }catch(e){
       // NO bloquear — el PDF local se entrega igual
       console.warn("[savePdfConCopiaStorage] subida a Storage falló (no bloqueante):",e);
@@ -621,7 +634,7 @@ async function savePdfConCopiaStorage(doc,baseName,kind,docId){
     console.warn("[savePdfConCopiaStorage] offline — PDF solo local, sin copia Storage");
   }
   // 6. Entregar PDF local al usuario (share/descarga)
-  return savePdf(doc,localFilename);
+  return savePdf(doc,nombreLocal(version));
 }
 
 // ─── v7.9.13 ARQ-05: HELPERS PDF COMPARTIDOS (cotización + propuesta) ──────
@@ -2424,7 +2437,10 @@ async function getNextNumber(kind){
 // editar una propuesta con perdón de saldo (ajustes[]) los borraba al guardar desde el form.
 // v7.9.24: contrato único; nombres reales del seguimiento y datos operativos frescos.
 // v7.10.0: accountingEntityId, emisorSnapshot y clienteFiscal se sellan al confirmar; el editor no los pisa.
-const OPERATIONAL_FIELDS=["status","supersededBy","pagos","orderData","entregaData","produced","productionDate","approvalData","propFinalRef","comentarioCliente","pdfHistorial","pdfRegenCount","ajustes","cargos","saldoData","pago_changelog","auditTrail","itemsProducidos","followUpStatus","followUpLog","followUp","followUpUpdatedAt","notasSeguimiento","perdidaData","feData","replacedBy","replaces","expectsReplacement","needsSync","anuladaData","createdAt","accountingEntityId","emisorSnapshot","clienteFiscal"];
+// v8.0.0: businessId (sistema: se fija al crear y nunca se edita), proximoContacto (lo ponen Seguimiento y
+// la ficha) y negocioManual (unir/separar) van aquí para que la fusión conserve SIEMPRE el valor del
+// servidor, también su borrado con null; el editor nunca los escribe desde el formulario.
+const OPERATIONAL_FIELDS=["status","supersededBy","pagos","orderData","entregaData","produced","productionDate","approvalData","propFinalRef","comentarioCliente","pdfHistorial","pdfRegenCount","ajustes","cargos","saldoData","pago_changelog","auditTrail","itemsProducidos","followUpStatus","followUpLog","followUp","followUpUpdatedAt","notasSeguimiento","perdidaData","feData","replacedBy","replaces","expectsReplacement","needsSync","anuladaData","createdAt","accountingEntityId","emisorSnapshot","clienteFiscal","businessId","proximoContacto","negocioManual"];
 
 // v7.9.25: comparar el contenido guardado al ABRIR el editor, no al pulsar Guardar.
 // Los avances operativos (pagos/evidencias) se reconcilian por separado.
@@ -2759,6 +2775,7 @@ async function loadAllHistory({requireFresh=false,transition=true}={}){
     sPF.docs.forEach(d=>out.push({...d,kind:"proposal",_isPF:true}));
     out.sort((a,b)=>{const ta=a.createdAt?.toMillis?.()||Date.parse(a.dateISO)||0,tb=b.createdAt?.toMillis?.()||Date.parse(b.dateISO)||0;return tb-ta});
     quotesCache=out;
+    if(typeof programarRefrescoR1==="function")programarRefrescoR1(); // v8.0.0 T2 (P-39): recarga → Inicio/Negocios e insignias al día
     try{localStorage.setItem("gb_quotes_cache",JSON.stringify(out.map(q=>({...q,createdAt:null}))))}catch(e){console.warn("No se pudo conservar historial local",e)}
     const online=![sQ,sP,sPF].some(s=>s.fromCache);
     setCloudStatus(online);
@@ -2828,7 +2845,7 @@ async function deleteHistoryItem(kind,id){
 //   - activa       : cliente confirmó interés, en negociación
 //   - perdida      : cliente dijo que no → excluida de todos los KPIs
 // Si followUp no existe, se interpreta como "pendiente" por default.
-// Los 7 días se cuentan desde updatedAt (cualquier edición lo resetea).
+// v8.0.0: los 7 días se cuentan desde el último contacto, no desde updatedAt (ver avisoContacto en app-negocios.js).
 // ═══════════════════════════════════════════════════════════
 
 const FOLLOW_UP_META={
@@ -2850,9 +2867,14 @@ const MOTIVOS_PERDIDA={
   competencia:"Competencia",
   no_respondio:"No respondió",
   cambio_planes:"Cambio de planes",
-  tiempo:"Tiempo",
+  tiempo:"Fecha no disponible", // v8.0.0 D-v8-05: la clave guardada sigue siendo "tiempo"
   otro:"Otro"
 };
+// v8.0.0 D-v8-05: la etiqueta visible sale de la clave, así un documento viejo con «Tiempo» guardado muestra la nueva.
+function motivoPerdidaLabel(pd){
+  if(!pd)return "";
+  return Object.prototype.hasOwnProperty.call(MOTIVOS_PERDIDA,pd.motivo)?MOTIVOS_PERDIDA[pd.motivo]:(pd.motivoLabel||pd.motivo||"");
+}
 
 // ¿Este doc es susceptible de follow-up comercial?
 // Solo cotizaciones "enviada" y propuestas "enviada" o "propfinal".
@@ -2883,19 +2905,6 @@ function estadoComercial(q){
   return getFollowUp(q)==="perdida"?"perdida":"viva";
 }
 function isPerdida(q){return estadoComercial(q)==="perdida"}
-
-// Días desde la última actualización del doc (cualquier edición cuenta)
-function daysSinceUpdate(q){
-  if(!q)return 0;
-  const refStr=q.updatedAt?._seconds
-    ? new Date(q.updatedAt._seconds*1000).toISOString()
-    : (q.updatedAt?.toDate ? q.updatedAt.toDate().toISOString() : (q.updatedAtIso||q.dateISO));
-  if(!refStr)return 0;
-  const ref=new Date(refStr);
-  if(isNaN(ref.getTime()))return 0;
-  const ms=Date.now()-ref.getTime();
-  return Math.max(0,Math.floor(ms/(1000*60*60*24)));
-}
 
 // Pipeline activo (lo vivo hoy, sin filtro de fecha)
 // Para el dashboard v5.0.4. Devuelve 3 buckets con total y count.
@@ -2976,12 +2985,17 @@ async function setFollowUp(docId,kind,nuevoEstado,extra){
       notas:extra.notas||""
     };
   }
+  // v8.0.0 F5: próximo contacto. Perdida lo borra siempre, en esta misma escritura y con null (no
+  // deleteField): la fusión del editor conserva el null del servidor y no lo resucita desde el formulario.
+  if(nuevoEstado==="perdida")patch.proximoContacto=null;
+  else if(extra&&Object.prototype.hasOwnProperty.call(extra,"proximoContacto"))patch.proximoContacto=extra.proximoContacto;
   try{
     await updateDoc(doc(db,coll,docId),patch);
     q.followUp=nuevoEstado;
     q.followUpUpdatedAt=patch.followUpUpdatedAt;
     if(patch.status)q.status=patch.status; // v5.2.3: reflejar normalización en cache
     if(patch.perdidaData)q.perdidaData=patch.perdidaData;
+    if(Object.prototype.hasOwnProperty.call(patch,"proximoContacto"))q.proximoContacto=patch.proximoContacto;
     return true;
   }catch(e){
     console.error("setFollowUp error",e);
@@ -3039,13 +3053,13 @@ async function reactivarPerdida(docId,kind,destino){
   const ahora=new Date().toISOString();
   const reactivadaData={
     fecha:ahora,
-    destinoPrevio:q.perdidaData?.motivoLabel||q.perdidaData?.motivo||"—",
+    destinoPrevio:motivoPerdidaLabel(q.perdidaData)||"—",
     destino,
     usuario:(window.auth?.currentUser?.email||"Luis")
   };
   const notaAuto={
     fecha:ahora,
-    texto:"♻️ Reactivada desde perdida ("+(q.perdidaData?.motivoLabel||"sin motivo")+") → "+(destino==="activa"?"VIVA (activa)":"VIVA"),
+    texto:"♻️ Reactivada desde perdida ("+(motivoPerdidaLabel(q.perdidaData)||"sin motivo")+") → "+(destino==="activa"?"VIVA (activa)":"VIVA"),
     usuario:reactivadaData.usuario
   };
   const notasExistentes=Array.isArray(q.notasSeguimiento)?q.notasSeguimiento:[];
@@ -3203,9 +3217,11 @@ async function initApp(){
     ]);
     refreshCliSel();
     hideLoader();
+    if(typeof iniciarRedisenoR1==="function")iniciarRedisenoR1(); // v8.0.0 T2: con la bandera, arranca en Inicio
     loadAllHistory().then(()=>{
       renderMiniDash();
       if(curMode==="dash")renderDashboard();
+      if(typeof refrescarVistasR1==="function")refrescarVistasR1();
     }).catch(e=>console.warn("initApp dash error",e));
   }catch(e){
     console.error("initApp error",e);
@@ -3252,7 +3268,7 @@ function setMode(m){
   // v7.8.5: agregado 'herr-recetas' (Herramientas > Recetas internas — CRUD Firestore)
   // v7.9.0: agregado 'herr-catalogo' (Herramientas > Catálogo de productos)
   // v7.9.0.1: agregado 'lista-precios' (Ventas > Lista de precios)
-  ["dash","cot","prop","search","hist","seg","cal","ventas","cartera","cartera-historico","cartera-ajustes-log","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","pedidos-hojas","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup","clientes-directorio","clientes-ficha","clientes-comentarios","proveedores-directorio","compras-pendientes","compras-historico","compras-catalogo","herr-recetas","herr-catalogo","herr-auditoria","lista-precios"].forEach(x=>{
+  ["inicio","negocios","ficha","herr-ambiguos","dash","cot","prop","search","hist","seg","cal","ventas","cartera","cartera-historico","cartera-ajustes-log","reportes","cotizaciones","perdidas","pedidos-aprobados","pedidos-produccion","pedidos-producidos","pedidos-hojas","entregar","entregadas","archivo-busqueda","archivo-anuladas","archivo-convertidas","backup","clientes-directorio","clientes-ficha","clientes-comentarios","proveedores-directorio","compras-pendientes","compras-historico","compras-catalogo","herr-recetas","herr-catalogo","herr-auditoria","lista-precios"].forEach(x=>{
     const el=$("mode-"+x);
     if(el)el.classList.toggle("hidden",x!==m);
     document.querySelectorAll(".mode-btn.m-"+x).forEach(b=>b.classList.toggle("act",x===m));
@@ -3265,6 +3281,11 @@ function setMode(m){
 // v7.9.9 F1: despacho de render por modo, extraido de setMode para poder
 // re-renderizar la vista activa tras una accion sin re-togglear visibilidad ni scroll.
 function renderMode(m){
+  if(typeof pintarNavR1==="function")pintarNavR1(m); // v8.0.0 T2: insignias y proyección de negocios al día
+  if(m==="inicio"&&typeof renderInicio==="function")renderInicio();
+  if(m==="negocios"&&typeof renderNegocios==="function")renderNegocios();
+  if(m==="ficha"&&typeof renderFichaNegocio==="function")renderFichaNegocio(); // v8.0.0 T3
+  if(m==="herr-ambiguos"&&typeof renderReporteAmbiguos==="function")renderReporteAmbiguos();
   if(m==="hist")renderHist();
   if(m==="prop")initProp();
   if(m==="cal")renderCalendar();

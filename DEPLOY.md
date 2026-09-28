@@ -2,7 +2,7 @@
 
 Procedimiento operativo para deploy de la app, las rules de Firebase, y los rollbacks correspondientes.
 
-**Mantener este archivo actualizado al cambiar infraestructura.** Última revisión: 2026-09-27 (estado de producción v7.10.1; respaldo previo comprobado en Google Drive en vez de carpetas «Ver»). Anterior: 2026-09-27 (v7.9.36).
+**Mantener este archivo actualizado al cambiar infraestructura.** Última revisión: 2026-09-28 (estado de producción v8.0.0; CI con doce suites). Anterior: 2026-09-27 (v7.10.1; respaldo previo comprobado en Google Drive en vez de carpetas «Ver»).
 
 ---
 
@@ -185,12 +185,14 @@ Si tras hard reload sigue sirviendo versión vieja:
 
 ---
 
-## Estado del deploy actual (al 2026-09-27)
+## Estado del deploy actual (al 2026-09-28)
 
-- **Versión en producción:** v7.10.1 (commit `fc7ec13`, publicada el 2026-09-27): compras con datos fiscales, notas crédito y exporte con Compras, Clientes y Resumen por período. Anterior: v7.10.0 (`4ce8b73`, preparación del Régimen Simple); antes, v7.9.36 (`83d011f`; `976d528` sólo DEPLOY.md).
-- **Régimen Simple apagado:** v7.10.0 y v7.10.1 están en producción pero no se ven ni actúan hasta llenar fecha de inicio, razón social, NIT y DV en `GB_EMISOR` (`app-core.js`). Encenderlo es una versión propia, con revisión.
-- **Rollback de v7.10.1:** `git revert fc7ec13` + push (con la frase en `.git/gb_push_autorizado`); vuelve a v7.10.0. Para volver a v7.9.36, revertir también `4ce8b73`. Sólo frontend: las rules, las functions y `firebase.json` no cambiaron desde v7.9.33. La última comparación de las rules publicadas contra las del repositorio (idénticas) es del 2026-09-22.
-- **CI (`.github/workflows/check.yml`, "pre-deploy check"):** `check.mjs`, ocho suites unitarias (desde v7.10.0 incluye `test_regimen_simple.mjs`, 38 pruebas en v7.10.1), `test_integridad_flujos.mjs` (sobre la fuente real; 188 escenarios) y `check_drift.mjs` (23 comprobaciones, incluida la lista de administradores del cliente frente a `firestore.rules`). En verde en `fc7ec13`, igual que `pages build and deployment`.
+- **Versión en producción:** v8.0.0 (publicada el 2026-09-28): rediseño R1 con Inicio (Pipeline y cinco números), lista única de Negocios, ficha del negocio, pagos con botones de método, estado de cuenta por WhatsApp y PDF, avisos «Por actualizar», unir/separar a mano, «Crear versión nueva» en vez de «Sobrescribir» y PDF sin guardado silencioso. Anteriores: v7.10.2 (`a37aea3`), v7.10.1 (`fc7ec13`), v7.10.0 (`4ce8b73`).
+- **Bandera del rediseño:** `GB_REDISENO_R1=true` en `app-core.js`. Reversión rápida: ponerla en `false` y publicar (con frase): vuelve a las pantallas de v7.10.2 y conserva los arreglos de datos de v8.0 (versión nueva, PDF, próximo contacto, pérdidas) y el ajuste del botón «+».
+- **Régimen Simple apagado:** v7.10.0 y v7.10.1 están en producción pero no se ven ni actúan hasta llenar fecha de inicio, razón social, NIT y DV en `GB_EMISOR` (`app-core.js`). Encenderlo es una versión propia, con revisión. En v8.0 también dependen de él «Por facturar» y «Registrar FE».
+- **Rollback de v8.0.0:** `git revert <commit de v8.0.0>` + push (con la frase en `.git/gb_push_autorizado`); vuelve a v7.10.2. Los campos nuevos (`businessId`, `proximoContacto`, `negocioManual`) son aditivos y v7.10.2 los ignora: no hay migración que revertir. Sólo frontend: las rules, las functions y `firebase.json` no cambiaron desde v7.9.33. La última comparación de las rules publicadas contra las del repositorio (idénticas) es del 2026-09-22.
+- **CI (`.github/workflows/check.yml`, "pre-deploy check"):** `check.mjs`, nueve suites unitarias (desde v8.0.0 incluye `test_negocios.mjs`, 80 pruebas), `test_integridad_flujos.mjs` (sobre la fuente real; 238 escenarios) y `check_drift.mjs` (23 comprobaciones, incluida la lista de administradores del cliente frente a `firestore.rules`).
+- **Backup previo a v8.0.0:** backup diario de Firestore del 2026-09-28 13:47 UTC en estado READY (`firebase firestore:backups:list`).
 - **Remoto:** `https://luisrandrade-collab@github.com/luisrandrade-collab/GB-Ciclo-de-ventas.git`, con la cuenta en la URL. GB publica siempre con `luisrandrade-collab`, nunca con `mihv-admin`.
 - **Push protegido:** gancho local `pre-push` con la frase canónica (ver Pre-requisitos).
 - **Emulador local:** `firebase.json` incluye el bloque `emulators` (auth 9099, firestore 8080, storage 9199, UI 4000). Usar siempre un proyecto `demo-*`, nunca `gourmet-bites-cotizador`.

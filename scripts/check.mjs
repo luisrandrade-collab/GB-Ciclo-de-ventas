@@ -62,6 +62,7 @@ const jsFiles = [
   "app-historial.js",
   "app-seguimiento.js",
   "app-dashboard.js",
+  "app-negocios.js", // v8.0.0
 ];
 for (const f of jsFiles) {
   const p = join(ROOT, f);
@@ -140,6 +141,7 @@ const expected = [
   "app-historial.js",
   "app-seguimiento.js",
   "app-dashboard.js",
+  "app-negocios.js",
   "index.html",
   "firestore.rules",
   "storage.rules",

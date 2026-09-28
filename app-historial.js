@@ -229,7 +229,7 @@ const HIST_SUBFILTERS={
     {k:"competencia",label:"Por competencia"},
     {k:"no_respondio",label:"No respondió"},
     {k:"cambio_planes",label:"Cambio de planes"},
-    {k:"tiempo",label:"Por tiempo"},
+    {k:"tiempo",label:"Fecha no disponible"}, // v8.0.0 D-v8-05: la clave sigue siendo "tiempo"
     {k:"otro",label:"Otro motivo"}
   ],
   anuladas:[
@@ -855,6 +855,7 @@ async function submitMarkAsOrder(){
           eventDate:fechaEntrega,horaEntrega:horaEntrega,
           productionDate:productionDate,produced:produced,
           producedAt:produced?new Date().toISOString():null,
+          proximoContacto:null, // v8.0.0 F5: confirmado ya no se persigue; null para que la fusión no lo resucite
           updatedAt:serverTimestamp()
         };
         if(selloFiscal)Object.assign(patch,selloFiscal); // v7.10.0
@@ -875,6 +876,7 @@ async function submitMarkAsOrder(){
           local.eventDate=fechaEntrega;local.horaEntrega=horaEntrega;
           local.productionDate=productionDate;local.produced=produced;
           local.producedAt=patch.producedAt;
+          local.proximoContacto=null; // v8.0.0 F5
           if(selloFiscal)Object.assign(local,selloFiscal); // v7.10.0
           if(patch.pagos)local.pagos=patch.pagos; // v7.9.13 DAT-02: cache con el array completo (frescos + anticipo)
           if(patch.needsSync)local.needsSync=true;
@@ -1005,7 +1007,7 @@ async function submitApproveProposal(){
         showLoader("Actualizando estado...");
         const {db,doc,getDoc,updateDoc,serverTimestamp}=window.fb;
         const coll=getCollectionName(propId,kind);
-        const patch={status:"aprobada",approvalData:approvalData,updatedAt:serverTimestamp()};
+        const patch={status:"aprobada",approvalData:approvalData,proximoContacto:null,updatedAt:serverTimestamp()}; // v8.0.0 F5: aprobar borra el próximo contacto (null)
         if(selloFiscal)Object.assign(patch,selloFiscal); // v7.10.0
         if(fechaEntrega)patch.eventDate=fechaEntrega;
         if(horaEntrega)patch.horaEntrega=horaEntrega;
@@ -1021,7 +1023,7 @@ async function submitApproveProposal(){
         if(effectiveEventDate&&effectiveEventDate>=hoyIso)patch.needsSync=true;
         await updateDoc(doc(db,coll,propId),patch);
         const local=quotesCache.find(x=>x.id===propId&&x.kind===kind);
-        if(local){local.status="aprobada";local.approvalData=approvalData;if(fechaEntrega)local.eventDate=fechaEntrega;if(horaEntrega)local.horaEntrega=horaEntrega;if(patch.pagos)local.pagos=patch.pagos;if(patch.needsSync)local.needsSync=true} // v7.9.13 DAT-02: cache con array completo
+        if(local){local.status="aprobada";local.approvalData=approvalData;local.proximoContacto=null;if(fechaEntrega)local.eventDate=fechaEntrega;if(horaEntrega)local.horaEntrega=horaEntrega;if(patch.pagos)local.pagos=patch.pagos;if(patch.needsSync)local.needsSync=true} // v7.9.13 DAT-02: cache con array completo
         if(local&&selloFiscal)Object.assign(local,selloFiscal); // v7.10.0
       }
     });
@@ -1165,6 +1167,7 @@ function openPagoModal(docId,kindOrEv,evMaybe){
   $("pm-metodo").value=(typeof METODOS_PAGO!=="undefined"&&METODOS_PAGO.includes(_ultMet))?_ultMet:"";
   $("pm-tipo").value=repoSinPagar&&pend>0?"reposicion_menaje":(cobrado===0?"anticipo":(pend>0?"parcial":"saldo"));
   $("pm-notas").value="";
+  if(typeof pintarChipsMetodoR1==="function")pintarChipsMetodoR1(); // v8.0.0 F6: chips de un toque; el select sigue siendo la fuente
   $("pago-modal").classList.remove("hidden");
 }
 function closePagoModal(){$("pago-modal").classList.add("hidden");pagoSrc=null;pagoFotoBase64=null}
@@ -4383,7 +4386,7 @@ function _calcularPerdidasPorMotivo(docs){
     competencia:"Competencia",
     no_respondio:"No respondió",
     cambio_planes:"Cambio de planes",
-    tiempo:"Tiempo",
+    tiempo:"Fecha no disponible", // v8.0.0 D-v8-05
     otro:"Otro",
     sin_motivo:"Sin motivo registrado"
   };

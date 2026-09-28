@@ -544,6 +544,7 @@ async function renderDashboard(){
   if(range&&inRange){
     _safe(renderTrend6m,"trend-6m"); // v7.0-α D1.5
     _safe(()=>renderReporteConversion(range,inRange),"reporte-conversion");
+    _safe(()=>renderReportePerdidas(range,inRange),"reporte-perdidas"); // v8.0.0 D3: el contenedor existía y nadie lo llenaba
   }
 
   // v5.3.0: Operación urgente (por producir + por entregar en próximos 3 días)
@@ -2790,29 +2791,26 @@ function openPipelineDetail(bucket){
 
 // ═══════════════════════════════════════════════════════════
 // v5.0.4: BANNER DE SEGUIMIENTO COMERCIAL PENDIENTE
-// Rojo claro. Aparece si hay cotizaciones/propuestas vivas con
-// followUp in [pendiente, contactado] y daysSinceUpdate > 7.
+// Rojo claro. Aparece si hay cotizaciones/propuestas vivas por contactar.
+// v8.0.0 F5: la regla es avisoContacto (app-negocios.js), la misma de Seguimiento:
+// próximo contacto vencido, o 7+ días desde el último contacto (no desde la última edición).
 // Tap → cambia a pestaña Seguimiento.
 // ═══════════════════════════════════════════════════════════
 function renderBannerFollowUp(){
   const el=$("dash-banner-follow");
   if(!el)return;
-  if(typeof isFollowable!=="function"||typeof getFollowUp!=="function"||typeof daysSinceUpdate!=="function"){
+  if(typeof isFollowable!=="function"||typeof getFollowUp!=="function"||typeof avisoContacto!=="function"){
     el.classList.add("hidden");el.innerHTML="";return;
   }
-  const urgentes=quotesCache.filter(q=>{
-    if(!isFollowable(q))return false;
-    const fu=getFollowUp(q);
-    if(fu!=="pendiente"&&fu!=="contactado")return false;
-    return daysSinceUpdate(q)>=7;
-  });
+  const hoy=gbTodayIso();
+  const urgentes=quotesCache.map(q=>({q,a:avisoContacto(q,hoy)})).filter(x=>x.a);
   if(!urgentes.length){el.classList.add("hidden");el.innerHTML="";return}
-  urgentes.sort((a,b)=>daysSinceUpdate(b)-daysSinceUpdate(a));
-  const primeros=urgentes.slice(0,3).map(q=>(q.client||"—")+" ("+daysSinceUpdate(q)+"d)").join(" · ");
+  urgentes.sort((x,y)=>diasSinContacto(y.q)-diasSinContacto(x.q));
+  const primeros=urgentes.slice(0,3).map(({q,a})=>h(q.client||"—")+" ("+(a.tipo==="sin_contacto"?a.dias+"d":"contactar")+")").join(" · ");
   const mas=urgentes.length>3?" · +"+(urgentes.length-3)+" más":"";
   el.classList.remove("hidden");
   el.innerHTML='<div class="dbf-ic">📞</div>'+
-    '<div class="dbf-txt"><strong>'+urgentes.length+' cotizacion'+(urgentes.length!==1?'es':'')+' sin seguimiento hace más de 7 días</strong><br><span style="font-size:11px;opacity:.85">'+primeros+mas+'</span></div>'+
+    '<div class="dbf-txt"><strong>'+urgentes.length+' cotizacion'+(urgentes.length!==1?'es':'')+' por contactar</strong> (próximo contacto vencido o 7+ días sin contacto)<br><span style="font-size:11px;opacity:.85">'+primeros+mas+'</span></div>'+
     '<button onclick="setMode(\'seg\')">Ver seguimiento</button>';
 }
 
@@ -2921,7 +2919,7 @@ function renderReportePerdidas(range,inRange){
     competencia:"Competencia",
     no_respondio:"No respondió",
     cambio_planes:"Cambio de planes",
-    tiempo:"Tiempo",
+    tiempo:"Fecha no disponible", // v8.0.0 D-v8-05: la clave sigue siendo "tiempo"
     otro:"Otro",
     sin_motivo:"Sin motivo registrado"
   };

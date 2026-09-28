@@ -10,7 +10,7 @@
 <link rel="icon" type="image/png" href="brand/cuchillo-negro.png">
 <link rel="apple-touch-icon" href="brand/cuchillo-negro.png">
 <title>Gourmet Bites - Cotizador</title>
-<link rel="stylesheet" href="gb-tokens.css?v=7.10.2"><!-- v7.9.13 INF-05: cache-buster CSS -->
+<link rel="stylesheet" href="gb-tokens.css?v=8.0.0"><!-- v7.9.13 INF-05: cache-buster CSS -->
 <!-- VERSION: 2026-04-26-v7.0.0-α-cascaron-v7-dashboard-rediseñado-fsm-pedido-vs-produccion -->
 <!--
   v6.3.0 (2026-04-24) — Robustez técnica + higiene (Entrega 3 del roadmap).
@@ -1749,6 +1749,89 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   .cloud-ind { top: 56px !important; }
 }
 </style>
+<!-- v8.0.0 T2 · Inicio y Negocios (sólo se usan con GB_REDISENO_R1; celular primero, 375 px) -->
+<style id="r1-estilos">
+.r1-pantalla{max-width:1100px;margin:0 auto;padding:12px 16px 24px;box-sizing:border-box;font-family:var(--gb-font-body)}
+.r1-cab{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.r1-titulo{font-family:var(--gb-font-display);font-size:22px;margin:0;color:var(--gb-text)}
+.r1-sub{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:var(--gb-text-muted);margin:14px 0 6px}
+.r1-chips{display:flex;gap:6px;overflow-x:auto;padding:2px 0 6px;-webkit-overflow-scrolling:touch}
+.r1-chip{flex:0 0 auto;border:1px solid var(--gb-border-strong);background:var(--gb-surface);color:var(--gb-text);border-radius:999px;padding:7px 12px;font:600 13px var(--gb-font-body);cursor:pointer;min-height:36px}
+.r1-chip[aria-pressed="true"]{background:var(--gb-text);color:var(--gb-surface);border-color:var(--gb-text)}
+.r1-chip-n{font-weight:400;opacity:.75}
+.r1-cuadros{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.r1-cuadros.r1-tres{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.r1-cuadro{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;border:1px solid var(--gb-border);border-radius:10px;background:var(--gb-surface);padding:10px 12px;cursor:pointer;font-family:var(--gb-font-body);color:var(--gb-text);min-height:44px}
+.r1-cuadro-pipe{border-left:4px solid var(--gb-gold-500)}
+.r1-cuadro-lab{font-size:12px;font-weight:700;color:var(--gb-text-muted)}
+.r1-cuadro-val{font-size:20px;font-weight:700;overflow-wrap:anywhere}
+.r1-cuadro-n{font-size:12px}
+.r1-cuadro-que{font-size:11px;color:var(--gb-text-muted);line-height:1.3}
+.r1-franja{margin:14px 0 10px;border:1px solid #FFB74D;background:#FFF8E1;border-radius:10px;padding:8px 12px;font-size:13px}
+.r1-franja summary{font-weight:700;cursor:pointer;min-height:28px;line-height:28px}
+.r1-franja-ok{border-color:var(--gb-border);background:var(--gb-surface-alt);color:var(--gb-text-muted)}
+.r1-avisos{list-style:none;margin:6px 0 0;padding:0}
+.r1-aviso{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px solid #FFE0B2}
+.r1-aviso-txt{flex:1 1 180px;min-width:0;overflow-wrap:anywhere}
+.r1-insignia{display:inline-block;min-width:18px;padding:0 6px;border-radius:999px;background:var(--gb-danger-500);color:#fff;font-size:11px;font-weight:700;line-height:18px;text-align:center}
+.r1-insignia[hidden]{display:none}
+.r1-buscar{width:100%;box-sizing:border-box;border:1px solid var(--gb-border-strong);border-radius:10px;padding:10px 12px;font:15px var(--gb-font-body);margin:6px 0 8px}
+.r1-resumen{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;background:var(--gb-gold-50);border-radius:10px;padding:8px 12px;margin:4px 0 8px;font-size:13px}
+.r1-lista{display:flex;flex-direction:column;gap:8px}
+.r1-fila{border:1px solid var(--gb-border);border-radius:10px;background:var(--gb-surface);padding:10px 12px;font-size:13px;overflow-wrap:anywhere}
+.r1-incompleta{border-style:dashed}
+.r1-cli strong{font-size:15px}
+.r1-meta,.r1-montos{color:var(--gb-text-muted);margin-top:2px}
+.r1-suma{color:var(--gb-text);font-weight:700}
+.r1-etapa{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:1px 8px;background:var(--gb-surface-alt);color:var(--gb-text)}
+.r1-etapa-perdida,.r1-etapa-anulada{background:var(--gb-danger-50);color:var(--gb-danger-600)}
+.r1-etapa-por_cobrar{background:#FFF3E0;color:#E65100}
+.r1-etapa-cerrado{background:#E8F5E9;color:#1B5E20}
+.r1-marca{font-size:11px;color:var(--gb-danger-600);font-weight:700}
+.r1-accion{margin-top:8px}
+.r1-btn{border:none;border-radius:8px;background:var(--gb-text);color:var(--gb-surface);font:700 13px var(--gb-font-body);padding:9px 14px;min-height:40px;cursor:pointer}
+.r1-btn-sec{background:var(--gb-surface);color:var(--gb-text);border:1px solid var(--gb-border-strong)}
+.r1-accion .r1-btn,.r1-mas{width:100%}
+.r1-mas{margin-top:10px}
+.r1-vacio{padding:16px;text-align:center;color:var(--gb-text-muted)}
+@media (min-width:1024px){.r1-accion .r1-btn{width:auto}.r1-cuadro-val{font-size:22px}}
+/* v8.0.0 T3 · ficha del negocio, reporte, unir/separar y chips de método */
+.r1-ficha-etapa{margin:4px 0}
+.r1-ficha-nums{font-size:12px;color:var(--gb-text-muted);margin:2px 0 6px;overflow-wrap:anywhere}
+.r1-ficha-pc{font-size:13px;background:var(--gb-gold-50);border-radius:8px;padding:6px 10px;margin:6px 0;overflow-wrap:anywhere}
+.r1-ficha-dinero{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:10px 0}
+.r1-ficha-dinero-fila{display:flex;flex-direction:column;gap:2px;border:1px solid var(--gb-border);border-radius:10px;background:var(--gb-surface);padding:8px 12px;font-size:12px;color:var(--gb-text-muted)}
+.r1-ficha-dinero-fila strong{font-size:20px;color:var(--gb-text);overflow-wrap:anywhere}
+.r1-ficha-dinero-fila[data-concepto="saldo"] strong{color:#E65100}
+.r1-ficha-dinero-fila[data-concepto="a_favor"] strong{color:#1B5E20}
+.r1-ficha-botones{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.r1-ficha-sec{margin-top:12px;font-size:13px;overflow-wrap:anywhere}
+.r1-ficha-sec ul,.r1-docs{list-style:none;margin:4px 0 0;padding:0}
+.r1-ficha-sec li,.r1-docs li{padding:6px 0;border-top:1px solid var(--gb-border)}
+.r1-ficha-manual{margin:8px 0;padding:8px 10px;border-radius:8px;background:var(--gb-surface-alt)}
+.r1-hist-f{color:var(--gb-text-muted);font-size:12px}
+.r1-link{border:none;background:none;padding:0;color:var(--gb-text);text-decoration:underline;font:inherit;cursor:pointer;text-align:left}
+.r1-fila[data-r1]{cursor:pointer}
+.r1-unir{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;background:#E3F2FD;border-radius:10px;padding:8px 12px;margin:6px 0;font-size:13px}
+.r1-chips-metodo{flex-wrap:wrap}
+.r1-motivo{width:100%;box-sizing:border-box;min-height:70px;margin-top:4px;border:1px solid var(--gb-border-strong);border-radius:8px;padding:8px;font:14px var(--gb-font-body)}
+.r1-motivo-lbl{display:block;margin-top:10px;font-weight:700;font-size:12px}
+.r1-alerta{color:var(--gb-danger-600)}
+.gb-shell-sidebar__nav .sb-submenu a[hidden]{display:none}
+</style>
+
+<!-- v8.0.0 T2 · Barra inferior (D-v8-02): sólo bajo 1024 px y con GB_REDISENO_R1. Bloque aislado: este estilo, el nav#r1-barra y pintarNavR1/_r1NavClick en app-negocios.js; quitarla no toca nada más. -->
+<style id="r1-barra-estilos">
+.r1-barra{position:fixed;left:0;right:0;bottom:0;z-index:150;display:flex;background:var(--gb-surface);border-top:1px solid var(--gb-border);padding-bottom:env(safe-area-inset-bottom,0);box-shadow:0 -2px 10px rgba(0,0,0,.06)}
+.r1-barra[hidden]{display:none!important}
+.r1-barra button{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;height:56px;border:none;background:transparent;color:var(--gb-text-muted);font:600 11px var(--gb-font-body);cursor:pointer;position:relative}
+.r1-barra button.is-active{color:var(--gb-text)}
+.r1-barra .r1-barra-ic{font-size:20px;line-height:1}
+.r1-barra .r1-insignia{position:absolute;top:4px;left:calc(50% + 6px)}
+/* Debajo de ventanas (300), cargador, cajón y barra del carrito (200); el botón Crear sube por encima de la barra. */
+@media (max-width:1023px){body.r1-con-barra{padding-bottom:calc(64px + env(safe-area-inset-bottom,0))}body.r1-con-barra .m-fab{bottom:calc(76px + env(safe-area-inset-bottom,0))}}
+@media (min-width:1024px){.r1-barra{display:none!important}}
+</style>
 </head>
 <body>
 
@@ -1760,6 +1843,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   </div>
   <!-- v7.0-α · Bloque D5 · Reagrupación por proceso de negocio (wireframe 01c-mapa-modulos) -->
   <nav class="gb-shell-sidebar__nav">
+    <div id="r1-menu" hidden></div><!-- v8.0.0 T2: Inicio y Negocios (los pinta iniciarRedisenoR1 con la bandera) -->
 
     <div class="sb-section-label">Tu día</div>
     <div class="sb-module" data-mod="inicio">
@@ -1865,6 +1949,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
         <a href="javascript:void(0)" data-sub="herr/catalogo-productos">Catálogo de productos</a>
         <a href="javascript:void(0)" data-sub="herr/recetas">Recetas internas</a>
         <a href="javascript:void(0)" data-sub="herr/auditoria">Auditoría</a>
+        <a href="javascript:void(0)" data-sub="herr/negocios-ambiguos" hidden>Negocios ambiguos</a><!-- v8.0.0 T3: la muestra iniciarRedisenoR1 -->
         <a href="javascript:void(0)" data-sub="herr/backup">Mantenimiento y backups</a>
         <a href="javascript:void(0)" class="is-soon" data-sub="herr/configuracion">Configuración<span class="sub-soon">Pronto</span></a>
       </div>
@@ -1928,7 +2013,8 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'herr/backup':          'backup',
     'herr/recetas':         'herr-recetas',
     'herr/catalogo-productos': 'herr-catalogo',
-    'herr/auditoria':       'herr-auditoria'
+    'herr/auditoria':       'herr-auditoria',
+    'herr/negocios-ambiguos': 'herr-ambiguos'
     // Pipeline, ops/despacho, ops/historico-hojas, compras/*, clientes/*, herr/* → undefined → SOON
   };
 
@@ -1969,7 +2055,8 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'backup':               'herr/backup',
     'herr-recetas':         'herr/recetas',
     'herr-catalogo':        'herr/catalogo-productos',
-    'herr-auditoria':       'herr/auditoria'
+    'herr-auditoria':       'herr/auditoria',
+    'herr-ambiguos':        'herr/negocios-ambiguos'
   };
 
   // Labels para el crumb (D7 amplía esto a módulo+submódulo)
@@ -2006,7 +2093,20 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'herr/recetas':         ['Herramientas', 'Recetas internas'],
     'herr/catalogo-productos': ['Herramientas', 'Catálogo de productos'],
     'herr/auditoria':       ['Herramientas', 'Auditoría'],
+    'herr/negocios-ambiguos': ['Herramientas', 'Negocios ambiguos'],
     'ventas/lista-precios':    ['Cotizaciones', 'Lista de precios']
+  };
+  // v8.0.0 T4: vistas del rediseño sin submódulo del menú viejo (sólo existen con GB_REDISENO_R1); sin módulo = sólo el título
+  var R1_LABELS = {
+    'inicio':   ['Inicio'],
+    'negocios': ['Negocios'],
+    'ficha':    ['Negocios', 'Negocio']
+  };
+  // v8.0.0 T4b: con GB_REDISENO_R1 el módulo viejo «Inicio» se llama «Tablero» en el menú (iniciarRedisenoR1); el encabezado dice lo mismo
+  var R1_SUB_LABELS = {
+    'inicio/dashboard': ['Tablero', 'Tablero anterior'],
+    'inicio/tareas':    ['Tablero', 'Tareas y follow-ups'],
+    'inicio/agenda':    ['Tablero', 'Agenda']
   };
 
   function gbShellEnsureCrumb(){
@@ -2024,8 +2124,11 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     var c = gbShellEnsureCrumb();
     if (!c) return;
     var sub = LEGACY_TO_SUB[legacyMode];
-    var lbl = sub && SUB_LABELS[sub];
-    if (lbl) {
+    var r1 = typeof GB_REDISENO_R1 !== 'undefined' && GB_REDISENO_R1;
+    var lbl = sub ? ((r1 && R1_SUB_LABELS[sub]) || SUB_LABELS[sub]) : R1_LABELS[legacyMode];
+    if (lbl && lbl.length === 1) {
+      c.innerHTML = '<span class="crumb-current">' + lbl[0] + '</span>';
+    } else if (lbl) {
       // D7 — estructura módulo · separador · submódulo (jerarquía visual)
       c.innerHTML = '<span class="crumb-mod">' + lbl[0] + '</span>' +
                     '<span class="crumb-sep">·</span>' +
@@ -2291,6 +2394,13 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
      (display:none !important desde B2/UX-06) y duplicaba la navegación de la
      sidebar por proceso. Único sistema de nav = sidebar. 'hist' queda cubierto
      por el módulo Archivo (Buscar todo / Anuladas / Convertidas). -->
+
+<!-- v8.0.0 T2 · Inicio y Negocios (app-negocios.js, con GB_REDISENO_R1) -->
+<div id="mode-inicio" class="hidden"></div>
+<div id="mode-negocios" class="hidden"></div>
+<!-- v8.0.0 T3 · ficha del negocio y reporte de ambiguos (app-negocios.js, con GB_REDISENO_R1) -->
+<div id="mode-ficha" class="hidden"></div>
+<div id="mode-herr-ambiguos" class="hidden"></div>
 
 <!-- ======== DASHBOARD MODE · v5.2.0 rediseñado ======== -->
 <div id="mode-dash">
@@ -3499,7 +3609,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       </div>
       <div class="mf-row">
         <div class="mf-field"><label>Monto *</label><input type="number" id="pm-monto" placeholder="0" inputmode="numeric"></div>
-        <div class="mf-field"><label>Método *</label><select id="pm-metodo"><option value="">— Selecciona —</option><option value="Efectivo">Efectivo</option><option value="Nequi">Nequi</option><option value="Daviplata">Daviplata</option><option value="Banco Falabella">Banco Falabella</option><option value="Transferencia">Otra transferencia</option><option value="Tarjeta">Tarjeta</option><option value="Pasarela">Pasarela de pago</option><option value="Otro">Otro</option></select></div>
+        <div class="mf-field"><label>Método *</label><select id="pm-metodo"><option value="">— Selecciona —</option><option value="Efectivo">Efectivo</option><option value="Nequi">Nequi</option><option value="Daviplata">Daviplata</option><option value="Banco Falabella">Banco Falabella</option><option value="Transferencia">Otra transferencia</option><option value="Tarjeta">Tarjeta</option><option value="Pasarela">Pasarela de pago</option><option value="Otro">Otro</option></select><div id="pm-metodo-chips" class="r1-chips r1-chips-metodo" role="group" aria-label="Método de pago" hidden></div></div>
       </div>
       <div class="mf-field">
         <label>Foto del comprobante (opcional — cámara o galería)</label>
@@ -3947,6 +4057,34 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
 </div>
 
 
+<!-- v8.0.0 F5: al marcar Contactado o Activa en Seguimiento, próximo contacto opcional (fecha y nota) -->
+<div id="proximo-contacto-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeProximoContactoModal()">
+  <div class="modal-box">
+    <div class="modal-head">
+      <span class="mtitle" id="pc-titulo">Marcar</span>
+      <button class="mclose" onclick="closeProximoContactoModal()">×</button>
+    </div>
+    <div class="mform">
+      <div style="background:#F5F7FA;border-left:3px solid #0B6EFB;padding:10px 12px;border-radius:6px;font-size:12px;margin-bottom:14px">
+        <strong id="pc-doc-id">—</strong> · <span id="pc-doc-cli">—</span>
+      </div>
+      <div class="fld">
+        <label class="flbl">Próximo contacto (opcional)</label>
+        <input type="date" class="fin" id="pc-fecha">
+      </div>
+      <div class="fld">
+        <label class="flbl">Nota (opcional)</label>
+        <input type="text" class="fin" id="pc-nota" maxlength="140" placeholder="Qué hay que hablar con el cliente">
+      </div>
+      <div id="pc-ayuda" style="font-size:11px;color:#777;margin-top:6px">Sin fecha, se marca y la cotización queda sin próximo contacto; el aviso vuelve a los 7 días sin contacto.</div>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button class="btn" style="background:#ECEFF1;color:#455A64;flex:1" onclick="closeProximoContactoModal()">Cancelar</button>
+        <button class="btn" style="background:linear-gradient(135deg,#0B6EFB,#0046C2);color:#fff;flex:2" id="pc-submit" onclick="submitProximoContacto()">Marcar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- v5.0.4: Modal de marcar como perdida (con motivo) -->
 <div id="perdida-modal" class="modal-overlay hidden" onclick="if(event.target===this)closePerdidaModal()">
   <div class="modal-box">
@@ -3967,7 +4105,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
           <option value="competencia">Competencia — el cliente escogió otro proveedor</option>
           <option value="no_respondio">No respondió — cliente dejó de contestar</option>
           <option value="cambio_planes">Cambio de planes — cliente canceló el evento</option>
-          <option value="tiempo">Tiempo — cliente necesitaba más rápido de lo que ofrecemos</option>
+          <option value="tiempo">Fecha no disponible — no podíamos en la fecha que el cliente necesitaba</option>
           <option value="otro">Otro (escribe abajo)</option>
         </select>
       </div>
@@ -4198,7 +4336,8 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
 
 <!-- D6: FAB Crear + bottom-sheet (móvil + desktop, siempre visible) -->
 <style id="gb-shell-v7-fab">
-.m-fab{position:fixed;right:20px;bottom:20px;width:56px;height:56px;background:var(--gb-primary-700,#3a43ad);color:#fff;border:none;border-radius:50%;box-shadow:0 8px 20px rgba(72,83,212,.35),0 2px 4px rgba(72,83,212,.25);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;z-index:1400;transition:transform .15s ease,box-shadow .15s ease;padding:0}
+/* v8.0.0 T4: z-index 250 (antes 1400): encima de la barra de cotizar (200) y de la inferior de R1 (150), debajo de todo modal u hoja (≥299) */
+.m-fab{position:fixed;right:20px;bottom:20px;width:56px;height:56px;background:var(--gb-primary-700,#3a43ad);color:#fff;border:none;border-radius:50%;box-shadow:0 8px 20px rgba(72,83,212,.35),0 2px 4px rgba(72,83,212,.25);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;z-index:250;transition:transform .15s ease,box-shadow .15s ease;padding:0}
 /* D6: FAB solo en móvil. Desktop usará botón "Crear" en sidebar (v7.1). */
 @media (min-width:1024px){.m-fab,.sheet,.sheet-backdrop{display:none!important}}
 .m-fab:hover{transform:scale(1.04);box-shadow:0 10px 24px rgba(72,83,212,.42),0 3px 6px rgba(72,83,212,.3)}
@@ -4708,12 +4847,21 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js" integrity="sha384-OUW9euuUyxyHcAhTqbhI+Iyb8LMssXt/cpz0yXhs9UWG2/R/uaWdakx/4cfww7Vb" crossorigin="anonymous"></script><!-- v7.9.13 SEC-12: SRI -->
-<script src="app-assets.js?v=7.10.2"></script>
-<script src="app-core.js?v=7.10.2"></script>
-<script src="app-cotizar.js?v=7.10.2"></script>
-<script src="app-propuesta.js?v=7.10.2"></script>
-<script src="app-historial.js?v=7.10.2"></script>
-<script src="app-seguimiento.js?v=7.10.2"></script>
-<script src="app-dashboard.js?v=7.10.2"></script>
+<!-- v8.0.0 T2 · Barra inferior (ver style#r1-barra-estilos) -->
+<nav id="r1-barra" class="r1-barra" hidden aria-label="Navegación rápida">
+  <button type="button" data-r1-ir="inicio"><span class="r1-barra-ic">🏠</span>Inicio<span id="r1-insignia-barra" class="r1-insignia" hidden></span></button>
+  <button type="button" data-r1-ir="negocios"><span class="r1-barra-ic">📋</span>Negocios</button>
+  <button type="button" data-r1-ir="imprimir"><span class="r1-barra-ic">🖨️</span>Imprimir</button>
+  <button type="button" data-r1-ir="clientes"><span class="r1-barra-ic">👥</span>Clientes</button>
+  <button type="button" data-r1-ir="mas"><span class="r1-barra-ic">☰</span>Más</button>
+</nav>
+<script src="app-assets.js?v=8.0.0"></script>
+<script src="app-core.js?v=8.0.0"></script>
+<script src="app-cotizar.js?v=8.0.0"></script>
+<script src="app-propuesta.js?v=8.0.0"></script>
+<script src="app-historial.js?v=8.0.0"></script>
+<script src="app-seguimiento.js?v=8.0.0"></script>
+<script src="app-dashboard.js?v=8.0.0"></script>
+<script src="app-negocios.js?v=8.0.0"></script>
 </body>
 </html>

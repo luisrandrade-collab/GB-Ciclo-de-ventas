@@ -20,29 +20,30 @@ function renderSeguimiento(){
   const allFoll=(quotesCache||[]).filter(q=>isFollowable(q));
   // Clasificar
   const buckets={pendiente:[],contactado:[],activa:[],alertas:[]};
+  const hoy=gbTodayIso();
   allFoll.forEach(q=>{
     const fu=getFollowUp(q);
     if(fu==="perdida")return; // perdidas no se muestran aquí, van al filtro "Perdidas" del historial
     if(!buckets[fu])buckets[fu]=[];
     buckets[fu].push(q);
-    if((fu==="pendiente"||fu==="contactado")&&daysSinceUpdate(q)>=7)buckets.alertas.push(q);
+    if(avisoContacto(q,hoy))buckets.alertas.push(q); // v8.0.0 F5: la misma regla que el banner del Dashboard
   });
-  // Ordenar cada grupo: más días sin actualizar primero (los urgentes arriba)
+  // Ordenar cada grupo: más días sin contacto primero (los urgentes arriba)
   Object.keys(buckets).forEach(k=>{
-    buckets[k].sort((a,b)=>daysSinceUpdate(b)-daysSinceUpdate(a));
+    buckets[k].sort((a,b)=>diasSinContacto(b)-diasSinContacto(a));
   });
   // Filter bar
   const mkF=(k,label,n)=>'<button class="seg-filter '+(segFilter===k?"act":"")+'" onclick="setSegFilter('+jsArg(k)+')">'+label+' <span class="cnt">'+n+'</span></button>';
   bar.innerHTML=
     mkF("todos","Todos",allFoll.filter(q=>getFollowUp(q)!=="perdida").length)+
-    mkF("alertas","⚠️ Alertas >7d",buckets.alertas.length)+
+    mkF("alertas","⚠️ Por contactar",buckets.alertas.length)+
     mkF("pendiente","⏳ Pendientes",buckets.pendiente.length)+
     mkF("contactado","💬 Contactados",buckets.contactado.length)+
     mkF("activa","✅ Activas",buckets.activa.length);
   // Lista según filtro
   if(segFilter==="alertas"){
     if(!buckets.alertas.length){list.innerHTML=emptyState("sin_alertas");return}
-    list.innerHTML=renderSegGroup("alertas",buckets.alertas,"⚠️ Alertas — Más de 7 días sin seguimiento");
+    list.innerHTML=renderSegGroup("alertas",buckets.alertas,"⚠️ Por contactar — próximo contacto vencido o 7+ días sin contacto");
     return;
   }
   if(segFilter!=="todos"){
@@ -80,22 +81,15 @@ function renderSegGroup(kind,docs,customTitle){
 
 // Render de una tarjeta individual
 function renderSegCard(q){
-  const dias=daysSinceUpdate(q);
-  const alert=dias>=7;
+  const dias=diasSinContacto(q); // v8.0.0 F5: desde el último contacto, no desde la última edición
+  const aviso=avisoContacto(q,gbTodayIso());
+  const alert=!!aviso;
   const cls="seg-card"+(alert?" alert":"");
   const total=q.total||0;
   const qNum=q.quoteNumber||q.id;
   const tipo=q.kind==="quote"?"Cotización":"Propuesta";
-  // Productos resumen: primeros 3 items
-  let prodResumen="";
-  if(q.kind==="quote"&&Array.isArray(q.items)){
-    prodResumen=q.items.slice(0,3).map(it=>(it.name||"")+(it.qty?" ×"+it.qty:"")).filter(Boolean).join(", ");
-    if(q.items.length>3)prodResumen+="...";
-  }else if(q.kind==="proposal"&&Array.isArray(q.sections)){
-    const secs=q.sections.map(s=>s.title||"").filter(Boolean).slice(0,2);
-    prodResumen=secs.join(" · ");
-    if(q.sections.length>2)prodResumen+=" · +"+(q.sections.length-2)+" más";
-  }
+  // Productos resumen (v8.0.0 T3: función compartida con la ficha del negocio, escapada)
+  let prodResumen=h(resumenProductos(q));
   if(!prodResumen)prodResumen='<span style="color:#999">Sin descripción</span>';
   // Datos de contacto
   // v5.4.4 BUG-011 fix: los docs reales guardan tel/mail en q.tel y q.mail (ver app-cotizar.js y app-propuesta.js).
@@ -125,6 +119,9 @@ function renderSegCard(q){
     notaHtml='<div class="seg-card-nota"><span class="scn-date">📝 '+fNota+'</span>'+
       h(ultima.texto||"")+'</div>';
   }
+  // v8.0.0 F5: próximo contacto (fecha y nota), resaltado si ya toca.
+  const pc=q.proximoContacto;
+  if(pc&&pc.fecha)notaHtml+='<div class="seg-card-nota"><span class="scn-date">📅 '+(aviso&&aviso.tipo==="proximo_contacto"?"Contactar ya · ":"Próximo contacto · ")+h(pc.fecha)+'</span>'+h(pc.nota||"")+'</div>';
   const nContacto=cel||"";
   return '<div class="'+cls+'" data-id="'+q.id+'" data-kind="'+q.kind+'">'+
     '<div class="seg-card-top">'+
@@ -154,7 +151,7 @@ function renderSegCard(q){
 function emptyState(kind){
   const msgs={
     vacio:{ic:"🎉",title:"Todo al día",sub:"No hay cotizaciones ni propuestas vigentes en seguimiento."},
-    sin_alertas:{ic:"✅",title:"Sin alertas",sub:"Nada lleva más de 7 días sin seguimiento. Buen trabajo."},
+    sin_alertas:{ic:"✅",title:"Sin alertas",sub:"Nadie por contactar: ningún próximo contacto vencido ni 7+ días sin contacto. Buen trabajo."},
     pendiente:{ic:"⏳",title:"Nada pendiente",sub:"No hay cotizaciones esperando primer contacto."},
     contactado:{ic:"💬",title:"Sin contactados",sub:"Nadie en espera de respuesta."},
     activa:{ic:"✅",title:"Sin activas",sub:"No hay negociaciones en curso."}
@@ -163,11 +160,34 @@ function emptyState(kind){
   return '<div class="seg-empty"><span class="se-ic">'+m.ic+'</span><strong>'+m.title+'</strong><br><span style="font-size:12px">'+m.sub+'</span></div>';
 }
 
+// v8.0.0 T3: resumen de lo que lleva (primeros 3 productos o 2 secciones), texto plano: quien lo pinta lo escapa.
+// Lee los campos reales (cart/cust {n,qty} de la cotización y sections {name} de la propuesta); antes leía items y
+// title, que no existen en esos documentos, y la tarjeta siempre decía «Sin descripción». items/title quedan para viejos.
+function resumenProductos(q){
+  if(q.kind==="quote"){
+    const nuevos=[...(Array.isArray(q.cart)?q.cart:[]),...(Array.isArray(q.cust)?q.cust:[])];
+    const lista=nuevos.length?nuevos:Array.isArray(q.items)?q.items:[];
+    const txt=lista.slice(0,3).map(it=>(it&&(it.n||it.name)||"")+(it&&it.qty?" ×"+it.qty:"")).filter(Boolean).join(", ");
+    return txt&&lista.length>3?txt+"...":txt;
+  }
+  if(q.kind==="proposal"&&Array.isArray(q.sections)){
+    const secs=q.sections.map(s=>s&&(s.name||s.title)||"").filter(Boolean);
+    return secs.slice(0,2).join(" · ")+(secs.length>2?" · +"+(secs.length-2)+" más":"");
+  }
+  return "";
+}
+
 // ─── ACCIONES RÁPIDAS ──────────────────────────────────────
+// v8.0.0 F5: Contactado y Activa abren una ventana corta para dejar (opcional) el próximo contacto;
+// se escribe con la misma marca. Sin fecha, la marca deja el documento sin próximo contacto.
 async function markFollowUp(docId,kind,estado){
   if(typeof setFollowUp!=="function"){alert("Función no disponible");return}
+  if((estado==="contactado"||estado==="activa")&&$("proximo-contacto-modal")){openProximoContactoModal(docId,kind,estado);return}
+  await _marcarSeguimiento(docId,kind,estado);
+}
+async function _marcarSeguimiento(docId,kind,estado,extra){
   if(typeof showLoader==="function")showLoader("Actualizando...");
-  const ok=await setFollowUp(docId,kind,estado);
+  const ok=await setFollowUp(docId,kind,estado,extra);
   if(typeof hideLoader==="function")hideLoader();
   if(ok){
     const meta=FOLLOW_UP_META[estado];
@@ -181,6 +201,44 @@ async function markFollowUp(docId,kind,estado){
 function setSegFilter(k){
   segFilter=k;
   renderSeguimiento();
+}
+
+// ─── v8.0.0 F5 · MODAL "PRÓXIMO CONTACTO" ─────────────────
+let _proxContactoCtx=null;
+
+function openProximoContactoModal(docId,kind,estado){
+  const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
+  if(!q){alert("No se encontró el documento");return}
+  _proxContactoCtx={docId,kind,estado};
+  // v8.0.0 T3: sin estado (botón «Próximo contacto» de la ficha) sólo se guarda el próximo contacto, sin marcar.
+  const meta=estado?FOLLOW_UP_META[estado]:null;
+  $("pc-titulo").textContent=meta?meta.emoji+" Marcar como "+meta.label.toLowerCase():"📅 Próximo contacto";
+  $("pc-submit").textContent=meta?"Marcar":"Guardar";
+  $("pc-ayuda").textContent=meta?"Sin fecha, se marca y la cotización queda sin próximo contacto; el aviso vuelve a los 7 días sin contacto.":"Sin fecha, la cotización queda sin próximo contacto.";
+  $("pc-doc-id").textContent=q.quoteNumber||q.id;
+  $("pc-doc-cli").textContent=q.client||"—";
+  // Se propone el próximo contacto que sigue pendiente; uno vencido ya se cumplió con este contacto.
+  const pc=q.proximoContacto,vigente=!!(pc&&pc.fecha&&pc.fecha>gbTodayIso());
+  $("pc-fecha").value=vigente?pc.fecha:"";
+  $("pc-nota").value=vigente?(pc.nota||""):"";
+  $("proximo-contacto-modal").classList.remove("hidden");
+}
+
+function closeProximoContactoModal(){
+  $("proximo-contacto-modal").classList.add("hidden");
+  _proxContactoCtx=null;
+}
+
+async function submitProximoContacto(){
+  if(!_proxContactoCtx){alert("Contexto perdido");return}
+  const {docId,kind,estado}=_proxContactoCtx;
+  const fecha=$("pc-fecha").value;
+  if(fecha&&!/^\d{4}-\d{2}-\d{2}$/.test(fecha)){alert("Fecha inválida");return}
+  const nota=$("pc-nota").value.trim().slice(0,140);
+  const proximoContacto=fecha?{fecha,nota,usuario:(currentUser&&(currentUser.email||currentUser.displayName))||"",at:new Date().toISOString()}:null;
+  closeProximoContactoModal();
+  if(!estado){await guardarProximoContacto(docId,kind,proximoContacto);return} // v8.0.0 T3: desde la ficha
+  await _marcarSeguimiento(docId,kind,estado,{proximoContacto});
 }
 
 // ─── MODAL "MARCAR PERDIDA" ────────────────────────────────
@@ -277,7 +335,7 @@ function openReactivarModal(docId,kind,ev){
   if(!q){alert("No se encontró el documento");return}
   if(typeof isPerdida==="function"&&!isPerdida(q)){alert("Este documento no está marcado como perdida");return}
   _reactivarCtx={docId,kind,q};
-  const motivoPrev=q.perdidaData?.motivoLabel||q.perdidaData?.motivo||"sin motivo";
+  const motivoPrev=motivoPerdidaLabel(q.perdidaData)||"sin motivo"; // v8.0.0 D-v8-05
   $("rv-doc-id").textContent=q.quoteNumber||q.id;
   $("rv-doc-cli").textContent=q.client||"—";
   $("rv-doc-meta").textContent=(q.kind==="quote"?"Cotización":"Propuesta")+" · Total: "+fm(q.total||0)+" · Perdida por: "+motivoPrev;
@@ -361,7 +419,7 @@ function fillWaPlaceholders(texto,q){
   const total=(typeof fm==="function")?fm(q.total||0):String(q.total||0);
   const fecha=q.eventDate||"—";
   const hora=q.horaEntrega||"—";
-  const dias=(typeof daysSinceUpdate==="function")?daysSinceUpdate(q):"";
+  const dias=(typeof diasSinContacto==="function")?diasSinContacto(q):""; // v8.0.0 F5
   return texto
     .replace(/\{cliente\}/g,cliente)
     .replace(/\{numero\}/g,numero)

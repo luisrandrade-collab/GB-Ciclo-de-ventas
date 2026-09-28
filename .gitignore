@@ -50,6 +50,7 @@ check.sh
 !scripts/source_test_helpers.mjs
 !scripts/test_integridad_flujos.mjs
 !scripts/test_regimen_simple.mjs
+!scripts/test_negocios.mjs
 
 # Emulador Firebase (logs locales, no deben viajar al repositorio)
 firebase-debug.log

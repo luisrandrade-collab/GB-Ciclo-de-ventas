@@ -1025,20 +1025,21 @@ async function _savePropQuoteImpl(silent){
     let pNum=editingPropNumber;
     let creatingChild=false;
     if(pNum&&oldDoc&&shouldVersionWithSuffix(oldDoc,"proposal")){
-      if(!silent){
-        const stLbl=(STATUS_META[statusActual]||{}).label||statusActual;
-        const ok=await confirmModal({
-          title:"¿Guardar como versión nueva?",
-          body:"Esta propuesta está en estado <strong>\""+h(stLbl)+"\"</strong>.<br><br><strong>Continuar</strong> → Se crea <strong>"+h(buildChildNumber(pNum))+"</strong> y la original queda archivada.<br><br><strong>Cancelar</strong> → Se sobreescribe "+h(pNum)+".",
-          okLabel:"Crear versión nueva",
-          cancelLabel:"Sobreescribir",
-          tone:"primary"
-        });
-        if(ok){
-          pNum=buildChildNumber(pNum);
-          creatingChild=true;
-        }
-      }
+      // v8.0.0 F5: ver app-cotizar.js. Sin «Sobreescribir»: versión nueva o nada; sin cambios, el PDF
+      // sale del documento recién leído sin escribir campos editables (contrato v2.1).
+      if(silent&&!formularioConCambios("proposal",formularioPropuesta(),editingPropNumber))return {ok:true,id:pNum,document:{...oldDoc,quoteNumber:pNum},sinCambios:true};
+      if(silent)hideLoader();
+      const stLbl=(STATUS_META[statusActual]||{}).label||statusActual;
+      const ok=await confirmModal({
+        title:"¿Crear versión nueva?",
+        body:"Esta propuesta está en estado <strong>\""+h(stLbl)+"\"</strong>: los cambios se guardan como versión nueva.<br><br><strong>Crear versión nueva</strong> → Se crea <strong>"+h(buildChildNumber(pNum))+"</strong> y la original queda archivada.<br><br><strong>Cancelar</strong> → No se guarda nada; tus cambios siguen en el editor.",
+        okLabel:"Crear versión nueva",
+        cancelLabel:"Cancelar",
+        tone:"primary"
+      });
+      if(!ok){if(typeof toast==="function")toast("No se guardó. Tus cambios siguen en el editor.","info",5000);return {ok:false,cancelado:true}}
+      pNum=buildChildNumber(pNum);
+      creatingChild=true;
     }
     if(!silent)showLoader("Generando consecutivo...");
     if(!pNum)pNum=await getNextNumber("proposal");
@@ -1119,6 +1120,7 @@ async function _savePropQuoteImpl(silent){
     if(creatingChild){
       pObj.parentQuote=editingPropNumber;
     }
+    if(!editingPropNumber)pObj.businessId=pNum; // v8.0.0 F1: un documento raíz nuevo abre su propio negocio
     if(!silent)showLoader("Guardando en la nube...");
     let adoptadosGuardado=[]; // v7.9.32 CL-R2-01: campos que ganó la otra sesión en este guardado
     // v6.3.0 E3-1: al crear versión hija, save-hijo + mark-padre-superseded deben ser ATÓMICOS.
@@ -1148,6 +1150,9 @@ async function _savePropQuoteImpl(silent){
           ensureSameEditor();
           const childObj=aplicarAdopcion(pObj,parent,adoptar); // v7.9.31 ADV-02: sin undefined
           recalcularTotalTrasAdoptar(childObj,adoptar,"proposal"); // v7.9.30: total coherente con lo adoptado
+          // v8.0.0 F1/F5: la versión sigue en el negocio del padre FRESCO y hereda su próximo contacto.
+          childObj.businessId=businessIdHeredado(parent,editingPropNumber,quotesCache);
+          if(parent.proximoContacto)childObj.proximoContacto=parent.proximoContacto;
           tx.set(childRef,{...childObj,createdAt:serverTimestamp()});
           tx.update(parentRef,{
             status:"superseded",
@@ -1188,6 +1193,8 @@ async function _savePropQuoteImpl(silent){
             if(["anulada","convertida","superseded"].includes(fresh.status)){
               throw new Error("STATUS_BLOQUEADO_CONCURRENTE:"+fresh.status);
             }
+            // v8.0.0 F5: ver app-cotizar.js — nunca se escribe directo sobre una propuesta enviada.
+            if(shouldVersionWithSuffix(fresh,"proposal"))throw Object.assign(new Error("La propuesta está enviada: los cambios se guardan como versión nueva. Vuelve a guardar."),{paraUsuario:true});
             const finalObj=mergeOperationalFields(pObj,fresh,adoptar);
             recalcularTotalTrasAdoptar(finalObj,adoptar,"proposal"); // v7.9.30: total coherente con lo adoptado
             ensureSameEditor();
@@ -1609,6 +1616,11 @@ async function commitPropFinal(pfObj,source,regeneration,flowSeq){
     const confirmed=inheritPropFinalLogistics({...pfObj},fresh);
     confirmed.total=computePropTotal(confirmed);
     if(old){confirmed.supersedes=regeneration.oldPfId;confirmed.version=(old.version||1)+1}
+    // v8.0.0 F1/F5: negocio de la propuesta FRESCA; el próximo contacto viene de la cabeza viva
+    // (la PF vigente al regenerar; si no, la propuesta), leída en esta misma transacción.
+    confirmed.businessId=businessIdHeredado(fresh,source.id,quotesCache);
+    const pcVivo=old?old.proximoContacto:fresh.proximoContacto;
+    if(pcVivo)confirmed.proximoContacto=pcVivo;else delete confirmed.proximoContacto;
     tx.set(newRef,{...confirmed,createdAt:serverTimestamp()});
     tx.update(sourceRef,{status:"convertida",propFinalRef:pfObj.quoteNumber,updatedAt:serverTimestamp()});
     if(oldRef)tx.update(oldRef,{status:"superseded",supersededBy:pfObj.quoteNumber,supersededAt:new Date().toISOString(),updatedAt:serverTimestamp()});
@@ -1624,7 +1636,7 @@ async function genPropPDF(confirmedDoc){
     if(!isFinal){
       showLoader("Guardando propuesta...");
       const saved=await savePropQuote(true);
-      if(!saved?.ok){hideLoader();toast("No se generó el PDF: el guardado no fue confirmado.","error",7000);return}
+      if(!saved?.ok){hideLoader();if(!saved?.cancelado)toast("No se generó el PDF: el guardado no fue confirmado.","error",7000);return} // v8.0.0: cancelar la versión ya avisó «No se guardó»
       snapshot=saved.document;
       hideLoader();
     }else if(!snapshot){

@@ -1,6 +1,7 @@
 // v7.9.24: regresiones sobre funciones reales; sin red ni datos productivos.
 import assert from 'node:assert/strict';
 import {readdirSync} from 'node:fs';
+import vm from 'node:vm';
 import {loadSourceFunctions,source,functionSource} from './source_test_helpers.mjs';
 let passed=0;
 async function test(name,fn){await fn();passed++;console.log('OK '+name)}
@@ -27,7 +28,9 @@ const opcional=(file,...names)=>names.filter(n=>existe(file,n)).map(n=>[file,n])
 // v7.10.2 P-38: los renders arman sus on*= con jsArg (app-core.js).
 const hReal=s=>s==null?'':String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 const jsArgReal=existe('app-core.js','jsArg')?loadSourceFunctions(core('jsArg'),{h:hReal}).jsArg:undefined;
-const editEntries=core('EDITABLE_FIELDS','EDITABLE_FIELD_LABELS','etiquetasDeCampos','gbStableJson','editableFieldSignatures','editableDocumentSignature','rememberEditBase',...(existe('app-core.js','recordarFormularioAbierto')?['recordarFormularioAbierto']:[]),'assertEditableUnchanged','resolveEditableConflicts');
+// v8.0.0: los guardados heredan businessId (resolvedor) y comparan el formulario (formularioConCambios), en app-negocios.js.
+const negEntries=['_negMsDe','_negMs','ENLACES_HACIA_PADRE','ENLACES_HACIA_HIJO','_resolverNegociosDetalle','resolverNegocios','businessIdHeredado','formularioConCambios'].map(n=>['app-negocios.js',n]);
+const editEntries=[...core('EDITABLE_FIELDS','EDITABLE_FIELD_LABELS','etiquetasDeCampos','gbStableJson','editableFieldSignatures','editableDocumentSignature','rememberEditBase',...(existe('app-core.js','recordarFormularioAbierto')?['recordarFormularioAbierto']:[]),'assertEditableUnchanged','resolveEditableConflicts'),...negEntries];
 const mergeEntries=[...core('OPERATIONAL_FIELDS','QUOTE_TOTAL_INPUTS','computeQuoteTotal','recalcularTotalTrasAdoptar','aplicarAdopcion','mergeDespachosForSave','mergeOperationalFields'),...editEntries];
 await test('editar conserva seguimiento, evidencia y factura fresca',()=>{
   const c=loadSourceFunctions(mergeEntries);
@@ -266,7 +269,7 @@ function pfFixture(regenerate=false,rejectWrite){
   const initial={'proposals/p':structuredClone(source)};
   if(regenerate)initial['propfinals/old']={sourceProposal:'p',status:'propfinal',version:2};
   const {fb,store}=fakeDb(initial,rejectWrite),pfWindow={fb,_propFinalFlowSeq:1};
-  const c=loadSourceFunctions(pfEntries,{window:pfWindow,propFinalSource:source});
+  const c=loadSourceFunctions(pfEntries,{window:pfWindow,propFinalSource:source,quotesCache:[]});
   const pf={quoteNumber:'new',sourceProposal:'p',status:'propfinal',client:'Fixture',sections:source.sections};
   const regeneration=regenerate?{oldPfId:'old',sourceProposalId:'p',oldVersion:1}:null;
   return {c,store,source,pf,regeneration,commit:()=>c.commitPropFinal(pf,source,regeneration)};
@@ -2054,5 +2057,242 @@ await test('v7.10.2 D6: el historial toma la fecha de entrega de entregaData.fec
   const viejo={...base,entregaData:{fecha:'2026-09-05'}};
   assert.equal(f(viejo,'entrega'),'2026-09-05');assert.equal(f(viejo,'comentario'),'2026-09-05');
   assert.equal(f(base,'entrega'),'2026-09-01','sin entregaData sigue como hoy');
+});
+
+// ═══ v8.0.0 (tramo 1): businessId, próximo contacto y guardado sin sobrescribir ═══
+const versionReal=loadSourceFunctions(core('shouldVersionWithSuffix')).shouldVersionWithSuffix;
+const pcFijo={fecha:'2026-10-02',nota:'Llamar después de la cata',usuario:'kathy@example.invalid',at:'2026-09-28T10:00:00Z'};
+await test('v8.0.0 REV-03: businessId, proximoContacto y negocioManual son operativos; la fusión conserva el valor del servidor, también el null',()=>{
+  const src=source('app-core.js');
+  const OPER=JSON.parse(src.match(/const OPERATIONAL_FIELDS=(\[[^\]]*\])/)[1]),EDIT=JSON.parse(src.match(/const EDITABLE_FIELDS=(\[[^\]]*\])/)[1]);
+  for(const f of ['businessId','proximoContacto','negocioManual']){assert.ok(OPER.includes(f),f);assert.ok(!EDIT.includes(f),f+' no lo escribe el editor')}
+  const c=loadSourceFunctions(mergeEntries);
+  const out=c.mergeOperationalFields({client:'A',businessId:'VIEJO',proximoContacto:pcFijo,negocioManual:{businessId:'X'}},{client:'B',businessId:'SERVIDOR',proximoContacto:null,negocioManual:null});
+  assert.equal(out.businessId,'SERVIDOR');assert.equal(out.proximoContacto,null,'el null del servidor no resucita');assert.equal(out.negocioManual,null);
+});
+for(const [kind,fixture] of [['quote',cotReal],['proposal',propReal]]){
+  await test('v8.0.0 '+kind+': un documento nuevo lleva businessId = su número en la misma escritura; todo lo guardado está clasificado',async()=>{
+    const f=fixture({});
+    if(kind==='quote')f.c.cart=[{id:'p',n:'Producto',p:1000,qty:1}];else f.c.propSections=[seccion('s1')];
+    const r=await f.guardar();
+    assert.equal(r?.ok,true,JSON.stringify(f.messages));
+    assert.equal(f.doc('nuevo').businessId,'nuevo');assert.equal(f.store.size,1,'una sola escritura');
+    const src=source('app-core.js');
+    const clasificados=[...JSON.parse(src.match(/const EDITABLE_FIELDS=(\[[^\]]*\])/)[1]),...JSON.parse(src.match(/const OPERATIONAL_FIELDS=(\[[^\]]*\])/)[1]),...Object.keys(DERIVADOS_Y_SISTEMA)];
+    assert.deepEqual(Object.keys(f.doc('nuevo')).filter(k=>!clasificados.includes(k)),[],'REV-03 en el documento nuevo');
+  });
+}
+await test('v8.0.0 duplicar = negocio nuevo: el duplicado no copia businessId ni proximoContacto',async()=>{
+  const f=cotReal({a:{client:'A',status:'pedido',businessId:'a',proximoContacto:pcFijo,negocioManual:{businessId:'z'},cart:[{id:'p',n:'Producto A',p:1000,qty:1}]}});
+  f.c.dupSource={kind:'quote',coll:'quotes',data:structuredClone(f.doc('a'))};
+  f.c.duplicateQuote(true);
+  assert.equal((await f.guardar())?.ok,true,JSON.stringify(f.messages));
+  const d=f.doc('nuevo');assert.equal(d.businessId,'nuevo');assert.equal(d.proximoContacto,undefined);assert.equal(d.negocioManual,undefined);
+});
+for(const kind of ['quote','proposal']){
+  await test('v8.0.0 '+kind+': la versión nueva hereda businessId y próximo contacto del padre leído en la transacción',async()=>{
+    const f=editorFixture(kind);f.c.shouldVersionWithSuffix=()=>true;
+    Object.assign(f.store.get(f.path),{businessId:'RAIZ',proximoContacto:pcFijo}); // otra sesión, después de abrir
+    assert.equal((await f.save(false))?.ok,true,JSON.stringify(f.messages));
+    const hija=f.store.get(f.childPath);
+    assert.equal(hija.businessId,'RAIZ');assert.deepEqual(hija.proximoContacto,pcFijo);assert.equal(hija.parentQuote,'q');
+    assert.equal(f.store.get(f.path).businessId,'RAIZ','el padre conserva el suyo');
+  });
+  await test('v8.0.0 '+kind+': padre viejo sin businessId → la versión toma la clave de sus enlaces; sin próximo contacto no lo inventa',async()=>{
+    const f=editorFixture(kind);f.c.shouldVersionWithSuffix=()=>true;
+    f.c.quotesCache=[{id:'R',kind,status:'superseded',supersededBy:'q'},{id:'q',kind,status:'enviada',parentQuote:'R'}];
+    f.store.get(f.path).parentQuote='R';
+    assert.equal((await f.save(false))?.ok,true,JSON.stringify(f.messages));
+    const hija=f.store.get(f.childPath);
+    assert.equal(hija.businessId,'R');assert.ok(!('proximoContacto' in hija));
+  });
+  await test('v8.0.0 '+kind+': dos sesiones — B borra el próximo contacto (perdida) entre la lectura y la transacción de A; A no lo resucita',async()=>{
+    let f;
+    f=editorFixture(kind,async()=>{const d=f.store.get(f.path);if(d.proximoContacto){d.proximoContacto=null;d.followUp='perdida'}});
+    f.store.get(f.path).proximoContacto=pcFijo;
+    assert.equal((await f.save(true))?.ok,true,JSON.stringify(f.messages));
+    const d=f.store.get(f.path);
+    assert.equal(d.proximoContacto,null);assert.equal(d.followUp,'perdida');assert.equal(d.client,'Editado');
+  });
+  await test('v8.0.0 '+kind+': dos sesiones — B pone otro próximo contacto mientras A guarda; gana el de B',async()=>{
+    const otro={...pcFijo,fecha:'2026-10-09'};let f;
+    f=editorFixture(kind,async()=>{f.store.get(f.path).proximoContacto=otro});
+    f.store.get(f.path).proximoContacto=pcFijo;
+    assert.equal((await f.save(true))?.ok,true,JSON.stringify(f.messages));
+    assert.deepEqual(f.store.get(f.path).proximoContacto,otro);
+  });
+  await test('v8.0.0 '+kind+': B borró el próximo contacto antes de que A cree la versión; la versión no lo lleva',async()=>{
+    const f=editorFixture(kind);f.c.shouldVersionWithSuffix=()=>true;
+    f.store.get(f.path).proximoContacto=null;
+    assert.equal((await f.save(false))?.ok,true,JSON.stringify(f.messages));
+    assert.ok(!('proximoContacto' in f.store.get(f.childPath)));
+  });
+  // F5: «Sobrescribir» ya no existe.
+  await test('v8.0.0 '+kind+': la ventana de versión ofrece «Crear versión nueva» / «Cancelar»; Cancelar no guarda nada y avisa «No se guardó»',async()=>{
+    const f=editorFixture(kind);f.c.shouldVersionWithSuffix=()=>true;
+    let opciones=null;f.c.confirmModal=async o=>{opciones=o;return false};
+    const antes=plain(Object.fromEntries(f.store));
+    const r=await f.save(false);
+    assert.deepEqual(plain(Object.fromEntries(f.store)),antes,'cero escrituras');
+    assert.equal(r?.ok,false);assert.equal(r?.cancelado,true);
+    assert.equal(opciones.okLabel,'Crear versión nueva');assert.equal(opciones.cancelLabel,'Cancelar');
+    assert.ok(!/sobre?e?scrib/i.test(opciones.body+opciones.cancelLabel),'ya no se ofrece sobrescribir');
+    assert.ok(f.messages.some(m=>/No se guardó/.test(m)),JSON.stringify(f.messages));
+  });
+  await test('v8.0.0 '+kind+': PDF sin cambios en una enviada: no escribe nada y emite el documento fresco (contrato v2.1)',async()=>{
+    const f=editorFixture(kind);f.c.shouldVersionWithSuffix=()=>true;
+    f.c.recordarFormularioAbierto(kind);
+    let modales=0;f.c.confirmModal=async()=>{modales++;return true};
+    Object.assign(f.store.get(f.path),{followUp:'activa',pagosNota:'fresco'}); // otra sesión movió algo operativo
+    const antes=plain(Object.fromEntries(f.store));
+    const r=await f.save(true);
+    assert.equal(r?.ok,true,JSON.stringify(f.messages));assert.equal(r.sinCambios,true);assert.equal(r.id,'q');
+    assert.equal(modales,0,'sin cambios no pregunta');
+    assert.deepEqual(plain(Object.fromEntries(f.store)),antes,'ningún campo editable ni operativo se escribe');
+    assert.equal(r.document.followUp,'activa','el PDF sale del documento fresco');assert.equal(r.document.client,'Original','no del formulario');
+  });
+  await test('v8.0.0 '+kind+': PDF con cambios en una enviada: pide versión; Cancelar no guarda ni genera; aceptar crea la versión y nunca sobrescribe',async()=>{
+    let f=editorFixture(kind);f.c.shouldVersionWithSuffix=()=>true;f.c.recordarFormularioAbierto(kind);
+    f.c.$(kind==='quote'?'f-att':'fp-att').value='Cambio pedido por el cliente';
+    let modales=0;f.c.confirmModal=async()=>{modales++;return false};
+    const antes=plain(Object.fromEntries(f.store));
+    const r=await f.save(true);
+    assert.equal(modales,1);assert.equal(r?.cancelado,true);assert.deepEqual(plain(Object.fromEntries(f.store)),antes);
+    f=editorFixture(kind);f.c.shouldVersionWithSuffix=()=>true;f.c.recordarFormularioAbierto(kind);
+    f.c.$(kind==='quote'?'f-att':'fp-att').value='Cambio pedido por el cliente';
+    f.c.confirmModal=async()=>true;
+    const r2=await f.save(true);
+    assert.equal(r2?.ok,true,JSON.stringify(f.messages));assert.equal(r2.id,'q-A');
+    assert.equal(f.store.get(f.path).status,'superseded');assert.equal(f.store.get(f.path).client,'Original','el enviado no se sobrescribe');
+    assert.equal(f.store.get(f.childPath).att,'Cambio pedido por el cliente');
+  });
+  await test('v8.0.0 '+kind+': si el documento pasó a «enviada» en otra sesión, el guardado directo aborta en vez de sobrescribirlo',async()=>{
+    let f;
+    f=editorFixture(kind,async()=>{f.store.get(f.path).status='enviada'});
+    f.c.shouldVersionWithSuffix=versionReal;
+    f.store.get(f.path).status='pedido';
+    const r=await f.save(true);
+    assert.equal(r,undefined);assert.equal(f.store.get(f.path).client,'Original');
+  });
+}
+await test('v8.0.0 cerrar la ventana de versión (× o clic fuera) resuelve como Cancelar',async()=>{
+  const nodos={};
+  const mk=id=>nodos[id]??={id,textContent:'',innerHTML:'',style:{},classList:{add(){},remove(){}},parentNode:{replaceChild(){}},cloneNode(){return mk(id+'-clon')},addEventListener(){}};
+  const c=loadSourceFunctions(core('confirmModal','closeConfirmModal'),{$:mk,window:{},confirm:()=>{throw new Error('no debe usar confirm()')}});
+  const p=c.confirmModal({title:'¿Crear versión nueva?',okLabel:'Crear versión nueva',cancelLabel:'Cancelar'});
+  c.closeConfirmModal();
+  assert.equal(await p,false);
+});
+for(const [file,fn,guardar] of [['app-cotizar.js','genPDF','saveCurrentQuote'],['app-propuesta.js','genPropPDF','savePropQuote']]){
+  await test('v8.0.0 '+fn+': si el usuario cancela la versión, no genera el PDF ni muestra error',async()=>{
+    const toasts=[],emitidos=[];
+    const c=loadSourceFunctions([[file,fn]],{...common(),window:{__pfMode:false},toast:m=>toasts.push(m),cloudOnline:true,allIt:()=>[{}],[guardar]:async()=>({ok:false,cancelado:true}),savePdfConCopiaStorage:async(...a)=>emitidos.push(a)});
+    await c[fn]();
+    assert.deepEqual(emitidos,[]);assert.ok(!toasts.some(m=>/No se generó/.test(m)),JSON.stringify(toasts));
+  });
+}
+await test('v8.0.0 el registro del PDF relee el documento y conserva el pdfHistorial de otra sesión',async()=>{
+  const {fb,store}=fakeDb({'quotes/Q':{status:'enviada',pdfRegenCount:2,pdfHistorial:[{version:1},{version:2,generadoPor:'otra sesión'}]}});
+  fb.updateDoc=async()=>{throw new Error('no debe escribir el historial a ciegas')};
+  const cache=[{id:'Q',kind:'quote',pdfRegenCount:1,pdfHistorial:[{version:1}]}];
+  const c=loadSourceFunctions(core('savePdfConCopiaStorage'),{...common(),window:{fb},quotesCache:cache,cloudOnline:true,fbReady:async()=>{},uploadToStorage:async()=>'https://example.invalid/pdf',getCollectionName:()=>'quotes',savePdf:async()=>{},currentUser:{email:'k@example.invalid'}});
+  await c.savePdfConCopiaStorage({output:()=>'blob'},'GB-Q','quote','Q');
+  const d=store.get('quotes/Q');
+  assert.equal(d.pdfHistorial.length,3);assert.equal(d.pdfHistorial[1].generadoPor,'otra sesión');assert.equal(d.pdfRegenCount,3);
+  assert.equal(cache[0].pdfHistorial.length,3);
+});
+await test('v8.0.0 R2: la versión del PDF sale del documento fresco y cada sesión sube a una ruta única',async()=>{
+  const {fb,store}=fakeDb({'quotes/Q':{status:'enviada',pdfRegenCount:2,pdfHistorial:[{version:1,path:'p1'},{version:2,path:'p2',generadoPor:'otra sesión'}]}});
+  // Dos sesiones con la misma caché vieja (versión 1) dentro del mismo minuto.
+  const instante=Date.parse('2026-09-28T08:13:05');
+  class MismoMinuto extends Date{constructor(...a){if(a.length)super(...a);else super(instante)}static now(){return instante}}
+  const subidas=[],locales=[];
+  const sesion=()=>loadSourceFunctions(core('savePdfConCopiaStorage'),{...common(),Date:MismoMinuto,window:{fb},quotesCache:[{id:'Q',kind:'quote',pdfRegenCount:1,pdfHistorial:[{version:1}]}],cloudOnline:true,fbReady:async()=>{},uploadToStorage:async(_,path)=>{subidas.push(path);return 'https://example.invalid/'+path},getCollectionName:()=>'quotes',savePdf:async(_,nombre)=>locales.push(nombre),currentUser:{email:'k@example.invalid'}});
+  await sesion().savePdfConCopiaStorage({output:()=>'blob'},'GB-Q','quote','Q');
+  await sesion().savePdfConCopiaStorage({output:()=>'blob'},'GB-Q','quote','Q');
+  const d=store.get('quotes/Q'),nuevas=d.pdfHistorial.slice(2);
+  assert.deepEqual(d.pdfHistorial.map(e=>e.version),[1,2,3,4]);assert.equal(d.pdfRegenCount,4);
+  assert.equal(d.pdfHistorial[1].generadoPor,'otra sesión');
+  assert.equal(new Set(subidas).size,2,'rutas repetidas: '+subidas.join(' | '));
+  assert.ok(subidas.every(p=>/^pdfs\/quote\/Q\/[^/]+\.pdf$/.test(p)),subidas.join(' | '));
+  assert.deepEqual(nuevas.map(e=>e.path),subidas);assert.equal(new Set(nuevas.map(e=>e.url)).size,2);
+  assert.deepEqual(locales,['GB-Q_v03.pdf','GB-Q_v04.pdf']);assert.deepEqual(nuevas.map(e=>e.filename),locales);
+});
+await test('v8.0.0 PF: hereda businessId y próximo contacto de la propuesta fresca, no de la copia del selector',async()=>{
+  const f=pfFixture();
+  Object.assign(f.store.get('proposals/p'),{businessId:'NEG',proximoContacto:pcFijo});
+  await f.commit();
+  const pf=f.store.get('propfinals/new');assert.equal(pf.businessId,'NEG');assert.deepEqual(pf.proximoContacto,pcFijo);
+  const g=pfFixture();await g.commit();
+  assert.equal(g.store.get('propfinals/new').businessId,'p','propuesta vieja sin businessId: su propio negocio');
+  assert.ok(!('proximoContacto' in g.store.get('propfinals/new')));
+});
+await test('v8.0.0 PF regenerada: businessId de la propuesta fresca y próximo contacto de la PF vigente',async()=>{
+  const f=pfFixture(true);
+  f.store.get('proposals/p').businessId='NEG';f.store.get('propfinals/old').proximoContacto=pcFijo;
+  await f.commit();
+  const pf=f.store.get('propfinals/new');assert.equal(pf.businessId,'NEG');assert.deepEqual(pf.proximoContacto,pcFijo);assert.equal(pf.supersedes,'old');
+});
+function confirmacionFixture(fn,doc){
+  const escrituras=[];const {el}=domSimulado();
+  const c=loadSourceFunctions([['app-historial.js',fn]],{...common(),$:el,cloudOnline:true,quotesCache:[structuredClone(doc)],
+    gbFiscalLeerSello:()=>null,auditTransition:()=>true,logOperacion:async({runner})=>runner(),confirmModal:async()=>true,
+    closeOrderModal(){},closeApproveModal(){},renderHist(){},renderDashboard(){},refreshActiveView(){},curMode:'hist',getCollectionName:()=>doc.kind==='quote'?'quotes':'proposals',
+    window:{fb:{db:{},doc:(_,coll,id)=>coll+'/'+id,serverTimestamp:()=>'TS',getDoc:async()=>({exists:()=>true,data:()=>structuredClone(doc)}),updateDoc:async(ref,patch)=>{escrituras.push({ref,patch:plain(patch)})}}}});
+  return {c,el,escrituras};
+}
+await test('v8.0.0 confirmar pedido y aprobar propuesta borran el próximo contacto con null en su misma escritura',async()=>{
+  const a=confirmacionFixture('submitMarkAsOrder',{id:'Q',kind:'quote',status:'enviada',client:'Ana',proximoContacto:pcFijo});
+  a.el('om-num').dataset={quoteId:'Q'};a.el('om-num').value='Q';
+  a.el('om-fecha').value='2026-09-20';a.el('om-entrega-fecha').value='2026-09-25';a.el('om-entrega-hora').value='10:00';a.el('om-prod-fecha').value='2026-09-24';
+  await a.c.submitMarkAsOrder();
+  assert.equal(a.escrituras.length,1);
+  assert.ok(Object.prototype.hasOwnProperty.call(a.escrituras[0].patch,'proximoContacto')&&a.escrituras[0].patch.proximoContacto===null);
+  assert.equal(a.escrituras[0].patch.status,'pedido');assert.equal(a.c.quotesCache[0].proximoContacto,null);
+  const b=confirmacionFixture('submitApproveProposal',{id:'P',kind:'proposal',status:'propfinal',client:'Ana',proximoContacto:pcFijo});
+  b.el('am-num').dataset={propId:'P',propKind:'proposal'};b.el('am-num').value='P';b.el('am-fecha').value='2026-09-20';
+  await b.c.submitApproveProposal();
+  assert.equal(b.escrituras.length,1);
+  assert.ok(Object.prototype.hasOwnProperty.call(b.escrituras[0].patch,'proximoContacto')&&b.escrituras[0].patch.proximoContacto===null);
+  assert.equal(b.escrituras[0].patch.status,'aprobada');assert.equal(b.c.quotesCache[0].proximoContacto,null);
+});
+await test('v8.0.0 regresar a cotización conserva el negocio; anular con reemplazo sólo relaciona (replacedBy/replaces)',()=>{
+  const src=functionSource('app-historial.js','submitAnular');
+  assert.ok(/tx\.update\(ref,patch\)/.test(src));assert.ok(!/businessId|negocioManual/.test(src));
+  const enlace=functionSource('app-historial.js','linkPendingReplacement');
+  assert.ok(/replacedBy:newDocId/.test(enlace)&&/replaces:oldId/.test(enlace)&&!/businessId|negocioManual/.test(enlace),'el reemplazo es otro negocio');
+});
+await test('v8.0.0 restaurar un respaldo conserva businessId, proximoContacto y negocioManual tal como vienen',async()=>{
+  const {fb,store}=fakeDb({});
+  const c=loadSourceFunctions(core('restoreMissingDocument'),{...common(),window:{fb}});
+  const nm={businessId:'R',accion:'unir',motivo:'x',usuario:'k',at:'y'};
+  assert.equal(await c.restoreMissingDocument('quotes','R-1',{parentQuote:'R',businessId:'R',proximoContacto:pcFijo,negocioManual:nm,kind:'quote'}),true);
+  const d=store.get('quotes/R-1');
+  assert.equal(d.businessId,'R');assert.deepEqual(d.proximoContacto,pcFijo);assert.deepEqual(d.negocioManual,nm);
+});
+// v8.0.0 (tramo 2, ronda 2) P-39: ningún flujo llama al refresco; lo programa el envoltorio de window.fb
+// (app-negocios.js) al terminar cada escritura, y corre cuando la caché ya tiene el cambio.
+await test('v8.0.0 T2 pago, cargo, confirmar y aprobar refrescan Inicio/Negocios por el envoltorio de escritura, con la caché ya al día',async()=>{
+  const esperar=()=>new Promise(r=>setTimeout(r,5));
+  const vigilar=(c,estado)=>{ // el envoltorio real sobre el window.fb del fixture
+    Object.assign(c,{GB_REDISENO_R1:true,setTimeout});
+    for(const n of ['_r1Estado','ESCRITURAS_FB_R1','programarRefrescoR1','vigilarEscriturasR1'])vm.runInContext(functionSource('app-negocios.js',n),c);
+    const vistos=[];c.refrescarVistasR1=()=>vistos.push(estado());c.vigilarEscriturasR1(c.window.fb);return vistos;
+  };
+  const p=repetidoFixture({pagos:[],respuestas:[true]});const vp=vigilar(p.c,()=>p.c.pagoSrc.doc.pagos.length);
+  await p.c.submitPago();await esperar();
+  assert.equal(p.escritos.length,1);assert.ok(vp.length>=1&&vp.every(n=>n===1),'pago: '+vp);
+  const g=cargoFixture();const vg=vigilar(g.c,()=>(g.cache.cargos||[]).length);
+  g.abrir();await g.c.submitCargo();await esperar();
+  assert.equal(g.alDoc().length,1);assert.ok(vg.length>=1&&vg.every(n=>n===1),'cargo: '+vg);
+  const a=confirmacionFixture('submitMarkAsOrder',{id:'Q',kind:'quote',status:'enviada',client:'Ana'});const va=vigilar(a.c,()=>a.c.quotesCache[0].status);
+  a.el('om-num').dataset={quoteId:'Q'};a.el('om-num').value='Q';
+  a.el('om-fecha').value='2026-09-20';a.el('om-entrega-fecha').value='2026-09-25';a.el('om-entrega-hora').value='10:00';a.el('om-prod-fecha').value='2026-09-24';
+  await a.c.submitMarkAsOrder();await esperar();
+  assert.equal(a.escrituras.length,1);assert.ok(va.length>=1&&va.every(s=>s==='pedido'),'confirmar: '+va);
+  const b=confirmacionFixture('submitApproveProposal',{id:'P',kind:'proposal',status:'propfinal',client:'Ana'});const vb=vigilar(b.c,()=>b.c.quotesCache[0].status);
+  b.el('am-num').dataset={propId:'P',propKind:'proposal'};b.el('am-num').value='P';b.el('am-fecha').value='2026-09-20';
+  await b.c.submitApproveProposal();await esperar();
+  assert.equal(b.escrituras.length,1);assert.ok(vb.length>=1&&vb.every(s=>s==='aprobada'),'aprobar: '+vb);
 });
 console.log(`${passed} escenarios de integridad pasaron (adaptadores en memoria; no emulador Firebase).`);

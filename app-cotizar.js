@@ -311,20 +311,22 @@ async function _saveCurrentQuoteImpl(silent){
     let qNum=editingQuoteNumber;
     let creatingChild=false;
     if(qNum&&oldDoc&&shouldVersionWithSuffix(oldDoc,"quote")){
-      // Preguntar al usuario: ¿nueva versión (recotización) o sobreescribir?
-      if(!silent){
-        const ok=await confirmModal({
-          title:"¿Guardar como versión nueva?",
-          body:"Esta cotización está en estado <strong>\"Enviada\"</strong>.<br><br><strong>Continuar</strong> → Se crea <strong>"+h(buildChildNumber(qNum))+"</strong> (recotización) y la original queda archivada.<br><br><strong>Cancelar</strong> → Se sobreescribe "+h(qNum)+" (se pierde la versión anterior).",
-          okLabel:"Crear versión nueva",
-          cancelLabel:"Sobreescribir",
-          tone:"primary"
-        });
-        if(ok){
-          qNum=buildChildNumber(qNum);
-          creatingChild=true;
-        }
-      }
+      // v8.0.0 F5: una cotización enviada ya no se sobrescribe. Guardar o generar el PDF con cambios
+      // sólo puede crear versión nueva o no hacer nada; cancelar o cerrar la ventana no guarda.
+      // Contrato v2.1 del PDF: sin cambios en el formulario no se escribe nada y el PDF sale del
+      // documento recién leído (oldDoc); el registro del PDF va aparte (savePdfConCopiaStorage).
+      if(silent&&!formularioConCambios("quote",formularioCotizacion(),editingQuoteNumber))return {ok:true,id:qNum,document:{...oldDoc,quoteNumber:qNum},sinCambios:true};
+      if(silent)hideLoader();
+      const ok=await confirmModal({
+        title:"¿Crear versión nueva?",
+        body:"Esta cotización está en estado <strong>\"Enviada\"</strong>: los cambios se guardan como versión nueva.<br><br><strong>Crear versión nueva</strong> → Se crea <strong>"+h(buildChildNumber(qNum))+"</strong> y la original queda archivada.<br><br><strong>Cancelar</strong> → No se guarda nada; tus cambios siguen en el editor.",
+        okLabel:"Crear versión nueva",
+        cancelLabel:"Cancelar",
+        tone:"primary"
+      });
+      if(!ok){if(typeof toast==="function")toast("No se guardó. Tus cambios siguen en el editor.","info",5000);return {ok:false,cancelado:true}}
+      qNum=buildChildNumber(qNum);
+      creatingChild=true;
     }
     if(!silent)showLoader("Generando consecutivo...");
     if(!qNum)qNum=await getNextNumber("quote");
@@ -434,6 +436,7 @@ async function _saveCurrentQuoteImpl(silent){
     if(creatingChild){
       qObj.parentQuote=editingQuoteNumber;
     }
+    if(!editingQuoteNumber)qObj.businessId=qNum; // v8.0.0 F1: un documento raíz nuevo abre su propio negocio
     if(!silent)showLoader("Guardando en la nube...");
     let adoptadosGuardado=[]; // v7.9.32 CL-R2-01: campos que ganó la otra sesión en este guardado
     // v6.3.0 E3-1: al crear versión hija, save-hijo + mark-padre-superseded deben ser ATÓMICOS.
@@ -465,6 +468,9 @@ async function _saveCurrentQuoteImpl(silent){
           ensureSameEditor();
           const childObj=aplicarAdopcion(qObj,parent,adoptar); // v7.9.31 ADV-02: sin undefined
           recalcularTotalTrasAdoptar(childObj,adoptar,"quote"); // v7.9.30: total coherente con lo adoptado
+          // v8.0.0 F1/F5: la versión sigue en el negocio del padre FRESCO y hereda su próximo contacto.
+          childObj.businessId=businessIdHeredado(parent,editingQuoteNumber,quotesCache);
+          if(parent.proximoContacto)childObj.proximoContacto=parent.proximoContacto;
           tx.set(childRef,{...childObj,createdAt:serverTimestamp()});
           tx.update(parentRef,{
             status:"superseded",
@@ -509,6 +515,9 @@ async function _saveCurrentQuoteImpl(silent){
             if(["anulada","convertida","superseded"].includes(fresh.status)){
               throw new Error("STATUS_BLOQUEADO_CONCURRENTE:"+fresh.status);
             }
+            // v8.0.0 F5: el guardado directo nunca escribe sobre una cotización enviada (p. ej. otra sesión
+            // la regresó a cotización, o no se pudo leer su estado antes): esos cambios van como versión nueva.
+            if(shouldVersionWithSuffix(fresh,"quote"))throw Object.assign(new Error("La cotización está enviada: los cambios se guardan como versión nueva. Vuelve a guardar."),{paraUsuario:true});
             const finalObj=mergeOperationalFields(qObj,fresh,adoptar);
             recalcularTotalTrasAdoptar(finalObj,adoptar,"quote"); // v7.9.30: total coherente con lo adoptado
             ensureSameEditor();
@@ -599,7 +608,7 @@ async function genPDF(){
     if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión. Conecta a internet para generar el PDF con número de cotización.","error",5000);else alert("Sin conexión. Conecta a internet para generar el PDF con número de cotización.");return}
     showLoader("Guardando cotización...");
     const saved=await saveCurrentQuote(true);
-    if(!saved?.ok){hideLoader();toast("No se generó el PDF: el guardado no fue confirmado.","error",7000);return}
+    if(!saved?.ok){hideLoader();if(!saved?.cancelado)toast("No se generó el PDF: el guardado no fue confirmado.","error",7000);return} // v8.0.0: cancelar la versión ya avisó «No se guardó»
     hideLoader();
     // v7.9.24: emitir la instantánea confirmada aunque el editor haya cambiado durante el await.
     const snapshot=JSON.parse(JSON.stringify(saved.document));
