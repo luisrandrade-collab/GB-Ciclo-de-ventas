@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v7.10.1";
+const BUILD_VERSION="v7.10.2";
 const BUILD_DATE="2026-09-20";
 
 // ─── COLLECTION ROUTING (v7.8.9) ───────────────────────────
@@ -2685,15 +2685,21 @@ async function saveProposalToCloud(pObj){
 }
 
 // v7.9.24: importar sólo IDs ausentes comprobándolo dentro de la transacción.
-async function restoreMissingDocument(collectionName,id,data){
+// v7.10.2 (ronda 4): esOtro(existente), opcional, decide con lo leído en la transacción si el documento
+// que ya ocupa el id es de otro: entonces devuelve null (colisión) en vez de false (ya estaba).
+async function restoreMissingDocument(collectionName,id,data,esOtro){
   if(!["quotes","proposals","propfinals","clients"].includes(collectionName)||typeof id!=="string"||!id||id.includes("/")){
     throw new Error("Identificador de restauración inválido");
+  }
+  // v7.10.2 P-38: la app no crea IDs con comillas, ángulos ni barra invertida; un respaldo que los traiga no se restaura.
+  if(/[\x22\x27<>\\]/.test(id)){
+    throw Object.assign(new Error("El respaldo trae un documento con un identificador no válido; no se restauró."),{paraUsuario:true,detalle:id});
   }
   const {db,doc,runTransaction,serverTimestamp}=window.fb;
   const ref=doc(db,collectionName,id);
   return runTransaction(db,async(tx)=>{
     const snap=await tx.get(ref);
-    if(snap.exists())return false;
+    if(snap.exists())return esOtro&&esOtro(snap.data())?null:false;
     const {_wrongCollection,_isPF,kind,createdAt,...clean}=data;
     const iso=clean.createdAtISO||clean.dateISO;
     const date=iso?new Date(iso):null;
@@ -3419,10 +3425,10 @@ async function doSearch(){
   el.innerHTML=dedup.slice(0,30).map(r=>{
     if(r.type==="cot"||r.type==="prop"){
       const q=r.data;const qn=q.quoteNumber||r.id;
-      return '<div class="search-result" onclick="openDocument(\''+(r.type==="cot"?"quote":"proposal")+'\',\''+r.id+'\')"><div class="sr-top"><div><span class="qnum">'+h(qn)+'</span> <strong>'+h(q.client||"—")+'</strong></div><span class="sr-type t-'+r.type+'">'+(r.type==="cot"?"Cotización":"Propuesta")+'</span></div>'+(q.total?'<div style="font-size:13px;color:var(--gb-success-500);font-weight:700">'+fm(q.total)+'</div>':'')+'<div style="font-size:11px;color:var(--gb-neutral-400)">'+(q.dateISO?new Date(q.dateISO).toLocaleDateString("es-CO"):"")+'</div></div>';
+      return '<div class="search-result" onclick="openDocument('+jsArg((r.type==="cot"?"quote":"proposal"))+','+jsArg(r.id)+')"><div class="sr-top"><div><span class="qnum">'+h(qn)+'</span> <strong>'+h(q.client||"—")+'</strong></div><span class="sr-type t-'+r.type+'">'+(r.type==="cot"?"Cotización":"Propuesta")+'</span></div>'+(q.total?'<div style="font-size:13px;color:var(--gb-success-500);font-weight:700">'+fm(q.total)+'</div>':'')+'<div style="font-size:11px;color:var(--gb-neutral-400)">'+(q.dateISO?new Date(q.dateISO).toLocaleDateString("es-CO"):"")+'</div></div>';
     }
     // v7.9.13 SEC-02: campos crudos de cliente/producto envueltos en h() — la rama cot/prop ya escapaba
-    if(r.type==="cli"){const c=r.data;return '<div class="search-result" onclick="pickClientFromSearch(\''+c.id+'\')"><div class="sr-top"><div><strong>'+h(c.name)+'</strong>'+(c.idtype?' — '+h(c.idtype)+' '+h(c.idnum):'')+'</div><span class="sr-type t-cli">Cliente</span></div><div style="font-size:11px;color:var(--gb-neutral-500)">'+h(c.tel||"")+(c.mail?' · '+h(c.mail):'')+'</div></div>'}
+    if(r.type==="cli"){const c=r.data;return '<div class="search-result" onclick="pickClientFromSearch('+jsArg(c.id)+')"><div class="sr-top"><div><strong>'+h(c.name)+'</strong>'+(c.idtype?' — '+h(c.idtype)+' '+h(c.idnum):'')+'</div><span class="sr-type t-cli">Cliente</span></div><div style="font-size:11px;color:var(--gb-neutral-500)">'+h(c.tel||"")+(c.mail?' · '+h(c.mail):'')+'</div></div>'}
     if(r.type==="prod"){const p=r.data;return '<div class="search-result" style="border-left-color:#6A1B9A"><div class="sr-top"><div><strong>'+h(p.n)+'</strong></div><span class="sr-type t-prod">Catálogo</span></div>'+(p.d?'<div style="font-size:11px;color:var(--gb-neutral-400)">'+h(p.d)+'</div>':'')+'<div style="font-size:13px;color:var(--gb-success-500);font-weight:700">'+fm(p.p)+' · '+h(p.u)+'</div><div style="font-size:10px;color:var(--gb-neutral-500)">'+h(p.c)+'</div></div>'}
     if(r.type==="cprod"){const p=r.data;return '<div class="search-result" style="border-left-color:var(--gb-gold-500)"><div class="sr-top"><div><strong>'+h(p.n)+'</strong> <span style="font-size:9px;background:var(--gb-gold-500);color:#fff;padding:1px 5px;border-radius:3px">CUSTOM</span></div><span class="sr-type t-prod">'+(p.useCount||1)+' usos'+(p.promoted?' ✓':"")+'</span></div>'+(p.d?'<div style="font-size:11px;color:var(--gb-neutral-400)">'+h(p.d)+'</div>':'')+'<div style="font-size:13px;color:var(--gb-success-500);font-weight:700">'+fm(p.p||0)+(p.u?' · '+h(p.u):"")+'</div></div>'}
     return "";
@@ -3451,7 +3457,7 @@ function go(s){curStep=s;["info","products","review"].forEach(x=>{$("step-"+x).c
 function updUI(){const c=totCnt(),n=distIt();const b=$("cbadge"),bar=$("cbar");if(c>0){b.classList.remove("hidden");b.textContent=c}else b.classList.add("hidden");bar.classList.toggle("vis",c>0&&curStep==="products");$("bar-c").textContent=c+" producto"+(c!==1?"s":"");$("bar-t").textContent=fm(getTotal());const lw=$("limit-warn");lw.textContent="Máximo "+MX+" productos por cotización. Elimina uno para agregar otro.";lw.classList.toggle("hidden",n<MX)}
 
 // ─── CATEGORY/PRODUCT RENDER ───────────────────────────────
-function renderCats(){$("cats").innerHTML=CATS.map(c=>`<button class="cpill ${c===selCat?'act':''}" onclick="selC('${c.replace(/'/g,"\\'")}')">${c==="Todas"?"Todas":c}</button>`).join("")}
+function renderCats(){$("cats").innerHTML=CATS.map(c=>`<button class="cpill ${c===selCat?'act':''}" onclick="selC(${jsArg(c)})">${h(c)}</button>`).join("")}
 function selC(c){selCat=c;renderCats();renderP()}
 function renderP(){refreshCats();renderCats();const s=($("sbox").value||"").toLowerCase();const catProds=customProductsCache.filter(cp=>cp.inCatalog).map(cp=>({id:"cp_"+cp.id,c:"Personalizados",n:cp.n,d:cp.d||"",p:cp.p||0,u:cp.u||"",_cpId:cp.id}));
 // v7.9.3: usar productosCache cuando esté disponible, fallback a C[]
@@ -3461,8 +3467,9 @@ const allProds=baseProds.concat(catProds);
 const f=allProds.filter(p=>(selCat==="Todas"||p.c===selCat)&&(!s||p.n.toLowerCase().includes(s)||(p.d||"").toLowerCase().includes(s)));const el=$("plist");const atMax=distIt()>=MX;
 if(!f.length){el.innerHTML='<div class="empty"><div class="ic">🔍</div><p>No se encontraron productos</p><button class="btn bg" onclick="togCF()">+ Personalizado</button></div>';return}
 el.innerHTML=f.map(p=>{
-// v7.9.3: ids string (productId) se pasan entre comillas simples en onclick
-const idJs=typeof p.id==="string"?"'"+p.id+"'":p.id;
+// v7.9.3: ids string (productId) van como texto en onclick; v7.10.2 P-38: codificados con jsArg, los numéricos (C[]) siguen número;
+// un id de otro tipo (dato de Firestore sin validar) no se pinta.
+const idJs=idArg(p.id);if(idJs===null){console.warn("[renderP] producto omitido: id no válido",p);return""}
 const ic=cart.find(x=>x.id===p.id);const canAdd=!atMax||ic;return'<div class="pcard '+(ic?'inc':'')+'"><div class="pinfo"><div class="pname">'+escapeHtml(p.n)+'</div>'+(p.d?'<div class="pdesc">'+escapeHtml(p.d)+'</div>':'')+'<div class="punit">'+escapeHtml(p.u||"")+'</div><div class="pprice">'+fm(p.p)+'</div></div><div>'+(ic?'<div class="qc"><button class="qb" onclick="chgQ('+idJs+','+(ic.qty-1)+')">−</button><input type="number" class="qn" value="'+ic.qty+'" min="1" onchange="chgQ('+idJs+',+this.value)" onfocus="this.select()"><button class="qb" onclick="chgQ('+idJs+','+(ic.qty+1)+')">+</button></div>':canAdd?'<button class="abtn" onclick="addC('+idJs+')">Agregar</button>':'<span style="font-size:11px;color:var(--gb-neutral-400)">Máx</span>')+'</div></div>';}).join("");updUI()}
 function addC(id){
   if(distIt()>=MX){toast("Máximo "+MX+" productos","warn");return}
@@ -3601,7 +3608,7 @@ function showClientHistoryPanel(name,modo){
     const fecha=q.dateISO?new Date(q.dateISO).toLocaleDateString("es-CO"):"—";
     const total=q.total?fm(q.total):"";
     const coment=q.comentarioCliente?.texto;
-    return '<div class="chp-item" onclick="openDocument(\''+q.kind+'\',\''+q.id+'\')">'+
+    return '<div class="chp-item" onclick="openDocument('+jsArg(q.kind)+','+jsArg(q.id)+')">'+
       '<div class="chp-item-top"><span><span class="qnum" style="font-size:9px">'+h(q.quoteNumber||q.id)+'</span> · '+fecha+(total?' · '+total:"")+'</span><span class="hc-status '+sMeta.cls+'">'+sMeta.label+'</span></div>'+
       (coment?'<div class="chp-item-coment">💬 '+h(coment.slice(0,140))+(coment.length>140?'...':'')+'</div>':'')+
     '</div>';
@@ -3794,6 +3801,12 @@ function h(s){
     .replace(/"/g,"&quot;")
     .replace(/'/g,"&#39;");
 }
+// v7.10.2 P-38: argumento de texto para un atributo on*= (literal JS escapado para HTML).
+// Uso: 'onclick="f('+jsArg(q.id)+')"'. Un ID con comillas llega como dato, no se ejecuta.
+function jsArg(v){return h(JSON.stringify(String(v)))}
+// v7.10.2 P-38 (ronda 3): id de catálogo/carrito como argumento on*=: número finito tal cual, texto con jsArg;
+// cualquier otro tipo (arreglo, objeto, undefined, null, NaN) → null: quien pinta omite ese botón.
+function idArg(v){return typeof v==="number"&&Number.isFinite(v)?String(v):typeof v==="string"?jsArg(v):null}
 
 // v7.9.13 ARQ-02: escapeHtml movida desde app-dashboard.js (junto a h()).
 // Al vivir en core, los fallbacks `typeof escapeHtml==="function"?escapeHtml:...`
@@ -4275,7 +4288,8 @@ function cargarCotizacionEnEditor(q){
   markEditorContext("quote");
   rememberEditBase("quote",q.quoteNumber||null,q);
   cart=[];cust=[];
-  if(q.cart){q.cart.forEach(ci=>{const p=C.find(x=>x.id===ci.id);if(p)cart.push({...p,p:ci.p,origP:ci.origP||p.p,qty:ci.qty,edited:!!ci.edited});else cart.push({id:ci.id||Date.now()+Math.random(),n:ci.n,d:ci.d,u:ci.u,p:ci.p,origP:ci.origP||ci.p,qty:ci.qty,edited:!!ci.edited})})}
+  // v7.10.2 P-38 (ronda 3): un id de carrito que no es texto ni número finito se reemplaza, como uno ausente.
+  if(q.cart){q.cart.forEach(ci=>{const p=C.find(x=>x.id===ci.id);if(p)cart.push({...p,p:ci.p,origP:ci.origP||p.p,qty:ci.qty,edited:!!ci.edited});else cart.push({id:ci.id&&(typeof ci.id==="string"||Number.isFinite(ci.id))?ci.id:Date.now()+Math.random(),n:ci.n,d:ci.d,u:ci.u,p:ci.p,origP:ci.origP||ci.p,qty:ci.qty,edited:!!ci.edited})})}
   if(q.cust)cust=q.cust.map((ci,ix)=>({id:"x"+Date.now()+ix,...ci,custom:true}));
   $("f-cli").value=q.client||"";
   $("f-idtype").value=(q.idStr||"").split(" ")[0]||"";

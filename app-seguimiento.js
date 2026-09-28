@@ -32,7 +32,7 @@ function renderSeguimiento(){
     buckets[k].sort((a,b)=>daysSinceUpdate(b)-daysSinceUpdate(a));
   });
   // Filter bar
-  const mkF=(k,label,n)=>'<button class="seg-filter '+(segFilter===k?"act":"")+'" onclick="setSegFilter(\''+k+'\')">'+label+' <span class="cnt">'+n+'</span></button>';
+  const mkF=(k,label,n)=>'<button class="seg-filter '+(segFilter===k?"act":"")+'" onclick="setSegFilter('+jsArg(k)+')">'+label+' <span class="cnt">'+n+'</span></button>';
   bar.innerHTML=
     mkF("todos","Todos",allFoll.filter(q=>getFollowUp(q)!=="perdida").length)+
     mkF("alertas","⚠️ Alertas >7d",buckets.alertas.length)+
@@ -106,7 +106,7 @@ function renderSegCard(q){
   const contactBtns=[];
   if(cel){
     // v5.4.3: botón WhatsApp ya no abre chat directo — abre modal de plantillas
-    contactBtns.push('<button class="seg-btn-contact seg-btn-wa" onclick="event.stopPropagation();openWhatsAppTemplatesModal(\''+q.id+'\',\''+q.kind+'\')" style="border:none;font-family:inherit;cursor:pointer">📱 WhatsApp</button>');
+    contactBtns.push('<button class="seg-btn-contact seg-btn-wa" onclick="event.stopPropagation();openWhatsAppTemplatesModal('+jsArg(q.id)+','+jsArg(q.kind)+')" style="border:none;font-family:inherit;cursor:pointer">📱 WhatsApp</button>');
     contactBtns.push('<a class="seg-btn-contact seg-btn-tel" href="tel:+57'+cel+'" onclick="event.stopPropagation()">📞 Llamar</a>');
   }
   if(mail){
@@ -141,11 +141,11 @@ function renderSegCard(q){
     '<div class="seg-card-contact">'+contactBtns.join("")+'</div>'+
     notaHtml+
     '<div class="seg-card-actions">'+
-      '<button class="seg-btn-action seg-btn-contactado" onclick="markFollowUp(\''+q.id+'\',\''+q.kind+'\',\'contactado\')">💬 Contactado</button>'+
-      '<button class="seg-btn-action seg-btn-activa" onclick="markFollowUp(\''+q.id+'\',\''+q.kind+'\',\'activa\')">✅ Activa</button>'+
-      '<button class="seg-btn-action seg-btn-perdida" onclick="openPerdidaModal(\''+q.id+'\',\''+q.kind+'\')">❌ Perdida</button>'+
-      '<button class="seg-btn-action seg-btn-nota" onclick="openNotaSegModal(\''+q.id+'\',\''+q.kind+'\')">📝 Nota</button>'+
-      '<button class="seg-btn-action seg-btn-open" onclick="openDocument(\''+q.kind+'\',\''+q.id+'\')">👁️ Abrir</button>'+
+      '<button class="seg-btn-action seg-btn-contactado" onclick="markFollowUp('+jsArg(q.id)+','+jsArg(q.kind)+',\'contactado\')">💬 Contactado</button>'+
+      '<button class="seg-btn-action seg-btn-activa" onclick="markFollowUp('+jsArg(q.id)+','+jsArg(q.kind)+',\'activa\')">✅ Activa</button>'+
+      '<button class="seg-btn-action seg-btn-perdida" onclick="openPerdidaModal('+jsArg(q.id)+','+jsArg(q.kind)+')">❌ Perdida</button>'+
+      '<button class="seg-btn-action seg-btn-nota" onclick="openNotaSegModal('+jsArg(q.id)+','+jsArg(q.kind)+')">📝 Nota</button>'+
+      '<button class="seg-btn-action seg-btn-open" onclick="openDocument('+jsArg(q.kind)+','+jsArg(q.id)+')">👁️ Abrir</button>'+
     '</div>'+
     '</div>';
 }
@@ -376,7 +376,7 @@ let _waCtx=null; // {q, cel, selectedTplId}
 function openWhatsAppTemplatesModal(docId,kind){
   const q=(quotesCache||[]).find(x=>x.id===docId&&x.kind===kind);
   if(!q){alert("No se encontró el documento");return}
-  const cel=(q.clientPhone||q.custPhone||"").replace(/\D/g,"");
+  const cel=(q.tel||q.clientPhone||q.custPhone||"").replace(/\D/g,""); // v7.10.2 D1: misma cadena que el botón
   if(!cel){alert("Este doc no tiene teléfono de contacto");return}
   _waCtx={q,cel,selectedTplId:null};
   // Header
@@ -402,7 +402,7 @@ function renderWaTemplatesList(){
   const tpls=getWaTemplates();
   listEl.innerHTML=tpls.map(t=>{
     const sel=(_waCtx.selectedTplId===t.id)?' wa-tpl-item-sel':'';
-    return '<div class="wa-tpl-item'+sel+'" onclick="selectWaTemplate(\''+t.id+'\')">'+
+    return '<div class="wa-tpl-item'+sel+'" onclick="selectWaTemplate('+jsArg(t.id)+')">'+
       '<div class="wa-tpl-label">'+t.label.replace(/[<>]/g,"")+'</div>'+
       '<div class="wa-tpl-preview">'+(t.texto||"").slice(0,80).replace(/[<>]/g,"")+(t.texto.length>80?'…':'')+'</div>'+
     '</div>';

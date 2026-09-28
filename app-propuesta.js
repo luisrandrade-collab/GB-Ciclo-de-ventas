@@ -131,7 +131,7 @@ function renderReposicion(){
     const sugVal=priceMemoryCache.reposicion[name]||"";
     const isSugg=!curVal&&sugVal;
     const displayVal=curVal||sugVal;
-    return '<div class="repo-item"><span class="r-name">'+name+'</span><input type="number" class="r-input'+(isSugg?' sug':'')+'" placeholder="0" value="'+displayVal+'" onchange="updReposicion(\''+name.replace(/'/g,"\\'")+'\',this.value)">'+(isSugg?'<span class="repo-hint">↑ sugerido</span>':'')+'</div>';
+    return '<div class="repo-item"><span class="r-name">'+name+'</span><input type="number" class="r-input'+(isSugg?' sug':'')+'" placeholder="0" value="'+displayVal+'" onchange="updReposicion('+jsArg(name)+',this.value)">'+(isSugg?'<span class="repo-hint">↑ sugerido</span>':'')+'</div>';
   }).join("");
 }
 function updReposicion(name,val){
@@ -651,29 +651,29 @@ function renderDespachos(){
       '<div style="background:#fff;border:1px solid #FFB300;border-radius:8px;padding:10px 12px;margin-bottom:8px">'+
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap">'+
           '<div style="font-weight:700;font-size:12.5px;color:#E65100">Despacho '+num+'</div>'+
-          '<button type="button" onclick="removeDespacho(\''+d.id+'\')" style="background:transparent;border:1px solid #EF9A9A;color:#C62828;padding:3px 9px;font-size:11px;border-radius:5px;cursor:pointer;font-family:var(--gb-font-body)">🗑️ Eliminar</button>'+
+          '<button type="button" onclick="removeDespacho('+jsArg(d.id)+')" style="background:transparent;border:1px solid #EF9A9A;color:#C62828;padding:3px 9px;font-size:11px;border-radius:5px;cursor:pointer;font-family:var(--gb-font-body)">🗑️ Eliminar</button>'+
         '</div>'+
         '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">'+
           '<div style="flex:1;min-width:180px">'+
             '<label class="flbl">Fecha y hora</label>'+
-            '<input class="fin" type="datetime-local" value="'+h(fhVal)+'" onchange="updateDespachoField(\''+d.id+'\',\'fechaHora\',this.value)">'+
+            '<input class="fin" type="datetime-local" value="'+h(fhVal)+'" onchange="updateDespachoField('+jsArg(d.id)+',\'fechaHora\',this.value)">'+
           '</div>'+
           '<div style="flex:0 0 130px">'+
             '<label class="flbl">Transporte $</label>'+
-            '<input class="fin" type="number" min="0" value="'+(d.transporteCosto||0)+'" onchange="updateDespachoField(\''+d.id+'\',\'transporteCosto\',this.value)">'+
+            '<input class="fin" type="number" min="0" value="'+(d.transporteCosto||0)+'" onchange="updateDespachoField('+jsArg(d.id)+',\'transporteCosto\',this.value)">'+
           '</div>'+
         '</div>'+
         '<div style="margin-bottom:8px">'+
           '<label class="flbl">Notas del despacho (opcional)</label>'+
-          '<input class="fin" type="text" placeholder="Ej: Refrigerio AM · Día 1" value="'+h(d.notas||"")+'" onchange="updateDespachoField(\''+d.id+'\',\'notas\',this.value)">'+
+          '<input class="fin" type="text" placeholder="Ej: Refrigerio AM · Día 1" value="'+h(d.notas||"")+'" onchange="updateDespachoField('+jsArg(d.id)+',\'notas\',this.value)">'+
         '</div>'+
         '<div style="margin-bottom:0">'+
           '<label style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:#5D4037;cursor:pointer">'+
-            '<input type="checkbox" '+(tieneDirPropia?"checked":"")+' onchange="toggleDespachoDireccion(\''+d.id+'\')" style="accent-color:#FB8C00"> Dirección distinta a la del evento'+
+            '<input type="checkbox" '+(tieneDirPropia?"checked":"")+' onchange="toggleDespachoDireccion('+jsArg(d.id)+')" style="accent-color:#FB8C00"> Dirección distinta a la del evento'+
           '</label>'+
           (tieneDirPropia?(
             '<div style="margin-top:8px;padding:8px;background:#FFF8E1;border-radius:6px">'+
-              '<input class="fin" type="text" placeholder="Dirección de este despacho" value="'+h(d.direccion.dir||"")+'" onchange="updateDespachoDireccionField(\''+d.id+'\',\'dir\',this.value)">'+
+              '<input class="fin" type="text" placeholder="Dirección de este despacho" value="'+h(d.direccion.dir||"")+'" onchange="updateDespachoDireccionField('+jsArg(d.id)+',\'dir\',this.value)">'+
             '</div>'
           ):"")+
         '</div>'+
@@ -734,7 +734,7 @@ function renderPicker(){
   if(customMatches.length){
     html+='<div style="font-size:10px;font-weight:700;color:var(--gb-gold-500);text-transform:uppercase;letter-spacing:.5px;padding:6px 4px;margin-top:4px">Productos Custom Guardados</div>';
     // v7.9.13 SEC-05: p.n/p.d/p.u (custom persistidos) escapados con h()
-    html+=customMatches.map(p=>'<div class="pcard" style="border-left:3px solid var(--gb-gold-500)" onclick="pickCustomProduct(\''+p.id+'\')"><div class="pinfo"><div class="pname">'+h(p.n)+' <span style="font-size:9px;background:var(--gb-gold-500);color:#fff;padding:1px 5px;border-radius:3px">CUSTOM</span>'+(p.promoted?' <span style="font-size:9px;background:#6A1B9A;color:#fff;padding:1px 5px;border-radius:3px">POPULAR</span>':"")+'</div>'+(p.d?'<div class="pdesc">'+h(p.d)+'</div>':'')+(p.u?'<div class="punit">'+h(p.u)+'</div>':"")+'<div class="pprice">'+fm(p.p||0)+'</div><div style="font-size:9px;color:var(--gb-neutral-400);margin-top:2px">'+(p.useCount||1)+' usos</div></div></div>').join("");
+    html+=customMatches.map(p=>'<div class="pcard" style="border-left:3px solid var(--gb-gold-500)" onclick="pickCustomProduct('+jsArg(p.id)+')"><div class="pinfo"><div class="pname">'+h(p.n)+' <span style="font-size:9px;background:var(--gb-gold-500);color:#fff;padding:1px 5px;border-radius:3px">CUSTOM</span>'+(p.promoted?' <span style="font-size:9px;background:#6A1B9A;color:#fff;padding:1px 5px;border-radius:3px">POPULAR</span>':"")+'</div>'+(p.d?'<div class="pdesc">'+h(p.d)+'</div>':'')+(p.u?'<div class="punit">'+h(p.u)+'</div>':"")+'<div class="pprice">'+fm(p.p||0)+'</div><div style="font-size:9px;color:var(--gb-neutral-400);margin-top:2px">'+(p.useCount||1)+' usos</div></div></div>').join("");
   }
   if(catalogMatches.length){
     if(customMatches.length)html+='<div style="font-size:10px;font-weight:700;color:#6A1B9A;text-transform:uppercase;letter-spacing:.5px;padding:6px 4px;margin-top:12px">Catálogo Oficial</div>';
@@ -869,7 +869,7 @@ function renderMenaje(){
       const bg=isActive?"#1B5E20":"#fff";
       const color=isActive?"#fff":"#1B5E20";
       const border=isActive?"#1B5E20":"#A5D6A7";
-      html+='<button onclick="setActiveMenajeOption(\''+op.id+'\')" style="background:'+bg+';color:'+color+';border:1px solid '+border+';border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer">'+h(op.label||"Opción")+'</button>'; // v7.9.13 SEC-05: label escapado
+      html+='<button onclick="setActiveMenajeOption('+jsArg(op.id)+')" style="background:'+bg+';color:'+color+';border:1px solid '+border+';border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer">'+h(op.label||"Opción")+'</button>'; // v7.9.13 SEC-05: label escapado
     });
     html+='<button onclick="addMenajeOption()" style="background:#fff;color:#1B5E20;border:1px dashed #A5D6A7;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer" title="Agregar nueva opción de menaje">+ Opción</button>';
     if(menajeOptions.length>1){
@@ -884,7 +884,7 @@ function renderMenaje(){
   // Label editable de la opción activa (solo si hay >1)
   if(menajeOptions.length>1){
     const activeOp=menajeOptions.find(o=>o.id===activeMenajeOptionId);
-    html+='<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><span style="font-size:11px;color:#888">Etiqueta:</span><input type="text" value="'+h(activeOp?.label||"")+'" onchange="updMenajeOptionLabel(\''+activeMenajeOptionId+'\',this.value);renderMenaje()" style="flex:1;padding:3px 6px;border:1px solid var(--gb-neutral-200);border-radius:4px;font-size:12px"></div>';
+    html+='<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px"><span style="font-size:11px;color:#888">Etiqueta:</span><input type="text" value="'+h(activeOp?.label||"")+'" onchange="updMenajeOptionLabel('+jsArg(activeMenajeOptionId)+',this.value);renderMenaje()" style="flex:1;padding:3px 6px;border:1px solid var(--gb-neutral-200);border-radius:4px;font-size:12px"></div>';
   }
   // Items de la opción activa
   html+=menajeItems.map((m,i)=>{
@@ -1391,7 +1391,7 @@ function renderPropFinalPicker(){
       const items=opt.items||[];
       const sub=items.reduce((s,it)=>s+(it.price||0)*(it.qty||0),0);
       const itemsText=items.length?items.map(it=>{const q=it.qty%1===0?String(it.qty):it.qty.toFixed(1);return q+" × "+h(it.name)}).join(" · "):"<em>Sin ítems</em>";
-      html+='<label class="pf-opt-radio '+(isSel?"sel":"")+'"><input type="radio" name="pf-sec-'+sec.id+'" '+(isSel?"checked":"")+' onchange="pfSelectOption(\''+sec.id+'\',\''+opt.id+'\')"><div class="pf-opt-body"><div class="pf-opt-label">'+h(opt.label)+'</div><div class="pf-opt-items">'+itemsText+'</div><div class="pf-opt-sub">Subtotal: '+fm(sub)+'</div></div></label>';
+      html+='<label class="pf-opt-radio '+(isSel?"sel":"")+'"><input type="radio" name="pf-sec-'+sec.id+'" '+(isSel?"checked":"")+' onchange="pfSelectOption('+jsArg(sec.id)+','+jsArg(opt.id)+')"><div class="pf-opt-body"><div class="pf-opt-label">'+h(opt.label)+'</div><div class="pf-opt-items">'+itemsText+'</div><div class="pf-opt-sub">Subtotal: '+fm(sub)+'</div></div></label>';
     });
     html+='</div>';
   });
@@ -2037,7 +2037,7 @@ function renderPropEditBanners(){
   }
   // Botón 🕒 timeline
   if(currentPropNumber&&hayEditHistory){
-    html+='<div style="margin:8px 0;text-align:right"><button class="eh-trigger" onclick="openEditHistoryModal(\''+currentPropNumber+'\',\'proposal\')" title="Historial de cambios">🕒 Historial ('+qCurrent.editHistory.length+')</button></div>';
+    html+='<div style="margin:8px 0;text-align:right"><button class="eh-trigger" onclick="openEditHistoryModal('+jsArg(currentPropNumber)+',\'proposal\')" title="Historial de cambios">🕒 Historial ('+qCurrent.editHistory.length+')</button></div>';
   }
   // Banner diferencia-anticipo
   if(lastSaved&&lastSaved.hayPagos&&lastSaved.totalAnterior!==lastSaved.totalNuevo){

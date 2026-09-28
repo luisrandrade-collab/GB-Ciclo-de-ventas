@@ -270,7 +270,7 @@ await test('P2-02: la tarjeta y la descarga del exporte exigen la activación co
   assert.equal(conf(emisor()),true);
   for(const x of [{nit:''},{razonSocial:''},{fechaInicio:null}])assert.equal(conf(emisor(x)),false,JSON.stringify(x));
   const tarjeta=async e=>{const el={innerHTML:''};const c=loadSourceFunctions([['app-dashboard.js','renderReportes'],['app-core.js','gbEmisorConfigurado']],
-    {GB_EMISOR:e,quotesCache:[{}],$:id=>id==='reportes-content'?el:null,reportesFiltros:{desde:'x',hasta:'y',estado:'todos'},setTimeout:()=>{}});await c.renderReportes();return el.innerHTML};
+    {GB_EMISOR:e,quotesCache:[{}],$:id=>id==='reportes-content'?el:null,reportesFiltros:{desde:'x',hasta:'y',estado:'todos'},setTimeout:()=>{},jsArg:v=>JSON.stringify(String(v))});await c.renderReportes();return el.innerHTML};
   assert.match(await tarjeta(emisor()),/Exporte contable/);
   for(const x of [{nit:''},{razonSocial:''},{fechaInicio:null}])assert.doesNotMatch(await tarjeta(emisor(x)),/Exporte contable/,JSON.stringify(x));
   const descarga=e=>{const toasts=[];let exportado=false;
@@ -591,7 +591,7 @@ await test('v7.10.1 P2-01: con la empresa apagada no aparecen las notas crédito
   const modal=(e,fe=FE_NC)=>{let body='';
     const m=loadSourceFunctions([['app-historial.js','openFeModal'],['app-historial.js','gbFeEstado'],['app-historial.js','gbFeSumaNotas'],['app-core.js','gbEmisorConfigurado']],{
       quotesCache:[{id:'P1',kind:'quote',quoteNumber:'GB-1',accountingEntityId:'GB_SAS_SIMPLE',feData:fe}],GB_EMISOR:e,toast:()=>{},h:String,fm:String,gbTodayIso:()=>'2026-10-25',
-      _feBase64:null,confirmModal:o=>{body=o.body}});
+      _feBase64:null,confirmModal:o=>{body=o.body},jsArg:v=>JSON.stringify(String(v))});
     m.openFeModal('P1','quote');return body};
   let b=modal(emisor());assert.match(b,/Notas crédito/);assert.match(b,/Registrar nota crédito/);
   assert.ok(!modal(emisor(),{...FE_NC,cufe:''}).includes('Notas crédito'),'sin CUFE de la FE no hay notas');

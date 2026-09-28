@@ -338,7 +338,7 @@ async function renderHist(){
     Object.keys(archMeta).map(k=>{
       const m=archMeta[k];
       const act=histArchive===k?"act":"";
-      return '<button class="hist-archive '+m.cls+' '+act+'" onclick="setHistArchive(\''+k+'\')">'+m.label+
+      return '<button class="hist-archive '+m.cls+' '+act+'" onclick="setHistArchive('+jsArg(k)+')">'+m.label+
         '<span class="cnt">'+archCnt[k]+'</span></button>';
     }).join("")+
     '</div>';
@@ -362,7 +362,7 @@ async function renderHist(){
     }).length;
   });
   const subBar=subs.length>1?('<div class="hist-subfilters">'+
-    subs.map(sf=>'<button class="hist-subfilter '+(histFilter===sf.k?"act":"")+'" onclick="setHistFilter(\''+sf.k+'\')">'+sf.label+
+    subs.map(sf=>'<button class="hist-subfilter '+(histFilter===sf.k?"act":"")+'" onclick="setHistFilter('+jsArg(sf.k)+')">'+sf.label+
       '<span class="cnt">'+(subCnt[sf.k]||0)+'</span></button>').join("")+
     '</div>'):'';
 
@@ -422,7 +422,7 @@ async function renderHist(){
     // v5.0.3: badge Anulada (motivo visible como tooltip)
     const motivoAnulacion=q.anuladaData?.motivoLabel||q.anuladaData?.motivo||"";
     const anuladaBadge=(status==="anulada")?'<span class="hc-anulada-badge" title="'+h(motivoAnulacion)+'">❌ Anulada</span>':''; // v7.9.13 SEC-04: escapar motivo (input libre del usuario) en atributo title
-    const replacedByBadge=(q.replacedBy)?'<span style="background:#E3F2FD;color:#1565C0;border:1px solid #90CAF9;border-radius:6px;padding:2px 8px;font-size:0.75em;cursor:pointer" onclick="event.stopPropagation();openPreview(\''+q.replacedBy+'\',\''+q.kind+'\')">♻️ Reemplazado por '+q.replacedBy+'</span>':'';
+    const replacedByBadge=(q.replacedBy)?'<span style="background:#E3F2FD;color:#1565C0;border:1px solid #90CAF9;border-radius:6px;padding:2px 8px;font-size:0.75em;cursor:pointer" onclick="event.stopPropagation();openPreview('+jsArg(q.replacedBy)+','+jsArg(q.kind)+')">♻️ Reemplazado por '+q.replacedBy+'</span>':'';
     const replacesBadge=(q.replaces)?'<span style="background:#FFF3E0;color:#E65100;border:1px solid #FFB74D;border-radius:6px;padding:2px 8px;font-size:0.75em">♻️ Reemplaza a '+q.replaces+'</span>':'';
     const _optInfo=typeof getOptionGroupInfo==="function"?getOptionGroupInfo(q,quotesCache):null;
     const optionBadge=_optInfo?'<span class="hc-option-badge" title="Grupo de opciones: solo la de mayor total suma en KPIs">🔗 Opción '+_optInfo.order+'/'+_optInfo.total+'</span>':'';
@@ -464,8 +464,8 @@ async function renderHist(){
     if(_esFollowable&&!_esPerdida){
       const fu=typeof getFollowUp==="function"?getFollowUp(q):"pendiente";
       const vivaLabel=fu==="activa"?"🟢 Activa ✓":(fu==="contactado"?"🟢 Marcar activa":"🟢 Viva");
-      actionBtns.push('<button class="btn hc-btn-viva-quick" onclick="quickMarkViva(\''+q.id+'\',\''+q.kind+'\',event)" title="Marcar como viva/activa">'+vivaLabel+'</button>');
-      actionBtns.push('<button class="btn hc-btn-perdida-quick" onclick="openPerdidaModal(\''+q.id+'\',\''+q.kind+'\');event.stopPropagation();" title="Marcar como perdida">❌ Perdida</button>');
+      actionBtns.push('<button class="btn hc-btn-viva-quick" onclick="quickMarkViva('+jsArg(q.id)+','+jsArg(q.kind)+',event)" title="Marcar como viva/activa">'+vivaLabel+'</button>');
+      actionBtns.push('<button class="btn hc-btn-perdida-quick" onclick="openPerdidaModal('+jsArg(q.id)+','+jsArg(q.kind)+');event.stopPropagation();" title="Marcar como perdida">❌ Perdida</button>');
     }
     // v5.5.0: Botón ✏️ Editar según matriz de edición
     // Aparece en cotizaciones: enviada, pedido, en_produccion, entregado
@@ -477,65 +477,65 @@ async function renderHist(){
       const _statusLbl=(STATUS_META[q.status||"enviada"]?.label)||"";
       const _needsWarn=(typeof requiresWarning==="function"&&requiresWarning(q));
       const _onclick=_needsWarn
-        ?'event.stopPropagation();requestEdit(\''+q.kind+'\',\''+q.id+'\')'
-        :'event.stopPropagation();loadQuote(\''+q.kind+'\',\''+q.id+'\')';
+        ?'event.stopPropagation();requestEdit('+jsArg(q.kind)+','+jsArg(q.id)+')'
+        :'event.stopPropagation();loadQuote('+jsArg(q.kind)+','+jsArg(q.id)+')';
       actionBtns.push('<button class="btn hc-btn-edit" onclick="'+_onclick+'" title="Editar '+_statusLbl+'">✏️ Editar</button>');
     }
     // v5.5.0: Botón 🕒 historial de cambios — solo si hay editHistory
     if(Array.isArray(q.editHistory)&&q.editHistory.length>0){
-      actionBtns.push('<button class="btn hc-btn-timeline" onclick="event.stopPropagation();openEditHistoryModal(\''+q.id+'\',\''+q.kind+'\')" title="Historial de cambios">🕒 '+q.editHistory.length+'</button>');
+      actionBtns.push('<button class="btn hc-btn-timeline" onclick="event.stopPropagation();openEditHistoryModal('+jsArg(q.id)+','+jsArg(q.kind)+')" title="Historial de cambios">🕒 '+q.editHistory.length+'</button>');
     }
     // Ciclo de vida según tipo + status
     if(!isProp&&status==="enviada"){
       // v5.0.5: solo ofrecer "Marcar como pedido" si NO está perdida
       if(!_esPerdida){
-        actionBtns.push('<button class="btn hc-btn-order" onclick="openOrderModal(\''+q.id+'\',event)">✅ Marcar como pedido</button>');
+        actionBtns.push('<button class="btn hc-btn-order" onclick="openOrderModal('+jsArg(q.id)+',event)">✅ Marcar como pedido</button>');
       }else{
-        actionBtns.push('<button class="btn hc-btn-reactivar" onclick="openReactivarModal(\''+q.id+'\',\'quote\',event)">♻️ Reactivar</button>');
+        actionBtns.push('<button class="btn hc-btn-reactivar" onclick="openReactivarModal('+jsArg(q.id)+',\'quote\',event)">♻️ Reactivar</button>');
       }
     }else if(!isProp&&(status==="pedido"||status==="en_produccion")){
-      if(!q.eventDate)actionBtns.push('<button class="btn hc-btn-order" onclick="assignDeliveryDate(\''+q.id+'\',\'quote\',event)">📅 Asignar fecha de entrega</button>');
+      if(!q.eventDate)actionBtns.push('<button class="btn hc-btn-order" onclick="assignDeliveryDate('+jsArg(q.id)+',\'quote\',event)">📅 Asignar fecha de entrega</button>');
       // v7.8.8: botón "🔥 Iniciar producción" eliminado — la producción arranca por fecha automática (decisión v7.8.7).
       // v7.0-α FIX-02b: si NO producido → botón normal "Marcar producido". Si SÍ producido →
       // botón verde "Producido ✓" clickeable para desmarcar (con confirm).
-      if(!q.produced)actionBtns.push('<button class="btn hc-btn-edit" onclick="toggleProduced(\''+q.id+'\',\'quote\',event)">🔪 Marcar producido</button>');
-      else actionBtns.push('<button class="btn hc-btn-edit" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" title="Toca para desmarcar producido" onclick="confirmUnproduced(\''+q.id+'\',\'quote\',event)">🔪 Producido ✓</button>');
+      if(!q.produced)actionBtns.push('<button class="btn hc-btn-edit" onclick="toggleProduced('+jsArg(q.id)+',\'quote\',event)">🔪 Marcar producido</button>');
+      else actionBtns.push('<button class="btn hc-btn-edit" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" title="Toca para desmarcar producido" onclick="confirmUnproduced('+jsArg(q.id)+',\'quote\',event)">🔪 Producido ✓</button>');
       // v7.0-α FIX-02a: gate — solo permitir entregar si está producido
-      if(q.produced)actionBtns.push('<button class="btn hc-btn-deliver" onclick="openDeliveryModal(\''+q.id+'\',\'quote\',event)">🎉 Marcar como entregado</button>');
-      if(q.eventDate||q.productionDate)actionBtns.push('<button class="btn hc-btn-ics" onclick="exportPedidoIcs(\''+q.id+'\',\'quote\',event)">📅 .ics</button>');
+      if(q.produced)actionBtns.push('<button class="btn hc-btn-deliver" onclick="openDeliveryModal('+jsArg(q.id)+',\'quote\',event)">🎉 Marcar como entregado</button>');
+      if(q.eventDate||q.productionDate)actionBtns.push('<button class="btn hc-btn-ics" onclick="exportPedidoIcs('+jsArg(q.id)+',\'quote\',event)">📅 .ics</button>');
     }else if(isProp&&status==="enviada"){
       // v5.0.5: bloquear PF/aprobada si es perdida; ofrecer Reactivar
       if(!_esPerdida){
         const hasMulti=(q.sections||[]).some(s=>(s.options||[]).length>1);
-        if(hasMulti)actionBtns.push('<button class="btn hc-btn-final" onclick="openPropFinalFlow(\''+q.id+'\',event)">✓ Generar Propuesta Final</button>');
-        else actionBtns.push('<button class="btn hc-btn-approve" onclick="openApproveModal(\''+q.id+'\',\'proposal\',event)">✓ Marcar como aprobada</button>');
+        if(hasMulti)actionBtns.push('<button class="btn hc-btn-final" onclick="openPropFinalFlow('+jsArg(q.id)+',event)">✓ Generar Propuesta Final</button>');
+        else actionBtns.push('<button class="btn hc-btn-approve" onclick="openApproveModal('+jsArg(q.id)+',\'proposal\',event)">✓ Marcar como aprobada</button>');
       }else{
-        actionBtns.push('<button class="btn hc-btn-reactivar" onclick="openReactivarModal(\''+q.id+'\',\'proposal\',event)">♻️ Reactivar</button>');
+        actionBtns.push('<button class="btn hc-btn-reactivar" onclick="openReactivarModal('+jsArg(q.id)+',\'proposal\',event)">♻️ Reactivar</button>');
       }
     }else if(isProp&&status==="propfinal"){
       // v5.0.5: bloquear aprobada si es perdida; ofrecer Reactivar
       if(!_esPerdida){
-        actionBtns.push('<button class="btn hc-btn-approve" onclick="openApproveModal(\''+q.id+'\',\'proposal\',event)">✓ Marcar como aprobada</button>');
+        actionBtns.push('<button class="btn hc-btn-approve" onclick="openApproveModal('+jsArg(q.id)+',\'proposal\',event)">✓ Marcar como aprobada</button>');
       }else{
-        actionBtns.push('<button class="btn hc-btn-reactivar" onclick="openReactivarModal(\''+q.id+'\',\'proposal\',event)">♻️ Reactivar</button>');
+        actionBtns.push('<button class="btn hc-btn-reactivar" onclick="openReactivarModal('+jsArg(q.id)+',\'proposal\',event)">♻️ Reactivar</button>');
       }
     }else if(isProp&&(status==="aprobada"||status==="en_produccion")){
-      if(!q.eventDate)actionBtns.push('<button class="btn hc-btn-order" onclick="assignDeliveryDate(\''+q.id+'\',\'proposal\',event)">📅 Asignar fecha de entrega</button>');
+      if(!q.eventDate)actionBtns.push('<button class="btn hc-btn-order" onclick="assignDeliveryDate('+jsArg(q.id)+',\'proposal\',event)">📅 Asignar fecha de entrega</button>');
       // v7.8.8: botón "🔥 Iniciar producción" eliminado — la producción arranca por fecha automática (decisión v7.8.7).
       // v7.0-α FIX-02b: ver explicación arriba (mismo patrón para propuestas)
-      if(!q.produced)actionBtns.push('<button class="btn hc-btn-edit" onclick="toggleProduced(\''+q.id+'\',\'proposal\',event)">🔪 Marcar producido</button>');
-      else actionBtns.push('<button class="btn hc-btn-edit" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" title="Toca para desmarcar producido" onclick="confirmUnproduced(\''+q.id+'\',\'proposal\',event)">🔪 Producido ✓</button>');
+      if(!q.produced)actionBtns.push('<button class="btn hc-btn-edit" onclick="toggleProduced('+jsArg(q.id)+',\'proposal\',event)">🔪 Marcar producido</button>');
+      else actionBtns.push('<button class="btn hc-btn-edit" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" title="Toca para desmarcar producido" onclick="confirmUnproduced('+jsArg(q.id)+',\'proposal\',event)">🔪 Producido ✓</button>');
       // v7.0-α FIX-02a: gate — solo permitir entregar si está producido
-      if(q.produced)actionBtns.push('<button class="btn hc-btn-deliver" onclick="openDeliveryModal(\''+q.id+'\',\'proposal\',event)">🎉 Marcar como entregado</button>');
-      if(q.eventDate||q.productionDate)actionBtns.push('<button class="btn hc-btn-ics" onclick="exportPedidoIcs(\''+q.id+'\',\'proposal\',event)">📅 .ics</button>');
+      if(q.produced)actionBtns.push('<button class="btn hc-btn-deliver" onclick="openDeliveryModal('+jsArg(q.id)+',\'proposal\',event)">🎉 Marcar como entregado</button>');
+      if(q.eventDate||q.productionDate)actionBtns.push('<button class="btn hc-btn-ics" onclick="exportPedidoIcs('+jsArg(q.id)+',\'proposal\',event)">📅 .ics</button>');
     }
     // v4.12.7: botón 🔄 Nueva versión para PFs (cliente pidió cambios → regenerar PF nueva)
     if(isPF&&status!=="superseded"){
-      actionBtns.push('<button class="btn hc-btn-regen" onclick="regeneratePropFinal(\''+q.id+'\',event)">🔄 Nueva versión</button>');
+      actionBtns.push('<button class="btn hc-btn-regen" onclick="regeneratePropFinal('+jsArg(q.id)+',event)">🔄 Nueva versión</button>');
     }
     // v4.12.7: botón eliminar fantasma (docs GB-PF-* guardados por error en proposals/)
     if(q._wrongCollection){
-      actionBtns.push('<button class="btn hc-btn-wrong" onclick="deleteWrongDoc(\''+q.id+'\',event)">🗑️ Eliminar fantasma</button>');
+      actionBtns.push('<button class="btn hc-btn-wrong" onclick="deleteWrongDoc('+jsArg(q.id)+',event)">🗑️ Eliminar fantasma</button>');
     }
     // v5.0.3: botón ↩️ Anular para docs en estados reversibles (antes de entregar)
     // v6.0.0: además, si el doc ya está cobrado al 100%, NO se puede anular
@@ -543,31 +543,31 @@ async function renderHist(){
     // Centralizado en canAnular(q) de app-core.
     const _anulable=(typeof canAnular==="function")?canAnular(q):["pedido","en_produccion","aprobada"].includes(status);
     if(_anulable){
-      actionBtns.push('<button class="btn hc-btn-anular" onclick="openAnularModal(\''+q.id+'\',\''+q.kind+'\',event)">↩️ Anular</button>');
+      actionBtns.push('<button class="btn hc-btn-anular" onclick="openAnularModal('+jsArg(q.id)+','+jsArg(q.kind)+',event)">↩️ Anular</button>');
     }
     const _puedePago=(!isProp&&["pedido","en_produccion","entregado"].includes(status))||(isProp&&["aprobada","en_produccion","entregado"].includes(status));
-    if(_puedePago&&_saldo>0)actionBtns.push('<button class="btn hc-btn-pago" onclick="openPagoModal(\''+q.id+'\',event)">💵 Registrar pago</button>');
-    if(_pagos.length>0||(q.cargos||[]).length>0)actionBtns.push('<button class="btn hc-btn-pagos-ver" onclick="openVerPagosModal(\''+q.id+'\',event)">📒 Ver pagos ('+_pagos.length+')</button>');
+    if(_puedePago&&_saldo>0)actionBtns.push('<button class="btn hc-btn-pago" onclick="openPagoModal('+jsArg(q.id)+',event)">💵 Registrar pago</button>');
+    if(_pagos.length>0||(q.cargos||[]).length>0)actionBtns.push('<button class="btn hc-btn-pagos-ver" onclick="openVerPagosModal('+jsArg(q.id)+',event)">📒 Ver pagos ('+_pagos.length+')</button>');
     if(puedeCargoReposicion(q))actionBtns.push(_btnCargoReposicion(q)); // v7.9.35 P-35
     if(!["superseded","convertida","anulada"].includes(status)){
       const _feLabel=q.feData?'🧾 FE ✓':(q.requiereFE?'🧾 FE pendiente':'🧾 FE');
-      actionBtns.push('<button class="btn hc-btn-fe" onclick="event.stopPropagation();openFeModal(\''+q.id+'\',\''+q.kind+'\')">'+_feLabel+'</button>');
+      actionBtns.push('<button class="btn hc-btn-fe" onclick="event.stopPropagation();openFeModal('+jsArg(q.id)+','+jsArg(q.kind)+')">'+_feLabel+'</button>');
     }
     // v4.12: comentario cliente disponible si entregado o ya hay uno
     if(status==="entregado"||q.comentarioCliente){
-      actionBtns.push('<button class="btn hc-btn-coment" onclick="openComentModal(\''+q.id+'\',\''+q.kind+'\',event)">💬 '+(q.comentarioCliente?'Editar':'Registrar')+' comentario</button>');
+      actionBtns.push('<button class="btn hc-btn-coment" onclick="openComentModal('+jsArg(q.id)+','+jsArg(q.kind)+',event)">💬 '+(q.comentarioCliente?'Editar':'Registrar')+' comentario</button>');
     }
     // v6.4.0 P6: si ya está entregado y tiene foto guardada, permitir reenviar a Kathy por WhatsApp
     if(status==="entregado"&&q.entregaData&&(q.entregaData.fotoUrl||q.entregaData.foto2Url||q.entregaData.fotoBase64||q.entregaData.foto2Base64)){
-      actionBtns.push('<button class="btn hc-btn-coment" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" onclick="event.stopPropagation();reopenEntregaWhatsApp(\''+q.id+'\',\''+q.kind+'\')">📸 Enviar fotos a Kathy</button>');
+      actionBtns.push('<button class="btn hc-btn-coment" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" onclick="event.stopPropagation();reopenEntregaWhatsApp('+jsArg(q.id)+','+jsArg(q.kind)+')">📸 Enviar fotos a Kathy</button>');
     }
     if(!["superseded","convertida","anulada"].includes(status)){
       const _optLabel=q.optionGroupId?'🔗 Opciones ('+(_optInfo?_optInfo.total:'?')+')':'🔗 Opciones';
-      actionBtns.push('<button class="btn hc-btn-option" onclick="event.stopPropagation();openOptionGroupModal(\''+q.id+'\',\''+q.kind+'\')">'+_optLabel+'</button>');
+      actionBtns.push('<button class="btn hc-btn-option" onclick="event.stopPropagation();openOptionGroupModal('+jsArg(q.id)+','+jsArg(q.kind)+')">'+_optLabel+'</button>');
     }
     // v5.4.1 (Bloque B): botón para ver PDFs anteriores si hay historial de regeneraciones
     if(Array.isArray(q.pdfHistorial)&&q.pdfHistorial.length>0){
-      actionBtns.push('<button class="btn hc-btn-pdfs" onclick="openPdfHistorialModal(\''+q.id+'\',\''+q.kind+'\',event)">📎 PDFs ('+q.pdfHistorial.length+')</button>');
+      actionBtns.push('<button class="btn hc-btn-pdfs" onclick="openPdfHistorialModal('+jsArg(q.id)+','+jsArg(q.kind)+',event)">📎 PDFs ('+q.pdfHistorial.length+')</button>');
     }
     const actions=actionBtns.length?'<div class="hc-actions">'+actionBtns.join("")+'</div>':"";
     const summary=isProp
@@ -579,9 +579,9 @@ async function renderHist(){
     if(status==="convertida")cardCls+=" hc-convertida";
     if(status==="anulada")cardCls+=" hc-anulada";
     const cardExtra=(status==="superseded"||q._wrongCollection)?' style="opacity:.65"':"";
-    return '<div class="'+cardCls+'"'+cardExtra+' onclick="openDocument(\''+q.kind+'\',\''+q.id+'\')">'+
+    return '<div class="'+cardCls+'"'+cardExtra+' onclick="openDocument('+jsArg(q.kind)+','+jsArg(q.id)+')">'+
       '<div class="hc-top"><div><span class="qnum">'+h(qNum)+'</span> <span class="hc-cli">'+h(q.client)+'</span><span class="hc-type '+(isProp?"prop":"cot")+'">'+(isProp?"Propuesta":"Cotización")+'</span>'+statusBadge+supersededBadge+wrongCollBadge+origenPfBadge+anuladaBadge+replacedByBadge+replacesBadge+optionBadge+followUpBadge+pagadoBadge+prodBadge+feBadge+comentBadge+syncBadge+'</div>'+
-      '<div><button class="dup-btn" onclick="openDuplicateModal(\''+q.kind+'\',\''+q.id+'\',event)" title="Duplicar">📋</button><button class="del-btn" onclick="delHistItem(\''+q.kind+'\',\''+q.id+'\',event)">×</button></div></div>'+
+      '<div><button class="dup-btn" onclick="openDuplicateModal('+jsArg(q.kind)+','+jsArg(q.id)+',event)" title="Duplicar">📋</button><button class="del-btn" onclick="delHistItem('+jsArg(q.kind)+','+jsArg(q.id)+',event)">×</button></div></div>'+
       '<div class="hc-date">'+ds+'</div>'+summary+actions+
       '</div>';
   }).join("");
@@ -1299,7 +1299,7 @@ function cargoCalcular(filas){
 }
 function _btnCargoReposicion(q){
   // R1B-P2-4: los argumentos van como literales JSON escapados para el atributo; un ID con comillas no se ejecuta.
-  return '<button class="btn" style="background:#F3E5F5;color:#4A148C;border:1px solid #BA68C8" onclick="openCargoModal('+h(JSON.stringify(String(q.id)))+','+h(JSON.stringify(String(q.kind)))+',event)">🍷 Cargo por reposición</button>';
+  return '<button class="btn" style="background:#F3E5F5;color:#4A148C;border:1px solid #BA68C8" onclick="openCargoModal('+jsArg(q.id)+','+jsArg(q.kind)+',event)">🍷 Cargo por reposición</button>';
 }
 let cargoSrc=null;
 function openCargoModal(docId,kindOrEv,evMaybe){
@@ -2009,7 +2009,7 @@ function editPago(idx){
     '</div>'+
     '<div style="margin-top:6px"><label style="font-size:10px;color:#888;display:block">Notas</label><input type="text" id="pe-notas-'+idx+'" value="'+h(p.notas||"")+'" style="width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px" placeholder="Notas opcionales"></div>'+
     '<div style="margin-top:8px;display:flex;gap:8px;justify-content:flex-end">'+
-      '<button style="padding:4px 12px;border:1px solid #ccc;border-radius:6px;background:white;cursor:pointer;font-size:12px" onclick="openVerPagosModal(\''+docId+'\',\''+kind+'\')">Cancelar</button>'+
+      '<button style="padding:4px 12px;border:1px solid #ccc;border-radius:6px;background:white;cursor:pointer;font-size:12px" onclick="openVerPagosModal('+jsArg(docId)+','+jsArg(kind)+')">Cancelar</button>'+
       '<button style="padding:4px 12px;border:none;border-radius:6px;background:#1976D2;color:white;cursor:pointer;font-size:12px;font-weight:600" onclick="savePagoEdit('+idx+')">Guardar</button>'+
     '</div>';
   $("pe-metodo-"+idx).value=p.metodo||"Sin especificar";
@@ -3422,7 +3422,7 @@ function renderAllPdfsList(){
         const qNum=q.quoteNumber||q.id;
         const err=(q.pdfUploadLastError||"").replace(/[<>]/g,"").slice(0,80);
         const lastAt=(q.pdfUploadLastAttempt||"").slice(0,16).replace("T"," ");
-        return '<div style="padding:7px 9px;background:#fff;border:1px solid #FFCC80;border-radius:6px;margin-bottom:5px;cursor:pointer" onclick="closeAllPdfsModal();openDocument(\''+q.kind+'\',\''+q.id+'\')">'+
+        return '<div style="padding:7px 9px;background:#fff;border:1px solid #FFCC80;border-radius:6px;margin-bottom:5px;cursor:pointer" onclick="closeAllPdfsModal();openDocument('+jsArg(q.kind)+','+jsArg(q.id)+')">'+
           '<div style="display:flex;justify-content:space-between;gap:8px;font-size:11.5px"><span style="font-weight:700;color:#1A1A1A">'+qNum+'</span><span style="color:#BF360C;font-size:10px">↗ Abrir y regenerar</span></div>'+
           '<div style="font-size:10.5px;color:#455A64;margin-top:2px">'+(q.client||"—").replace(/[<>]/g,"")+'</div>'+
           (lastAt?'<div style="font-size:9.5px;color:#888;margin-top:2px">Último intento: '+lastAt+'</div>':'')+
@@ -3465,7 +3465,7 @@ function renderAllPdfsList(){
           '<div style="font-size:11.5px;color:#455A64;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(d.client||"—").replace(/[<>]/g,"")+'</div>'+
           '<div style="font-size:10px;color:#78909C;margin-top:2px">'+kindLabel+' · '+fm(d.total)+' · '+(d.dateISO||"—")+'</div>'+
         '</div>'+
-        '<button onclick="closeAllPdfsModal();openDocument(\''+d.kind+'\',\''+d.id+'\')" style="font-size:10.5px;background:#ECEFF1;border:1px solid #B0BEC5;color:#455A64;padding:4px 10px;border-radius:12px;cursor:pointer;white-space:nowrap;font-family:inherit">📂 Abrir cotización</button>'+
+        '<button onclick="closeAllPdfsModal();openDocument('+jsArg(d.kind)+','+jsArg(d.id)+')" style="font-size:10.5px;background:#ECEFF1;border:1px solid #B0BEC5;color:#455A64;padding:4px 10px;border-radius:12px;cursor:pointer;white-space:nowrap;font-family:inherit">📂 Abrir cotización</button>'+
       '</div>'+
       '<div style="margin-top:8px">'+versionesHtml+'</div>'+
     '</div>';
@@ -3547,7 +3547,7 @@ function openOptionGroupModal(docId,kind){
     currentGroup.forEach(s=>{
       body+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #eee">'
         +'<span style="flex:1"><strong>'+h(s.quoteNumber||s.id)+'</strong> — '+fm(s.total||0)+'</span>'
-        +'<button onclick="unlinkOptionGroup(\''+docId+'\',\''+kind+'\',\''+s.id+'\',\''+s.kind+'\')" '
+        +'<button onclick="unlinkOptionGroup('+jsArg(docId)+','+jsArg(kind)+','+jsArg(s.id)+','+jsArg(s.kind)+')" '
         +'style="background:#FFEBEE;color:#C62828;border:1px solid #EF9A9A;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer">Desvincular</button>'
         +'</div>';
     });
@@ -3562,7 +3562,7 @@ function openOptionGroupModal(docId,kind){
       body+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #eee">'
         +'<span style="flex:1"><strong>'+h(s.quoteNumber||s.id)+'</strong> — '+(s.kind==="quote"?"Cot":"Prop")+' · '+fm(s.total||0)
         +(s.eventDate?' · '+s.eventDate:'')+'</span>'
-        +'<button onclick="linkOptionGroup(\''+docId+'\',\''+kind+'\',\''+s.id+'\',\''+s.kind+'\')" '
+        +'<button onclick="linkOptionGroup('+jsArg(docId)+','+jsArg(kind)+','+jsArg(s.id)+','+jsArg(s.kind)+')" '
         +'style="background:#E3F2FD;color:#1565C0;border:1px solid #90CAF9;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer">Vincular</button>'
         +'</div>';
     });
@@ -3803,7 +3803,7 @@ function openFeModal(docId,kind){
     +'<input type="file" id="fe-foto" accept="image/*,.pdf" onchange="previewFeFoto(event)" style="margin-top:4px;font-size:12px">'
     +'<div id="fe-foto-preview" style="margin-top:6px"></div></div>';
 
-  body+='<button onclick="submitFe(\''+docId+'\',\''+kind+'\')" style="width:100%;padding:12px;background:linear-gradient(135deg,#1565C0,#0D47A1);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Guardar</button>';
+  body+='<button onclick="submitFe('+jsArg(docId)+','+jsArg(kind)+')" style="width:100%;padding:12px;background:linear-gradient(135deg,#1565C0,#0D47A1);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">Guardar</button>';
 
   confirmModal({
     title:"🧾 Factura Electrónica",
@@ -4132,36 +4132,36 @@ function _actionBtnsPorContexto(q,contexto){
   const _editable=(typeof canEdit==="function")?canEdit(q):false;
   const _needsWarn=(typeof requiresWarning==="function")?requiresWarning(q):false;
   const _editOnclick=_needsWarn
-    ?'event.stopPropagation();requestEdit(\''+kind+'\',\''+id+'\')'
-    :'event.stopPropagation();loadQuote(\''+kind+'\',\''+id+'\')';
+    ?'event.stopPropagation();requestEdit('+jsArg(kind)+','+jsArg(id)+')'
+    :'event.stopPropagation();loadQuote('+jsArg(kind)+','+jsArg(id)+')';
 
   // Helpers de botones reusables (cierres sobre id/kind)
   const btnEditar=()=>'<button class="btn hc-btn-edit" onclick="'+_editOnclick+'" title="Editar '+_statusLbl+'">✏️ Editar</button>';
   const btnNuevaVersion=()=>'<button class="btn hc-btn-edit" onclick="'+_editOnclick+'" title="Nueva versión de '+_statusLbl+'">🔄 Nueva versión</button>';
   const btnHistorial=()=>(Array.isArray(q.editHistory)&&q.editHistory.length>0)
-    ?'<button class="btn hc-btn-timeline" onclick="event.stopPropagation();openEditHistoryModal(\''+id+'\',\''+kind+'\')" title="Historial de cambios">🕒 '+q.editHistory.length+'</button>':'';
-  const btnPagar=()=>(_saldo>0)?'<button class="btn hc-btn-pago" onclick="openPagoModal(\''+id+'\',event)">💵 Registrar pago</button>':'';
-  const btnVerPagos=()=>(_pagos.length>0||(q.cargos||[]).length>0)?'<button class="btn hc-btn-pagos-ver" onclick="openVerPagosModal(\''+id+'\',event)">📒 Ver pagos ('+_pagos.length+')</button>':'';
+    ?'<button class="btn hc-btn-timeline" onclick="event.stopPropagation();openEditHistoryModal('+jsArg(id)+','+jsArg(kind)+')" title="Historial de cambios">🕒 '+q.editHistory.length+'</button>':'';
+  const btnPagar=()=>(_saldo>0)?'<button class="btn hc-btn-pago" onclick="openPagoModal('+jsArg(id)+',event)">💵 Registrar pago</button>':'';
+  const btnVerPagos=()=>(_pagos.length>0||(q.cargos||[]).length>0)?'<button class="btn hc-btn-pagos-ver" onclick="openVerPagosModal('+jsArg(id)+',event)">📒 Ver pagos ('+_pagos.length+')</button>':'';
   const btnCargo=()=>puedeCargoReposicion(q)?_btnCargoReposicion(q):''; // v7.9.35 P-35
   const btnFE=()=>{
     if(["superseded","convertida","anulada"].includes(status))return "";
     const lbl=q.feData?'🧾 FE ✓':(q.requiereFE?'🧾 FE pendiente':'🧾 FE');
-    return '<button class="btn hc-btn-fe" onclick="event.stopPropagation();openFeModal(\''+id+'\',\''+kind+'\')">'+lbl+'</button>';
+    return '<button class="btn hc-btn-fe" onclick="event.stopPropagation();openFeModal('+jsArg(id)+','+jsArg(kind)+')">'+lbl+'</button>';
   };
-  const btnIcs=()=>(q.eventDate||q.productionDate)?'<button class="btn hc-btn-ics" onclick="exportPedidoIcs(\''+id+'\',\''+kind+'\',event)">📅 .ics</button>':'';
+  const btnIcs=()=>(q.eventDate||q.productionDate)?'<button class="btn hc-btn-ics" onclick="exportPedidoIcs('+jsArg(id)+','+jsArg(kind)+',event)">📅 .ics</button>':'';
   const btnAnular=()=>{
     const _anulable=(typeof canAnular==="function")?canAnular(q):["pedido","en_produccion","aprobada"].includes(status);
-    return _anulable?'<button class="btn hc-btn-anular" onclick="openAnularModal(\''+id+'\',\''+kind+'\',event)">↩️ Anular</button>':'';
+    return _anulable?'<button class="btn hc-btn-anular" onclick="openAnularModal('+jsArg(id)+','+jsArg(kind)+',event)">↩️ Anular</button>':'';
   };
   const btnPdfs=()=>(Array.isArray(q.pdfHistorial)&&q.pdfHistorial.length>0)
-    ?'<button class="btn hc-btn-pdfs" onclick="openPdfHistorialModal(\''+id+'\',\''+kind+'\',event)">📎 PDFs ('+q.pdfHistorial.length+')</button>':'';
-  const btnComentario=()=>'<button class="btn hc-btn-coment" onclick="openComentModal(\''+id+'\',\''+kind+'\',event)">💬 '+(q.comentarioCliente?'Editar':'Registrar')+' comentario</button>';
-  const btnFotosKathy=()=>q.comentarioCliente?'<button class="btn hc-btn-coment" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" onclick="event.stopPropagation();reopenEntregaWhatsApp(\''+id+'\',\''+kind+'\')">📸 Enviar fotos a Kathy</button>':'';
+    ?'<button class="btn hc-btn-pdfs" onclick="openPdfHistorialModal('+jsArg(id)+','+jsArg(kind)+',event)">📎 PDFs ('+q.pdfHistorial.length+')</button>':'';
+  const btnComentario=()=>'<button class="btn hc-btn-coment" onclick="openComentModal('+jsArg(id)+','+jsArg(kind)+',event)">💬 '+(q.comentarioCliente?'Editar':'Registrar')+' comentario</button>';
+  const btnFotosKathy=()=>q.comentarioCliente?'<button class="btn hc-btn-coment" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" onclick="event.stopPropagation();reopenEntregaWhatsApp('+jsArg(id)+','+jsArg(kind)+')">📸 Enviar fotos a Kathy</button>':'';
   const btnVincularOpcion=()=>{
     if(typeof getOptionGroupInfo!=="function")return "";
     const _info=getOptionGroupInfo(q,quotesCache);
     const lbl=_info?"🔗 Opción "+_info.order+"/"+_info.total:"🔗 Vincular opción";
-    return '<button class="btn hc-btn-option" onclick="event.stopPropagation();openOptionGroupModal(\''+id+'\',\''+kind+'\')">'+lbl+'</button>';
+    return '<button class="btn hc-btn-option" onclick="event.stopPropagation();openOptionGroupModal('+jsArg(id)+','+jsArg(kind)+')">'+lbl+'</button>';
   };
 
   switch(contexto){
@@ -4170,8 +4170,8 @@ function _actionBtnsPorContexto(q,contexto){
       if(typeof isFollowable==="function"&&isFollowable(q)){
         const fu=typeof getFollowUp==="function"?getFollowUp(q):"pendiente";
         const vivaLabel=fu==="activa"?"🟢 Activa ✓":(fu==="contactado"?"🟢 Marcar activa":"🟢 Viva");
-        btns.push('<button class="btn hc-btn-viva-quick" onclick="quickMarkViva(\''+id+'\',\''+kind+'\',event)" title="Marcar como viva/activa">'+vivaLabel+'</button>');
-        btns.push('<button class="btn hc-btn-perdida-quick" onclick="openPerdidaModal(\''+id+'\',\''+kind+'\');event.stopPropagation();" title="Marcar como perdida">❌ Perdida</button>');
+        btns.push('<button class="btn hc-btn-viva-quick" onclick="quickMarkViva('+jsArg(id)+','+jsArg(kind)+',event)" title="Marcar como viva/activa">'+vivaLabel+'</button>');
+        btns.push('<button class="btn hc-btn-perdida-quick" onclick="openPerdidaModal('+jsArg(id)+','+jsArg(kind)+');event.stopPropagation();" title="Marcar como perdida">❌ Perdida</button>');
       }
       // Editar (PFs muestran "Nueva versión")
       if(_editable){
@@ -4181,13 +4181,13 @@ function _actionBtnsPorContexto(q,contexto){
       btns.push(btnHistorial());
       // Acción primaria según tipo
       if(!isProp&&status==="enviada"){
-        btns.push('<button class="btn hc-btn-order" onclick="openOrderModal(\''+id+'\',event)">✅ Marcar como pedido</button>');
+        btns.push('<button class="btn hc-btn-order" onclick="openOrderModal('+jsArg(id)+',event)">✅ Marcar como pedido</button>');
       }else if(isProp&&status==="enviada"){
         const hasMulti=(q.sections||[]).some(s=>(s.options||[]).length>1);
-        if(hasMulti)btns.push('<button class="btn hc-btn-final" onclick="openPropFinalFlow(\''+id+'\',event)">✓ Generar Propuesta Final</button>');
-        else btns.push('<button class="btn hc-btn-approve" onclick="openApproveModal(\''+id+'\',\'proposal\',event)">✓ Marcar como aprobada</button>');
+        if(hasMulti)btns.push('<button class="btn hc-btn-final" onclick="openPropFinalFlow('+jsArg(id)+',event)">✓ Generar Propuesta Final</button>');
+        else btns.push('<button class="btn hc-btn-approve" onclick="openApproveModal('+jsArg(id)+',\'proposal\',event)">✓ Marcar como aprobada</button>');
       }else if(isProp&&status==="propfinal"){
-        btns.push('<button class="btn hc-btn-approve" onclick="openApproveModal(\''+id+'\',\'proposal\',event)">✓ Marcar como aprobada</button>');
+        btns.push('<button class="btn hc-btn-approve" onclick="openApproveModal('+jsArg(id)+',\'proposal\',event)">✓ Marcar como aprobada</button>');
       }
       btns.push(btnVincularOpcion());
       btns.push(btnAnular());
@@ -4196,7 +4196,7 @@ function _actionBtnsPorContexto(q,contexto){
     }
 
     case "ventas-perdidas": {
-      btns.push('<button class="btn hc-btn-reactivar" onclick="openReactivarModal(\''+id+'\',\''+kind+'\',event)">♻️ Reactivar</button>');
+      btns.push('<button class="btn hc-btn-reactivar" onclick="openReactivarModal('+jsArg(id)+','+jsArg(kind)+',event)">♻️ Reactivar</button>');
       btns.push(btnPdfs());
       break;
     }
@@ -4204,14 +4204,14 @@ function _actionBtnsPorContexto(q,contexto){
     case "pedidos-aprobados": {
       if(_editable&&!isPF)btns.push(btnEditar());
       btns.push(btnHistorial());
-      if(!q.eventDate)btns.push('<button class="btn hc-btn-order" onclick="assignDeliveryDate(\''+id+'\',\''+kind+'\',event)">📅 Asignar fecha</button>');
+      if(!q.eventDate)btns.push('<button class="btn hc-btn-order" onclick="assignDeliveryDate('+jsArg(id)+','+jsArg(kind)+',event)">📅 Asignar fecha</button>');
       // v7.8.7: "Iniciar producción" eliminado — la producción arranca en la fecha establecida
       // v7.8.6: producción anticipada — siempre visible
       const _nAntA=(q.itemsProducidos||[]).length;
       const _antLblA=_nAntA?'🥘 Anticipados ('+_nAntA+')':'🥘 Anticipados';
       const _antStyleA=_nAntA?'background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7':'';
-      btns.push('<button class="btn hc-btn-prod-ant" style="'+_antStyleA+'" onclick="openItemsProducidosModal(\''+id+'\',\''+kind+'\',event)">'+_antLblA+'</button>');
-      btns.push('<button class="btn hc-btn-edit" onclick="toggleProduced(\''+id+'\',\''+kind+'\',event)">🔪 Marcar producido</button>');
+      btns.push('<button class="btn hc-btn-prod-ant" style="'+_antStyleA+'" onclick="openItemsProducidosModal('+jsArg(id)+','+jsArg(kind)+',event)">'+_antLblA+'</button>');
+      btns.push('<button class="btn hc-btn-edit" onclick="toggleProduced('+jsArg(id)+','+jsArg(kind)+',event)">🔪 Marcar producido</button>');
       btns.push(btnIcs());
       btns.push(btnAnular());
       btns.push(btnPagar());
@@ -4229,8 +4229,8 @@ function _actionBtnsPorContexto(q,contexto){
       const _nAnt=(q.itemsProducidos||[]).length;
       const _antLabel=_nAnt?'🥘 Anticipados ('+_nAnt+')':'🥘 Anticipados';
       const _antStyle=_nAnt?'background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7':'';
-      btns.push('<button class="btn hc-btn-prod-ant" style="'+_antStyle+'" onclick="openItemsProducidosModal(\''+id+'\',\''+kind+'\',event)">'+_antLabel+'</button>');
-      btns.push('<button class="btn hc-btn-edit" onclick="toggleProduced(\''+id+'\',\''+kind+'\',event)">🔪 Marcar producido</button>');
+      btns.push('<button class="btn hc-btn-prod-ant" style="'+_antStyle+'" onclick="openItemsProducidosModal('+jsArg(id)+','+jsArg(kind)+',event)">'+_antLabel+'</button>');
+      btns.push('<button class="btn hc-btn-edit" onclick="toggleProduced('+jsArg(id)+','+jsArg(kind)+',event)">🔪 Marcar producido</button>');
       btns.push(btnIcs());
       btns.push(btnAnular());
       btns.push(btnPagar());
@@ -4245,8 +4245,8 @@ function _actionBtnsPorContexto(q,contexto){
     case "entregar": {
       if(_editable&&!isPF)btns.push(btnEditar());
       btns.push(btnHistorial());
-      btns.push('<button class="btn hc-btn-edit" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" title="Toca para desmarcar producido" onclick="confirmUnproduced(\''+id+'\',\''+kind+'\',event)">🔪 Producido ✓</button>');
-      btns.push('<button class="btn hc-btn-deliver" onclick="openDeliveryModal(\''+id+'\',\''+kind+'\',event)">🎉 Marcar como entregado</button>');
+      btns.push('<button class="btn hc-btn-edit" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" title="Toca para desmarcar producido" onclick="confirmUnproduced('+jsArg(id)+','+jsArg(kind)+',event)">🔪 Producido ✓</button>');
+      btns.push('<button class="btn hc-btn-deliver" onclick="openDeliveryModal('+jsArg(id)+','+jsArg(kind)+',event)">🎉 Marcar como entregado</button>');
       btns.push(btnIcs());
       btns.push(btnPagar());
       btns.push(btnVerPagos());
@@ -4275,7 +4275,7 @@ function _actionBtnsPorContexto(q,contexto){
       break;
 
     case "archivo-convertidas":
-      if(q._wrongCollection)btns.push('<button class="btn hc-btn-wrong" onclick="deleteWrongDoc(\''+id+'\',event)">🗑️ Eliminar fantasma</button>');
+      if(q._wrongCollection)btns.push('<button class="btn hc-btn-wrong" onclick="deleteWrongDoc('+jsArg(id)+',event)">🗑️ Eliminar fantasma</button>');
       if(isPF&&status!=="superseded")btns.push(btnNuevaVersion());
       btns.push(btnPdfs());
       break;
@@ -4772,7 +4772,7 @@ function renderAuditoria(){
     const bgColor=L.resultado==="error"?"#FFEBEE":(isViejo?"#FFF3E0":(L.resultado==="exito"?"":""));
     const resColor=L.resultado==="error"?"#C62828":(isViejo?"#E65100":(L.resultado==="exito"?"#1B5E20":"#5D4037"));
     const resLabel=L.resultado==="error"?"❌ error":(isViejo?"⚠ colgado":(L.resultado==="exito"?"✓ éxito":"○ intento"));
-    html+='<tr style="border-top:1px solid #F0F0F0;background:'+bgColor+';cursor:pointer" onclick="_showLogDetalle(\''+L.id+'\')" title="Click para ver detalle">'+
+    html+='<tr style="border-top:1px solid #F0F0F0;background:'+bgColor+';cursor:pointer" onclick="_showLogDetalle('+jsArg(L.id)+')" title="Click para ver detalle">'+
       '<td style="padding:8px 12px;color:#424242">'+escapeHtml(fecha)+'</td>'+
       '<td style="padding:8px 12px;color:#5D4037">'+escapeHtml(usuario)+'</td>'+
       '<td style="padding:8px 12px;color:#1A1A1A">'+escapeHtml(opLabel)+'</td>'+

@@ -1,12 +1,13 @@
 // v7.9.24: regresiones sobre funciones reales; sin red ni datos productivos.
 import assert from 'node:assert/strict';
-import {loadSourceFunctions,source} from './source_test_helpers.mjs';
+import {readdirSync} from 'node:fs';
+import {loadSourceFunctions,source,functionSource} from './source_test_helpers.mjs';
 let passed=0;
 async function test(name,fn){await fn();passed++;console.log('OK '+name)}
 const plain=x=>JSON.parse(JSON.stringify(x));
 const quiet={log(){},error(){},warn(){}};
 const core=(...names)=>names.map(n=>['app-core.js',n]);
-const common=()=>({console:quiet,toast(){},alert(){},showLoader(){},hideLoader(){},localStorage:{setItem(){},getItem(){return null}},currentUser:{email:'fixture@example.invalid'},gbTodayIso:()=> '2026-09-20',auditStamp:()=>({}),quotesCache:[],ajustesLogCache:[],autoSaveClientDocument:async()=>{}});
+const common=()=>({jsArg:jsArgReal,TextEncoder,console:quiet,toast(){},alert(){},showLoader(){},hideLoader(){},localStorage:{setItem(){},getItem(){return null}},currentUser:{email:'fixture@example.invalid'},gbTodayIso:()=> '2026-09-20',auditStamp:()=>({}),quotesCache:[],ajustesLogCache:[],autoSaveClientDocument:async()=>{}});
 function fakeDb(initial={},rejectWrite=()=>false,onTxGet=async()=>{}){
   const store=new Map(Object.entries(initial));
   const snap=path=>({exists:()=>store.has(path),data:()=>structuredClone(store.get(path))});
@@ -23,6 +24,9 @@ function fakeDb(initial={},rejectWrite=()=>false,onTxGet=async()=>{}){
 // sobre una versión anterior falle por comportamiento y no por no encontrar la función.
 const existe=(file,name)=>new RegExp('function\\s+'+name+'\\s*\\(').test(source(file));
 const opcional=(file,...names)=>names.filter(n=>existe(file,n)).map(n=>[file,n]);
+// v7.10.2 P-38: los renders arman sus on*= con jsArg (app-core.js).
+const hReal=s=>s==null?'':String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+const jsArgReal=existe('app-core.js','jsArg')?loadSourceFunctions(core('jsArg'),{h:hReal}).jsArg:undefined;
 const editEntries=core('EDITABLE_FIELDS','EDITABLE_FIELD_LABELS','etiquetasDeCampos','gbStableJson','editableFieldSignatures','editableDocumentSignature','rememberEditBase',...(existe('app-core.js','recordarFormularioAbierto')?['recordarFormularioAbierto']:[]),'assertEditableUnchanged','resolveEditableConflicts');
 const mergeEntries=[...core('OPERATIONAL_FIELDS','QUOTE_TOTAL_INPUTS','computeQuoteTotal','recalcularTotalTrasAdoptar','aplicarAdopcion','mergeDespachosForSave','mergeOperationalFields'),...editEntries];
 await test('editar conserva seguimiento, evidencia y factura fresca',()=>{
@@ -49,14 +53,14 @@ await test('PF mantiene logística y calcula dos transportes',()=>{
   final.despachos[0].transporteCosto=999;assert.equal(src.despachos[0].transporteCosto,20);
 });
 await test('cartera distingue pagos, ajustes y saldo a favor',()=>{
-  const c=loadSourceFunctions([...['getPagos','totalCobrado','totalAjustes','saldoPendiente','saldoNeto','creditoAFavor'].map(n=>['app-historial.js',n]),...opcional('app-historial.js','totalCargos','puedeCargoReposicion'),['app-dashboard.js','renderCarteraCard']],{carteraGetFecha:()=>'',fm:n=>String(n),h:s=>String(s)});
+  const c=loadSourceFunctions([...['getPagos','totalCobrado','totalAjustes','saldoPendiente','saldoNeto','creditoAFavor'].map(n=>['app-historial.js',n]),...opcional('app-historial.js','totalCargos','puedeCargoReposicion'),['app-dashboard.js','renderCarteraCard']],{carteraGetFecha:()=>'',fm:n=>String(n),h:s=>String(s),jsArg:jsArgReal});
   const html=c.renderCarteraCard({total:100000,pagos:[{monto:20000}],ajustes:[{monto:30000}]},'vencido');
   assert.ok(html.includes('Cobrado 20000'));assert.ok(html.includes('Ajustes 30000'));assert.ok(html.includes('Saldo 50000'));
   assert.ok(c.renderCarteraCard({total:100,pagos:[{monto:120}]},'vencido').includes('Saldo a favor 20'));
 });
 await test('selector PF incluye transportes y excluye secciones alternativas',()=>{
   const nodes={'pf-sections-list':{},'pf-total':{}};
-  const c=loadSourceFunctions([...core('TR','computePropTotal'),['app-propuesta.js','renderPropFinalPicker']],{propFinalSource:{sections:[{id:'s1',name:'Menu',options:[{id:'a',label:'A',items:[{name:'fixture',qty:1,price:100}]}]},{id:'s2',name:'Extra',incluirEnTotal:false,options:[{id:'b',label:'B',items:[{name:'extra',qty:1,price:500}]}]}],despachos:[{transporteCosto:20},{transporteCosto:30}]},propFinalSelection:{s1:'a',s2:'b'},$:id=>nodes[id],h:String,fm:String});
+  const c=loadSourceFunctions([...core('TR','computePropTotal'),['app-propuesta.js','renderPropFinalPicker']],{propFinalSource:{sections:[{id:'s1',name:'Menu',options:[{id:'a',label:'A',items:[{name:'fixture',qty:1,price:100}]}]},{id:'s2',name:'Extra',incluirEnTotal:false,options:[{id:'b',label:'B',items:[{name:'extra',qty:1,price:500}]}]}],despachos:[{transporteCosto:20},{transporteCosto:30}]},propFinalSelection:{s1:'a',s2:'b'},$:id=>nodes[id],h:String,fm:String,jsArg:jsArgReal});
   c.renderPropFinalPicker();assert.equal(nodes['pf-total'].textContent,'150');
 });
 await test('Excel informa cobrado real tanto por pedido como por día',()=>{
@@ -1360,7 +1364,6 @@ await test('P2-01 monto guardado con marcado: el aviso muestra el número compar
 const hist=(...n)=>n.map(x=>['app-historial.js',x]);
 const menajeCore=core('getMenajeOpciones','getMenajeOpcionActiva','getMenajeItemsActivos','getReposicionActivos','gbDateToIso');
 // Copia de h() de app-core.js: el extractor no admite sus regex con comillas.
-const hReal=s=>s==null?'':String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 const cargoFns=['getPagos','totalCobrado','totalAjustes','totalCargos','saldoPendiente','saldoNeto','creditoAFavor','pagoFechaIso','pagoTipoLabel','puedeCargoReposicion','cargoLineas','cargoCalcular','plantillaCobroCargo','cargosVerPagosHtml'];
 const fmReal=n=>'$'+n.toLocaleString('es-CO');
 const cargosCtx=(extra={})=>loadSourceFunctions([...menajeCore,...opcional('app-historial.js',...cargoFns)],{...common(),fm:fmReal,h:hReal,getDocTotal:q=>q.total||0,GB_DATOS_PAGO:'',...extra});
@@ -1528,7 +1531,7 @@ await test('P-35 «Ver pagos»: los cargos se muestran escapados, con su estado'
 });
 await test('P-35 lectores del pendiente: cumplido, notas de la hoja, estado de pago y tarjeta cuentan los cargos',()=>{
   const q={...eventoPagado(),cargos:[vaso]};
-  const g={getDocTotal:x=>x.total||0,fm:fmReal,h:String,STATUS_META:{}};
+  const g={getDocTotal:x=>x.total||0,fm:fmReal,h:String,STATUS_META:{},jsArg:jsArgReal};
   const base=[...hist('getPagos','totalCobrado','totalAjustes','saldoPendiente'),...opcional('app-historial.js','totalCargos')];
   const k=loadSourceFunctions([...base,...core('isCumplido'),['app-dashboard.js','hojaNotasPago'],['app-dashboard.js','_estadoPago']],g);
   assert.equal(k.isCumplido(q),false,'debe la reposición: no está cumplido');
@@ -1628,7 +1631,7 @@ await test('R1B-P2-3 lectores de estado: cortesía con cargo, porcentaje con car
 });
 // R1B-P2-4: el botón del cargo no ejecuta un ID restaurado con comillas.
 await test('R1B-P2-4 el onclick del botón del cargo lleva el ID como dato, aunque traiga comillas',async()=>{
-  const c=loadSourceFunctions(hist('_btnCargoReposicion'),{h:hReal});
+  const c=loadSourceFunctions(hist('_btnCargoReposicion'),{h:hReal,jsArg:jsArgReal});
   const id="GB-P-X');globalThis.__xss=1;//",kind="proposal";
   const html=c._btnCargoReposicion({id,kind});
   const attr=/onclick="([^"]*)"/.exec(html);
@@ -1747,5 +1750,309 @@ await test('v7.9.36 los seis manejadores de dinero refrescan la ventana de detal
     const body=source(file);const i=body.search(new RegExp('function\\s+'+f+'\\s*\\('));
     assert.ok(i>=0,f);assert.ok(/docPreviewRefresh\(\)/.test(body.slice(i,body.indexOf('\n}\n',i))),f+' debe llamar docPreviewRefresh');
   }
+});
+// ═══ v7.10.2: P-38 (jsArg), D1, D5 y D6 ═══
+const idsHostiles=["GB-P-X');globalThis.__xss=1;//",'GB-2026-0001"><img src=x onerror=__xss=1>','GB\\\');__xss=1;//','<b>GB</b>'];
+// Decodifica el atributo como lo haría el navegador y lo ejecuta con cada función llamada registrada.
+async function ejecutarOnclick(attr){
+  const js=attr.replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');
+  const vm=await import('node:vm');const llamadas=[];
+  const ctx=vm.createContext({llamadas,event:{stopPropagation(){},preventDefault(){}},quotesCache:[],setTimeout:f=>f()});
+  for(const [,fn] of js.matchAll(/([A-Za-z_$][\w$]*)\s*\(/g))if(!(fn in ctx)&&!['if','function'].includes(fn))ctx[fn]=(...a)=>{llamadas.push([fn,...a])};
+  vm.runInContext(js,ctx);
+  return {llamadas,xss:ctx.__xss};
+}
+await test('v7.10.2 P-38: ningún app-*.js concatena un argumento entre comillas sin codificar (\\\'\'+x+\'\\\')',()=>{
+  const malos=[];
+  for(const f of readdirSync(new URL('..',import.meta.url)).filter(f=>/^app-.*\.js$/.test(f)))
+    source(f).split('\n').forEach((l,i)=>{if(/\\''\s*\+/.test(l))malos.push(f+':'+(i+1))});
+  assert.deepEqual(malos,[],'usar jsArg(x): '+malos.slice(0,10).join(', '));
+  assert.ok(/onclick="openCargoModal\('\+jsArg\(q\.id\)\+','\+jsArg\(q\.kind\)\+',event\)"/.test(functionSource('app-historial.js','_btnCargoReposicion')),'_btnCargoReposicion usa jsArg');
+});
+// Ronda 1 de Codex (P2): también las formas equivalentes — plantilla ${…} en on*=, comilla entre comillas dobles y variables *Js.
+await test('v7.10.2 P-38 (ronda 2): ninguna plantilla, "\'"+x ni variable *Js arma un argumento sin jsArg',()=>{
+  const reglas=[
+    ['plantilla ${…} en on*= sin jsArg',/on[a-z]+="[^"]*\$\{(?!jsArg\()/],
+    ['comilla simple concatenada entre comillas dobles',/"'"\s*\+|\+\s*"'"/],
+    ['comilla entre \\" concatenada',/\\"'\s*\+|\+\s*'\\"/],
+    // Ronda 2 de Codex (P2): una asignación condicional (x?jsArg(x):x) deja pasar valores crudos; sólo vale una llamada entera a jsArg o idArg.
+    ['variable *Js sin jsArg/idArg',/\b\w+Js\s*=(?!=)(?!\s*(?:jsArg|idArg)\([^;?:]*\);)/],
+  ];
+  const malos=[];
+  for(const f of readdirSync(new URL('..',import.meta.url)).filter(f=>/^app-.*\.js$/.test(f)))
+    source(f).split('\n').forEach((l,i)=>{for(const [nombre,re] of reglas)if(re.test(l))malos.push(f+':'+(i+1)+' '+nombre)});
+  assert.deepEqual(malos,[],'usar jsArg(x): '+malos.slice(0,10).join(', '));
+});
+await test('v7.10.2 P-38 (ronda 2): una categoría hostil llega a selC como dato y no ejecuta código',async()=>{
+  const {el}=domSimulado();
+  const cats=['Todas',"x\\');globalThis.__xss=1;//",'Dulces "finos"','<img src=x onerror=__xss=1>'];
+  const c=loadSourceFunctions(core('renderCats'),{$:el,CATS:cats,selCat:'Todas',h:hReal,jsArg:jsArgReal});
+  c.renderCats();
+  const html=el('cats').innerHTML;
+  assert.ok(!html.includes('<img'),'el nombre se muestra escapado');
+  const attrs=[...html.matchAll(/\son[a-z]+="([^"]*)"/g)].map(m=>m[1]);
+  assert.equal(attrs.length,cats.length);
+  for(const [i,attr] of attrs.entries()){
+    const r=await ejecutarOnclick(attr);
+    assert.equal(r.xss,undefined,attr);
+    assert.deepEqual(r.llamadas,[['selC',cats[i]]],attr);
+  }
+});
+await test('v7.10.2 P-38 (ronda 2): catálogo y carrito conservan id número o texto, también hostil, y agregar/quitar/cantidad siguen funcionando',async()=>{
+  const hostil="p');globalThis.__xss=1;//";
+  const ids=[7,'cp_x1','prod-abc',hostil];
+  const nuevoCtx=()=>{
+    const {el}=domSimulado();
+    return {$:el,h:hReal,escapeHtml:hReal,jsArg:jsArgReal,fm:String,MX:40,toast(){},console:quiet,updUI(){},refreshCats(){},renderCats(){},selCat:'Todas',
+      C:[{id:7,c:'Sal',n:'Numérico',d:'',p:5,u:'und'}],categoriasCache:{},
+      productosCache:{'prod-abc':{productId:'prod-abc',nombre:'Texto',precio:10},[hostil]:{productId:hostil,nombre:'Hostil',precio:20}},
+      customProductsCache:[{id:'x1',n:'Personalizado',p:30,inCatalog:true}],
+      cart:[],cust:[],currentQuoteNumber:null,quotesCache:[],window:{},getIdStr:()=>'',getCityName:()=>'Bogotá',getDelivStr:()=>'',dateStr:()=>'hoy',getTr:()=>null,renderNotasCot(){}};
+  };
+  const funcs=[...opcional('app-core.js','idArg'),...core('allIt','distIt','getTotal','_getCatProdsFromFirestore','renderP','addC','chgQ','remCart','chgCartR'),['app-cotizar.js','renderR'],['app-cotizar.js','chgCartPrice']];
+  const c=loadSourceFunctions(funcs,nuevoCtx());
+  const handlers=async html=>{const out=[];for(const [,attr] of html.matchAll(/\son[a-z]+="([^"]*)"/g)){const r=await ejecutarOnclick(attr);assert.equal(r.xss,undefined,attr);out.push(...r.llamadas)}return out};
+  // Catálogo: sin productos de Firestore pinta C[] (id número); con ellos, los de Firestore (id texto).
+  const firestore=c.productosCache;
+  const catalogo=async()=>{const out=[];for(const pc of [{},firestore]){c.productosCache=pc;c.renderP();out.push(...await handlers(c.$('plist').innerHTML))}return out};
+  const agregar=[...new Set((await catalogo()).filter(x=>x[0]==='addC').map(x=>x[1]))];
+  assert.deepEqual(agregar,ids,'addC recibe cada id tal cual');
+  for(const id of agregar)c.addC(id);
+  assert.deepEqual(c.cart.map(x=>[x.id,x.qty]),ids.map(id=>[id,1]),'agrega con el tipo original');
+  // Con todo en el carrito: − y + del catálogo y los botones de la revisión.
+  const qCat=(await catalogo()).filter(x=>x[0]==='chgQ');
+  for(const id of ids)assert.ok(qCat.some(x=>x[1]===id&&x[2]===2),'chgQ +1 para '+String(id));
+  for(const [,id,q] of qCat.filter(x=>x[2]===2))c.chgQ(id,q);
+  assert.deepEqual(c.cart.map(x=>x.qty),[2,2,2,2],'cambiar cantidad desde el catálogo');
+  c.renderR();
+  const rev=await handlers(c.$('rev-content').innerHTML);
+  for(const fn of ['chgCartR','chgCartPrice','remCart'])for(const id of ids)assert.ok(rev.some(x=>x[0]===fn&&x[1]===id),fn+' recibe '+String(id));
+  for(const [,id,q] of rev.filter(x=>x[0]==='chgCartR'&&x[2]===3))c.chgCartR(id,q);
+  assert.deepEqual(c.cart.map(x=>x.qty),[3,3,3,3],'cambiar cantidad desde la revisión');
+  for(const id of ids)c.chgCartPrice(id,99);
+  assert.ok(c.cart.every(x=>x.p===99),'cambiar precio');
+  for(const [,id] of rev.filter(x=>x[0]==='remCart'))c.remCart(id);
+  assert.deepEqual(c.cart,[],'quitar vacía el carrito');
+});
+// Ronda 2 de Codex (P2): un id que no es número finito ni texto (arreglo, objeto, undefined, null, NaN) no genera manejador.
+await test('v7.10.2 P-38 (ronda 3): catálogo y carrito omiten ids no primitivos sin ejecutar código ni romper la lista',async()=>{
+  const malos=[["7);globalThis.__xss=1;//"],{x:"1);globalThis.__xss=1;//"},undefined,null,NaN,Infinity];
+  const avisos=[];
+  const {el}=domSimulado();
+  const productosCache={ok:{productId:'ok',nombre:'Bueno',precio:10}};
+  malos.forEach((id,i)=>{productosCache['malo'+i]={productId:id,nombre:'Malo '+i,precio:1}});
+  const ctx={$:el,h:hReal,escapeHtml:hReal,jsArg:jsArgReal,fm:String,MX:40,toast(){},console:{...quiet,warn:(...a)=>avisos.push(a)},updUI(){},refreshCats(){},renderCats(){},selCat:'Todas',
+    C:[],categoriasCache:{},productosCache,customProductsCache:[],
+    cart:[{id:'ok',n:'Bueno',p:10,qty:1},...malos.map((id,i)=>({id,n:'Malo '+i,p:1,qty:1})),{id:8,n:'Numérico',p:5,qty:1}],cust:[],currentQuoteNumber:null,quotesCache:[],window:{},
+    getIdStr:()=>'',getCityName:()=>'Bogotá',getDelivStr:()=>'',dateStr:()=>'hoy',getTr:()=>null,renderNotasCot(){}};
+  const c=loadSourceFunctions([...opcional('app-core.js','idArg'),...core('allIt','distIt','getTotal','_getCatProdsFromFirestore','renderP'),['app-cotizar.js','renderR']],ctx);
+  const validos=new Set(['ok',8]);
+  const revisar=async html=>{
+    const ids=[];
+    for(const [,attr] of html.matchAll(/\son[a-z]+="([^"]*)"/g)){
+      if(!/^(addC|chgQ|chgCartR|chgCartPrice|remCart)\(/.test(attr))continue;
+      const r=await ejecutarOnclick(attr);
+      assert.equal(r.xss,undefined,attr);
+      for(const [,id] of r.llamadas){assert.ok(validos.has(id),'id no válido en un manejador: '+attr);ids.push(id)}
+    }
+    return [...new Set(ids)];
+  };
+  c.renderP();
+  assert.deepEqual(await revisar(c.$('plist').innerHTML),['ok'],'el catálogo sólo pinta el producto válido');
+  assert.ok(c.$('plist').innerHTML.includes('Bueno'),'el resto de la lista sigue');
+  assert.equal(avisos.length,malos.length,'renderP registra en consola cada producto omitido');
+  c.renderR();
+  assert.deepEqual((await revisar(c.$('rev-content').innerHTML)).sort(),[8,'ok'],'la revisión sólo arma manejadores para ids válidos');
+  assert.equal(avisos.length,2*malos.length,'renderR registra en consola cada ítem omitido');
+  assert.equal(typeof c.idArg,'function','idArg existe');
+  for(const id of malos)assert.equal(c.idArg(id),null,String(id));
+  assert.equal(c.idArg(7),'7');assert.equal(c.idArg('cp_1'),jsArgReal('cp_1'));
+});
+await test('v7.10.2 P-38 (ronda 3): al abrir una cotización, un id de carrito no primitivo se reemplaza y los válidos se conservan',()=>{
+  const {el}=domSimulado();const nada=()=>{};
+  const g={...editorComun(),$:el,updTr:nada,togMom:nada,C:[{id:7,c:'Sal',n:'Numérico',p:5}],cart:[],cust:[],DEFAULT_NOTAS_COT:{n1:'nota'},NOTAS_COT_TITULOS:{n1:'t'},gbNotasNormalizar:()=>[],
+    notasCotData:{},notasCotLista:[],tituloInstruccionesPago:'',tituloCondiciones:'',firmaCot:'km',currentQuoteNumber:null,window:{}};
+  const c=loadSourceFunctions([...editEntries,...core('markEditorContext'),...opcional('app-core.js','cargarCotizacionEnEditor')],g);
+  c.cargarCotizacionEnEditor({quoteNumber:'GB-1',cart:[{id:7,p:5,qty:1},{id:'cp_1',n:'Texto',p:1,qty:1},{id:["x);__xss=1;//"],n:'Arreglo',p:1,qty:1},{id:{a:1},n:'Objeto',p:1,qty:1},{n:'Sin id',p:1,qty:1}]});
+  assert.deepEqual(plain(c.cart.map(x=>x.n)),['Numérico','Texto','Arreglo','Objeto','Sin id']);
+  assert.equal(c.cart[0].id,7);assert.equal(c.cart[1].id,'cp_1');
+  for(const x of c.cart)assert.ok(typeof x.id==='string'||Number.isFinite(x.id),'id primitivo: '+x.n);
+});
+await test('v7.10.2 P-38: jsArg devuelve un literal JS seguro dentro de un atributo on*=',async()=>{
+  assert.equal(typeof jsArgReal,'function','jsArg existe en app-core.js');
+  for(const v of [...idsHostiles,'a\\b',42,'GB-2026-0001']){
+    const arg=jsArgReal(v);
+    assert.ok(!/["'<>]/.test(arg),'sin comillas ni ángulos crudos: '+arg);
+    const r=await ejecutarOnclick('abrir('+arg+',event)');
+    assert.equal(r.xss,undefined,'no ejecuta código: '+v);
+    assert.deepEqual(r.llamadas.map(x=>x.slice(0,2)),[['abrir',String(v)]],'llega el valor exacto: '+v);
+  }
+});
+await test('v7.10.2 P-38: los botones de acción de Historial pasan un ID hostil como dato',async()=>{
+  const g={...cargosCtx(),jsArg:jsArgReal,getDocTotal:x=>x.total||0,fm:fmReal,h:hReal,STATUS_META:{},quotesCache:[],canEdit:()=>true,requiresWarning:()=>false,canAnular:()=>true};
+  const r=loadSourceFunctions([...hist('_btnCargoReposicion','_actionBtnsPorContexto')],g);
+  let vistos=0;
+  for(const id of idsHostiles)for(const [ctx,status] of [['cotizaciones','enviada'],['pedidos-aprobados','aprobada'],['entregar','en_produccion'],['entregadas','entregado'],['cartera','entregado']]){
+    const html=r._actionBtnsPorContexto({...eventoPagado(),id,status,produced:ctx==='entregar',editHistory:[{}]},ctx).join('');
+    for(const [,attr] of html.matchAll(/\son[a-z]+="([^"]*)"/g)){
+      const e=await ejecutarOnclick(attr);vistos++;
+      assert.equal(e.xss,undefined,ctx+': '+attr);
+      assert.ok(e.llamadas.some(c=>c.includes(id)),ctx+' recibe el ID exacto: '+attr);
+    }
+  }
+  assert.ok(vistos>20,'se revisaron '+vistos+' botones');
+});
+await test('v7.10.2 P-38: restaurar un respaldo rechaza IDs con comillas, ángulos o barra invertida sin escribir',async()=>{
+  for(const id of ["GB-2026-0001'",'GB-2026-0001"','GB<1','GB>1','GB\\1']){
+    const {fb,store}=fakeDb();
+    const c=loadSourceFunctions(core('restoreMissingDocument'),{...common(),window:{fb}});
+    await assert.rejects(c.restoreMissingDocument('quotes',id,{client:'x'}),e=>e.paraUsuario===true&&!e.message.includes(id),id);
+    assert.equal(store.size,0,id);
+  }
+  const {fb,store}=fakeDb();
+  const c=loadSourceFunctions(core('restoreMissingDocument'),{...common(),window:{fb}});
+  assert.equal(await c.restoreMissingDocument('quotes','GB-2026-0001',{client:'x'}),true);assert.equal(store.size,1);
+});
+// Decisión A de Luis (P3, ronda 1): cliente del respaldo sin id y nombre inseguro → id seguro derivado del nombre.
+await test('v7.10.2 P3 (decisión A): un cliente sin id con nombre inseguro se restaura con un id seguro y estable',async()=>{
+  const {fb,store}=fakeDb();
+  const avisos=[];
+  const restaurar=async clientes=>{
+    const c=loadSourceFunctions([...core('restoreMissingDocument'),...opcional('app-dashboard.js','idClienteRespaldo'),['app-dashboard.js','confirmRestoreBackup']],
+      {...common(),window:{fb},confirm:()=>true,fbReady:async()=>{},getCollectionName:()=>'quotes',closeRestoreBackupModal(){},loadAllHistory:async()=>{},renderDashboard(){},gbMensajeError:String,
+        toast:m=>avisos.push(m),_restoreBackupData:{toAdd:[],clientesNuevos:clientes}});
+    await c.confirmRestoreBackup();
+  };
+  await restaurar([{name:"O'Connor"},{name:'Acme'},{name:'100% Natural'},{id:'abc123',name:'Con "id"'}]);
+  const ids=[...store.keys()].map(k=>k.slice('clients/'.length)).sort();
+  assert.equal(ids.length,4,'restaura los cuatro: '+ids.join(', ')+' · '+avisos.join(' | '));
+  assert.ok(ids.includes('Acme')&&ids.includes('100% Natural'),'un nombre seguro sigue siendo su id');
+  assert.ok(ids.includes('abc123'),'un cliente con id conserva el suyo');
+  const derivado=ids.find(k=>!['Acme','100% Natural','abc123'].includes(k));
+  assert.ok(!/[\x22\x27<>\\/]/.test(derivado),'id seguro: '+derivado);
+  assert.equal(store.get('clients/'+derivado).name,"O'Connor",'conserva el nombre');
+  assert.ok(!avisos.at(-1).includes('Errores'),avisos.at(-1));
+  const prev=loadSourceFunctions([...opcional('app-dashboard.js','idClienteRespaldo'),['app-dashboard.js','onRestoreBackupFile']],{...common(),gbMensajeError:String,openRestorePreviewModal(){},loadAllHistory:async()=>{},
+    readHistoryCollection:async()=>({docs:[...store.entries()].map(([k,d])=>({...d,id:k.slice('clients/'.length)}))})});
+  await prev.onRestoreBackupFile({target:{files:[{name:'respaldo.json',text:async()=>JSON.stringify({quotes:[],clients:[{name:"O'Connor"},{name:'Nuevo'}]})}]}});
+  assert.deepEqual(plain(prev._restoreBackupData.clientesNuevos.map(x=>x.name)),['Nuevo'],'la vista previa ya no lo cuenta como nuevo');
+  await restaurar([{name:"O'Connor"}]);
+  assert.equal(store.size,4,'restaurar dos veces no duplica');
+  assert.ok(/Omitidos por existir: 1/.test(avisos.at(-1)),avisos.at(-1));
+  const c=loadSourceFunctions(opcional('app-dashboard.js','idClienteRespaldo'),{TextEncoder});
+  assert.equal(typeof c.idClienteRespaldo,'function','idClienteRespaldo existe');
+  assert.notEqual(c.idClienteRespaldo({name:"O'Connor"}),c.idClienteRespaldo({name:'O"Connor'}),'nombres distintos, ids distintos');
+  assert.equal(c.idClienteRespaldo({name:'a/b'}).includes('/'),false,'la barra tampoco llega al id');
+});
+// Ronda 2 de Codex (P2): el id derivado debe ser inyectivo, válido para Firestore y las colisiones se informan por nombre.
+const idFirestoreValido=id=>typeof id==='string'&&id!==''&&!id.includes('/')&&id!=='.'&&id!=='..'&&!/^__.*__$/.test(id)&&Buffer.byteLength(id,'utf8')<=1500;
+async function flujoRestaurarClientes(existentes,clientes,ventana=()=>{}){
+  // fakeDb estricto: rechaza, como Firestore, las claves que Firestore no acepta.
+  const {fb,store}=fakeDb(Object.fromEntries(existentes.map(d=>['clients/'+d.id,{...d}])),w=>!idFirestoreValido(w.path.slice('clients/'.length)));
+  const avisos=[];
+  const {el:base}=domSimulado();const el=id=>{const e=base(id);e.style=e.style||{};return e};
+  const c=loadSourceFunctions([...core('restoreMissingDocument'),...opcional('app-dashboard.js','idClienteRespaldo'),...['onRestoreBackupFile','openRestorePreviewModal','clientsArr_len','confirmRestoreBackup'].map(n=>['app-dashboard.js',n])],
+    {...common(),window:{fb},TextEncoder,$:el,h:hReal,confirm:()=>true,fbReady:async()=>{},getCollectionName:()=>'quotes',closeRestoreBackupModal(){},loadAllHistory:async()=>{},renderDashboard(){},gbMensajeError:String,
+      toast:m=>avisos.push(m),readHistoryCollection:async()=>({docs:[...store.entries()].map(([k,d])=>({...d,id:k.slice('clients/'.length)}))})});
+  await c.onRestoreBackupFile({target:{files:[{name:'r.json',text:async()=>JSON.stringify({quotes:[],clients:clientes})}]}});
+  const vista=el('rb-preview').innerHTML||'';
+  ventana(store); // otro proceso escribe entre la vista previa y la transacción
+  await c.confirmRestoreBackup();
+  const nombres=()=>[...store.values()].map(d=>d.name).sort();
+  return {store,vista,aviso:avisos.at(-1)||'',nombres,c};
+}
+await test('v7.10.2 P3 (ronda 3): los tres casos de colisión de Codex restauran a O\'Connor con un id distinto',async()=>{
+  for(const [existentes,clientes,esperados] of [
+    [[{id:'O%27Connor',name:'O%27Connor'}],[{name:"O'Connor"}],["O%27Connor","O'Connor"]],
+    [[{id:'O%27Connor',name:'Otro'}],[{name:"O'Connor"}],["O'Connor",'Otro']],
+    [[],[{name:"O'Connor"},{name:'O%27Connor'}],["O%27Connor","O'Connor"]],
+    [[],[{id:'O%27Connor',name:'Otro'},{name:"O'Connor"}],["O'Connor",'Otro']],
+  ]){
+    const r=await flujoRestaurarClientes(existentes,clientes);
+    assert.deepEqual(r.nombres(),esperados.sort(),JSON.stringify(clientes)+' · '+r.aviso);
+    assert.ok(!r.aviso.includes('Errores'),r.aviso);
+  }
+});
+await test('v7.10.2 P3 (ronda 3): una colisión con un id propio o de otro cliente del respaldo se cuenta y se informa por nombre',async()=>{
+  const derivado=loadSourceFunctions(opcional('app-dashboard.js','idClienteRespaldo'),{TextEncoder}).idClienteRespaldo({name:"O'Connor"});
+  for(const [existentes,clientes,escritos] of [
+    [[{id:derivado,name:'Otro'}],[{name:"O'Connor"}],['Otro']],
+    [[],[{id:derivado,name:'Otro'},{name:"O'Connor"}],['Otro']],
+    [[{id:'Acme',name:'Acme S.A.'}],[{name:'Acme'}],['Acme S.A.']],
+  ]){
+    const r=await flujoRestaurarClientes(existentes,clientes);
+    assert.deepEqual(r.nombres(),escritos,JSON.stringify(clientes));
+    const nombre=clientes.at(-1).name;
+    assert.ok(r.aviso.includes(nombre),'el resultado nombra al cliente: '+r.aviso);
+    assert.ok(/sin restaurar: 1\b/i.test(r.aviso),'y lo cuenta: '+r.aviso);
+    assert.ok(r.vista.includes(hReal(nombre)),'la vista previa también lo nombra');
+  }
+  // El mismo cliente ya restaurado no es una colisión.
+  const r=await flujoRestaurarClientes([{id:'Acme',name:'Acme'}],[{name:'Acme'}]);
+  assert.ok(!/sin restaurar/i.test(r.aviso),r.aviso);
+});
+// Ronda 3 de Codex (P2): el id derivado se ocupa entre la vista previa y la transacción.
+await test('v7.10.2 P3 (ronda 4): la transacción distingue otro cliente creado tras la vista previa (colisión) del mismo cliente (omisión)',async()=>{
+  const derivado=loadSourceFunctions(opcional('app-dashboard.js','idClienteRespaldo'),{TextEncoder}).idClienteRespaldo({name:"O'Connor"});
+  for(const [nombre,id] of [["O'Connor",derivado],['Acme','Acme']]){
+    const r=await flujoRestaurarClientes([],[{name:nombre}],store=>store.set('clients/'+id,{name:'Otro'}));
+    assert.ok(!/sin restaurar/i.test(r.vista),'la vista previa lo aceptó: '+nombre);
+    assert.deepEqual(r.nombres(),['Otro'],'no sobrescribe');
+    assert.ok(r.aviso.includes('Clientes sin restaurar: 1 ('+nombre+')'),r.aviso);
+    assert.ok(!/Omitidos|Errores/.test(r.aviso),'la colisión no es omisión ni error: '+r.aviso);
+    const m=await flujoRestaurarClientes([],[{name:nombre}],store=>store.set('clients/'+id,{name:nombre}));
+    assert.deepEqual(m.nombres(),[nombre]);
+    assert.ok(/Omitidos por existir: 1/.test(m.aviso)&&!/sin restaurar|Errores/i.test(m.aviso),'mismo cliente: omisión idempotente: '+m.aviso);
+  }
+  // Un cliente con id propio sigue como hoy: el id ocupado se omite.
+  const p=await flujoRestaurarClientes([],[{id:'abc',name:'Uno'}],store=>store.set('clients/abc',{name:'Otro'}));
+  assert.ok(/Omitidos por existir: 1/.test(p.aviso)&&!/sin restaurar/i.test(p.aviso),p.aviso);
+});
+await test('v7.10.2 P3 (ronda 3): ids reservados y largos se codifican o se informan; restaurar dos veces no duplica; los nombres ordinarios conservan su id',async()=>{
+  const largo='a'.repeat(1600),comillas="'".repeat(400);
+  const clientes=[{name:'.'},{name:'..'},{name:'__x__'},{name:'~abc'},{name:'a/b'},{name:'é'.repeat(700)},{name:largo},{name:comillas}];
+  const r=await flujoRestaurarClientes([],clientes);
+  assert.deepEqual(r.nombres(),['.','..','__x__','~abc','a/b','é'.repeat(700)].sort(),r.aviso);
+  for(const k of r.store.keys())assert.ok(idFirestoreValido(k.slice('clients/'.length))&&!/[\x22\x27<>\\]/.test(k),'id válido: '+k.slice(0,40));
+  assert.ok(r.aviso.includes(largo.slice(0,50))&&r.aviso.includes(comillas.slice(0,50)),'los que no caben se informan por nombre');
+  assert.ok(!r.aviso.includes('Errores'),r.aviso.slice(0,200));
+  const r2=await flujoRestaurarClientes([...r.store.entries()].map(([k,d])=>({...d,id:k.slice('clients/'.length)})),clientes.slice(0,6));
+  assert.equal(r2.store.size,6,'restaurar dos veces no duplica');
+  const c=loadSourceFunctions(opcional('app-dashboard.js','idClienteRespaldo'),{TextEncoder});
+  for(const n of ['Acme','100% Natural','José Pérez','O%27Connor','Café & Co.','Dr. Smith','%7E'])assert.equal(c.idClienteRespaldo({name:n}),n,'conserva su id: '+n);
+  assert.equal(c.idClienteRespaldo({id:'abc',name:"O'Connor"}),'abc','un id propio no cambia');
+  const nombres=["O'Connor",'O%27Connor','O%0027Connor','~O%000027Connor','~',"'",'"','<','>','\\','/','.','..','__x__','_x_','😀','\ud83d','\ude00','a b','a%b','~%'];
+  const ids=nombres.map(n=>c.idClienteRespaldo({name:n}));
+  assert.equal(new Set(ids).size,nombres.length,'inyectiva: '+ids.join(' | '));
+  for(const id of ids)assert.ok(idFirestoreValido(id)&&!/[\x22\x27<>\\]/.test(id),'válido: '+id);
+});
+await test('v7.10.2 D1: el WhatsApp de Seguimiento usa q.tel, como el botón',()=>{
+  const {el:base}=domSimulado();const el=id=>{const e=base(id);e.style=e.style||{};return e};const alertas=[];
+  const c=loadSourceFunctions([['app-seguimiento.js','openWhatsAppTemplatesModal']],{$:el,alert:m=>alertas.push(m),renderWaTemplatesList(){},_waCtx:null,
+    quotesCache:[{id:'GB-2026-0001',kind:'quote',client:'Cliente',tel:'300 123 4567'},{id:'GB-2026-0002',kind:'quote',clientPhone:'310-000-0000'}]});
+  c.openWhatsAppTemplatesModal('GB-2026-0001','quote');
+  assert.deepEqual(alertas,[]);assert.equal(el('wa-doc-tel').textContent,'+57 3001234567');
+  c.openWhatsAppTemplatesModal('GB-2026-0002','quote');
+  assert.equal(el('wa-doc-tel').textContent,'+57 3100000000','respaldo a clientPhone');
+});
+await test('v7.10.2 D5: «Ver filtro» de convertidas abre Archivo › Convertidas, un modo que existe',async()=>{
+  const {el}=domSimulado();
+  const c=loadSourceFunctions([['app-dashboard.js','renderBannerConvertidasArchivables']],{$:el,quotesCache:[1,2,3].map(n=>({id:'GB-P-'+n,status:'convertida'}))});
+  el('dash-banner-convertidas').classList={add(){},remove(){}};
+  c.renderBannerConvertidasArchivables();
+  const attr=/onclick="([^"]*)"/.exec(el('dash-banner-convertidas').innerHTML)[1];
+  const r=await ejecutarOnclick(attr);
+  assert.deepEqual(r.llamadas,[['setMode','archivo-convertidas']],attr);
+  assert.ok(/"archivo-convertidas"/.test(functionSource('app-core.js','setMode')),'setMode conoce el modo');
+});
+await test('v7.10.2 D6: el historial toma la fecha de entrega de entregaData.fechaEntrega',()=>{
+  const c=loadSourceFunctions([['app-dashboard.js','buildHistorialEntries']],{getDocTotal:q=>q.total||0,getPagos:()=>[],pagoTipoLabel:String});
+  const base={id:'GB-2026-0001',kind:'quote',status:'entregado',total:100,eventDate:'2026-09-01',comentarioCliente:{texto:'rico'}};
+  const f=(q,tipo)=>c.buildHistorialEntries([q]).find(e=>e.tipo===tipo).fecha;
+  const nuevo={...base,entregaData:{fechaEntrega:'2026-09-10'}};
+  assert.equal(f(nuevo,'entrega'),'2026-09-10');assert.equal(f(nuevo,'comentario'),'2026-09-10');
+  const viejo={...base,entregaData:{fecha:'2026-09-05'}};
+  assert.equal(f(viejo,'entrega'),'2026-09-05');assert.equal(f(viejo,'comentario'),'2026-09-05');
+  assert.equal(f(base,'entrega'),'2026-09-01','sin entregaData sigue como hoy');
 });
 console.log(`${passed} escenarios de integridad pasaron (adaptadores en memoria; no emulador Firebase).`);
