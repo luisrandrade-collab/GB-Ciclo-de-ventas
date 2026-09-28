@@ -10,7 +10,7 @@
 <link rel="icon" type="image/png" href="brand/cuchillo-negro.png">
 <link rel="apple-touch-icon" href="brand/cuchillo-negro.png">
 <title>Gourmet Bites - Cotizador</title>
-<link rel="stylesheet" href="gb-tokens.css?v=7.10.0"><!-- v7.9.13 INF-05: cache-buster CSS -->
+<link rel="stylesheet" href="gb-tokens.css?v=7.10.1"><!-- v7.9.13 INF-05: cache-buster CSS -->
 <!-- VERSION: 2026-04-26-v7.0.0-α-cascaron-v7-dashboard-rediseñado-fsm-pedido-vs-produccion -->
 <!--
   v6.3.0 (2026-04-24) — Robustez técnica + higiene (Entrega 3 del roadmap).
@@ -4571,7 +4571,7 @@ body{padding-bottom:84px}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
       <div>
         <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Fecha</label>
-        <input id="compra-ed-fecha" type="date" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body)">
+        <input id="compra-ed-fecha" type="date" onchange="compraEdFiscalActualizar()" style="width:100%;padding:9px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13.5px;font-family:var(--gb-font-body)">
       </div>
       <div>
         <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Forma de pago</label>
@@ -4599,6 +4599,30 @@ body{padding-bottom:84px}
     <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;margin-bottom:12px;padding:10px 12px;background:#F1F8E9;border-radius:8px">
       <label style="font-size:13px;color:#1B5E20;font-weight:700">Total</label>
       <input id="compra-ed-total" type="number" min="0" step="any" placeholder="Calculado automáticamente" style="width:160px;padding:9px 11px;border:1.5px solid #1B5E20;border-radius:6px;font-size:14px;font-weight:700;text-align:right;font-family:var(--gb-font-body);color:#1B5E20;background:#fff">
+    </div>
+
+    <!-- v7.10.1: datos fiscales de la compra (sólo compras de la nueva empresa; oculto si está apagada) -->
+    <div id="compra-ed-fiscal" class="hidden" style="border:1px solid #FFB74D;background:#FFF8E1;border-radius:8px;padding:10px 12px;margin-bottom:12px">
+      <div style="font-weight:700;font-size:13px;color:#E65100;margin-bottom:6px">🧾 Datos fiscales de la compra · nueva empresa</div>
+      <label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Tipo de soporte <span style="color:#C62828">*</span></label>
+      <select id="compra-ed-fis-tipo" onchange="compraEdFiscalActualizar()" style="width:100%;padding:8px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px;font-family:var(--gb-font-body);background:#fff">
+        <option value="">—</option>
+        <option value="FE">Factura electrónica</option>
+        <option value="DS">Documento soporte</option>
+        <option value="SIN">Sin soporte</option>
+      </select>
+      <div id="compra-ed-fis-datos" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+        <div><label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Prefijo</label><input id="compra-ed-fis-prefijo" type="text" style="width:100%;padding:8px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px"></div>
+        <div><label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Número <span style="color:#C62828">*</span></label><input id="compra-ed-fis-numero" type="text" style="width:100%;padding:8px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px"></div>
+        <div style="grid-column:1/-1"><label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">CUFE o CUDS <span style="color:#C62828">*</span></label><input id="compra-ed-fis-cufe" type="text" style="width:100%;padding:8px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px"></div>
+        <div><label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Base (sin impuestos) <span style="color:#C62828">*</span></label><input id="compra-ed-fis-base" type="number" inputmode="numeric" style="width:100%;padding:8px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px"></div>
+        <div><label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">IVA</label><input id="compra-ed-fis-iva" type="number" inputmode="numeric" style="width:100%;padding:8px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px"></div>
+        <div><label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">INC</label><input id="compra-ed-fis-inc" type="number" inputmode="numeric" style="width:100%;padding:8px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px"></div>
+        <div><label style="font-size:11px;color:#757575;display:block;margin-bottom:3px">Total del soporte <span style="color:#C62828">*</span></label><input id="compra-ed-fis-total" type="number" inputmode="numeric" style="width:100%;padding:8px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px"></div>
+      </div>
+      <label style="font-size:11px;color:#757575;display:block;margin:8px 0 3px">Motivo (obligatorio sin soporte, o si el total no coincide con el de la compra)</label>
+      <input id="compra-ed-fis-motivo" type="text" style="width:100%;padding:8px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px">
+      <div style="font-size:11px;color:#777;margin-top:6px">La identificación del proveedor se toma de su ficha.</div>
     </div>
 
     <!-- Comprobante -->
@@ -4684,12 +4708,12 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js" integrity="sha384-OUW9euuUyxyHcAhTqbhI+Iyb8LMssXt/cpz0yXhs9UWG2/R/uaWdakx/4cfww7Vb" crossorigin="anonymous"></script><!-- v7.9.13 SEC-12: SRI -->
-<script src="app-assets.js?v=7.10.0"></script>
-<script src="app-core.js?v=7.10.0"></script>
-<script src="app-cotizar.js?v=7.10.0"></script>
-<script src="app-propuesta.js?v=7.10.0"></script>
-<script src="app-historial.js?v=7.10.0"></script>
-<script src="app-seguimiento.js?v=7.10.0"></script>
-<script src="app-dashboard.js?v=7.10.0"></script>
+<script src="app-assets.js?v=7.10.1"></script>
+<script src="app-core.js?v=7.10.1"></script>
+<script src="app-cotizar.js?v=7.10.1"></script>
+<script src="app-propuesta.js?v=7.10.1"></script>
+<script src="app-historial.js?v=7.10.1"></script>
+<script src="app-seguimiento.js?v=7.10.1"></script>
+<script src="app-dashboard.js?v=7.10.1"></script>
 </body>
 </html>

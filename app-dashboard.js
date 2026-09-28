@@ -6083,31 +6083,36 @@ function gbExporteAtajo(tipo){
   $("rep-cont-desde").value=r.desde;$("rep-cont-hasta").value=r.hasta;
 }
 // Hojas del exporte. Ventas: una fila por FE registrada con fecha en el rango. Pagos: por fecha de pago.
-function gbExporteContable(docs,desde,hasta,emisor){
+// v7.10.1: cada nota crédito es una fila en negativo en el período de su propia fecha; hojas Compras, Clientes y Resumen.
+function gbExporteContable(docs,desde,hasta,emisor,comprasDocs){
   const en=f=>{const x=String(f||"").slice(0,10);return !!x&&x>=desde&&x<=hasta};
   const todos=(docs||[]).filter(q=>!q._wrongCollection);
   const propios=todos.filter(q=>q.accountingEntityId===emisor.accountingEntityId);
   // Una FE emitida nunca desaparece: el negocio anulado con CUFE sigue en Ventas y va a Excepciones.
   const negocios=propios.filter(q=>q.status!=="anulada"||(q.feData&&q.feData.cufe));
-  const ventas=[],pagos=[],excepciones=[],facturados=[];
+  const ventas=[],pagos=[],excepciones=[],facturados=[],clientes=[],vistosCli={};
   const num=q=>q.quoteNumber||q.id;
   // Facturas repetidas (la app sólo las revisa al guardar): el CUFE entre todos los negocios; el prefijo-número,
   // sólo en la numeración de la empresa (las facturas de persona natural no la consumen).
   const vistos={},contar=k=>{vistos[k]=(vistos[k]||0)+1};
-  for(const q of todos){const fe=q.feData||{};if(fe.cufe)contar("c:"+gbFeCufe(fe.cufe))}
+  for(const q of todos){const fe=q.feData||{};if(fe.cufe)contar("c:"+gbFeCufe(fe.cufe));for(const n of fe.notasCredito||[])if(n.cufe)contar("c:"+gbFeCufe(n.cufe))}
   for(const q of propios){const fe=q.feData||{};if(fe.numero)contar("n:"+gbFeClave(fe.prefijo,fe.numero))}
   for(const q of negocios){
-    const cf=q.clienteFiscal||{},fe=q.feData||{};
+    const cf=q.clienteFiscal||{},fe=q.feData||{},filasAntes=ventas.length;
     const entregaReal=(q.entregaData&&q.entregaData.fechaEntrega)||q.fechaEntrega||"";
     const fechaFeOk=gbFeFechaValida(fe.fecha);
-    if(fe.cufe&&fechaFeOk&&en(fe.fecha)){
+    const notas=fe.notasCredito||[];
+    const factura=(fe.prefijo?fe.prefijo+"-":"")+(fe.numero||"");
+    const fila={tipoId:cf.consumidorFinal?"Consumidor final":(cf.tipoId||""),numId:cf.numId||"",cliente:cf.nombre||q.client||"",
+      municipio:q.city||"",ciiu:q.kind==="proposal"?"5621":"5619",negocio:num(q),fechaProgramada:q.eventDate||"",fechaEntregaReal:entregaReal};
+    const feEnRango=fe.cufe&&fechaFeOk&&en(fe.fecha);
+    if(feEnRango){
       facturados.push(q);
-      ventas.push({fechaFE:fe.fecha,factura:(fe.prefijo?fe.prefijo+"-":"")+fe.numero,cufe:fe.cufe,
-        tipoId:cf.consumidorFinal?"Consumidor final":(cf.tipoId||""),numId:cf.numId||"",cliente:cf.nombre||q.client||"",
-        municipio:q.city||"",ciiu:q.kind==="proposal"?"5621":"5619",base:fe.base||0,inc:fe.inc||0,iva:fe.iva||0,total:fe.total||0,
-        negocio:num(q),fechaProgramada:q.eventDate||"",fechaEntregaReal:entregaReal,estado:fe.estado||"emitida"});
+      ventas.push({fechaFE:fe.fecha,factura:factura,cufe:fe.cufe,...fila,base:fe.base||0,inc:fe.inc||0,iva:fe.iva||0,total:fe.total||0,
+        estado:notas.length?gbFeEstado(fe):(fe.estado||"emitida"),afecta:""});
       if(fe.motivoDiferencia)excepciones.push({tipo:"Factura con total distinto al pedido",negocio:num(q),detalle:fe.motivoDiferencia});
-      if(q.status==="anulada")excepciones.push({tipo:"Factura de negocio anulado",negocio:num(q),detalle:"Negocio anulado con factura "+fe.cufe+": requiere nota crédito"});
+      if(q.status==="anulada"&&!gbFeAnuladaConNotas(fe))excepciones.push({tipo:"Factura de negocio anulado",negocio:num(q),detalle:"Negocio anulado con factura "+fe.cufe+": requiere nota crédito"});
+      if(fe.estado==="anulada"&&!notas.length)excepciones.push({tipo:"Factura anulada sin notas crédito",negocio:num(q),detalle:"Factura "+factura+" marcada anulada sin nota crédito registrada"});
       const errFe=gbFeDatosError(fe);
       if(errFe)excepciones.push({tipo:"Factura con datos incompletos",negocio:num(q),detalle:errFe});
       const errCli=gbFiscalValidar(q.clienteFiscal);
@@ -6115,6 +6120,23 @@ function gbExporteContable(docs,desde,hasta,emisor){
       if(vistos["c:"+gbFeCufe(fe.cufe)]>1||(fe.numero&&vistos["n:"+gbFeClave(fe.prefijo,fe.numero)]>1))excepciones.push({tipo:"Factura repetida",negocio:num(q),detalle:"CUFE o prefijo-número también registrado en otro negocio"});
     }
     if(fe.cufe&&!fechaFeOk&&(en(fe.fecha)||en(entregaReal||q.eventDate)))excepciones.push({tipo:"Factura sin fecha válida",negocio:num(q),detalle:"Factura "+fe.cufe+" sin fecha de expedición válida"});
+    // Notas crédito: el período es la fecha de cada nota, aunque la factura sea de otro mes.
+    const notasEnRango=notas.filter(n=>en(n.fecha));
+    for(const n of notas){
+      const errNc=gbFeDatosError({...n,total:n.valor},"de la nota crédito");
+      if(errNc&&(en(n.fecha)||feEnRango))excepciones.push({tipo:"Nota crédito con datos incompletos",negocio:num(q),detalle:errNc});
+      if(!fe.cufe||!gbFeFechaValida(n.fecha)||!en(n.fecha))continue;
+      const v=k=>-(Number(n[k])||0);
+      ventas.push({fechaFE:n.fecha,factura:(n.prefijo?n.prefijo+"-":"")+(n.numero||""),cufe:n.cufe||"",...fila,base:v("base"),inc:v("inc"),iva:v("iva"),total:v("valor"),estado:"nota crédito",afecta:factura});
+      if(n.cufe&&vistos["c:"+gbFeCufe(n.cufe)]>1)excepciones.push({tipo:"Nota crédito repetida",negocio:num(q),detalle:"CUFE "+n.cufe+" también registrado en otro documento"});
+    }
+    // Clientes únicos (por identificación) de los negocios con ventas o notas crédito en el período; se toman de q, no de su número.
+    if(ventas.length>filasAntes&&cf.nombre){
+      const k=(cf.tipoId||"")+":"+String(cf.numId||"").replace(/\s+/g,"").toUpperCase();
+      if(!vistosCli[k]){vistosCli[k]=1;clientes.push({tipoId:cf.tipoId||"",numId:cf.numId||"",nombre:cf.nombre,correo:cf.mail||"",direccion:cf.dir||"",telefono:cf.tel||""})}
+    }
+    if(notasEnRango.length&&!fe.cufe)excepciones.push({tipo:"Nota crédito sin factura",negocio:num(q),detalle:"Nota crédito registrada sin factura electrónica de referencia"});
+    if(fe.cufe&&(feEnRango||notasEnRango.length)&&gbFeSumaNotas(fe)>(Number(fe.total)||0))excepciones.push({tipo:"Notas crédito mayores que la factura",negocio:num(q),detalle:"Notas "+gbFeSumaNotas(fe)+" > factura "+fe.total});
     if(q.status==="entregado"&&!fe.cufe&&en(entregaReal||q.eventDate))excepciones.push({tipo:"Por facturar",negocio:num(q),detalle:"Entregado sin factura electrónica registrada"});
     if(q.eventDate&&emisor.fechaInicio&&q.eventDate<emisor.fechaInicio&&en(q.eventDate))excepciones.push({tipo:"A caballo del corte",negocio:num(q),detalle:"Entrega "+q.eventDate+" antes del inicio de la empresa ("+emisor.fechaInicio+")"});
     for(const p of getPagos(q)){
@@ -6130,28 +6152,57 @@ function gbExporteContable(docs,desde,hasta,emisor){
     if(q.accountingEntityId===emisor.accountingEntityId||!(REPORTES_VENDIDO_STATUS[q.kind]||[]).includes(q.status))continue;
     if(q.eventDate&&emisor.fechaInicio&&q.eventDate>=emisor.fechaInicio&&en(q.eventDate))excepciones.push({tipo:"A caballo del corte",negocio:num(q),detalle:"Confirmado sin datos de la nueva empresa; entrega "+q.eventDate+" desde su inicio ("+emisor.fechaInicio+")"});
   }
+  // Compras de la nueva empresa (selladas al guardarlas) por la fecha de la compra.
+  const compras=[];
+  const SOPORTES={FE:"Factura electrónica",DS:"Documento soporte",SIN:"Sin soporte"};
+  for(const c of comprasDocs||[]){
+    if(c.accountingEntityId!==emisor.accountingEntityId||c.estado!=="comprada"||!en(c.fecha))continue;
+    const sf=c.soporteFiscal||{},pf=c.proveedorFiscal||{},con=sf.tipo==="FE"||sf.tipo==="DS";
+    compras.push({id:c.id,fecha:c.fecha,tipo:SOPORTES[sf.tipo]||"",factura:con?(sf.prefijo?sf.prefijo+"-":"")+(sf.numero||""):"",cufe:con?sf.cufe||"":"",
+      proveedor:pf.nombre||c.proveedorNombre||"",tipoId:pf.tipoId||"",idNum:pf.idNum||"",base:con?Number(sf.base)||0:0,iva:con?Number(sf.iva)||0:0,inc:con?Number(sf.inc)||0:0,
+      total:con?Number(sf.total)||0:(Number(c.total)||0),medioPago:c.formaPago||""});
+    if(!pf.tipoId||!String(pf.idNum||"").trim())excepciones.push({tipo:"Compra sin identificación del proveedor",negocio:c.id,detalle:(pf.nombre||c.proveedorNombre||"Sin proveedor")+" · "+c.fecha});
+    const errC=gbCompraFiscalError(sf,Number(c.total)||0,c.fecha);
+    if(errC)excepciones.push({tipo:"Compra con datos fiscales inválidos",negocio:c.id,detalle:errC});
+  }
   const suma=(a,k)=>a.reduce((t,r)=>t+(Number(r[k])||0),0);
   const deClase=c=>suma(pagos.filter(p=>p.clase===c),"valor");
+  const porMunCiiu={};
+  for(const v of ventas){const k="Ingresos · "+(v.municipio||"Sin municipio")+" · CIIU "+v.ciiu;porMunCiiu[k]=(porMunCiiu[k]||0)+(Number(v.total)||0)}
+  // Resumen del período (sirve para el formulario 2593); los aportes a pensión se escriben a mano.
+  const resumen=[
+    ["Ingresos brutos (facturado menos notas crédito)",suma(ventas,"total")],
+    ["Base gravada con INC",suma(ventas.filter(v=>Number(v.inc)),"base")],["INC",suma(ventas,"inc")],["IVA",suma(ventas,"iva")]
+  ].concat(Object.keys(porMunCiiu).sort().map(k=>[k,porMunCiiu[k]])).concat([
+    ["Cobros por medio electrónico",deClase("electronico")],
+    ["Compras · base",suma(compras,"base")],["Compras · IVA",suma(compras,"iva")],["Compras · INC",suma(compras,"inc")],["Compras · total",suma(compras,"total")],
+    ["Aportes a pensión (dato manual)",""]
+  ]);
   const cuadre=[
-    ["Ventas facturadas (total)",suma(ventas,"total")],["  Base",suma(ventas,"base")],["  INC",suma(ventas,"inc")],["  IVA",suma(ventas,"iva")],
+    ["Ventas facturadas (total)",suma(ventas,"total")],["  De ellas, notas crédito",suma(ventas.filter(v=>v.afecta),"total")],["  Base",suma(ventas,"base")],["  INC",suma(ventas,"inc")],["  IVA",suma(ventas,"iva")],
     ["Pagos recibidos",suma(pagos,"valor")],["  Por medio electrónico",deClase("electronico")],["  En efectivo",deClase("efectivo")],["  Sin clasificar",deClase("sin_clasificar")],
     ["  De ellos, anticipos",suma(pagos.filter(p=>p.tipo==="anticipo"),"valor")],
     ["Cargos de reposición en negocios facturados",facturados.reduce((t,q)=>t+totalCargos(q),0)],
     ["Descuentos y ajustes en negocios facturados",facturados.reduce((t,q)=>t+totalAjustes(q),0)]
   ];
-  return {ventas,pagos,excepciones,cuadre};
+  return {ventas,pagos,excepciones,cuadre,compras,clientes,resumen};
 }
-function descargarExporteContable(){
+async function descargarExporteContable(){
   const desde=$("rep-cont-desde").value,hasta=$("rep-cont-hasta").value;
   if(!desde||!hasta||desde>hasta){toast("Elige un rango de fechas válido (o un atajo)","warn");return}
   if(!gbEmisorConfigurado()){toast("La nueva empresa todavía no está activa: no hay datos que exportar","warn",6000);return}
   if(typeof XLSX==="undefined"){toast("No cargó la librería de Excel; recarga la página","error");return}
-  const r=gbExporteContable(quotesCache,desde,hasta,GB_EMISOR);
+  if(!comprasCache.length&&cloudOnline){try{await loadComprasFromCloud()}catch{}} // v7.10.1: hoja Compras
+  const r=gbExporteContable(quotesCache,desde,hasta,GB_EMISOR,comprasCache);
   const wb=XLSX.utils.book_new();
   const hoja=(nombre,enc,filas)=>XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([enc].concat(filas)),nombre);
-  hoja("Ventas",["Fecha factura","Factura","CUFE","Tipo ID","Número ID","Cliente","Municipio","CIIU","Base","INC","IVA","Total","Negocio","Fecha programada","Entrega real","Estado"],
-    r.ventas.map(v=>[v.fechaFE,v.factura,v.cufe,v.tipoId,v.numId,v.cliente,v.municipio,v.ciiu,v.base,v.inc,v.iva,v.total,v.negocio,v.fechaProgramada,v.fechaEntregaReal,v.estado]));
+  hoja("Ventas",["Fecha factura","Factura","CUFE","Tipo ID","Número ID","Cliente","Municipio","CIIU","Base","INC","IVA","Total","Negocio","Fecha programada","Entrega real","Estado","Afecta a"],
+    r.ventas.map(v=>[v.fechaFE,v.factura,v.cufe,v.tipoId,v.numId,v.cliente,v.municipio,v.ciiu,v.base,v.inc,v.iva,v.total,v.negocio,v.fechaProgramada,v.fechaEntregaReal,v.estado,v.afecta]));
   hoja("Pagos",["Fecha","Valor","Método","Clase","Tipo","Negocio","Cliente"],r.pagos.map(p=>[p.fecha,p.valor,p.metodo,p.clase,p.tipo,p.negocio,p.cliente]));
+  hoja("Compras",["Fecha","Tipo de soporte","Soporte","CUFE / CUDS","Proveedor","Tipo ID","Número ID","Base","IVA","INC","Total","Medio de pago"],
+    r.compras.map(c=>[c.fecha,c.tipo,c.factura,c.cufe,c.proveedor,c.tipoId,c.idNum,c.base,c.iva,c.inc,c.total,c.medioPago]));
+  hoja("Clientes",["Tipo ID","Número ID","Nombre","Correo","Dirección","Teléfono"],r.clientes.map(c=>[c.tipoId,c.numId,c.nombre,c.correo,c.direccion,c.telefono]));
+  hoja("Resumen",["Concepto","Valor"],[["Período",desde+" a "+hasta]].concat(r.resumen));
   hoja("Excepciones",["Tipo","Negocio","Detalle"],r.excepciones.map(e=>[e.tipo,e.negocio,e.detalle]));
   hoja("Cuadre",["Concepto","Valor"],r.cuadre.concat([[],["Empresa",GB_EMISOR.razonSocial+" · NIT "+GB_EMISOR.nit+(GB_EMISOR.dv?"-"+GB_EMISOR.dv:"")],["Período",desde+" a "+hasta],["Generado",new Date().toISOString()]]));
   const fname="gourmet-bites-exporte-contable-"+desde+"-a-"+hasta+".xlsx";
@@ -6649,6 +6700,37 @@ let _compraEdFotoExisting=null;     // {url,path} de comprobante ya subido (si e
 let _compraEdItemRowSeq=0;
 let _compraEdLinkedPendientes=[];   // v7.8 F3 conciliación: IDs a borrar al guardar
 
+// v7.10.1: datos fiscales de las compras de la nueva empresa (plan v7.10.1, C1). Aplica a compras realizadas con fecha
+// desde el inicio de la empresa, o ya selladas (el sello no se pierde al editar). Con la empresa apagada, el editor queda como antes,
+// también para las selladas: el sello dice de dónde viene la compra, no enciende el módulo (ronda 3, P2-01).
+function gbCompraFiscalAplica(estado,fecha,previa){
+  return gbEmisorConfigurado()&&((estado==="comprada"&&gbEmisorActivo(fecha))||!!(previa&&previa.accountingEntityId===GB_EMISOR.accountingEntityId));
+}
+// Obligatorios según el tipo de soporte: sin soporte, sólo el motivo; factura electrónica o documento soporte, como la FE de venta.
+function gbCompraFiscalError(sf,totalCompra,fecha){
+  if(!sf||!["FE","DS","SIN"].includes(sf.tipo))return "Elige el tipo de soporte de la compra";
+  const motivo=String(sf.motivo||"").trim();
+  if(sf.tipo==="SIN")return motivo?null:"Compra sin soporte: escribe el motivo";
+  const err=gbFeDatosError({numero:sf.numero,cufe:sf.cufe,fecha:fecha,base:sf.base,inc:sf.inc,iva:sf.iva,total:sf.total},"del soporte");
+  if(err)return err;
+  if(sf.total!==totalCompra&&!motivo)return "El total del soporte ("+sf.total+") no coincide con el de la compra ("+totalCompra+"): escribe el motivo";
+  return null;
+}
+function gbCompraFiscalLeer(){
+  const v=id=>($("compra-ed-fis-"+id)&&$("compra-ed-fis-"+id).value||"").trim();
+  const n=id=>{const x=v(id);return x===""?null:parseInt(x.replace(/[^0-9-]/g,""),10)};
+  const tipo=v("tipo"),motivo=v("motivo");
+  if(tipo==="SIN")return {tipo,motivo};
+  return {tipo,prefijo:v("prefijo").replace(/\s+/g,"").toUpperCase(),numero:v("numero").replace(/\s+/g,"").toUpperCase(),cufe:gbFeCufe(v("cufe")),
+    base:n("base"),iva:n("iva")??0,inc:n("inc")??0,total:n("total"),motivo};
+}
+function compraEdFiscalActualizar(){
+  const box=$("compra-ed-fiscal");if(!box)return;
+  const previa=_compraEditorId?comprasCache.find(x=>x.id===_compraEditorId):null;
+  box.classList.toggle("hidden",!gbCompraFiscalAplica($("compra-ed-estado-comprada").checked?"comprada":"pendiente",$("compra-ed-fecha").value,previa));
+  $("compra-ed-fis-datos").classList.toggle("hidden",$("compra-ed-fis-tipo").value==="SIN");
+}
+
 function openCompraEditor(id,defaults){
   _compraEditorId=id;
   _compraEdFotoB64=null;
@@ -6687,6 +6769,10 @@ function openCompraEditor(id,defaults){
     $("compra-ed-foto-preview").innerHTML="";
   }
   $("compra-ed-del-btn").style.display=isNew?"none":"inline-block";
+  // v7.10.1: datos fiscales guardados (C1)
+  const sf=c?.soporteFiscal||{};
+  ["tipo","prefijo","numero","cufe","base","iva","inc","total","motivo"].forEach(k=>{$("compra-ed-fis-"+k).value=sf[k]==null?"":sf[k]});
+  compraEdFiscalActualizar();
   $("compra-ed-modal").classList.remove("hidden");
 }
 
@@ -6704,6 +6790,7 @@ function compraEdToggleEstado(){
   if(esComprada&&!$("compra-ed-fecha").value){
     $("compra-ed-fecha").value=gbTodayIso?gbTodayIso():_localTodayIsoFallback(); // v7.9.13: DAT-09 fallback local, no UTC
   }
+  compraEdFiscalActualizar(); // v7.10.1
 }
 
 function _compraEdRefreshProveedorOptions(selectedId){
@@ -6864,6 +6951,21 @@ async function saveCompraEditor(){
     nota:$("compra-ed-nota").value.trim(),
     estado:estado
   };
+  // v7.10.1: compra de la nueva empresa → soporte fiscal validado, sello y copia de la identificación del proveedor (de su ficha).
+  const previa=_compraEditorId?comprasCache.find(x=>x.id===_compraEditorId):null;
+  let provSinId=false;
+  if(gbCompraFiscalAplica(estado,obj.fecha,previa)){
+    const sf=gbCompraFiscalLeer();
+    const err=gbCompraFiscalError(sf,total,obj.fecha);
+    if(err){toast("⚠️ "+err,"warn",6500);return}
+    obj.accountingEntityId=GB_EMISOR.accountingEntityId;
+    obj.soporteFiscal=sf;
+    // Sin una selección válida (la ficha vinculada está archivada o ya no existe), la compra sellada conserva su proveedor.
+    if(!proveedor&&previa&&previa.proveedorFiscal&&(!proveedorId||proveedorId===previa.proveedorId)){
+      obj.proveedorId=previa.proveedorId||null;obj.proveedorNombre=previa.proveedorNombre||"";obj.proveedorFiscal=previa.proveedorFiscal;
+    }else obj.proveedorFiscal={nombre:proveedor?.nombre||"",tipoId:proveedor?.tipoId||"",idNum:String(proveedor?.idNum||"").trim()};
+    provSinId=!obj.proveedorFiscal.tipoId||!obj.proveedorFiscal.idNum;
+  }
   showLoader("Guardando...");
   try{
     // Guardar primero (para tener id si es nueva) y después subir foto si aplica
@@ -6898,7 +7000,8 @@ async function saveCompraEditor(){
     hideLoader();
     let msg=estado==="comprada"?"✅ Compra registrada":"📋 Pendiente anotada";
     if(descargados>0)msg+=" · "+descargados+" pendiente"+(descargados===1?"":"s")+" descargado"+(descargados===1?"":"s");
-    toast(msg,"success");
+    if(provSinId)toast(msg+" · el proveedor no tiene identificación en su ficha: la compra irá a Excepciones del exporte","warn",8000);
+    else toast(msg,"success");
     closeCompraEditor();
     // Refrescar vistas si están activas (F3, F4, F5 — guardas defensivas)
     if(typeof renderComprasPendientes==="function"&&curMode==="compras-pendientes")renderComprasPendientes();

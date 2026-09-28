@@ -3043,8 +3043,8 @@ function openAnularModal(docId,kind,ev){
     toast("Solo se pueden anular pedidos en estado Pedido, Aprobada o En producción. Estado actual: "+(STATUS_META[status]?.label||status),"warn",6000);
     return;
   }
-  // v7.10.0 (decisión de Luis): una factura electrónica emitida no desaparece; anular o regresar exige nota crédito (v7.10.1).
-  if(q.feData&&q.feData.cufe){toast("❌ Este pedido tiene factura electrónica registrada: anularlo o regresarlo requiere nota crédito.","warn",8000);return}
+  // v7.10.0 (decisión de Luis): una factura electrónica emitida no desaparece; anular exige anularla por completo con nota crédito (v7.10.1).
+  if(q.feData&&q.feData.cufe&&!gbFeAnuladaConNotas(q.feData)){toast("❌ Este pedido tiene factura electrónica registrada: anularlo requiere anular la factura por completo con nota crédito.","warn",8000);return}
   // v6.0.0: si ya fue cobrado al 100%, bloquear la anulación desde el modal también
   // (defensa en profundidad — el botón UI ya lo oculta via canAnular).
   const _total=(typeof getDocTotal==="function")?getDocTotal(q):(q.total||q.totalReal||0);
@@ -3100,6 +3100,8 @@ async function submitAnular(){
   if(!["anular","regresar"].includes(accion)){alert("Escoge qué hacer con el registro.");return}
 
   const {docId,kind,q}=_anularCtx;
+  // v7.10.1: con factura electrónica (aunque esté anulada con notas crédito) el pedido sólo se anula; regresarlo a cotización no.
+  if(accion==="regresar"&&q.feData&&q.feData.cufe){toast("❌ Este pedido tiene factura electrónica registrada: no se puede regresar a cotización. Anula la factura por completo con nota crédito y anula el pedido.","warn",8000);return}
   const targetStatus=accion==="anular"?"anulada":"enviada";
   if(typeof auditTransition==="function"&&!auditTransition(q.status||"enviada",targetStatus,"submitAnular "+docId))return;
   const cobrado=totalCobrado(q);
@@ -3164,7 +3166,7 @@ async function submitAnular(){
             throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true,detalle:"Documento "+docId+" no existe en Firestore (collection "+coll+")"});
           }
           const freshTx=snap.data();
-          if(freshTx.feData&&freshTx.feData.cufe)throw Object.assign(new Error("Este pedido tiene factura electrónica registrada: anularlo o regresarlo requiere nota crédito."),{paraUsuario:true});
+          if(freshTx.feData&&freshTx.feData.cufe&&(accion==="regresar"||!gbFeAnuladaConNotas(freshTx.feData)))throw Object.assign(new Error("Este pedido tiene factura electrónica registrada: anularlo requiere anular la factura por completo con nota crédito; regresarlo a cotización no se permite."),{paraUsuario:true});
 
           const patch={updatedAt:serverTimestamp()};
           if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
@@ -3665,7 +3667,9 @@ function gbFeFechaValida(s){
   return f.getUTCMonth()===+m[2]-1&&f.getUTCDate()===+m[3];
 }
 // Validación fiscal común del modal (gbFeValidar) y del exporte (gbExporteContable): el primer problema o null.
-function gbFeDatosError(d){
+// v7.10.1: también la usan las notas crédito y los soportes de compras (que: "de la nota crédito", "del soporte").
+function gbFeDatosError(d,que){
+  que=que||"de la factura";
   const faltan=[];
   if(!String(d.numero||"").trim())faltan.push("número");
   if(!gbFeCufe(d.cufe))faltan.push("CUFE");
@@ -3673,10 +3677,10 @@ function gbFeDatosError(d){
   if(!Number.isFinite(d.base))faltan.push("base");
   if(!Number.isFinite(d.inc))faltan.push("INC");
   if(!Number.isFinite(d.total))faltan.push("total");
-  if(faltan.length)return "Faltan datos de la factura: "+faltan.join(", ");
+  if(faltan.length)return "Faltan datos "+que+": "+faltan.join(", ");
   const iva=Number.isFinite(d.iva)?d.iva:0;
-  if(d.base<0||d.inc<0||iva<0||d.total<0)return "Los valores de la factura no pueden ser negativos";
-  if(d.base+d.inc+iva!==d.total)return "Base + INC + IVA ("+(d.base+d.inc+iva)+") no da el total de la factura ("+d.total+")";
+  if(d.base<0||d.inc<0||iva<0||d.total<0)return "Los valores "+que+" no pueden ser negativos";
+  if(d.base+d.inc+iva!==d.total)return "Base + INC + IVA ("+(d.base+d.inc+iva)+") no da el total "+que+" ("+d.total+")";
   return null;
 }
 // Una FE con CUFE ya emitida no se borra ni se cambia desde el modal: eso es una nota crédito (v7.10.1).
@@ -3687,6 +3691,30 @@ function gbFeBloqueo(actual,patch){
   const cambia=patch.requiereFE===false||patch.feData===null
     ||(patch.feData!==undefined&&["prefijo","numero","cufe","fecha","base","inc","iva","total"].some(k=>String(fe[k]??"")!==String(patch.feData[k]??"")));
   return cambia?"Esta factura electrónica ya fue emitida (tiene CUFE): quitarla o cambiarla requiere nota crédito.":null;
+}
+// v7.10.1: notas crédito (plan v5 §14.2). Se registran en feData.notasCredito[] (nunca se sobrescriben) y el estado se deriva de su suma.
+function gbFeSumaNotas(fe){return ((fe&&fe.notasCredito)||[]).reduce((t,n)=>t+(Number(n.valor)||0),0)}
+function gbFeEstado(fe){
+  const s=gbFeSumaNotas(fe);
+  return !s?"emitida":(s<fe.total?"ajustada":"anulada");
+}
+// FE anulada por completo con notas crédito: lo único que permite anular un pedido con factura (decisión de Luis).
+function gbFeAnuladaConNotas(fe){return !!(fe&&fe.cufe&&(fe.notasCredito||[]).length&&gbFeSumaNotas(fe)===fe.total)}
+// fe: la factura que afecta; d: la nota leída del formulario; todos: negocios para buscar el CUFE repetido. {error} o {nota}.
+function gbNcValidar(fe,d,todos){
+  if(!fe||!fe.cufe)return {error:"La nota crédito necesita una factura electrónica registrada (con CUFE)"};
+  d={...d,prefijo:String(d.prefijo||"").replace(/\s+/g,"").toUpperCase(),numero:String(d.numero||"").replace(/\s+/g,"").toUpperCase(),cufe:gbFeCufe(d.cufe),motivo:String(d.motivo||"").trim()};
+  const err=gbFeDatosError({...d,total:d.valor},"de la nota crédito");
+  if(err)return {error:err};
+  if(!(d.valor>0))return {error:"El valor de la nota crédito debe ser mayor que cero"};
+  if(!d.motivo)return {error:"Escribe el motivo de la nota crédito"};
+  if(d.fecha<fe.fecha)return {error:"La nota crédito no puede tener fecha anterior a la factura ("+fe.fecha+")"};
+  const usado=c=>!!c&&gbFeCufe(c)===d.cufe;
+  const otro=[{feData:fe}].concat(todos||[]).find(x=>x.feData&&(usado(x.feData.cufe)||(x.feData.notasCredito||[]).some(n=>usado(n.cufe))));
+  if(otro)return {error:"Ese CUFE ya está registrado"+(otro.id?" en "+(otro.quoteNumber||otro.id):"")};
+  const suma=gbFeSumaNotas(fe)+d.valor;
+  if(suma>fe.total)return {error:"Las notas crédito ("+suma+") superan el total de la factura ("+fe.total+")"};
+  return {nota:{prefijo:d.prefijo,numero:d.numero,cufe:d.cufe,fecha:d.fecha,valor:d.valor,base:d.base,inc:d.inc,iva:Number.isFinite(d.iva)?d.iva:0,motivo:d.motivo}};
 }
 function gbFeValidar(q,d,todos){
   d={...d,prefijo:String(d.prefijo||"").replace(/\s+/g,"").toUpperCase(),numero:String(d.numero||"").replace(/\s+/g,"").toUpperCase(),cufe:gbFeCufe(d.cufe)};
@@ -3747,6 +3775,28 @@ function openFeModal(docId,kind){
       +campo("fe-total","Total de la factura *",f.total,"number")
       +campo("fe-motivo","Motivo, si el total no coincide con el del pedido",f.motivoDiferencia)
       +'</div>';
+    // v7.10.1: notas crédito de la FE emitida (se emiten fuera de la app y aquí sólo se registran; no se editan ni se borran).
+    // Con la empresa apagada no aparecen (la app queda como v7.10.0).
+    if(f.cufe&&gbEmisorConfigurado()){
+      const notas=f.notasCredito||[];
+      body+='<div style="padding:10px;border:1px solid #EF9A9A;background:#FFF5F5;border-radius:8px;margin-bottom:10px">'
+        +'<div style="font-weight:700;font-size:12px;color:#C62828;margin-bottom:6px">Notas crédito · estado de la factura: '+h(gbFeEstado(f))+'</div>'
+        +(notas.length?notas.map(n=>'<div style="font-size:12px;padding:4px 0;border-top:1px solid #FFCDD2">'+h((n.prefijo?n.prefijo+"-":"")+(n.numero||""))+' · '+h(n.fecha||"")+' · '+h(fm(parseInt(n.valor)||0))+' · '+h(n.motivo||"")+'</div>').join("")
+          :'<div style="font-size:12px;color:#777">Sin notas crédito.</div>')
+        +(gbFeSumaNotas(f)<f.total?'<div style="font-weight:600;font-size:12px;color:#555;margin:8px 0 4px">Registrar nota crédito (emitida fuera de la app)</div>'
+          +campo("nc-prefijo","Prefijo","")
+          +campo("nc-numero","Número *","")
+          +campo("nc-cufe","CUFE de la nota *","")
+          +campo("nc-fecha","Fecha de expedición *",gbTodayIso(),"date")
+          +campo("nc-valor","Valor total de la nota *","","number")
+          +campo("nc-base","Base (sin impuestos) *","","number")
+          +campo("nc-inc","INC *","","number")
+          +campo("nc-iva","IVA (si hay)","","number")
+          +campo("nc-motivo","Motivo *","")
+          +'<button data-fe-id="'+h(docId)+'" data-fe-kind="'+h(kind)+'" onclick="submitNotaCredito(this.dataset.feId,this.dataset.feKind)" style="width:100%;padding:10px;background:#C62828;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Registrar nota crédito</button>'
+          :'')
+        +'</div>';
+    }
   }
 
   body+='<div style="margin-bottom:10px"><label style="font-size:12px;font-weight:600;color:#555">Adjuntar imagen de FE (PDF/PNG/JPG)</label>'
@@ -3808,10 +3858,13 @@ async function submitFe(docId,kind){
   }
   const bloqueo=gbFeBloqueo(q,patch);
   if(bloqueo){toast("❌ "+bloqueo,"warn",8000);return}
+  // v7.10.1 (P3-R4-01): si luego no se guarda, el adjunto subido se borra de Storage para no dejarlo huérfano.
+  let subida=null,guardado=false;
   if(_feBase64){
     try{
       if(typeof showLoader==="function")showLoader("Subiendo imagen...");
-      const {url}=await uploadFotoFromBase64(_feBase64,"fe",docId,"facturas");
+      subida=await uploadFotoFromBase64(_feBase64,"fe",docId,"facturas");
+      const {url}=subida;
       patch.feData.fotoUrl=url;
       delete patch.feData.foto;
     }catch(e){
@@ -3861,9 +3914,12 @@ async function submitFe(docId,kind){
             if(b)throw Object.assign(new Error(b),{paraUsuario:true});
             // Caché sin sello y documento fresco ya sellado (confirmado en otra sesión): este modal no pidió los datos fiscales.
             if(q.accountingEntityId!==GB_EMISOR.accountingEntityId&&fresco.accountingEntityId===GB_EMISOR.accountingEntityId)throw Object.assign(new Error("Este pedido ya tiene los datos de la nueva empresa (lo confirmaron en otra sesión); la factura requiere CUFE y valores. Recarga el historial."),{paraUsuario:true});
+            // v7.10.1: las notas crédito sólo se agregan desde su formulario; aquí se conservan las frescas y el estado se deriva de ellas.
+            if(patch.feData&&fresco.feData&&fresco.feData.notasCredito){patch.feData.notasCredito=fresco.feData.notasCredito;patch.feData.estado=gbFeEstado(patch.feData)}
             tx.update(doc(db,coll,docId),patch);
           });
         }
+        guardado=true;
         q.requiereFE=requiereFE;
         if(patch.feData!==undefined)q.feData=patch.feData;
         return {payloadExtra:{tieneNumero:!!numero}};
@@ -3878,6 +3934,55 @@ async function submitFe(docId,kind){
   }catch(e){
     if(typeof hideLoader==="function")hideLoader();
     console.error("submitFe error:",e);
+    if(subida&&!guardado){try{const {storage,storageRef,deleteObject}=window.fb;await deleteObject(storageRef(storage,subida.path))}catch(err){console.warn("No se pudo borrar el adjunto no guardado:",err)}}
+    toast("Error: "+gbMensajeError(e),"error");
+  }
+}
+
+// v7.10.1: registra una nota crédito sobre la FE del negocio (plan v5 §14.2). Doble revisión como la FE:
+// CUFE contra los negocios leídos del servidor y suma contra la FE leída en la transacción; la nota se agrega a la lista fresca.
+async function submitNotaCredito(docId,kind){
+  const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
+  if(!q||!q.feData||!q.feData.cufe||!gbEmisorConfigurado())return;
+  const v=id=>($(id)&&$(id).value||"").trim();
+  const n=id=>{const x=v(id);return x===""?null:parseInt(x.replace(/[^0-9-]/g,""),10)};
+  const d={prefijo:v("nc-prefijo"),numero:v("nc-numero"),cufe:v("nc-cufe"),fecha:v("nc-fecha"),valor:n("nc-valor"),base:n("nc-base"),inc:n("nc-inc"),iva:n("nc-iva"),motivo:v("nc-motivo")};
+  const pre=gbNcValidar(q.feData,d,quotesCache);
+  if(pre.error){toast("⚠️ "+pre.error,"warn",6500);return}
+  const nota={id:"nc-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,6),...pre.nota,registradaEn:new Date().toISOString()};
+  const coll=getCollectionName(docId,kind);
+  try{
+    if(typeof showLoader==="function")showLoader("Guardando...");
+    await logOperacion({
+      operacion:"registrarNotaCredito",
+      docId:docId,
+      docKind:kind,
+      payload:{valor:nota.valor,numeroPrefix:(nota.prefijo+"-"+nota.numero).slice(0,40)},
+      runner:async()=>{
+        const {db,doc,runTransaction,serverTimestamp}=window.fb;
+        const frescos=await gbFeDocsFrescos();
+        let feNueva=null;
+        await runTransaction(db,async tx=>{
+          const snap=await tx.get(doc(db,coll,docId));
+          if(!snap.exists())throw Object.assign(new Error("El documento ya no existe; no se guardó la nota crédito. Recarga el historial."),{paraUsuario:true});
+          const fe=snap.data().feData;
+          if(!fe||gbFeCufe(fe.cufe)!==gbFeCufe(q.feData.cufe))throw Object.assign(new Error("La factura de este pedido cambió en otra sesión; no se guardó la nota crédito. Recarga el historial."),{paraUsuario:true});
+          const r=gbNcValidar(fe,d,frescos);
+          if(r.error)throw Object.assign(new Error(r.error),{paraUsuario:true});
+          feNueva={...fe,notasCredito:(fe.notasCredito||[]).concat([nota])};
+          feNueva.estado=gbFeEstado(feNueva);
+          tx.update(doc(db,coll,docId),{feData:feNueva,updatedAt:serverTimestamp(),...auditStamp()});
+        });
+        q.feData=feNueva;
+      }
+    });
+    if(typeof hideLoader==="function")hideLoader();
+    toast("🧾 Nota crédito registrada"+(q.feData.estado==="anulada"?" · la factura quedó anulada":""),"success");
+    if(typeof closeConfirmModal==="function")closeConfirmModal();
+    renderHist();
+  }catch(e){
+    if(typeof hideLoader==="function")hideLoader();
+    console.error("submitNotaCredito error:",e);
     toast("Error: "+gbMensajeError(e),"error");
   }
 }

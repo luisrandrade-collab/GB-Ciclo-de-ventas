@@ -92,7 +92,7 @@ await test('gbRangoAtajo: mes, mes anterior y bimestres SIMPLE (ene-feb…), tam
   assert.equal(r('bim','2028-02-10'),'2028-01-01..2028-02-29');
 });
 const VENDIDO=Function('return '+source('app-dashboard.js').match(/const REPORTES_VENDIDO_STATUS=(\{[^}]*\})/)[1])();
-const expCtx=()=>loadSourceFunctions([['app-dashboard.js','gbExporteContable'],['app-historial.js','metodoFiscal'],['app-historial.js','pagoFechaIso'],['app-core.js','gbFiscalValidar'],['app-historial.js','gbFeCufe'],['app-historial.js','gbFeClave'],['app-historial.js','gbFeDatosError'],['app-historial.js','gbFeFechaValida']],{REPORTES_VENDIDO_STATUS:VENDIDO,
+const expCtx=()=>loadSourceFunctions([['app-dashboard.js','gbExporteContable'],['app-historial.js','gbFeSumaNotas'],['app-historial.js','gbFeEstado'],['app-historial.js','gbFeAnuladaConNotas'],['app-dashboard.js','gbCompraFiscalError'],['app-historial.js','metodoFiscal'],['app-historial.js','pagoFechaIso'],['app-core.js','gbFiscalValidar'],['app-historial.js','gbFeCufe'],['app-historial.js','gbFeClave'],['app-historial.js','gbFeDatosError'],['app-historial.js','gbFeFechaValida']],{REPORTES_VENDIDO_STATUS:VENDIDO,
   getPagos:q=>q.pagos||[],totalCargos:q=>(q.cargos||[]).reduce((a,b)=>a+b.monto,0),totalAjustes:()=>0,gbDateToIso:d=>d.toISOString().slice(0,10)});
 await test('gbExporteContable: ventas por fecha de FE, pagos por fecha de pago, sólo la nueva empresa, excepciones y cuadre',()=>{
   const c=expCtx();
@@ -204,21 +204,21 @@ await test('P1-03 / P2-02: gbFeValidar rechaza negativos, normaliza CUFE y prefi
   assert.match(c.gbFeValidar(q,feOk,[q,{id:'P1',kind:'proposal',quoteNumber:'GB-P-1',feData:{cufe:'abc'}}]).error,/GB-P-1/,'mismo id, otra colección');
   assert.equal(c.gbFeValidar(q,feOk,[{...q,feData:{cufe:'abc'}}]).error,undefined,'la copia fresca del mismo documento no es duplicado');
 });
-const feSubmit=({fresco,frescos={},feData,campos={},qExtra={},emisorCfg=emisor()})=>{
-  const writes=[],toasts=[],lecturas=[],updates=[];let transacciones=0;
+const feSubmit=({fresco,frescos={},feData,campos={},qExtra={},emisorCfg=emisor(),base64=null,extra={}})=>{
+  const writes=[],toasts=[],lecturas=[],updates=[],subidas=[],borrados=[];let transacciones=0;
   const els={'fe-requiere':{checked:false},'fe-numero':{value:'1'},'fe-cufe':{value:'abc'},'fe-prefijo':{value:'GB'},'fe-fecha':{value:'2026-10-20'},
     'fe-base':{value:'925926'},'fe-inc':{value:'74074'},'fe-iva':{value:''},'fe-total':{value:'1000000'},'fe-motivo':{value:''},...campos};
   const q={id:'P1',kind:'quote',total:1000000,accountingEntityId:'GB_SAS_SIMPLE',...(feData?{feData}:{}),...qExtra};
-  const fb={db:{},doc:(db,c,id)=>({c,id}),serverTimestamp:()=>'TS',
+  const fb={db:{},doc:(db,c,id)=>({c,id}),serverTimestamp:()=>'TS',storage:{},storageRef:(st,path)=>({path}),deleteObject:async r=>borrados.push(r.path),
     updateDoc:async(ref,p)=>updates.push([ref,p]),
     runTransaction:async(db,fn)=>{transacciones++;return fn({get:async()=>({exists:()=>true,data:()=>({accountingEntityId:'GB_SAS_SIMPLE',...fresco})}),update:(ref,p)=>writes.push([ref,p])})}};
   const ctx=loadSourceFunctions([['app-historial.js','submitFe'],['app-historial.js','gbFeLeer'],['app-historial.js','gbFeValidar'],['app-historial.js','gbFeCufe'],['app-historial.js','gbFeClave'],['app-historial.js','gbFeDocsFrescos'],
-    ['app-historial.js','gbFeDatosError'],['app-historial.js','gbFeFechaValida'],['app-historial.js','gbFeBloqueo'],['app-core.js','gbEmisorConfigurado'],['app-core.js','gbEmisorActivo']],{
-    window:{fb},$:id=>els[id],quotesCache:[q],GB_EMISOR:emisorCfg,_feBase64:null,getCollectionName:()=>'quotes',auditStamp:()=>({}),gbTodayIso:()=>'2026-10-20',
+    ['app-historial.js','gbFeDatosError'],['app-historial.js','gbFeFechaValida'],['app-historial.js','gbFeBloqueo'],['app-historial.js','gbFeSumaNotas'],['app-historial.js','gbFeEstado'],['app-core.js','gbEmisorConfigurado'],['app-core.js','gbEmisorActivo']],{
+    window:{fb},$:id=>els[id],quotesCache:[q],GB_EMISOR:emisorCfg,_feBase64:base64,uploadFotoFromBase64:async()=>{const r={url:'https://x/fe.jpg',path:'facturas/P1-1.jpg'};subidas.push(r.path);return r},getCollectionName:()=>'quotes',auditStamp:()=>({}),gbTodayIso:()=>'2026-10-20',
     getDocTotal:x=>x.total||0,totalCargos:x=>(x.cargos||[]).reduce((a,b)=>a+b.monto,0),logOperacion:async o=>o.runner(),toast:(m,t)=>toasts.push([m,t]),
     showLoader:()=>{},hideLoader:()=>{},closeConfirmModal:()=>{},renderHist:()=>{},curMode:'hist',gbMensajeError:e=>e.paraUsuario?e.message:'error genérico',
-    readHistoryCollection:async(c,o)=>{lecturas.push(c+':'+!!(o&&o.requireFresh));return {docs:frescos[c]||[]}},console:{error(){},warn(){},log(){}}});
-  return {ctx,writes,toasts,q,lecturas,updates,tx:()=>transacciones};
+    readHistoryCollection:async(c,o)=>{lecturas.push(c+':'+!!(o&&o.requireFresh));return {docs:frescos[c]||[]}},console:{error(){},warn(){},log(){}},...extra});
+  return {ctx,writes,toasts,q,lecturas,updates,subidas,borrados,tx:()=>transacciones};
 };
 await test('P1-03: submitFe revalida en una transacción con el documento fresco y con duplicados leídos del servidor justo antes de guardar',async()=>{
   let t=feSubmit({fresco:{total:1000000}});await t.ctx.submitFe('P1','quote');
@@ -238,7 +238,7 @@ const anular=({accion,q,fresco})=>{
   const els={'an-motivo':{value:'cliente_cancelo'},'an-motivo-otro':{value:''},'an-notas':{value:''},'an-accion':{value:accion},'an-dev-monto':{value:''},'an-reemplazo':{checked:false}};
   const fb={db:{},doc:(db,c,id)=>({c,id}),serverTimestamp:()=>'TS',
     runTransaction:async(db,fn)=>fn({get:async()=>({exists:()=>true,data:()=>fresco}),update:(ref,p)=>writes.push(p)})};
-  const ctx=loadSourceFunctions([['app-historial.js','submitAnular']],{
+  const ctx=loadSourceFunctions([['app-historial.js','submitAnular'],['app-historial.js','gbFeAnuladaConNotas'],['app-historial.js','gbFeSumaNotas']],{
     window:{fb},$:id=>els[id],_anularCtx:{docId:q.id,kind:q.kind,q},quotesCache:[q],MOTIVOS_ANULACION:{cliente_cancelo:'Cliente canceló'},totalCobrado:()=>0,
     getCollectionName:()=>'quotes',auditStamp:()=>({}),logOperacion:async o=>o.runner(),showLoader:()=>{},hideLoader:()=>{},closeAnularModal:()=>{},renderHist:()=>{},
     curMode:'hist',toast:(m,t)=>toasts.push([m,t]),alert:m=>toasts.push([m,'alert']),getPagos:x=>x.pagos||[],fm:x=>String(x),
@@ -260,7 +260,7 @@ await test('P2-01: regresar a cotización borra el sello; anular o regresar un p
     assert.equal(t.writes.length,0,accion+' con FE fresca');assert.match(t.toasts.at(-1)[0],/nota crédito/);
   }
   const toasts=[];let abierto=false;
-  const m=loadSourceFunctions([['app-historial.js','openAnularModal']],{cloudOnline:true,quotesCache:[{id:'Q4',kind:'quote',status:'pedido',feData:{cufe:'x'}}],
+  const m=loadSourceFunctions([['app-historial.js','openAnularModal'],['app-historial.js','gbFeAnuladaConNotas'],['app-historial.js','gbFeSumaNotas']],{cloudOnline:true,quotesCache:[{id:'Q4',kind:'quote',status:'pedido',feData:{cufe:'x'}}],
     toast:msg=>toasts.push(msg),$:()=>{abierto=true;return {classList:{add(){},remove(){}},value:'',textContent:''}},getDocTotal:()=>0,totalCobrado:()=>0,STATUS_META:{},fm:String,gbTodayIso:()=>'2026-10-01'});
   m.openAnularModal('Q4','quote');
   assert.equal(abierto,false);assert.match(toasts[0],/nota crédito/);
@@ -358,5 +358,322 @@ await test('R3 P2-R3-01: una caché sin sello no escribe una FE incompleta sobre
   assert.equal(t.writes.length,1,'si el documento fresco tampoco está sellado, guarda como antes');assert.equal(t.writes[0][1].feData.numero,'FE-77');
   t=feSubmit({fresco:{total:1000000},campos:{'fe-requiere':{checked:true},...vacios}});await t.ctx.submitFe('P1','quote');
   assert.equal(t.writes.length,1,'caché sellada sin datos fiscales (sólo «Requiere factura») sigue guardando');
+});
+// ─── v7.10.1: compras fiscales, notas crédito, exporte completo y resumen (plan C1–C4) ───
+const FE_NC={prefijo:'GB',numero:'1',cufe:'abc',fecha:'2026-10-20',base:925926,inc:74074,iva:0,total:1000000,estado:'emitida',accountingEntityId:'GB_SAS_SIMPLE'};
+const ncCtx=()=>loadSourceFunctions([['app-historial.js','gbNcValidar'],['app-historial.js','gbFeSumaNotas'],['app-historial.js','gbFeEstado'],['app-historial.js','gbFeAnuladaConNotas'],['app-historial.js','gbFeCufe'],['app-historial.js','gbFeDatosError'],['app-historial.js','gbFeFechaValida']],{});
+const ncOk={prefijo:'NC',numero:'1',cufe:'nc1',fecha:'2026-10-25',valor:100000,base:92593,inc:7407,iva:null,motivo:'Descuento acordado'};
+await test('v7.10.1 C2: nota crédito — validación, CUFE repetido, suma mayor que la FE y estado derivado',()=>{
+  const c=ncCtx();
+  const r=c.gbNcValidar(FE_NC,ncOk,[]);
+  assert.equal(r.error,undefined);assert.equal(r.nota.valor,100000);assert.equal(r.nota.iva,0);assert.equal(r.nota.cufe,'nc1');
+  assert.match(c.gbNcValidar(FE_NC,{...ncOk,cufe:''},[]).error,/CUFE/);
+  assert.match(c.gbNcValidar(FE_NC,{...ncOk,fecha:'2026-02-30'},[]).error,/fecha/);
+  assert.match(c.gbNcValidar(FE_NC,{...ncOk,inc:1},[]).error,/no da el total de la nota crédito/);
+  assert.match(c.gbNcValidar(FE_NC,{...ncOk,base:-1,inc:100001},[]).error,/negativ/);
+  assert.match(c.gbNcValidar(FE_NC,{...ncOk,valor:0,base:0,inc:0},[]).error,/mayor que cero/);
+  assert.match(c.gbNcValidar(FE_NC,{...ncOk,motivo:' '},[]).error,/motivo/);
+  assert.match(c.gbNcValidar(FE_NC,{...ncOk,fecha:'2026-10-19'},[]).error,/anterior a la factura/);
+  assert.match(c.gbNcValidar({numero:'1'},ncOk,[]).error,/CUFE/,'sin FE con CUFE no hay nota');
+  assert.match(c.gbNcValidar(FE_NC,{...ncOk,cufe:' ABC '},[]).error,/ya está registrado/,'el CUFE de la propia FE');
+  const conNota={...FE_NC,notasCredito:[{id:'n1',...ncOk}]};
+  assert.match(c.gbNcValidar(conNota,{...ncOk,numero:'2'},[]).error,/ya está registrado/,'CUFE de otra nota de la misma FE');
+  assert.match(c.gbNcValidar(FE_NC,ncOk,[{id:'X',quoteNumber:'GB-X',feData:{cufe:'zz',notasCredito:[{cufe:'NC1'}]}}]).error,/GB-X/,'CUFE de una nota de otro negocio');
+  assert.match(c.gbNcValidar(FE_NC,ncOk,[{id:'Y',quoteNumber:'GB-Y',feData:{cufe:'nc1'}}]).error,/GB-Y/,'CUFE de la FE de otro negocio');
+  assert.match(c.gbNcValidar(conNota,{...ncOk,cufe:'nc2',valor:900001,base:900001,inc:0},[]).error,/superan el total/);
+  assert.equal(c.gbNcValidar(conNota,{...ncOk,cufe:'nc2',valor:900000,base:900000,inc:0},[]).error,undefined,'hasta el total exacto');
+  assert.equal(c.gbFeEstado(FE_NC),'emitida');assert.equal(c.gbFeEstado(conNota),'ajustada');
+  const anulada={...FE_NC,notasCredito:[{valor:600000},{valor:400000}]};
+  assert.equal(c.gbFeEstado(anulada),'anulada');assert.equal(c.gbFeAnuladaConNotas(anulada),true);
+  assert.equal(c.gbFeAnuladaConNotas(conNota),false);assert.equal(c.gbFeAnuladaConNotas({...FE_NC,estado:'anulada'}),false,'anulada sin notas no cuenta');
+});
+const ncSubmit=({fresco,frescos={},campos={},qFe=FE_NC,emisorCfg=emisor()})=>{
+  const writes=[],toasts=[],lecturas=[];
+  const els={'nc-prefijo':{value:'NC'},'nc-numero':{value:'1'},'nc-cufe':{value:'nc1'},'nc-fecha':{value:'2026-10-25'},'nc-valor':{value:'100000'},'nc-base':{value:'92593'},
+    'nc-inc':{value:'7407'},'nc-iva':{value:''},'nc-motivo':{value:'Descuento'},...campos};
+  const q={id:'P1',kind:'quote',total:1000000,accountingEntityId:'GB_SAS_SIMPLE',feData:qFe};
+  const fb={db:{},doc:(db,c,id)=>({c,id}),serverTimestamp:()=>'TS',
+    runTransaction:async(db,fn)=>fn({get:async()=>({exists:()=>true,data:()=>({accountingEntityId:'GB_SAS_SIMPLE',...fresco})}),update:(ref,p)=>writes.push([ref,p])})};
+  const ctx=loadSourceFunctions([['app-historial.js','submitNotaCredito'],['app-historial.js','gbNcValidar'],['app-historial.js','gbFeSumaNotas'],['app-historial.js','gbFeEstado'],['app-historial.js','gbFeCufe'],
+    ['app-historial.js','gbFeDatosError'],['app-historial.js','gbFeFechaValida'],['app-historial.js','gbFeDocsFrescos'],['app-core.js','gbEmisorConfigurado']],{
+    window:{fb},$:id=>els[id],quotesCache:[q],GB_EMISOR:emisorCfg,getCollectionName:()=>'quotes',auditStamp:()=>({}),logOperacion:async o=>o.runner(),toast:(m,t)=>toasts.push([m,t]),
+    showLoader:()=>{},hideLoader:()=>{},closeConfirmModal:()=>{},renderHist:()=>{},curMode:'hist',gbMensajeError:e=>e.paraUsuario?e.message:'error genérico',
+    readHistoryCollection:async(c,o)=>{lecturas.push(c+':'+!!(o&&o.requireFresh));return {docs:frescos[c]||[]}},console:{error(){},warn(){},log(){}}});
+  return {ctx,writes,toasts,q,lecturas};
+};
+await test('v7.10.1 C2: submitNotaCredito agrega la nota a la lista fresca (append-only) en una transacción y deriva el estado',async()=>{
+  const previa={id:'n0',prefijo:'NC',numero:'0',cufe:'nc0',fecha:'2026-10-21',valor:50000,base:46296,inc:3704,iva:0,motivo:'x'};
+  let t=ncSubmit({fresco:{feData:{...FE_NC,notasCredito:[previa]}}});await t.ctx.submitNotaCredito('P1','quote');
+  assert.equal(t.writes.length,1);const fe=t.writes[0][1].feData;
+  assert.deepEqual(Array.from(fe.notasCredito,n=>n.cufe),['nc0','nc1'],'conserva la nota que la caché no tenía');
+  assert.equal(fe.estado,'ajustada');assert.equal(fe.cufe,'abc');assert.ok(fe.notasCredito[1].id,'la nota lleva id');
+  assert.deepEqual(t.lecturas.sort(),['propfinals:true','proposals:true','quotes:true']);
+  assert.equal(t.q.feData.notasCredito.length,2,'caché actualizada');
+  t=ncSubmit({fresco:{feData:{...FE_NC,notasCredito:[{...previa,valor:950000,base:950000,inc:0}]}}});await t.ctx.submitNotaCredito('P1','quote');
+  assert.equal(t.writes.length,0,'otra sesión ya registró notas: la suma supera la FE');assert.match(t.toasts.at(-1)[0],/superan el total/);
+  t=ncSubmit({fresco:{feData:FE_NC},campos:{'nc-valor':{value:'1000000'},'nc-base':{value:'925926'},'nc-inc':{value:'74074'}}});await t.ctx.submitNotaCredito('P1','quote');
+  assert.equal(t.writes[0][1].feData.estado,'anulada');
+  t=ncSubmit({fresco:{feData:FE_NC},frescos:{proposals:[{id:'Z',quoteNumber:'GB-P-Z',feData:{cufe:'NC1'}}]}});await t.ctx.submitNotaCredito('P1','quote');
+  assert.equal(t.writes.length,0,'CUFE registrado en otro negocio (lectura del servidor)');assert.match(t.toasts.at(-1)[0],/GB-P-Z/);
+  t=ncSubmit({fresco:{feData:{...FE_NC,cufe:'otra'}}});await t.ctx.submitNotaCredito('P1','quote');
+  assert.equal(t.writes.length,0,'la FE cambió en otra sesión');assert.match(t.toasts.at(-1)[0],/[Rr]ecarga/);
+  t=ncSubmit({fresco:{feData:FE_NC},campos:{'nc-cufe':{value:''}}});await t.ctx.submitNotaCredito('P1','quote');
+  assert.equal(t.writes.length,0);assert.match(t.toasts.at(-1)[0],/CUFE/);
+});
+await test('v7.10.1 C2: registrar la FE otra vez (p. ej. adjuntar el PDF) conserva las notas frescas y el estado derivado',async()=>{
+  const nota={id:'n1',cufe:'nc1',fecha:'2026-10-25',valor:100000,base:92593,inc:7407,iva:0};
+  const t=feSubmit({fresco:{total:1000000,feData:{...FE_EMITIDA,notasCredito:[nota],estado:'ajustada'}},feData:FE_EMITIDA,campos:{'fe-requiere':{checked:true}}});await t.ctx.submitFe('P1','quote');
+  assert.equal(t.writes.length,1);assert.deepEqual(Array.from(t.writes[0][1].feData.notasCredito,n=>n.id),['n1']);assert.equal(t.writes[0][1].feData.estado,'ajustada');
+});
+await test('v7.10.1 C2: anular un pedido con FE sólo se permite con la FE anulada por completo con notas crédito; regresar sigue bloqueado',async()=>{
+  const sello={accountingEntityId:'GB_SAS_SIMPLE',emisorSnapshot:{nit:'1'},clienteFiscal:{nombre:'A'}};
+  const feAnulada={...FE_NC,notasCredito:[{valor:1000000}],estado:'anulada'};
+  const feParcial={...FE_NC,notasCredito:[{valor:1}],estado:'ajustada'};
+  let t=anular({accion:'anular',q:{id:'A1',kind:'quote',status:'pedido',...sello,feData:feAnulada},fresco:{status:'pedido',...sello,feData:feAnulada}});await t.ctx.submitAnular();
+  assert.equal(t.writes.length,1,'FE anulada: se puede anular');assert.equal(t.writes[0].status,'anulada');assert.equal(t.writes[0].feData,undefined,'la FE y sus notas se conservan');
+  t=anular({accion:'anular',q:{id:'A2',kind:'quote',status:'pedido',...sello,feData:feAnulada},fresco:{status:'pedido',...sello,feData:feParcial}});await t.ctx.submitAnular();
+  assert.equal(t.writes.length,0,'el documento fresco sólo está ajustado');assert.match(t.toasts.at(-1)[0],/nota crédito/);
+  t=anular({accion:'regresar',q:{id:'A3',kind:'quote',status:'pedido',...sello,feData:feAnulada},fresco:{status:'pedido',...sello,feData:feAnulada}});await t.ctx.submitAnular();
+  assert.equal(t.writes.length,0,'regresar con FE: bloqueado');assert.match(t.toasts.at(-1)[0],/nota crédito/);
+  t=anular({accion:'regresar',q:{id:'A4',kind:'quote',status:'pedido',...sello},fresco:{status:'pedido',...sello,feData:feAnulada}});await t.ctx.submitAnular();
+  assert.equal(t.writes.length,0,'regresar: la transacción lo bloquea aunque la caché no tenga la FE');assert.match(t.toasts.at(-1)[0],/nota crédito/);
+  const abrir=fe=>{const toasts=[];let abierto=false;
+    const m=loadSourceFunctions([['app-historial.js','openAnularModal'],['app-historial.js','gbFeAnuladaConNotas'],['app-historial.js','gbFeSumaNotas']],{cloudOnline:true,quotesCache:[{id:'Q4',kind:'quote',status:'pedido',feData:fe}],
+      toast:msg=>toasts.push(msg),$:()=>{abierto=true;return {classList:{add(){},remove(){}},value:'',textContent:''}},getDocTotal:()=>0,totalCobrado:()=>0,STATUS_META:{},fm:String,gbTodayIso:()=>'2026-10-01'});
+    m.openAnularModal('Q4','quote');return {abierto,toasts}};
+  assert.equal(abrir(feAnulada).abierto,true,'con la FE anulada abre la ventana');
+  const p=abrir(feParcial);assert.equal(p.abierto,false);assert.match(p.toasts[0],/nota crédito/);
+});
+const cfA={consumidorFinal:false,nombre:'A SAS',tipoId:'NIT',numId:'900-1',mail:'a@b.co',dir:'Calle 1',tel:'300'};
+const compra=(x={})=>({id:'C1',estado:'comprada',fecha:'2026-10-15',total:119000,formaPago:'transferencia',proveedorNombre:'Prov',accountingEntityId:'GB_SAS_SIMPLE',
+  proveedorFiscal:{nombre:'Prov',tipoId:'NIT',idNum:'800-1'},soporteFiscal:{tipo:'FE',prefijo:'PV',numero:'77',cufe:'pc1',base:100000,iva:19000,inc:0,total:119000,motivo:''},...x});
+await test('v7.10.1 C3: exporte — notas crédito en negativo en su propio período, estado, Clientes, Compras, Resumen y excepciones nuevas',()=>{
+  const c=expCtx();
+  const n1={id:'n1',prefijo:'NC',numero:'1',cufe:'nc1',fecha:'2026-10-25',valor:100000,base:92593,inc:7407,iva:0,motivo:'x'};
+  const n2={id:'n2',prefijo:'NC',numero:'2',cufe:'nc2',fecha:'2026-11-05',valor:900000,base:833333,inc:66667,iva:0,motivo:'y'};
+  const S={kind:'proposal',status:'entregado',accountingEntityId:'GB_SAS_SIMPLE',clienteFiscal:cfA,eventDate:'2026-10-20',city:'La Calera'};
+  const docs=[
+    {id:'F1',quoteNumber:'GB-P-1',...S,feData:{...FE_NC,notasCredito:[n1,n2],estado:'anulada'},pagos:[{fecha:'2026-10-10',monto:300000,metodo:'Nequi'}]},
+    {id:'F2',quoteNumber:'GB-2',...S,kind:'quote',city:'Bogotá',clienteFiscal:{...cfA,nombre:'A SAS (otro nombre)'},feData:{...FE_NC,cufe:'f2',numero:'2',base:185185,inc:14815,total:200000}},
+    {id:'F3',...S,clienteFiscal:{consumidorFinal:true,nombre:'Juan',numId:'222222222222'},feData:{...FE_NC,cufe:'f3',numero:'3',estado:'anulada'}},
+    {id:'F4',...S,feData:{...FE_NC,cufe:'f4',numero:'4',notasCredito:[{...n1,cufe:'nc4',valor:1100000,base:1100000,inc:0}]}},
+    {id:'F5',...S,feData:{numero:'5',notasCredito:[{...n1,cufe:'nc5'}]}},
+    {id:'F6',...S,feData:{...FE_NC,cufe:'f6',numero:'6',notasCredito:[{...n1,cufe:'nc6',fecha:'2026-10-45'}]}},
+    {id:'F7',...S,status:'anulada',feData:{...FE_NC,cufe:'f7',numero:'7',estado:'anulada',notasCredito:[{...n1,cufe:'nc7',fecha:'2026-10-26',valor:1000000,base:925926,inc:74074}]}}
+  ];
+  const compras=[compra(),compra({id:'C2',soporteFiscal:{tipo:'SIN',motivo:'Plaza de mercado'},proveedorFiscal:{nombre:'Plaza',tipoId:'',idNum:''},total:50000,formaPago:'efectivo'}),
+    compra({id:'C3',soporteFiscal:{tipo:'DS',prefijo:'',numero:'9',cufe:'',base:1,iva:0,inc:0,total:1}}),
+    compra({id:'C4',fecha:'2026-11-02'}),compra({id:'C5',accountingEntityId:undefined}),compra({id:'C6',estado:'pendiente'})];
+  const r=c.gbExporteContable(docs,'2026-10-01','2026-10-31',emisor(),compras);
+  const f1=r.ventas.filter(v=>v.negocio==='GB-P-1');
+  assert.deepEqual(Array.from(f1,v=>v.total),[1000000,-100000],'FE con su valor original y la nota de octubre en negativo; la de noviembre queda fuera');
+  assert.equal(f1[0].estado,'anulada');assert.equal(f1[1].estado,'nota crédito');assert.equal(f1[1].afecta,'GB-1');assert.equal(f1[1].cufe,'nc1');assert.equal(f1[1].fechaFE,'2026-10-25');
+  assert.equal(f1[1].base,-92593);assert.equal(f1[1].inc,-7407);assert.equal(f1[0].afecta,'');
+  const nov=c.gbExporteContable(docs,'2026-11-01','2026-11-30',emisor(),compras);
+  const f1n=nov.ventas.filter(v=>v.negocio==='GB-P-1');
+  assert.deepEqual(Array.from(f1n,v=>v.total),[-900000],'la segunda nota en su propio período, sin la FE');
+  const exc=new Set(Array.from(r.excepciones,e=>e.tipo+':'+e.negocio));
+  for(const k of ['Factura anulada sin notas crédito:F3','Notas crédito mayores que la factura:F4','Nota crédito sin factura:F5','Nota crédito con datos incompletos:F6',
+    'Compra sin identificación del proveedor:C2','Compra con datos fiscales inválidos:C3'])assert.ok(exc.has(k),k);
+  for(const k of ['Factura anulada sin notas crédito:GB-P-1','Notas crédito mayores que la factura:GB-P-1','Compra sin identificación del proveedor:C1','Compra con datos fiscales inválidos:C1','Compra con datos fiscales inválidos:C2','Factura de negocio anulado:F7'])assert.ok(!exc.has(k),k);
+  assert.deepEqual(Array.from(r.compras,x=>x.id).sort(),['C1','C2','C3'],'sólo compras selladas, compradas y del período');
+  const c1=r.compras.find(x=>x.id==='C1');
+  assert.equal(c1.tipo,'Factura electrónica');assert.equal(c1.factura,'PV-77');assert.equal(c1.cufe,'pc1');assert.equal(c1.tipoId,'NIT');assert.equal(c1.idNum,'800-1');
+  assert.equal(c1.iva,19000);assert.equal(c1.total,119000);assert.equal(c1.medioPago,'transferencia');assert.equal(c1.proveedor,'Prov');
+  const c2=r.compras.find(x=>x.id==='C2');assert.equal(c2.tipo,'Sin soporte');assert.equal(c2.total,50000);
+  assert.deepEqual(Array.from(r.clientes,x=>x.tipoId+':'+x.numId).sort(),[':222222222222','NIT:900-1'],'clientes únicos por identificación');
+  const res=Object.fromEntries(r.resumen.map(x=>[x[0],x[1]]));
+  const netas=1000000-100000+200000+1000000+1000000-1100000+1000000;
+  assert.equal(res['Ingresos brutos (facturado menos notas crédito)'],netas);
+  assert.equal(res['INC'],r.ventas.reduce((t,v)=>t+v.inc,0));assert.equal(res['Base gravada con INC'],925926*4+185185-92593,'sólo filas con INC (la nota nc4 sin INC no suma)');
+  assert.equal(res['Ingresos · La Calera · CIIU 5621'],netas-200000);assert.equal(res['Ingresos · Bogotá · CIIU 5619'],200000);
+  assert.equal(res['Cobros por medio electrónico'],300000);
+  assert.equal(res['Compras · base'],100001);assert.equal(res['Compras · IVA'],19000);assert.equal(res['Compras · INC'],0);
+  assert.ok('Aportes a pensión (dato manual)' in res);assert.equal(res['Aportes a pensión (dato manual)'],'');
+  const cu=Object.fromEntries(r.cuadre.map(x=>[x[0].trim(),x[1]]));
+  assert.equal(cu['Ventas facturadas (total)'],netas);assert.equal(cu['De ellas, notas crédito'],-2200000);
+  const sin=c.gbExporteContable(docs,'2026-10-01','2026-10-31',emisor());
+  assert.equal(sin.compras.length,0,'sin compras: hoja vacía');
+});
+await test('v7.10.1 C3: descargarExporteContable escribe Ventas (con «Afecta a»), Pagos, Compras, Clientes, Resumen, Excepciones y Cuadre',async()=>{
+  const hojas={};let recibidas=null;
+  const XLSX={utils:{book_new:()=>({}),aoa_to_sheet:a=>a,book_append_sheet:(wb,sh,n)=>{hojas[n]=sh}},writeFile:()=>{}};
+  const c=loadSourceFunctions([['app-dashboard.js','descargarExporteContable'],['app-core.js','gbEmisorConfigurado']],{GB_EMISOR:emisor(),XLSX,toast:()=>{},quotesCache:[],comprasCache:[compra()],cloudOnline:false,
+    $:id=>({value:id==='rep-cont-desde'?'2026-10-01':'2026-10-31'}),
+    gbExporteContable:(d,a,b,e,comp)=>{recibidas=comp;return {ventas:[{afecta:'GB-1'}],pagos:[],excepciones:[],cuadre:[],compras:[{id:'C1'}],clientes:[{}],resumen:[['Ingresos brutos (facturado menos notas crédito)',1]]}}});
+  await c.descargarExporteContable();
+  assert.equal(recibidas.length,1,'pasa las compras al exporte');
+  for(const n of ['Ventas','Pagos','Compras','Clientes','Resumen','Excepciones','Cuadre'])assert.ok(hojas[n],n);
+  assert.ok(hojas.Ventas[0].includes('Afecta a'));assert.equal(hojas.Ventas[1].at(-1),'GB-1');
+  assert.ok(hojas.Compras[0].includes('CUFE / CUDS'));assert.ok(hojas.Resumen.some(f=>f[0]==='Ingresos brutos (facturado menos notas crédito)'));
+});
+await test('v7.10.1 C1: gbCompraFiscalError — obligatorios según el tipo de soporte, no negativos, suma y total de la compra',()=>{
+  const c=loadSourceFunctions([['app-dashboard.js','gbCompraFiscalError'],['app-historial.js','gbFeDatosError'],['app-historial.js','gbFeCufe'],['app-historial.js','gbFeFechaValida']],{});
+  const sf={tipo:'FE',prefijo:'PV',numero:'77',cufe:'pc1',base:100000,iva:19000,inc:0,total:119000,motivo:''};
+  assert.equal(c.gbCompraFiscalError(sf,119000,'2026-10-15'),null);
+  assert.equal(c.gbCompraFiscalError({...sf,tipo:'DS'},119000,'2026-10-15'),null);
+  assert.match(c.gbCompraFiscalError({...sf,tipo:''},119000,'2026-10-15'),/tipo de soporte/);
+  assert.match(c.gbCompraFiscalError({...sf,cufe:''},119000,'2026-10-15'),/CUFE/);
+  assert.match(c.gbCompraFiscalError({...sf,numero:''},119000,'2026-10-15'),/número/);
+  assert.match(c.gbCompraFiscalError({...sf,base:null},119000,'2026-10-15'),/base/);
+  assert.match(c.gbCompraFiscalError({...sf,iva:-1,base:100001},119000,'2026-10-15'),/negativ/);
+  assert.match(c.gbCompraFiscalError({...sf,iva:18000},119000,'2026-10-15'),/no da el total del soporte/);
+  assert.match(c.gbCompraFiscalError(sf,120000,'2026-10-15'),/motivo/);
+  assert.equal(c.gbCompraFiscalError({...sf,motivo:'Propina aparte'},120000,'2026-10-15'),null);
+  assert.equal(c.gbCompraFiscalError({tipo:'SIN',motivo:'Plaza de mercado'},50000,'2026-10-15'),null,'sin soporte sólo exige motivo');
+  assert.match(c.gbCompraFiscalError({tipo:'SIN',motivo:''},50000,'2026-10-15'),/motivo/);
+});
+const compraEditor=({emisorCfg=emisor(),fiscal={},previa=null,proveedor={id:'PR1',nombre:'Prov',tipoId:'NIT',idNum:'800-1'},sel='PR1',estado='comprada',fecha='2026-10-15',total='119000',foto=null})=>{
+  const guardados=[],toasts=[];
+  const els={'compra-ed-proveedorId':{value:sel},'compra-ed-estado-pendiente':{checked:estado==='pendiente'},'compra-ed-estado-comprada':{checked:estado==='comprada'},'compra-ed-items-list':{querySelectorAll:()=>[]},
+    'compra-ed-total':{value:total},'compra-ed-fecha':{value:fecha},'compra-ed-formaPago':{value:'transferencia'},'compra-ed-nota':{value:''},
+    'compra-ed-fis-tipo':{value:'FE'},'compra-ed-fis-prefijo':{value:'pv'},'compra-ed-fis-numero':{value:'77'},'compra-ed-fis-cufe':{value:' PC1 '},'compra-ed-fis-base':{value:'100000'},
+    'compra-ed-fis-iva':{value:'19000'},'compra-ed-fis-inc':{value:''},'compra-ed-fis-total':{value:'119000'},'compra-ed-fis-motivo':{value:''}};
+  for(const k in fiscal)els['compra-ed-fis-'+k]={value:fiscal[k]};
+  const ctx=loadSourceFunctions([['app-dashboard.js','saveCompraEditor'],['app-dashboard.js','gbCompraFiscalAplica'],['app-dashboard.js','gbCompraFiscalLeer'],['app-dashboard.js','gbCompraFiscalError'],
+    ['app-historial.js','gbFeDatosError'],['app-historial.js','gbFeCufe'],['app-historial.js','gbFeFechaValida'],['app-core.js','gbEmisorConfigurado'],['app-core.js','gbEmisorActivo']],{
+    $:id=>els[id],GB_EMISOR:emisorCfg,proveedoresCache:proveedor?[proveedor]:[],comprasCache:previa?[previa]:[],_compraEditorId:previa?previa.id:null,_compraEdFotoB64:foto,_compraEdFotoExisting:null,_compraEdLinkedPendientes:[],
+    _comprasPendSelected:new Set(),saveCompraToCloud:async(o,opts)=>{guardados.push(o);return (opts&&opts.id)||'NUEVA'},uploadFotoFromBase64:async()=>({url:'u',path:'p'}),
+    showLoader:()=>{},hideLoader:()=>{},toast:(m,t)=>toasts.push([m,t]),closeCompraEditor:()=>{},curMode:'x',gbMensajeError:e=>e.message,console:{error(){},warn(){},log(){}}});
+  return {ctx,guardados,toasts};
+};
+await test('v7.10.1 C1: saveCompraEditor sella las compras de la nueva empresa (soporte, proveedor fiscal) y no toca las demás',async()=>{
+  let t=compraEditor({});await t.ctx.saveCompraEditor();
+  assert.equal(t.guardados.length,1);const o=t.guardados[0];
+  assert.equal(o.accountingEntityId,'GB_SAS_SIMPLE');
+  assert.deepEqual({...o.soporteFiscal},{tipo:'FE',prefijo:'PV',numero:'77',cufe:'pc1',base:100000,iva:19000,inc:0,total:119000,motivo:''});
+  assert.deepEqual({...o.proveedorFiscal},{nombre:'Prov',tipoId:'NIT',idNum:'800-1'});
+  t=compraEditor({fiscal:{cufe:''}});await t.ctx.saveCompraEditor();
+  assert.equal(t.guardados.length,0,'datos inválidos: no guarda');assert.match(t.toasts.at(-1)[0],/CUFE/);
+  t=compraEditor({proveedor:{id:'PR1',nombre:'Plaza'}});await t.ctx.saveCompraEditor();
+  assert.equal(t.guardados.length,1,'proveedor sin identificación: guarda');assert.deepEqual({...t.guardados[0].proveedorFiscal},{nombre:'Plaza',tipoId:'',idNum:''});
+  assert.match(t.toasts.at(-1)[0],/identificación/,'avisa que irá a Excepciones');
+  t=compraEditor({fiscal:{tipo:'SIN',motivo:'Plaza de mercado',cufe:''}});await t.ctx.saveCompraEditor();
+  assert.deepEqual({...t.guardados[0].soporteFiscal},{tipo:'SIN',motivo:'Plaza de mercado'});
+  for(const x of [{emisorCfg:emisor({fechaInicio:null})},{emisorCfg:emisor({nit:''})},{fecha:'2026-10-11'},{estado:'pendiente'}]){
+    t=compraEditor({...x,fiscal:{cufe:''}});await t.ctx.saveCompraEditor();
+    assert.equal(t.guardados.length,1,JSON.stringify(x));const g=t.guardados[0];
+    for(const k of ['accountingEntityId','soporteFiscal','proveedorFiscal'])assert.equal(k in g,false,k+' '+JSON.stringify(x));
+  }
+});
+await test('v7.10.1 C1: al editar, la compra sellada conserva y revalida sus datos fiscales, también en la segunda escritura del comprobante',async()=>{
+  const previa=compra({fecha:'2026-10-05'});
+  let t=compraEditor({previa,fecha:'2026-10-05',fiscal:{cufe:''}});await t.ctx.saveCompraEditor();
+  assert.equal(t.guardados.length,0,'sellada con fecha anterior al inicio: sigue exigiendo datos válidos');
+  t=compraEditor({previa,fecha:'2026-10-05',foto:'data:image/jpeg;base64,xx'});await t.ctx.saveCompraEditor();
+  assert.equal(t.guardados.length,2,'guarda y luego el comprobante');
+  for(const g of t.guardados){assert.equal(g.accountingEntityId,'GB_SAS_SIMPLE');assert.equal(g.soporteFiscal.cufe,'pc1');assert.equal(g.proveedorFiscal.idNum,'800-1')}
+  const els={};const $=id=>els[id]||(els[id]={value:'',checked:false,textContent:'',innerHTML:'',style:{},dataset:{},classList:{h:true,toggle(c,v){this.h=v},add(){this.h=true},remove(){this.h=false}}});
+  const abrir=(c,e)=>{for(const k in els)delete els[k];
+    const x=loadSourceFunctions([['app-dashboard.js','openCompraEditor'],['app-dashboard.js','compraEdFiscalActualizar'],['app-dashboard.js','gbCompraFiscalAplica'],['app-core.js','gbEmisorConfigurado'],['app-core.js','gbEmisorActivo']],{
+      $,comprasCache:c?[c]:[],GB_EMISOR:e,_compraEditorId:null,_compraEdFotoB64:null,_compraEdFotoExisting:null,_compraEdLinkedPendientes:[],_compraEdItemRowSeq:0,
+      _compraEdRefreshProveedorOptions:()=>{},compraEdAddItem:()=>{},_compraEdRefreshItemsDatalist:()=>{},escapeHtml:String,gbTodayIso:()=>'2026-10-20'});
+    x.openCompraEditor(c?c.id:null);return els};
+  let e=abrir(previa,emisor());
+  assert.equal(e['compra-ed-fiscal'].classList.h,false,'sellada: bloque visible');assert.equal(e['compra-ed-fis-cufe'].value,'pc1');assert.equal(e['compra-ed-fis-iva'].value,19000);assert.equal(e['compra-ed-fis-tipo'].value,'FE');
+  e=abrir(null,emisor());assert.equal(e['compra-ed-fiscal'].classList.h,false,'nueva compra de hoy con la empresa activa');assert.equal(e['compra-ed-fis-cufe'].value,'');
+  e=abrir(null,emisor({fechaInicio:null}));assert.equal(e['compra-ed-fiscal'].classList.h,true,'apagada: el editor queda como hoy');
+  assert.ok(/id="compra-ed-fecha"[^>]*onchange="compraEdFiscalActualizar\(\)"/.test(source('index.html')),'cambiar la fecha actualiza el bloque');
+  assert.ok(/compraEdFiscalActualizar\(\)/.test(functionSource('app-dashboard.js','compraEdToggleEstado')),'cambiar el estado actualiza el bloque');
+});
+await test('v7.10.1 C4 (P3-R4-01): si la transacción de la FE aborta, el adjunto ya subido se borra de Storage',async()=>{
+  const viejo={'fe-requiere':{checked:true},'fe-numero':{value:'FE-77'},'fe-cufe':undefined};
+  let t=feSubmit({fresco:{total:1000000},qExtra:{accountingEntityId:undefined,eventDate:'2026-10-20'},campos:viejo,base64:'data:image/jpeg;base64,xx'});await t.ctx.submitFe('P1','quote');
+  assert.equal(t.writes.length+t.updates.length,0);assert.match(t.toasts.at(-1)[0],/[Rr]ecarga el historial/);
+  assert.deepEqual(t.borrados,t.subidas,'ningún adjunto huérfano');
+  t=feSubmit({fresco:{total:1000000},campos:{'fe-requiere':{checked:true}},base64:'data:image/jpeg;base64,xx'});await t.ctx.submitFe('P1','quote');
+  assert.equal(t.writes.length,1);assert.equal(t.writes[0][1].feData.fotoUrl,'https://x/fe.jpg');assert.equal(t.borrados.length,0,'guardado: el adjunto se conserva');
+  t=feSubmit({fresco:{total:1000000},campos:{'fe-requiere':{checked:true}},base64:'data:image/jpeg;base64,xx',extra:{renderHist:()=>{throw new Error('pantalla')}}});await t.ctx.submitFe('P1','quote');
+  assert.equal(t.writes.length,1);assert.equal(t.borrados.length,0,'un error después de guardar no borra el adjunto que ya quedó referenciado');
+});
+// ─── v7.10.1, ronda 1 de Codex (P2-01, P2-02, P3-01) ───
+await test('v7.10.1 P2-01: con la empresa apagada no aparecen las notas crédito ni se registran, aunque el negocio esté sellado con CUFE',async()=>{
+  const modal=(e,fe=FE_NC)=>{let body='';
+    const m=loadSourceFunctions([['app-historial.js','openFeModal'],['app-historial.js','gbFeEstado'],['app-historial.js','gbFeSumaNotas'],['app-core.js','gbEmisorConfigurado']],{
+      quotesCache:[{id:'P1',kind:'quote',quoteNumber:'GB-1',accountingEntityId:'GB_SAS_SIMPLE',feData:fe}],GB_EMISOR:e,toast:()=>{},h:String,fm:String,gbTodayIso:()=>'2026-10-25',
+      _feBase64:null,confirmModal:o=>{body=o.body}});
+    m.openFeModal('P1','quote');return body};
+  let b=modal(emisor());assert.match(b,/Notas crédito/);assert.match(b,/Registrar nota crédito/);
+  assert.ok(!modal(emisor(),{...FE_NC,cufe:''}).includes('Notas crédito'),'sin CUFE de la FE no hay notas');
+  for(const e of [emisor({fechaInicio:null}),emisor({razonSocial:''}),emisor({nit:''})]){
+    b=modal(e);assert.ok(b.includes('Datos de la factura'),'el bloque de la FE sellada sigue como en v7.10.0');
+    assert.ok(!b.includes('Notas crédito'),'apagada: sin bloque de notas');assert.ok(!b.includes('Registrar nota crédito'),'apagada: sin formulario');
+  }
+  const t=ncSubmit({fresco:{feData:FE_NC},emisorCfg:emisor({fechaInicio:null})});await t.ctx.submitNotaCredito('P1','quote');
+  assert.equal(t.writes.length,0,'apagada: el envío no escribe');assert.deepEqual(t.lecturas,[],'ni lee el servidor');
+});
+await test('v7.10.1 P2-02: la hoja Clientes toma el cliente de cada negocio aunque dos colecciones compartan el ID',()=>{
+  const c=expCtx();
+  const S={status:'entregado',accountingEntityId:'GB_SAS_SIMPLE',eventDate:'2026-10-20',city:'La Calera'};
+  const docs=[{id:'COLISION',kind:'proposal',...S,clienteFiscal:{...cfA,numId:'900-A',nombre:'A SAS'},feData:{...FE_NC,cufe:'ca',numero:'10'}},
+    {id:'COLISION',kind:'quote',...S,clienteFiscal:{...cfA,numId:'900-B',nombre:'B SAS'},feData:{...FE_NC,cufe:'cb',numero:'11'}},
+    {id:'SOLO-NC',kind:'quote',...S,clienteFiscal:{...cfA,numId:'900-C',nombre:'C SAS'},feData:{...FE_NC,cufe:'cc',numero:'12',fecha:'2026-09-20',notasCredito:[{...ncOk,cufe:'ncc'}]}},
+    {id:'SIN-VENTA',kind:'quote',...S,clienteFiscal:{...cfA,numId:'900-D',nombre:'D SAS'}}];
+  const r=c.gbExporteContable(docs,'2026-10-01','2026-10-31',emisor());
+  assert.equal(r.ventas.length,3);
+  assert.deepEqual(Array.from(r.clientes,x=>x.numId).sort(),['900-A','900-B','900-C'],'un cliente por negocio con ventas o notas en el período');
+  assert.deepEqual(Array.from(r.clientes,x=>x.nombre).sort(),['A SAS','B SAS','C SAS']);
+  assert.deepEqual({...r.clientes.find(x=>x.numId==='900-B')},{tipoId:'NIT',numId:'900-B',nombre:'B SAS',correo:'a@b.co',direccion:'Calle 1',telefono:'300'});
+});
+await test('v7.10.1 P3-01: la compra ya sellada conserva su bloque fiscal al pasar a pendiente',async()=>{
+  const c=loadSourceFunctions([['app-dashboard.js','gbCompraFiscalAplica'],['app-core.js','gbEmisorConfigurado'],['app-core.js','gbEmisorActivo']],{GB_EMISOR:emisor()});
+  const sellada=compra({fecha:'2026-10-05'});
+  assert.equal(c.gbCompraFiscalAplica('comprada','2026-10-05',sellada),true);
+  assert.equal(c.gbCompraFiscalAplica('pendiente','2026-10-05',sellada),true,'sellada y pendiente: el bloque sigue');
+  assert.equal(c.gbCompraFiscalAplica('pendiente','2026-10-15',null),false,'nueva y pendiente: sin bloque');
+  assert.equal(c.gbCompraFiscalAplica('comprada','2026-10-05',null),false,'antes del corte y sin sello: sin bloque');
+  assert.equal(c.gbCompraFiscalAplica('comprada','2026-10-15',compra({accountingEntityId:undefined})),true);
+  assert.equal(c.gbCompraFiscalAplica('pendiente','2026-10-15',compra({accountingEntityId:undefined})),false,'pendiente sin sello: sin bloque');
+  const t=compraEditor({previa:sellada,estado:'pendiente',fecha:'2026-10-05'});await t.ctx.saveCompraEditor();
+  assert.equal(t.guardados.length,2,'guarda y luego limpia el comprobante');
+  for(const g of t.guardados){assert.equal(g.estado,'pendiente');assert.equal(g.accountingEntityId,'GB_SAS_SIMPLE');assert.equal(g.soporteFiscal.cufe,'pc1')}
+});
+// ─── v7.10.1, ronda 2 de Codex (P2-01) ───
+await test('v7.10.1 P2-01 (ronda 2): la compra sellada conserva su proveedor si la ficha no está en el selector (archivada o borrada)',async()=>{
+  const sellada=compra({fecha:'2026-10-05',proveedorId:'PR1'});
+  const archivado={id:'PR1',nombre:'Prov cambiado',tipoId:'CC',idNum:'1',archivado:true};
+  let t=compraEditor({previa:sellada,proveedor:archivado,sel:'',estado:'pendiente',fecha:'2026-10-05'});await t.ctx.saveCompraEditor();
+  assert.equal(t.guardados.length,2,'guarda y luego limpia el comprobante');
+  for(const g of t.guardados){
+    assert.deepEqual({...g.proveedorFiscal},{nombre:'Prov',tipoId:'NIT',idNum:'800-1'},'sin selección válida: conserva la copia fiscal');
+    assert.equal(g.proveedorId,'PR1');assert.equal(g.proveedorNombre,'Prov');assert.equal(g.estado,'pendiente');assert.equal(g.accountingEntityId,'GB_SAS_SIMPLE');
+  }
+  assert.equal(t.toasts.at(-1)[1],'success','no avisa falta de identificación');
+  const pend=compra({...t.guardados[1],id:'C1'});
+  t=compraEditor({previa:pend,proveedor:archivado,sel:'',estado:'comprada',fecha:'2026-10-05'});await t.ctx.saveCompraEditor();
+  assert.equal(t.guardados.length,0,'de vuelta a comprada sin proveedor elegible: no guarda (como v7.10.0)');
+  t=compraEditor({previa:pend,proveedor:null,sel:'PR1',estado:'comprada',fecha:'2026-10-05'});await t.ctx.saveCompraEditor();
+  assert.equal(t.guardados.length,2,'de vuelta a comprada con la ficha fuera de la caché');
+  for(const g of t.guardados){assert.deepEqual({...g.proveedorFiscal},{nombre:'Prov',tipoId:'NIT',idNum:'800-1'});assert.equal(g.proveedorId,'PR1');assert.equal(g.proveedorNombre,'Prov');assert.equal(g.estado,'comprada')}
+  t=compraEditor({previa:pend,proveedor:{id:'PR2',nombre:'Otro',tipoId:'CC',idNum:'123'},sel:'PR2',estado:'comprada',fecha:'2026-10-05'});await t.ctx.saveCompraEditor();
+  assert.deepEqual({...t.guardados[0].proveedorFiscal},{nombre:'Otro',tipoId:'CC',idNum:'123'},'sólo una selección válida reemplaza la copia');
+  assert.equal(t.guardados[0].proveedorId,'PR2');assert.equal(t.guardados[0].proveedorNombre,'Otro');
+  t=compraEditor({previa:pend,proveedor:{id:'PR1',nombre:'Prov SAS',tipoId:'NIT',idNum:'800-2'},sel:'PR1',estado:'comprada',fecha:'2026-10-05'});await t.ctx.saveCompraEditor();
+  assert.deepEqual({...t.guardados[0].proveedorFiscal},{nombre:'Prov SAS',tipoId:'NIT',idNum:'800-2'},'la misma ficha, activa y elegida: se copia de nuevo');
+  t=compraEditor({previa:pend,proveedor:null,sel:'PR9',estado:'comprada',fecha:'2026-10-05'});await t.ctx.saveCompraEditor();
+  assert.deepEqual({...t.guardados[0].proveedorFiscal},{nombre:'',tipoId:'',idNum:''},'otra ficha fuera de la caché: no hereda la copia anterior');
+  assert.equal(t.guardados[0].proveedorId,'PR9');
+  for(const accountingEntityId of [undefined,'OTRA']){
+    t=compraEditor({previa:compra({fecha:'2026-10-05',proveedorId:'PR1',accountingEntityId}),proveedor:archivado,sel:'',estado:'pendiente',fecha:'2026-10-05'});await t.ctx.saveCompraEditor();
+    assert.equal(t.guardados[0].proveedorId,null,'sin sello de la nueva empresa: como v7.10.0');assert.equal(t.guardados[0].proveedorNombre,'');assert.equal('proveedorFiscal' in t.guardados[0],false);
+  }
+});
+// ─── v7.10.1, ronda 3 de Codex (P2-01) ───
+await test('v7.10.1 P2-01 (ronda 3): con la empresa apagada, la compra sellada no muestra, valida ni guarda el bloque fiscal',async()=>{
+  const sellada=compra({fecha:'2026-10-15'});
+  for(const e of [emisor({fechaInicio:null}),emisor({razonSocial:''}),emisor({nit:''}),emisor({fechaInicio:null,razonSocial:'',nit:''})]){
+    const c=loadSourceFunctions([['app-dashboard.js','gbCompraFiscalAplica'],['app-core.js','gbEmisorConfigurado'],['app-core.js','gbEmisorActivo']],{GB_EMISOR:e});
+    for(const estado of ['pendiente','comprada']){
+      assert.equal(c.gbCompraFiscalAplica(estado,'2026-10-15',sellada),false,'apagada, sellada y '+estado+': sin bloque');
+      const t=compraEditor({emisorCfg:e,previa:sellada,estado,fecha:'2026-10-15',fiscal:{cufe:''}});await t.ctx.saveCompraEditor();
+      assert.equal(t.guardados.length,2,estado+': guarda sin validar el soporte (y luego limpia el comprobante)');
+      for(const g of t.guardados)for(const k of ['accountingEntityId','soporteFiscal','proveedorFiscal'])assert.equal(k in g,false,k+' omitido: updateDoc conserva lo guardado');
+    }
+  }
+  const els={};const $=id=>els[id]||(els[id]={value:'',checked:false,textContent:'',innerHTML:'',style:{},dataset:{},classList:{h:true,toggle(c,v){this.h=v},add(){this.h=true},remove(){this.h=false}}});
+  const x=loadSourceFunctions([['app-dashboard.js','openCompraEditor'],['app-dashboard.js','compraEdFiscalActualizar'],['app-dashboard.js','gbCompraFiscalAplica'],['app-core.js','gbEmisorConfigurado'],['app-core.js','gbEmisorActivo']],{
+    $,comprasCache:[sellada],GB_EMISOR:emisor({fechaInicio:null}),_compraEditorId:null,_compraEdFotoB64:null,_compraEdFotoExisting:null,_compraEdLinkedPendientes:[],_compraEdItemRowSeq:0,
+    _compraEdRefreshProveedorOptions:()=>{},compraEdAddItem:()=>{},_compraEdRefreshItemsDatalist:()=>{},escapeHtml:String,gbTodayIso:()=>'2026-10-20'});
+  x.openCompraEditor('C1');assert.equal(els['compra-ed-fiscal'].classList.h,true,'apagada: la sellada abre sin bloque fiscal');
 });
 console.log(`✅ ${passed} tests pasaron`);
