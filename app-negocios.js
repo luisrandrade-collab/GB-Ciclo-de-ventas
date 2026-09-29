@@ -261,6 +261,7 @@ function _r1Manana(hoy){const d=new Date(hoy+"T12:00:00");d.setDate(d.getDate()+
 const PERIODOS_R1=[["mes","Este mes"],["mes_anterior","Mes anterior"],["anio","Este año"]];
 // Rango propio del Inicio (no depende de los botones del Dashboard viejo); «Este mes» y «Este año» van hasta hoy, como allá.
 function rangoInicio(periodo){
+  if(periodo==="rango"&&_r1Estado.rango)return _r1Estado.rango; // v8.0.1: «Fechas», sólo tras validar Desde ≤ Hasta
   const hoy=gbTodayIso(),d=new Date(hoy+"T12:00:00");
   if(periodo==="mes_anterior")return {start:gbDateToIso(new Date(d.getFullYear(),d.getMonth()-1,1)),end:gbDateToIso(new Date(d.getFullYear(),d.getMonth(),0)),label:"Mes anterior"};
   if(periodo==="anio")return {start:hoy.slice(0,4)+"-01-01",end:hoy,label:"Este año"};
@@ -307,7 +308,8 @@ const CHIPS_R1=[
   {clave:"cotizaciones",label:"Cotizaciones",si:n=>n.etapa==="cotizacion"},
   {clave:"confirmados",label:"Confirmados",si:n=>n.etapa==="confirmado"||n.etapa==="listo"},
   {clave:"manana",label:"Entregar mañana",si:(n,p)=>(n.etapa==="confirmado"||n.etapa==="listo")&&n.cabeza.eventDate===p.manana},
-  {clave:"por_cobrar",label:"Por cobrar",si:n=>n.porCobrar},
+  // Decisión de Luis (Codex r1 v8.0.1, hallazgo 3): manda la cabeza; si difiere del Pipeline por historia anómala, se corrige con «Unir».
+  {clave:"por_cobrar",label:"Por cobrar",si:n=>n.etapa==="por_cobrar"}, // v8.0.1: sólo entregados con saldo; el número del Inicio sigue con metricaPorCobrar
   {clave:"por_facturar",label:"Por facturar",empresa:true,si:n=>n.porFacturar},
   {clave:"perdidas",label:"Perdidas",si:n=>n.etapa==="perdida"},
   {clave:"cerrados",label:"Cerrados",si:n=>n.etapa==="cerrado"||n.etapa==="anulada"}
@@ -323,7 +325,7 @@ const CUADROS_R1=[
   {clave:"recaudado",fn:metricaRecaudado,lab:"Recaudado",que:"Pagos recibidos en el período (las devoluciones restan)"},
   {clave:"cobrar",fn:metricaPorCobrar,lab:"Por cobrar",que:"Confirmados y entregados, sin importar la fecha"}
 ];
-const _r1Estado={periodo:"mes",filtro:{chip:"abiertos",metrica:null,texto:"",pagina:1},proy:null,espera:null,refresco:null,ficha:null,unir:null};
+const _r1Estado={periodo:"mes",rango:null,fechas:false,borrador:null,filtro:{chip:"abiertos",metrica:null,texto:"",pagina:1},proy:null,espera:null,refresco:null,ficha:null,unir:null};
 
 // ─── Proyección: resolvedor + métricas + avisos + texto para buscar (se memoriza) ─
 function proyectarNegocios(docs){
@@ -333,7 +335,7 @@ function proyectarNegocios(docs){
   for(const g of resolverNegocios(docs).values()){
     const q=g.cabeza,etapa=etapaNegocio(q),fe=facturar.has(q.id);
     const n={businessId:g.businessId,cabeza:q,documentos:g.documentos,nivel:g.nivel,motivos:g.motivos,relacionados:g.relacionados,gruposDeOpciones:g.gruposDeOpciones,etapa,porFacturar:fe,accion:proximaAccion(q,fe),
-      porCobrar:metricaPorCobrar(g,null,ctx).incluye,orden:(dateOfCreation(q)||"")+"|"+q.id,avisos:[],
+      orden:(dateOfCreation(q)||"")+"|"+q.id,avisos:[],
       texto:_r1Norm([q.client].concat(g.documentos.map(d=>d.id+" "+(d.quoteNumber||""))).join(" "))};
     // F7: reglas de «Por actualizar» (las de la empresa sólo con la empresa encendida).
     const aviso=(regla,texto,accion,etiqueta)=>n.avisos.push({regla,texto,accion,etiqueta,n,fecha:q.eventDate||dateOfCreation(q)||""});
@@ -418,14 +420,19 @@ function _r1Cablear(box){
   box.dataset.r1Cableado="1";
   box.addEventListener("click",_r1Click);
   box.addEventListener("input",_r1Input);
+  box.addEventListener("change",_r1Input); // Desde/Hasta: algunos navegadores sólo avisan al cerrar el selector
 }
 function renderInicio(){
   const box=$("mode-inicio");if(!box)return;
   _r1Cablear(box);
   const p=proyeccionNegocios(),r=rangoInicio(_r1Estado.periodo);
+  const b=_r1Estado.borrador||{desde:r.start,hasta:r.end}; // lo escrito sin aplicar sobrevive a los repintados automáticos
   const cuadros=pipe=>CUADROS_R1.filter(c=>!!c.pipeline===pipe).map(c=>_r1HtmlCuadro(c,p,r)).join("");
   box.innerHTML='<div class="r1-pantalla"><div class="r1-cab"><h2 class="r1-titulo">Inicio</h2>'+
-    '<div class="r1-chips" role="group" aria-label="Período">'+PERIODOS_R1.map(([k,l])=>'<button type="button" class="r1-chip" data-r1="periodo" data-periodo="'+h(k)+'" aria-pressed="'+h(k===_r1Estado.periodo)+'">'+h(l)+'</button>').join("")+'</div></div>'+
+    '<div class="r1-chips" role="group" aria-label="Período">'+PERIODOS_R1.map(([k,l])=>'<button type="button" class="r1-chip" data-r1="periodo" data-periodo="'+h(k)+'" aria-pressed="'+h(k===_r1Estado.periodo)+'">'+h(l)+'</button>').join("")+
+      '<button type="button" class="r1-chip" data-r1="fechas" aria-pressed="'+h(_r1Estado.periodo==="rango")+'">Fechas</button></div></div>'+
+    (_r1Estado.fechas||_r1Estado.periodo==="rango"?'<div class="r1-fechas"><label>Desde<input type="date" id="r1-ini-desde" value="'+h(b.desde)+'"></label>'+
+      '<label>Hasta<input type="date" id="r1-ini-hasta" value="'+h(b.hasta)+'"></label><button type="button" class="r1-btn" data-r1="fechas-aplicar">Aplicar</button></div>':'')+
     '<div class="r1-sub">Pipeline · lo vivo hoy</div><div class="r1-cuadros r1-tres">'+cuadros(true)+'</div>'+
     '<div class="r1-sub">'+h(r.label)+' · '+h(r.start)+' → '+h(r.end)+'</div><div class="r1-cuadros">'+cuadros(false)+'</div>'+
     _r1HtmlFranja(p.avisos,true)+'</div>';
@@ -457,7 +464,7 @@ function _r1PintarLista(){
   const unir=_r1Estado.unir&&_r1Estado.unir.origen,filas=unir?r.filas.filter(n=>n.businessId!==unir):r.filas; // el origen no es destino
   $("r1-neg-chips").innerHTML=CHIPS_R1.filter(c=>c.clave in r.conteos).map(c=>'<button type="button" class="r1-chip" data-r1="chip" data-chip="'+h(c.clave)+'" aria-pressed="'+h(!f.metrica&&c.clave===f.chip)+'">'+h(c.label)+' <span class="r1-chip-n">'+h(r.conteos[c.clave])+'</span></button>').join("");
   const cuadro=f.metrica&&CUADROS_R1.find(c=>c.clave===f.metrica.clave);
-  $("r1-neg-resumen").innerHTML=cuadro?'<div class="r1-resumen" data-r1-suma="'+h(r.suma)+'" data-r1-n="'+h(r.filas.length)+'"><span>'+h(cuadro.lab)+(cuadro.pipeline?'':' · '+h(f.metrica.rango.label||''))+': <strong>'+h(r.filas.length)+'</strong> · <strong>'+h(fm(r.suma))+'</strong></span>'+
+  $("r1-neg-resumen").innerHTML=cuadro?'<div class="r1-resumen" data-r1-suma="'+h(r.suma)+'" data-r1-n="'+h(r.filas.length)+'"><span>'+h(cuadro.lab)+(cuadro.pipeline?'':' · '+h(f.metrica.rango.propio?f.metrica.rango.start+' → '+f.metrica.rango.end:f.metrica.rango.label||''))+': <strong>'+h(r.filas.length)+'</strong> · <strong>'+h(fm(r.suma))+'</strong></span>'+
     '<button type="button" class="r1-btn r1-btn-sec" data-r1="quitar-metrica">Quitar filtro</button></div>':'';
   const ver=filas.slice(0,f.pagina*50);
   $("r1-neg-lista").innerHTML=ver.length?ver.map((n,i)=>_r1HtmlFila(n,cuadro&&!unir?r.montos[i]:null,puede,!!unir)).join(""):'<div class="r1-vacio">No hay negocios con este filtro.</div>';
@@ -477,7 +484,13 @@ function accionR1(ds){
     _r1Estado.filtro={chip:null,metrica:{clave:c.clave,rango:rangoInicio(_r1Estado.periodo)},texto:"",pagina:1};_r1Estado.unir=null;
     setMode("negocios");
   }else if(ds.r1==="periodo"){
-    if(PERIODOS_R1.some(([k])=>k===ds.periodo)){_r1Estado.periodo=ds.periodo;renderInicio()}
+    if(PERIODOS_R1.some(([k])=>k===ds.periodo)){_r1Estado.periodo=ds.periodo;_r1Estado.fechas=false;_r1Estado.borrador=null;renderInicio()}
+  }else if(ds.r1==="fechas"){
+    _r1Estado.fechas=true;renderInicio();
+  }else if(ds.r1==="fechas-aplicar"){
+    const d=$("r1-ini-desde").value,a=$("r1-ini-hasta").value,iso=s=>/^\d{4}-\d{2}-\d{2}$/.test(s)&&gbDateToIso(new Date(s+"T12:00:00"))===s; // sólo fechas reales (2026-02-31 no)
+    if(!iso(d)||!iso(a)||d>a){toast("Elige las dos fechas, con «Desde» igual o antes que «Hasta».","error");return}
+    _r1Estado.rango={start:d,end:a,label:"Fechas",propio:true};_r1Estado.periodo="rango";_r1Estado.borrador=null;renderInicio();
   }else if(ds.r1==="chip"){
     f.chip=ds.chip;f.metrica=null;f.pagina=1;_r1PintarLista();
   }else if(ds.r1==="quitar-metrica"){
@@ -489,7 +502,9 @@ function accionR1(ds){
 function _r1Click(e){const b=e.target&&e.target.closest&&e.target.closest("[data-r1]");if(b)accionR1(b.dataset)}
 // Buscador con espera (~200 ms): sólo repinta la lista, no la caja (conserva el foco).
 function _r1Input(e){
-  const t=e.target;if(!t||!t.dataset||!t.dataset.r1Buscar)return;
+  const t=e.target;if(!t||!t.dataset)return;
+  if(t.id==="r1-ini-desde"||t.id==="r1-ini-hasta"){_r1Estado.borrador={desde:$("r1-ini-desde").value,hasta:$("r1-ini-hasta").value};return}
+  if(e.type==="change"||!t.dataset.r1Buscar)return; // el buscador sigue sólo con «input»
   _r1Estado.filtro.texto=t.value;
   clearTimeout(_r1Estado.espera);
   _r1Estado.espera=setTimeout(()=>{_r1Estado.filtro.pagina=1;_r1PintarLista()},200);

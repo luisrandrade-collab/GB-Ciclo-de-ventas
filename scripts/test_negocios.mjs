@@ -262,13 +262,22 @@ function sinteticos(n){
   }
   return out; // sin recortar: cortar una cadena a la mitad dejaría un enlace roto (≥ n documentos)
 }
+// v8.0.1c: una corrida de calentamiento y el MÍNIMO de 5 contra el mismo presupuesto. El ruido del equipo
+// (GC, otro proceso) sólo suma tiempo, así que el mínimo es la mejor estimación del costo real; un recorrido
+// cuadrático sube también el mínimo y la prueba sigue cayendo. Devuelve el resultado de la última corrida.
+function mejorTiempo(fn,veces=5){
+  fn();let ms=Infinity,r;
+  for(let i=0;i<veces;i++){const t0=performance.now();r=fn();ms=Math.min(ms,performance.now()-t0)}
+  return {ms,r};
+}
 await test('F3 rendimiento: resolvedor y las ocho métricas sobre 5.000 documentos en menos de 300 ms',()=>{
   const docs=sinteticos(5000);
   const {c,suma}=metricas(docs);
-  const t0=performance.now();
-  const negocios=[...c.resolverNegocios(docs).values()];
-  for(const fn of ['metricaCotizado','metricaVendido','metricaEntregado','metricaRecaudado','metricaPorCobrar','metricaPipelineCotizacion','metricaPipelineConfirmados','metricaPipelineEntregadosConSaldo'])suma(fn,negocios);
-  const ms=performance.now()-t0;
+  const {ms,r:negocios}=mejorTiempo(()=>{
+    const negocios=[...c.resolverNegocios(docs).values()];
+    for(const fn of ['metricaCotizado','metricaVendido','metricaEntregado','metricaRecaudado','metricaPorCobrar','metricaPipelineCotizacion','metricaPipelineConfirmados','metricaPipelineEntregadosConSaldo'])suma(fn,negocios);
+    return negocios;
+  });
   console.log('   5.000 documentos → '+negocios.length+' negocios en '+ms.toFixed(1)+' ms');
   assert.ok(ms<300,'tardó '+ms.toFixed(1)+' ms');
   assert.ok(negocios.length<5000&&negocios.every(n=>n.nivel!=='ambiguo'));
@@ -277,11 +286,11 @@ await test('F3 rendimiento R2: 5.000 documentos en un único grupo de opciones (
   const docs=[];
   for(let i=0;i<5000;i++){const dia='2026-09-'+String(1+i%28).padStart(2,'0');docs.push({id:'GB-2026-'+String(i).padStart(5,'0'),kind:'quote',status:'enviada',dateLocal:dia,total:1000+i,optionGroupId:'uno'})}
   const {c,suma}=metricas(docs);
-  const t0=performance.now();
-  const negocios=[...c.resolverNegocios(docs).values()];
-  for(const fn of ['metricaCotizado','metricaVendido','metricaEntregado','metricaRecaudado','metricaPorCobrar','metricaPipelineCotizacion','metricaPipelineConfirmados','metricaPipelineEntregadosConSaldo'])suma(fn,negocios);
-  const heredado=c.businessIdHeredado({},'GB-2026-00007',docs); // padre viejo: recorre el resolvedor completo
-  const ms=performance.now()-t0;
+  const {ms,r:[negocios,heredado]}=mejorTiempo(()=>{
+    const negocios=[...c.resolverNegocios(docs).values()];
+    for(const fn of ['metricaCotizado','metricaVendido','metricaEntregado','metricaRecaudado','metricaPorCobrar','metricaPipelineCotizacion','metricaPipelineConfirmados','metricaPipelineEntregadosConSaldo'])suma(fn,negocios);
+    return [negocios,c.businessIdHeredado({},'GB-2026-00007',docs)]; // padre viejo: recorre el resolvedor completo
+  });
   console.log('   5.000 documentos en un grupo → '+negocios.length+' negocios en '+ms.toFixed(1)+' ms');
   assert.ok(ms<300,'tardó '+ms.toFixed(1)+' ms');
   assert.equal(heredado,'GB-2026-00007');
@@ -536,6 +545,106 @@ await test('T2 período del Inicio con chips propios (Este mes · Mes anterior �
   const t2=source('app-negocios.js').slice(source('app-negocios.js').indexOf('(tramo 2)'));
   assert.ok(!/dashPeriod|getDashRange/.test(t2),'no depende del período del Dashboard viejo');
 });
+// v8.0.1 (parte b): «Fechas», rango propio del Inicio con dos <input type="date">.
+const ctxFechas=()=>{const toasts=[];const x=ctxR1(mundoR1(),{curMode:'inicio',extra:{toast:(m,t)=>{toasts.push([String(m),t])}}});return {...x,toasts}};
+const aplicarFechas=(c,desde,hasta)=>{c.accionR1({r1:'fechas'});c.$('r1-ini-desde').value=desde;c.$('r1-ini-hasta').value=hasta;c.accionR1({r1:'fechas-aplicar'})};
+await test('v8.0.1 Fechas: el rango propio aplica a los cuatro números del período y a la lista del cuadro; Por cobrar y Pipeline no cambian',()=>{
+  const {c,llamadas}=ctxFechas();
+  Object.assign(c,{dashPeriod:'all',dashCustomFrom:'2020-01-01',dashCustomTo:'2020-12-31'});
+  c.renderMode('inicio');
+  const mes=leerCuadros(c.$('mode-inicio').innerHTML);
+  c.accionR1({r1:'fechas'});
+  let html=c.$('mode-inicio').innerHTML;
+  assert.match(html,/<input type="date" id="r1-ini-desde"[^>]*>/);assert.match(html,/<input type="date" id="r1-ini-hasta"[^>]*>/);
+  assert.equal(estadoR1(c).periodo,'mes','abrir «Fechas» todavía no cambia el período');
+  aplicarFechas(c,'2026-09-10','2026-09-20');
+  assert.equal(estadoR1(c).periodo,'rango');
+  html=c.$('mode-inicio').innerHTML;
+  assert.match(html,/data-r1="fechas"[^>]*aria-pressed="true"/);
+  assert.match(html,/Fechas · 2026-09-10 → 2026-09-20/,'la franja muestra el rango elegido');
+  assert.match(html,/id="r1-ini-desde" value="2026-09-10"/);assert.match(html,/id="r1-ini-hasta" value="2026-09-20"/);
+  const rg=leerCuadros(html),p=c.proyeccionNegocios(),R={start:'2026-09-10',end:'2026-09-20'};
+  for(const cu of vm.runInContext('CUADROS_R1',c)){
+    let n=0,monto=0;for(const x of p.negocios){const m=cu.fn(x,cu.pipeline||cu.clave==='cobrar'?null:R,p.ctx);if(m.incluye){n++;monto+=m.monto}}
+    assert.deepEqual(rg[cu.clave],{n,monto},cu.clave+' = su métrica con el rango elegido');
+  }
+  assert.notDeepEqual(rg.cotizado,mes.cotizado,'el rango cambia los números');
+  for(const k of ['cobrar','pipe_cot','pipe_conf','pipe_ent'])assert.deepEqual(rg[k],mes[k],k+' sin período');
+  for(const clave of ['cotizado','vendido','entregado','recaudado']){
+    c.accionR1({r1:'cuadro',cuadro:clave});
+    assert.deepEqual(llamadas.at(-1),['setMode','negocios']);
+    assert.deepEqual(plain(estadoR1(c).filtro.metrica.rango).start+'|'+estadoR1(c).filtro.metrica.rango.end,'2026-09-10|2026-09-20');
+    const res=c.$('r1-neg-resumen').innerHTML;
+    assert.match(res,new RegExp('data-r1-suma="'+rg[clave].monto+'" data-r1-n="'+rg[clave].n+'"'),clave+': '+res);
+    assert.match(res,/2026-09-10 → 2026-09-20/,'el resumen de Negocios dice el rango');
+    c.renderMode('inicio');
+  }
+  assert.equal(estadoR1(c).periodo,'rango','el rango se recuerda al volver al Inicio');
+  assert.deepEqual([c.dashPeriod,c.dashCustomFrom,c.dashCustomTo],['all','2020-01-01','2020-12-31'],'no toca el Dashboard viejo');
+  const t2=source('app-negocios.js').slice(source('app-negocios.js').indexOf('(tramo 2)'));
+  assert.ok(!/dashCustom/.test(t2),'no lee ni escribe el rango del Dashboard viejo');
+  c.accionR1({r1:'periodo',periodo:'mes'});
+  assert.deepEqual(leerCuadros(c.$('mode-inicio').innerHTML),mes,'volver a «Este mes» deja los números del mes');
+  assert.ok(!/r1-ini-desde/.test(c.$('mode-inicio').innerHTML),'con otro período los campos se cierran');
+});
+await test('v8.0.1 Fechas: vacías, Desde > Hasta o con basura no cambian el período y avisan; HTML sin marcado inyectado',()=>{
+  const {c,toasts}=ctxFechas();
+  c.renderMode('inicio');
+  const mes=leerCuadros(c.$('mode-inicio').innerHTML);
+  for(const [d,a] of [['',''],['2026-09-10',''],['','2026-09-20'],['2026-09-21','2026-09-20'],['2026-09-10" onfocus="alert(1)','2026-09-20'],['<b>x</b>','2026-09-20']]){
+    toasts.length=0;aplicarFechas(c,d,a);
+    assert.equal(estadoR1(c).periodo,'mes',d+'|'+a);assert.equal(estadoR1(c).rango,null);
+    assert.equal(toasts.length,1,'avisa: '+d+'|'+a);assert.equal(toasts[0][1],'error');
+    assert.deepEqual(leerCuadros(c.$('mode-inicio').innerHTML),mes);
+  }
+  aplicarFechas(c,'2026-09-15','2026-09-15'); // un solo día es válido
+  assert.equal(estadoR1(c).periodo,'rango');
+  aplicarFechas(c,'2026-09-30','2026-09-01');
+  assert.deepEqual([estadoR1(c).rango.start,estadoR1(c).rango.end],['2026-09-15','2026-09-15'],'un rango inválido no reemplaza el vigente');
+  const html=c.$('mode-inicio').innerHTML;
+  assert.ok(!/<b>|onfocus/.test(html)&&!onAttr(html),'sin marcado ni manejadores inyectados');
+});
+// v8.0.1 ronda 2 (Codex r1, hallazgos 1 y 2).
+await test('v8.0.1 r2 Fechas: sólo fechas reales de calendario (2026-02-31 rechazada, 2028-02-29 aceptada)',()=>{
+  const {c,toasts}=ctxFechas();
+  c.renderMode('inicio');
+  for(const [d,a] of [['2026-02-31','2026-03-05'],['2026-02-29','2026-03-05'],['2026-09-10','2026-09-31'],['2026-13-01','2026-13-02'],['2026-00-10','2026-09-20']]){
+    toasts.length=0;aplicarFechas(c,d,a);
+    assert.equal(estadoR1(c).periodo,'mes',d+'|'+a);assert.equal(estadoR1(c).rango,null,d+'|'+a);
+    assert.equal(toasts.length,1,'avisa: '+d+'|'+a);
+  }
+  aplicarFechas(c,'2028-02-29','2028-03-01');
+  assert.equal(estadoR1(c).periodo,'rango','el 29 de febrero de un año bisiesto es válido');
+  assert.deepEqual([estadoR1(c).rango.start,estadoR1(c).rango.end],['2028-02-29','2028-03-01']);
+});
+await test('v8.0.1 r2 Fechas: lo escrito sin aplicar sobrevive a un repintado automático; aplicar o cambiar de período lo limpia',()=>{
+  const {c}=ctxFechas();
+  c.renderMode('inicio');
+  const box=c.$('mode-inicio'),escribir=(tipo,desde,hasta)=>{
+    c.$('r1-ini-desde').value=desde;c.$('r1-ini-hasta').value=hasta;
+    for(const id of ['r1-ini-desde','r1-ini-hasta'])for(const f of box.listeners[tipo]||[])f({type:tipo,target:c.$(id)});
+  };
+  c.accionR1({r1:'fechas'});
+  escribir('input','2026-09-10','2026-09-20');
+  c.refrescarVistasR1(); // p. ej. al terminar una escritura en segundo plano
+  let html=box.innerHTML;
+  assert.match(html,/id="r1-ini-desde" value="2026-09-10"/,'Desde sigue escrito');assert.match(html,/id="r1-ini-hasta" value="2026-09-20"/,'Hasta sigue escrito');
+  assert.equal(estadoR1(c).periodo,'mes','el borrador no se aplica');assert.equal(estadoR1(c).rango,null);
+  assert.match(html,/Este mes · 2026-09-01 → 2026-09-30/,'los números siguen con el período vigente');
+  escribir('change','2026-09-11','2026-09-21'); // navegadores que sólo avisan al cerrar el selector
+  c.refrescarVistasR1();
+  assert.match(box.innerHTML,/id="r1-ini-desde" value="2026-09-11"/);assert.match(box.innerHTML,/id="r1-ini-hasta" value="2026-09-21"/);
+  c.accionR1({r1:'fechas-aplicar'});
+  assert.equal(estadoR1(c).periodo,'rango');assert.equal(estadoR1(c).borrador,null,'aplicar limpia el borrador');
+  escribir('input','2026-09-01','2026-09-05');
+  c.accionR1({r1:'periodo',periodo:'mes_anterior'});
+  assert.equal(estadoR1(c).borrador,null,'cambiar de período limpia el borrador');
+  c.accionR1({r1:'fechas'});
+  html=box.innerHTML;
+  assert.match(html,/id="r1-ini-desde" value="2026-08-01"/,'al reabrir, los campos traen el período vigente');assert.match(html,/id="r1-ini-hasta" value="2026-08-31"/);
+  for(const f of box.listeners.change)f({type:'change',target:{value:'Hugo',dataset:{r1Buscar:'1'}}});
+  assert.equal(estadoR1(c).filtro.texto,'','un «change» del buscador no cambia el filtro (sigue sólo con «input»)');
+});
 await test('T2 próxima acción por estado y un solo botón por fila',()=>{
   const {c}=ctxR1(mundoR1());
   const n=porCabeza(c.proyeccionNegocios());
@@ -585,9 +694,9 @@ await test('T2 chips con conteo: Abiertos · Cotizaciones · Confirmados · Entr
   const {c}=ctxR1(mundoR1());
   const p=c.proyeccionNegocios();
   const r=c.filtrarNegocios(p,{chip:'abiertos',metrica:null,texto:'',pagina:1});
-  assert.deepEqual(plain(r.conteos),{abiertos:10,cotizaciones:6,confirmados:3,manana:1,por_cobrar:3,perdidas:1,cerrados:2});
+  assert.deepEqual(plain(r.conteos),{abiertos:10,cotizaciones:6,confirmados:3,manana:1,por_cobrar:1,perdidas:1,cerrados:2}); // v8.0.1: por_cobrar 3 → 1
   const ids=chip=>plain(c.filtrarNegocios(p,{chip,metrica:null,texto:'',pagina:1}).filas.map(n=>n.cabeza.id)).sort();
-  assert.deepEqual(ids('manana'),['Q5']);assert.deepEqual(ids('por_cobrar'),['Q5','Q7','Q8']);assert.deepEqual(ids('cerrados'),['A1','Q9']);assert.deepEqual(ids('perdidas'),['L1']);
+  assert.deepEqual(ids('manana'),['Q5']);assert.deepEqual(ids('por_cobrar'),['Q8']);assert.deepEqual(ids('cerrados'),['A1','Q9']);assert.deepEqual(ids('perdidas'),['L1']);
   assert.ok(ids('abiertos').includes('R1-1'),'la historia incompleta nunca se pierde de la lista');
   c.renderMode('negocios');
   const chips=c.$('r1-neg-chips').innerHTML;
@@ -595,6 +704,24 @@ await test('T2 chips con conteo: Abiertos · Cotizaciones · Confirmados · Entr
   assert.ok(!/Por facturar|por_facturar/.test(chips),'empresa apagada: sin Por facturar');
   c.accionR1({r1:'chip',chip:'cerrados'});
   assert.equal((c.$('r1-neg-lista').innerHTML.match(/class="r1-fila[ "]/g)||[]).length,2);
+});
+await test('v8.0.1 chip «Por cobrar»: sólo lo entregado con saldo; el número «Por cobrar» del Inicio no cambia',()=>{
+  const {c}=ctxR1(mundoR1(),{curMode:'inicio'});
+  const p=c.proyeccionNegocios();
+  const ids=chip=>plain(c.filtrarNegocios(p,{chip,metrica:null,texto:'',pagina:1}).filas.map(n=>n.cabeza.id)).sort();
+  const cobrar=ids('por_cobrar');
+  for(const id of ['Q5','Q7']){ // confirmados con saldo (Q7 como Laura María Cruz)
+    assert.ok(!cobrar.includes(id),id+': confirmado con saldo fuera de «Por cobrar»');
+    assert.ok(ids('confirmados').includes(id),id+': sigue en «Confirmados»');
+  }
+  assert.ok(cobrar.includes('Q8'),'entregado con saldo: dentro');
+  assert.ok(!cobrar.includes('Q9'),'entregado saldado: fuera');
+  // Inicio: el número y su lista siguen con la métrica (confirmados y entregados): Q5 800 + Q7 100 + Q8 600.
+  c.renderMode('inicio');
+  assert.deepEqual(leerCuadros(c.$('mode-inicio').innerHTML).cobrar,{n:3,monto:1500});
+  c.accionR1({r1:'cuadro',cuadro:'cobrar'});
+  assert.match(c.$('r1-neg-resumen').innerHTML,/data-r1-suma="1500" data-r1-n="3"/);
+  assert.deepEqual([...c.$('r1-neg-lista').innerHTML.matchAll(/data-negocio="([^"]+)"/g)].map(m=>m[1]).sort(),['Q5','Q7','Q8'],'la lista del número sigue con los confirmados');
 });
 await test('T2 buscador: cliente o número de cualquier documento de la cadena, sin tildes ni mayúsculas, con espera de ~200 ms',async()=>{
   const {c}=ctxR1(mundoR1());
@@ -877,13 +1004,12 @@ await test('T2 rendimiento: proyección < 300 ms y filtrado < 50 ms con 5.000 do
   const docs=sinteticos(5000);
   for(const [i,d] of docs.entries())d.client='Cliente '+(i%700)+(i%3?' Pérez':'');
   const {c}=ctxR1(docs);
-  let t0=performance.now();
-  const p=c.proyectarNegocios(docs);
-  const tp=performance.now()-t0;
-  t0=performance.now();
-  const f=c.filtrarNegocios(p,{chip:'abiertos',metrica:null,texto:'perez',pagina:1});
-  c.filtrarNegocios(p,{chip:null,metrica:{clave:'cotizado',rango:RANGO},texto:'',pagina:1});
-  const tf=performance.now()-t0;
+  const {ms:tp,r:p}=mejorTiempo(()=>c.proyectarNegocios(docs));
+  const {ms:tf,r:f}=mejorTiempo(()=>{
+    const f=c.filtrarNegocios(p,{chip:'abiertos',metrica:null,texto:'perez',pagina:1});
+    c.filtrarNegocios(p,{chip:null,metrica:{clave:'cotizado',rango:RANGO},texto:'',pagina:1});
+    return f;
+  });
   console.log('   5.000 documentos → proyección '+tp.toFixed(1)+' ms · filtrado '+tf.toFixed(1)+' ms');
   assert.ok(tp<300,'proyección '+tp.toFixed(1)+' ms');assert.ok(tf<50,'filtrado '+tf.toFixed(1)+' ms');
   assert.ok(f.filas.length>0&&f.filas.length<p.negocios.length);
@@ -1612,7 +1738,7 @@ await test('T4 menú: el módulo del Dashboard viejo no repite la sección que l
 // ─── Carga en la app ───────────────────────────────────────
 await test('app-negocios.js se carga en index.html con ?v= de BUILD_VERSION y check.mjs lo revisa',()=>{
   const v=source('app-core.js').match(/const BUILD_VERSION="v([^"]+)"/)[1];
-  assert.equal(v,'8.0.0');
+  assert.equal(v,'8.0.1');
   assert.ok(source('index.html').includes('<script src="app-negocios.js?v='+v+'"></script>'));
   assert.ok(/"app-negocios\.js"/.test(source('scripts/check.mjs')));
   assert.ok(source('.github/workflows/check.yml').includes('node scripts/test_negocios.mjs'));

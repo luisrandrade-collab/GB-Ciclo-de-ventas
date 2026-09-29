@@ -2,7 +2,7 @@
 
 Procedimiento operativo para deploy de la app, las rules de Firebase, y los rollbacks correspondientes.
 
-**Mantener este archivo actualizado al cambiar infraestructura.** Última revisión: 2026-09-28 (estado de producción v8.0.0; CI con doce suites). Anterior: 2026-09-27 (v7.10.1; respaldo previo comprobado en Google Drive en vez de carpetas «Ver»).
+**Mantener este archivo actualizado al cambiar infraestructura.** Última revisión: 2026-09-28 (estado de producción v8.0.1). Anterior: 2026-09-28 (v8.0.0; CI con doce suites).
 
 ---
 
@@ -187,7 +187,8 @@ Si tras hard reload sigue sirviendo versión vieja:
 
 ## Estado del deploy actual (al 2026-09-28)
 
-- **Versión en producción:** v8.0.0 (publicada el 2026-09-28): rediseño R1 con Inicio (Pipeline y cinco números), lista única de Negocios, ficha del negocio, pagos con botones de método, estado de cuenta por WhatsApp y PDF, avisos «Por actualizar», unir/separar a mano, «Crear versión nueva» en vez de «Sobrescribir» y PDF sin guardado silencioso. Anteriores: v7.10.2 (`a37aea3`), v7.10.1 (`fc7ec13`), v7.10.0 (`4ce8b73`).
+- **Versión en producción:** v8.0.1 (publicada el 2026-09-28): el chip «Por cobrar» de Negocios muestra sólo lo entregado con saldo; Inicio tiene un rango de fechas propio («Fechas»: Desde/Hasta); pruebas de rendimiento estables. Rollback: `git revert <commit de v8.0.1>` (vuelve a v8.0.0, `ec75058`). Sin datos ni reglas.
+- **v8.0.0** (`ec75058`, publicada el 2026-09-28): rediseño R1 con Inicio (Pipeline y cinco números), lista única de Negocios, ficha del negocio, pagos con botones de método, estado de cuenta por WhatsApp y PDF, avisos «Por actualizar», unir/separar a mano, «Crear versión nueva» en vez de «Sobrescribir» y PDF sin guardado silencioso. Anteriores: v7.10.2 (`a37aea3`), v7.10.1 (`fc7ec13`), v7.10.0 (`4ce8b73`).
 - **Bandera del rediseño:** `GB_REDISENO_R1=true` en `app-core.js`. Reversión rápida: ponerla en `false` y publicar (con frase): vuelve a las pantallas de v7.10.2 y conserva los arreglos de datos de v8.0 (versión nueva, PDF, próximo contacto, pérdidas) y el ajuste del botón «+».
 - **Régimen Simple apagado:** v7.10.0 y v7.10.1 están en producción pero no se ven ni actúan hasta llenar fecha de inicio, razón social, NIT y DV en `GB_EMISOR` (`app-core.js`). Encenderlo es una versión propia, con revisión. En v8.0 también dependen de él «Por facturar» y «Registrar FE».
 - **Rollback de v8.0.0:** `git revert <commit de v8.0.0>` + push (con la frase en `.git/gb_push_autorizado`); vuelve a v7.10.2. Los campos nuevos (`businessId`, `proximoContacto`, `negocioManual`) son aditivos y v7.10.2 los ignora: no hay migración que revertir. Sólo frontend: las rules, las functions y `firebase.json` no cambiaron desde v7.9.33. La última comparación de las rules publicadas contra las del repositorio (idénticas) es del 2026-09-22.
