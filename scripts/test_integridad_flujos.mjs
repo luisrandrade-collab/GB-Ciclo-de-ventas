@@ -2195,7 +2195,7 @@ await test('v8.0.0 el registro del PDF relee el documento y conserva el pdfHisto
   const {fb,store}=fakeDb({'quotes/Q':{status:'enviada',pdfRegenCount:2,pdfHistorial:[{version:1},{version:2,generadoPor:'otra sesión'}]}});
   fb.updateDoc=async()=>{throw new Error('no debe escribir el historial a ciegas')};
   const cache=[{id:'Q',kind:'quote',pdfRegenCount:1,pdfHistorial:[{version:1}]}];
-  const c=loadSourceFunctions(core('savePdfConCopiaStorage'),{...common(),window:{fb},quotesCache:cache,cloudOnline:true,fbReady:async()=>{},uploadToStorage:async()=>'https://example.invalid/pdf',getCollectionName:()=>'quotes',savePdf:async()=>{},currentUser:{email:'k@example.invalid'}});
+  const c=loadSourceFunctions(core('savePdfConCopiaStorage'),{...common(),window:{fb},quotesCache:cache,cloudOnline:true,fbReady:async()=>{},uploadToStorage:async()=>'https://example.invalid/pdf',getCollectionName:()=>'quotes',savePdf:async()=>{},currentUser:{email:'k@example.invalid'},setTimeout,clearTimeout});
   await c.savePdfConCopiaStorage({output:()=>'blob'},'GB-Q','quote','Q');
   const d=store.get('quotes/Q');
   assert.equal(d.pdfHistorial.length,3);assert.equal(d.pdfHistorial[1].generadoPor,'otra sesión');assert.equal(d.pdfRegenCount,3);
@@ -2207,7 +2207,7 @@ await test('v8.0.0 R2: la versión del PDF sale del documento fresco y cada sesi
   const instante=Date.parse('2026-09-28T08:13:05');
   class MismoMinuto extends Date{constructor(...a){if(a.length)super(...a);else super(instante)}static now(){return instante}}
   const subidas=[],locales=[];
-  const sesion=()=>loadSourceFunctions(core('savePdfConCopiaStorage'),{...common(),Date:MismoMinuto,window:{fb},quotesCache:[{id:'Q',kind:'quote',pdfRegenCount:1,pdfHistorial:[{version:1}]}],cloudOnline:true,fbReady:async()=>{},uploadToStorage:async(_,path)=>{subidas.push(path);return 'https://example.invalid/'+path},getCollectionName:()=>'quotes',savePdf:async(_,nombre)=>locales.push(nombre),currentUser:{email:'k@example.invalid'}});
+  const sesion=()=>loadSourceFunctions(core('savePdfConCopiaStorage'),{...common(),Date:MismoMinuto,window:{fb},quotesCache:[{id:'Q',kind:'quote',pdfRegenCount:1,pdfHistorial:[{version:1}]}],cloudOnline:true,fbReady:async()=>{},uploadToStorage:async(_,path)=>{subidas.push(path);return 'https://example.invalid/'+path},getCollectionName:()=>'quotes',savePdf:async(_,nombre)=>locales.push(nombre),currentUser:{email:'k@example.invalid'},setTimeout,clearTimeout});
   await sesion().savePdfConCopiaStorage({output:()=>'blob'},'GB-Q','quote','Q');
   await sesion().savePdfConCopiaStorage({output:()=>'blob'},'GB-Q','quote','Q');
   const d=store.get('quotes/Q'),nuevas=d.pdfHistorial.slice(2);
@@ -2217,6 +2217,98 @@ await test('v8.0.0 R2: la versión del PDF sale del documento fresco y cada sesi
   assert.ok(subidas.every(p=>/^pdfs\/quote\/Q\/[^/]+\.pdf$/.test(p)),subidas.join(' | '));
   assert.deepEqual(nuevas.map(e=>e.path),subidas);assert.equal(new Set(nuevas.map(e=>e.url)).size,2);
   assert.deepEqual(locales,['GB-Q_v03.pdf','GB-Q_v04.pdf']);assert.deepEqual(nuevas.map(e=>e.filename),locales);
+});
+// v8.0.2: con la red mala el PDF esperaba la copia en Storage hasta ~10 min (JP, GB-P-2026-0131).
+// Reloj controlado: la prueba dispara el tope a mano, sin esperas reales.
+function pdfTopeFixture({subida,transaccion}={}){
+  const {fb,store}=fakeDb({'quotes/Q':{status:'enviada',pdfRegenCount:1,pdfHistorial:[{version:1,path:'p1'}]}});
+  const marcas=[],locales=[],relojes=[];
+  fb.updateDoc=async(path,data)=>{marcas.push(structuredClone(data));store.set(path,{...store.get(path),...data})};
+  if(transaccion){const real=fb.runTransaction;fb.runTransaction=(db,cb)=>transaccion(()=>real(db,cb))}
+  const cache=[{id:'Q',kind:'quote',pdfRegenCount:1,pdfHistorial:[{version:1,path:'p1'}]}];
+  const c=loadSourceFunctions(core('savePdfConCopiaStorage'),{...common(),window:{fb},quotesCache:cache,cloudOnline:true,fbReady:async()=>{},
+    uploadToStorage:subida||(async(_,path)=>'https://example.invalid/'+path),getCollectionName:()=>'quotes',savePdf:async(_,nombre)=>locales.push(nombre),currentUser:{email:'k@example.invalid'},
+    setTimeout:(fn,ms)=>{relojes.push({fn,ms,vivo:true});return relojes.length},clearTimeout:id=>{if(relojes[id-1])relojes[id-1].vivo=false}});
+  return {c,store,cache,marcas,locales,relojes,vencer:()=>relojes.filter(r=>r.vivo).forEach(r=>{r.vivo=false;r.fn()})};
+}
+const microtareas=async(n=20)=>{for(let i=0;i<n;i++)await null};
+await test('v8.0.2 subida que no termina: el PDF se entrega al vencer el tope y queda pdfUploadFailed',async()=>{
+  const f=pdfTopeFixture({subida:()=>new Promise(()=>{})});
+  const p=f.c.savePdfConCopiaStorage({output:()=>'blob'},'GB-Q','quote','Q');
+  await microtareas();
+  assert.deepEqual(f.locales,[],'todavía no vence el tope');
+  assert.equal(f.relojes.length,1,'debe haber un tope de tiempo');assert.ok(f.relojes[0].ms>0&&f.relojes[0].ms<=25000,'tope: '+f.relojes[0].ms);
+  f.vencer();await p;
+  assert.deepEqual(f.locales,['GB-Q_v02.pdf']);
+  await microtareas();
+  const d=f.store.get('quotes/Q');
+  assert.equal(d.pdfUploadFailed,true);assert.ok(d.pdfUploadLastError.length>0);assert.equal(d.pdfHistorial.length,1);
+  assert.equal(f.cache[0].pdfUploadFailed,true);
+});
+await test('v8.0.2 la marca de fallo no retrasa el PDF (la escritura puede tardar con la red mala)',async()=>{
+  const f=pdfTopeFixture({subida:()=>new Promise(()=>{})});
+  f.c.window.fb.updateDoc=()=>new Promise(()=>{});
+  const p=f.c.savePdfConCopiaStorage({output:()=>'blob'},'GB-Q','quote','Q');
+  await microtareas();f.vencer();await p;
+  assert.deepEqual(f.locales,['GB-Q_v02.pdf']);assert.equal(f.cache[0].pdfUploadFailed,true);
+});
+await test('v8.0.2 subida que termina después del tope: no se registra (huérfana sin referencia), una sola marca',async()=>{
+  let terminar;
+  const f=pdfTopeFixture({subida:(_,path)=>new Promise(r=>{terminar=()=>r('https://example.invalid/'+path)})});
+  const p=f.c.savePdfConCopiaStorage({output:()=>'blob'},'GB-Q','quote','Q');
+  await microtareas();f.vencer();await p;
+  terminar();await microtareas();
+  const d=f.store.get('quotes/Q');
+  assert.equal(d.pdfHistorial.length,1,'sin entrada nueva');assert.equal(d.pdfRegenCount,1);assert.equal(d.pdfUploadFailed,true);
+  assert.equal(f.cache[0].pdfUploadFailed,true);assert.equal(f.cache[0].pdfHistorial.length,1);
+  assert.equal(f.marcas.length,1);
+});
+await test('v8.0.2 registro en vuelo al vencer el tope: si confirma después, una sola entrada y sin marca de fallo',async()=>{
+  let soltar;const compuerta=new Promise(r=>{soltar=r});
+  const f=pdfTopeFixture({transaccion:async correr=>{const r=await correr();await compuerta;return r}});
+  const p=f.c.savePdfConCopiaStorage({output:()=>'blob'},'GB-Q','quote','Q');
+  await microtareas();
+  assert.equal(f.store.get('quotes/Q').pdfHistorial.length,2,'la transacción ya escribió; su confirmación no ha llegado');
+  f.vencer();await p;
+  assert.deepEqual(f.locales,['GB-Q_v02.pdf']);
+  soltar();await microtareas();
+  const d=f.store.get('quotes/Q');
+  assert.deepEqual(d.pdfHistorial.map(e=>e.version),[1,2]);assert.equal(d.pdfRegenCount,2);
+  assert.equal(d.pdfUploadFailed,false,'registrada: la marca de fallo se retira');
+  assert.equal(f.cache[0].pdfUploadFailed,false);assert.equal(f.cache[0].pdfHistorial.length,2);
+});
+await test('v8.0.2 subida lenta que termina antes del tope: una sola entrada y el tope se cancela',async()=>{
+  let terminar;
+  const f=pdfTopeFixture({subida:(_,path)=>new Promise(r=>{terminar=()=>r('https://example.invalid/'+path)})});
+  const p=f.c.savePdfConCopiaStorage({output:()=>'blob'},'GB-Q','quote','Q');
+  await microtareas();terminar();await p;
+  assert.ok(f.relojes.length===1&&!f.relojes[0].vivo,'tope cancelado');
+  const d=f.store.get('quotes/Q');
+  assert.deepEqual(d.pdfHistorial.map(e=>e.version),[1,2]);assert.equal(d.pdfUploadFailed,false);
+  assert.deepEqual(f.locales,['GB-Q_v02.pdf']);assert.deepEqual(f.marcas,[]);
+});
+await test('v8.0.2 gbMensajeError: transacción agotada y reintentos de Storage → mensaje de reintento con la conexión',()=>{
+  const c=loadSourceFunctions(core('gbEsErrorDePermiso','gbMensajeError'),{console:quiet});
+  const fbe=(code,message)=>Object.assign(new Error(message),{name:'FirebaseError',code});
+  const generico=c.gbMensajeError(new Error('x'));
+  for(const e of [fbe('aborted','Transaction aborted'),fbe('storage/retry-limit-exceeded','Firebase Storage: Max retry time for operation exceeded, please try again. (storage/retry-limit-exceeded)')]){
+    const m=c.gbMensajeError(e);
+    assert.ok(/conexión/i.test(m)&&/intent/i.test(m),'reintento con la conexión: '+m);
+    assert.notEqual(m,generico);assert.ok(!TECNICO.test(m)&&!m.includes(e.message),'técnico: '+m);
+  }
+  assert.ok(/no tiene permiso/.test(c.gbMensajeError(fbe('permission-denied','Missing or insufficient permissions.'))),'permiso sin cambio');
+  assert.equal(c.gbMensajeError(Object.assign(new Error('Mensaje propio.'),{code:'aborted',paraUsuario:true})),'Mensaje propio.','paraUsuario sin cambio');
+  assert.equal(c.gbMensajeError(fbe('unavailable','offline')),'Se perdió la conexión con el servidor o tardó demasiado. Revisa tu internet y vuelve a intentarlo.');
+  assert.equal(generico,'Ocurrió un error técnico y la operación no se completó. Vuelve a intentarlo; si se repite, avísale a un administrador.');
+});
+await test('v8.0.2 Storage: tope de reintentos del SDK fijado al inicializar',()=>{
+  const html=source('index.html');
+  const i=html.indexOf('const storage = getStorage(app);');assert.ok(i>0);
+  const tras=html.slice(i,i+800);
+  for(const k of ['maxUploadRetryTime','maxOperationRetryTime']){
+    const m=new RegExp('storage\\.'+k+'\\s*=\\s*(\\d+)').exec(tras);
+    assert.ok(m&&+m[1]>0&&+m[1]<=25000,k+': '+(m&&m[1]));
+  }
 });
 await test('v8.0.0 PF: hereda businessId y próximo contacto de la propuesta fresca, no de la copia del selector',async()=>{
   const f=pfFixture();

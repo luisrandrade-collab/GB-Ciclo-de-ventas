@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v8.0.1";
+const BUILD_VERSION="v8.0.2";
 const BUILD_DATE="2026-09-20";
 // v8.0.0 (D-v8-09): bandera del rediseño R1. Tapa sólo lo nuevo: Inicio, Negocios (y la ficha en T3), barra
 // inferior, entradas del menú y arranque en Inicio. F5 y los campos nuevos quedan siempre activos. Apagada, la app
@@ -579,7 +579,13 @@ async function savePdfConCopiaStorage(doc,baseName,kind,docId){
   const _now=new Date();
   // 3-5. Intentar subir a Storage y actualizar Firestore (best-effort)
   if(blob&&cloudOnline){
-    try{
+    // v8.0.2: con la red mala el PDF esperaba la copia hasta ~10 min (JP, GB-P-2026-0131). Ahora la copia
+    // (subida + registro) tiene un tope; al vencer, se marca pdfUploadFailed y se entrega el PDF local.
+    // Si la subida termina después del tope, no se registra: el archivo queda huérfano, sin referencia.
+    // Si el registro ya estaba en vuelo y confirma después, queda registrado y se retira la marca.
+    const TOPE_MS=20000;
+    let agotado=false,tope=null;
+    const copia=(async()=>{
       await fbReady();
       const stamp=_now.getFullYear()+"-"+_p(_now.getMonth()+1)+"-"+_p(_now.getDate())+"_"+_p(_now.getHours())+"h"+_p(_now.getMinutes());
       // v8.0.0 R2 (Codex P1): la ruta ya no lleva la versión sino un identificador único, así que dos
@@ -597,6 +603,7 @@ async function savePdfConCopiaStorage(doc,baseName,kind,docId){
       // sesión hubiera registrado entretanto. No toca ningún campo editable.
       const ref=fsDoc(db,coll,docId);
       const registrado=await runTransaction(db,async tx=>{
+        if(agotado)throw new Error("Tope de la copia vencido; no se registra "+storagePath);
         const snap=await tx.get(ref);
         if(!snap.exists())throw new Error("El documento del PDF ya no existe: "+docId);
         const fresco=snap.data();
@@ -613,23 +620,34 @@ async function savePdfConCopiaStorage(doc,baseName,kind,docId){
       });
       // Actualizar cache local
       if(q){q.pdfRegenCount=registrado.count;q.pdfHistorial=registrado.hist;q.pdfUploadFailed=false}
+      console.log("[savePdfConCopiaStorage] v"+registrado.count+" subida OK:",storagePath);
+      return registrado;
+    })();
+    try{
+      const registrado=await Promise.race([copia,new Promise((_,rechazar)=>{tope=setTimeout(()=>rechazar(new Error("La copia en Storage no terminó en "+TOPE_MS/1000+" s")),TOPE_MS)})]);
       version=registrado.count;
-      console.log("[savePdfConCopiaStorage] v"+version+" subida OK:",storagePath);
     }catch(e){
+      agotado=true;
       // NO bloquear — el PDF local se entrega igual
       console.warn("[savePdfConCopiaStorage] subida a Storage falló (no bloqueante):",e);
       // v5.4.3: marcar flag para que UI pueda alertar y permitir reintento manual
+      // v8.0.2: sin await; con la red mala la marca también tarda y el PDF no la espera.
       try{
         const {db,doc:fsDoc,updateDoc,serverTimestamp}=window.fb;
-        await updateDoc(fsDoc(db,coll,docId),{
+        const ref=fsDoc(db,coll,docId);
+        updateDoc(ref,{
           pdfUploadFailed:true,
           pdfUploadLastError:String(e&&e.message||e).slice(0,200),
           pdfUploadLastAttempt:_now.toISOString(),
           updatedAt:serverTimestamp()
-        });
+        }).catch(e2=>console.warn("[savePdfConCopiaStorage] no pude marcar flag:",e2));
         if(q){q.pdfUploadFailed=true;q.pdfUploadLastError=String(e&&e.message||e).slice(0,200)}
+        // v8.0.2: registro que confirma tras el tope. Esta escritura va después de la marca en la cola de
+        // escrituras de la sesión, así que la marca nunca queda encima de una copia registrada.
+        copia.then(()=>updateDoc(ref,{pdfUploadFailed:false,updatedAt:serverTimestamp()}))
+          .catch(e3=>console.warn("[savePdfConCopiaStorage] copia no registrada:",e3));
       }catch(e2){console.warn("[savePdfConCopiaStorage] no pude marcar flag:",e2)}
-    }
+    }finally{clearTimeout(tope)}
   }else if(!cloudOnline){
     console.warn("[savePdfConCopiaStorage] offline — PDF solo local, sin copia Storage");
   }
@@ -710,7 +728,10 @@ function gbMensajeError(e){
   const code=String((e&&e.code)||"").toLowerCase();
   const msg=String((e&&e.message)||e||"");
   const deRed=code==="unavailable"||code==="deadline-exceeded"||/failed to fetch|network|offline|timed? ?out/i.test(msg);
+  // v8.0.2: transacción agotada o Storage sin más reintentos; puede ser la red o un guardado simultáneo.
+  const agotoReintentos=code==="aborted"||code==="storage/retry-limit-exceeded";
   try{console.error("[gbMensajeError] detalle técnico:",e)}catch(_){}
+  if(agotoReintentos)return "No se completó después de varios intentos: puede ser la conexión o que otra persona estaba guardando al mismo tiempo. Revisa tu internet y vuelve a intentarlo.";
   if(deRed)return "Se perdió la conexión con el servidor o tardó demasiado. Revisa tu internet y vuelve a intentarlo.";
   return "Ocurrió un error técnico y la operación no se completó. Vuelve a intentarlo; si se repite, avísale a un administrador.";
 }
