@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v8.0.2";
+const BUILD_VERSION="v8.0.3";
 const BUILD_DATE="2026-09-20";
 // v8.0.0 (D-v8-09): bandera del rediseño R1. Tapa sólo lo nuevo: Inicio, Negocios (y la ficha en T3), barra
 // inferior, entradas del menú y arranque en Inicio. F5 y los campos nuevos quedan siempre activos. Apagada, la app
@@ -512,16 +512,27 @@ async function savePdf(doc,filename){
     const file=new File([blob],filename,{type:"application/pdf"});
     // Si el navegador soporta compartir archivos, lo usamos (iOS/Android modernos)
     if(navigator.canShare&&navigator.canShare({files:[file]})){
+      // v7.6.1: pasar 'text' explícito para evitar que iOS autoinyecte el blob URL
+      // del archivo en el mensaje (Telegram/WhatsApp lo pegaban como link parásito).
+      // Quitamos 'title' porque no se renderiza consistente entre apps.
+      const datos={files:[file],text:"Cotización Gourmet Bites — "+filename.replace(/\.pdf$/,"")};
       try{
-        // v7.6.1: pasar 'text' explícito para evitar que iOS autoinyecte el blob URL
-        // del archivo en el mensaje (Telegram/WhatsApp lo pegaban como link parásito).
-        // Quitamos 'title' porque no se renderiza consistente entre apps.
-        await navigator.share({files:[file],text:"Cotización Gourmet Bites — "+filename.replace(/\.pdf$/,"")});
+        await navigator.share(datos);
         return;
       }catch(e){
         // Usuario canceló el share — no es un error, pero como no se compartió
         // ofrecemos la descarga clásica para que no se quede sin el PDF
         if(e&&e.name==="AbortError")return;
+        // v8.0.3: iOS exige un toque reciente; tras esperar el guardado y Storage el share se rechaza
+        // (NotAllowedError) y doc.save dejaba el blob: en WhatsApp (GB-2026-0278). Se pide un toque nuevo.
+        if(e&&e.name==="NotAllowedError"){
+          confirmModal({title:"El PDF está listo",body:"Toca «Compartir» para enviarlo.<div style=\"margin-top:12px\"><button type=\"button\" class=\"btn\" data-pdf-descargar>Descargar</button></div>",
+            okLabel:"Compartir",cancelLabel:"Cerrar",
+            onOk:()=>{navigator.share(datos).catch(e2=>{if(e2&&e2.name==="AbortError")return;console.warn("Web Share falló, descargando:",e2);doc.save(filename)})}});
+          const descargar=$("cm-body")&&$("cm-body").querySelector("[data-pdf-descargar]");
+          if(descargar)descargar.addEventListener("click",()=>{closeConfirmModal();doc.save(filename)});
+          return;
+        }
         console.warn("Web Share falló, descargando:",e);
       }
     }

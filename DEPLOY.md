@@ -2,7 +2,7 @@
 
 Procedimiento operativo para deploy de la app, las rules de Firebase, y los rollbacks correspondientes.
 
-**Mantener este archivo actualizado al cambiar infraestructura.** Última revisión: 2026-09-29 (estado de producción v8.0.2). Anterior: 2026-09-28 (v8.0.1).
+**Mantener este archivo actualizado al cambiar infraestructura.** Última revisión: 2026-09-30 (estado de producción v8.0.3). Anterior: 2026-09-29 (v8.0.2).
 
 ---
 
@@ -187,7 +187,8 @@ Si tras hard reload sigue sirviendo versión vieja:
 
 ## Estado del deploy actual (al 2026-09-28)
 
-- **Versión en producción:** v8.0.2 (publicada el 2026-09-29): el PDF se entrega aunque la red esté mala (la copia en Storage espera como máximo 20 s; si no termina, queda `pdfUploadFailed` con el ⚠️ y reintento de siempre); los reintentos de Storage se limitan a 20 s para todas las subidas; mensaje de reintento por conexión para transacciones o subidas agotadas. Rollback: `git revert <commit de v8.0.2>` (vuelve a v8.0.1, `7d98870`). Sin datos ni reglas.
+- **Versión en producción:** v8.0.3 (publicada el 2026-09-30): si iPhone bloquea «Compartir» tras la espera del guardado (`NotAllowedError`), la app muestra «El PDF está listo» con «Compartir» en vez de abrir el PDF en Safari (que añadía un enlace `blob:` roto al mensaje). Aplica a cotización, propuesta y PF (`savePdf`); estado de cuenta, cuenta de cobro y hojas siguen con descarga directa. Rollback: `git revert <commit de v8.0.3>` (vuelve a v8.0.2, `4e13554`).
+- **v8.0.2** (`4e13554`, publicada el 2026-09-29): el PDF se entrega aunque la red esté mala (la copia en Storage espera como máximo 20 s; si no termina, queda `pdfUploadFailed` con el ⚠️ y reintento de siempre); los reintentos de Storage se limitan a 20 s para todas las subidas; mensaje de reintento por conexión para transacciones o subidas agotadas. Rollback: `git revert <commit de v8.0.2>` (vuelve a v8.0.1, `7d98870`). Sin datos ni reglas.
 - **v8.0.1** (`7d98870`, publicada el 2026-09-28): el chip «Por cobrar» de Negocios muestra sólo lo entregado con saldo; Inicio tiene un rango de fechas propio («Fechas»: Desde/Hasta); pruebas de rendimiento estables. Rollback: `git revert <commit de v8.0.1>` (vuelve a v8.0.0, `ec75058`). Sin datos ni reglas.
 - **v8.0.0** (`ec75058`, publicada el 2026-09-28): rediseño R1 con Inicio (Pipeline y cinco números), lista única de Negocios, ficha del negocio, pagos con botones de método, estado de cuenta por WhatsApp y PDF, avisos «Por actualizar», unir/separar a mano, «Crear versión nueva» en vez de «Sobrescribir» y PDF sin guardado silencioso. Anteriores: v7.10.2 (`a37aea3`), v7.10.1 (`fc7ec13`), v7.10.0 (`4ce8b73`).
 - **Bandera del rediseño:** `GB_REDISENO_R1=true` en `app-core.js`. Reversión rápida: ponerla en `false` y publicar (con frase): vuelve a las pantallas de v7.10.2 y conserva los arreglos de datos de v8.0 (versión nueva, PDF, próximo contacto, pérdidas) y el ajuste del botón «+».

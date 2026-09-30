@@ -2310,6 +2310,71 @@ await test('v8.0.2 Storage: tope de reintentos del SDK fijado al inicializar',()
     assert.ok(m&&+m[1]>0&&+m[1]<=25000,k+': '+(m&&m[1]));
   }
 });
+// v8.0.3: en iPhone, share tras la espera del guardado perdía la activación (NotAllowedError) y
+// savePdf caía a doc.save → blob: parásito en WhatsApp (Kathy, GB-2026-0278). navigator.share simulado.
+function shareFixture({canShare=true,fallos=[]}={}){
+  const shares=[],guardados=[],modales=[],cierres=[],escuchas={};
+  const doc={output:()=>new Blob(['%PDF']),save:n=>guardados.push(n)};
+  const navigator={share:async d=>{shares.push(d);const e=fallos.shift();if(e)throw e}};
+  if(canShare)navigator.canShare=d=>Array.isArray(d.files)&&d.files.length===1;
+  const cuerpo={querySelector:sel=>sel==='[data-pdf-descargar]'?{addEventListener:(t,fn)=>{escuchas[t]=fn}}:null};
+  const c=loadSourceFunctions(core('savePdf'),{console:quiet,File,Blob,navigator,$:id=>id==='cm-body'?cuerpo:null,
+    confirmModal:o=>{modales.push(o);return new Promise(()=>{})},closeConfirmModal:()=>cierres.push(1)});
+  return {c,doc,shares,guardados,modales,cierres,escuchas};
+}
+const errNombre=n=>Object.assign(new Error(n),{name:n});
+await test('v8.0.3 share sin activación (NotAllowedError): aviso «El PDF está listo» con Compartir y sin doc.save',async()=>{
+  const f=shareFixture({fallos:[errNombre('NotAllowedError')]});
+  await f.c.savePdf(f.doc,'GB-Q_v02.pdf');
+  assert.deepEqual(f.guardados,[],'no cae a doc.save (blob: parásito)');
+  assert.equal(f.modales.length,1);
+  const m=f.modales[0];
+  assert.equal(m.title,'El PDF está listo');assert.equal(m.okLabel,'Compartir');assert.equal(m.cancelLabel,'Cerrar');
+  assert.ok(m.body.includes('data-pdf-descargar')&&m.body.includes('Descargar'),m.body);
+  assert.ok(!/\son[a-z]+\s*=/i.test(m.body),'sin on*= en el aviso: '+m.body);
+  assert.deepEqual(Object.keys(f.shares[0]).sort(),['files','text'],'sin url: iOS pegaría el blob');
+  assert.equal(f.shares[0].text,'Cotización Gourmet Bites — GB-Q_v02');
+});
+await test('v8.0.3 tocar Compartir: share dentro del gesto con los mismos files y text, sin url',async()=>{
+  const f=shareFixture({fallos:[errNombre('NotAllowedError')]});
+  await f.c.savePdf(f.doc,'GB-Q_v02.pdf');
+  f.modales[0].onOk();
+  assert.equal(f.shares.length,2,'share llamado de inmediato, sin await previo que gaste la activación');
+  const [a,b]=f.shares;
+  assert.deepEqual(Object.keys(b).sort(),['files','text']);
+  assert.equal(b.files.length,1);assert.equal(b.files[0],a.files[0]);assert.equal(b.text,a.text);
+  assert.equal(b.files[0].name,'GB-Q_v02.pdf');assert.equal(b.files[0].type,'application/pdf');
+  await microtareas();assert.deepEqual(f.guardados,[]);
+});
+await test('v8.0.3 aviso: cancelar el segundo share no descarga; otro error sí descarga',async()=>{
+  const f=shareFixture({fallos:[errNombre('NotAllowedError'),errNombre('AbortError')]});
+  await f.c.savePdf(f.doc,'GB-Q_v02.pdf');f.modales[0].onOk();await microtareas();
+  assert.deepEqual(f.guardados,[]);
+  const g=shareFixture({fallos:[errNombre('NotAllowedError'),new TypeError('x')]});
+  await g.c.savePdf(g.doc,'GB-Q_v02.pdf');g.modales[0].onOk();await microtareas();
+  assert.deepEqual(g.guardados,['GB-Q_v02.pdf']);
+});
+await test('v8.0.3 aviso: Descargar cierra el aviso y descarga',async()=>{
+  const f=shareFixture({fallos:[errNombre('NotAllowedError')]});
+  await f.c.savePdf(f.doc,'GB-Q_v02.pdf');
+  assert.equal(typeof f.escuchas.click,'function','Descargar con escuchador, no on*=');
+  f.escuchas.click();
+  assert.equal(f.cierres.length,1);assert.deepEqual(f.guardados,['GB-Q_v02.pdf']);assert.equal(f.shares.length,1);
+});
+await test('v8.0.3 AbortError: nada (el usuario canceló); sin canShare o error genérico: doc.save como antes',async()=>{
+  const a=shareFixture({fallos:[errNombre('AbortError')]});
+  await a.c.savePdf(a.doc,'GB-Q_v02.pdf');
+  assert.deepEqual(a.guardados,[]);assert.equal(a.modales.length,0);assert.equal(a.shares.length,1);
+  const s=shareFixture({canShare:false});
+  await s.c.savePdf(s.doc,'GB-Q_v02.pdf');
+  assert.deepEqual(s.guardados,['GB-Q_v02.pdf']);assert.equal(s.shares.length,0);assert.equal(s.modales.length,0);
+  const g=shareFixture({fallos:[new TypeError('x')]});
+  await g.c.savePdf(g.doc,'GB-Q_v02.pdf');
+  assert.deepEqual(g.guardados,['GB-Q_v02.pdf']);assert.equal(g.modales.length,0);
+  const ok=shareFixture();
+  await ok.c.savePdf(ok.doc,'GB-Q_v02.pdf');
+  assert.deepEqual(ok.guardados,[]);assert.equal(ok.modales.length,0);assert.equal(ok.shares.length,1);
+});
 await test('v8.0.0 PF: hereda businessId y próximo contacto de la propuesta fresca, no de la copia del selector',async()=>{
   const f=pfFixture();
   Object.assign(f.store.get('proposals/p'),{businessId:'NEG',proximoContacto:pcFijo});
