@@ -2452,4 +2452,48 @@ await test('v8.0.0 T2 pago, cargo, confirmar y aprobar refrescan Inicio/Negocios
   await b.c.submitApproveProposal();await esperar();
   assert.equal(b.escrituras.length,1);assert.ok(vb.length>=1&&vb.every(s=>s==='aprobada'),'aprobar: '+vb);
 });
+// v8.0.4: pedido directo = cotización nueva que, al guardarse, abre «Marcar como pedido» con el número guardado.
+await test('v8.0.4 pedido directo: exige cliente, guarda, abre Marcar como pedido y se apaga',async()=>{
+  const fixture=(o={})=>{
+    const {cliente='Ana',nueva=true}=o,guardado='guardado' in o?o.guardado:{ok:true,id:'GB-1'}; // undefined = guardas tempranos
+    const llamadas=[];
+    const ctx={window:{},curStep:'review',toast:(m,t)=>llamadas.push(['toast',t]),go:s=>llamadas.push(['go',s]),renderR:()=>llamadas.push(['renderR']),
+      $:id=>({value:id==='f-cli'?cliente:''}),setMode:m=>llamadas.push(['setMode',m]),newQuote:async()=>{llamadas.push(['newQuote']);return nueva},
+      saveCurrentQuote:async()=>{llamadas.push(['save']);return guardado},openOrderModal:id=>llamadas.push(['openOrderModal',id])};
+    return {c:loadSourceFunctions([['app-cotizar.js','gbPedidoDirecto'],['app-cotizar.js','guardarPedidoDirecto']],ctx),ctx,llamadas};
+  };
+  const a=fixture();
+  await a.c.gbPedidoDirecto();
+  assert.equal(a.ctx.window._gbPedidoDirecto,true,'se enciende tras empezar una cotización nueva');
+  await a.c.guardarPedidoDirecto();
+  assert.deepEqual(a.llamadas.filter(x=>x[0]==='openOrderModal'),[['openOrderModal','GB-1']],'abre Marcar como pedido con el id guardado');
+  assert.equal(a.ctx.window._gbPedidoDirecto,false,'se apaga tras guardar');
+  const b=fixture({nueva:false});await b.c.gbPedidoDirecto();
+  assert.notEqual(b.ctx.window._gbPedidoDirecto,true,'si se cancela la nueva, no se enciende');
+  for(const caso of [{cliente:'  '},{guardado:undefined},{guardado:{ok:false,cancelado:true}}]){
+    const f=fixture(caso);f.ctx.window._gbPedidoDirecto=true;await f.c.guardarPedidoDirecto();
+    assert.equal(f.llamadas.some(x=>x[0]==='openOrderModal'),false,'sin pedido: '+JSON.stringify(caso));
+    assert.equal(f.ctx.window._gbPedidoDirecto,true,'sigue en pedido directo para reintentar: '+JSON.stringify(caso));
+    if(caso.cliente)assert.equal(f.llamadas.some(x=>x[0]==='save'),false,'sin cliente no guarda');
+  }
+  // Codex r1 (P2): «Nueva cotización» (setMode('cot')) durante un pedido directo lo apaga y repinta la revisión.
+  for(const [m,paso,repinta] of [['cot','review',1],['cot','info',0],['inicio','review',0]]){
+    const pintadas=[];
+    const s=loadSourceFunctions([['app-core.js','setMode']],{window:{_gbPedidoDirecto:true,scrollTo(){}},curStep:paso,renderR:()=>pintadas.push(1),renderMode(){},$:()=>null,document:{querySelectorAll:()=>[]},curMode:''});
+    s.setMode(m);
+    assert.equal(s.window._gbPedidoDirecto,false,'setMode('+m+') lo apaga');
+    assert.equal(pintadas.length,repinta,'repinta la revisión sólo al quedarse en ella: '+m+'/'+paso);
+  }
+  assert.match(functionSource('app-core.js','cargarCotizacionEnEditor'),/^[^{]*\{\s*window\._gbPedidoDirecto=false/,'abrir otro documento lo apaga');
+  assert.match(source('index.html'),/data-action="pedido-directo"[\s\S]*action==='pedido-directo'&&typeof window\.gbPedidoDirecto==='function'\)window\.gbPedidoDirecto\(\)/,'«Crear» lo ofrece');
+  // La revisión cambia Guardar/PDF por un solo botón mientras dura el pedido directo.
+  const {el}=domSimulado();
+  const ctxR={$:el,h:hReal,escapeHtml:hReal,jsArg:jsArgReal,fm:String,MX:40,toast(){},console:quiet,updUI(){},C:[],categoriasCache:{},productosCache:{},customProductsCache:[],
+    cart:[{id:8,n:'Pan',p:5,qty:1}],cust:[],currentQuoteNumber:null,quotesCache:[],window:{_gbPedidoDirecto:true},getIdStr:()=>'',getCityName:()=>'Bogotá',getDelivStr:()=>'',dateStr:()=>'hoy',getTr:()=>null,renderNotasCot(){}};
+  const r=loadSourceFunctions([...opcional('app-core.js','idArg'),...core('allIt','distIt','getTotal'),['app-cotizar.js','renderR']],ctxR);
+  r.renderR();let html=r.$('rev-content').innerHTML;
+  assert.ok(/guardarPedidoDirecto\(\)/.test(html)&&!/saveCurrentQuote\(\)|genPDF\(\)/.test(html),'en pedido directo sólo «Guardar y registrar pedido»');
+  ctxR.window._gbPedidoDirecto=false;r.renderR();html=r.$('rev-content').innerHTML;
+  assert.ok(!/guardarPedidoDirecto/.test(html)&&/saveCurrentQuote\(\)/.test(html)&&/genPDF\(\)/.test(html),'cotización normal sin cambios');
+});
 console.log(`${passed} escenarios de integridad pasaron (adaptadores en memoria; no emulador Firebase).`);

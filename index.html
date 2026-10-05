@@ -10,7 +10,7 @@
 <link rel="icon" type="image/png" href="brand/cuchillo-negro.png">
 <link rel="apple-touch-icon" href="brand/cuchillo-negro.png">
 <title>Gourmet Bites - Cotizador</title>
-<link rel="stylesheet" href="gb-tokens.css?v=8.0.3"><!-- v7.9.13 INF-05: cache-buster CSS -->
+<link rel="stylesheet" href="gb-tokens.css?v=8.0.4"><!-- v7.9.13 INF-05: cache-buster CSS -->
 <!-- VERSION: 2026-04-26-v7.0.0-α-cascaron-v7-dashboard-rediseñado-fsm-pedido-vs-produccion -->
 <!--
   v6.3.0 (2026-04-24) — Robustez técnica + higiene (Entrega 3 del roadmap).
@@ -1395,6 +1395,10 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
 .gb-shell-sidebar__item.is-active { background: var(--gb-sidebar-bg-active, rgba(255,255,255,.10)); color: var(--gb-sidebar-text-active, #fff); }
 .gb-shell-sidebar__item .gb-shell-icon { font-size: 16px; flex-shrink: 0; width: 20px; text-align: center; }
 .gb-shell-sidebar[data-collapsed="true"] .gb-shell-sidebar__label { display: none; }
+/* v8.0.4: «+ Crear» sólo en el computador; en el teléfono está el botón flotante */
+.gb-crear-btn { background: var(--gb-primary-700, #3a43ad); color: #fff; margin-bottom: 8px; flex-shrink: 0; }
+.gb-crear-btn:hover { background: var(--gb-primary-600, #4853d4); color: #fff; }
+@media (max-width:1023px){ .gb-crear-btn { display: none !important; } }
 
 .gb-shell-sidebar__foot {
   padding: var(--gb-space-2, 8px);
@@ -1850,6 +1854,8 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   </div>
   <!-- v7.0-α · Bloque D5 · Reagrupación por proceso de negocio (wireframe 01c-mapa-modulos) -->
   <nav class="gb-shell-sidebar__nav">
+    <!-- v8.0.4: «+ Crear» del computador; abre la misma hoja que el botón flotante del teléfono -->
+    <button class="gb-shell-sidebar__item gb-crear-btn" id="gb-crear-btn" type="button" aria-label="Crear"><span class="gb-shell-icon">＋</span><span class="gb-shell-sidebar__label">Crear</span></button>
     <div id="r1-menu" hidden></div><!-- v8.0.0 T2: Inicio y Negocios (los pinta iniciarRedisenoR1 con la bandera) -->
 
     <div class="sb-section-label">Tu día</div>
@@ -1867,7 +1873,6 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     <div class="sb-module" data-mod="ventas">
       <button class="sb-module__btn"><span class="gb-shell-icon">💰</span><span class="sb-module__label">Cotizaciones</span></button>
       <div class="sb-submenu">
-        <a href="javascript:void(0)" class="is-soon" data-sub="ventas/pipeline">Pipeline<span class="sub-soon">Pronto</span></a>
         <a href="javascript:void(0)" data-sub="ventas/cotizar">Nueva cotización</a>
         <a href="javascript:void(0)" data-sub="ventas/propuesta">Nueva propuesta</a>
         <a href="javascript:void(0)" data-sub="ventas/cotizaciones">Cotizaciones activas</a>
@@ -1936,7 +1941,6 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
         <a href="javascript:void(0)" data-sub="clientes/directorio">Directorio</a>
         <a href="javascript:void(0)" data-sub="clientes/comentarios">Comentarios</a>
         <a href="javascript:void(0)" data-sub="clientes/ventas-anteriores">Ventas anteriores</a>
-        <a href="javascript:void(0)" class="is-soon" data-sub="clientes/perdidas">Perdidas<span class="sub-soon">Pronto</span></a>
       </div>
     </div>
 
@@ -1958,7 +1962,6 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
         <a href="javascript:void(0)" data-sub="herr/auditoria">Auditoría</a>
         <a href="javascript:void(0)" data-sub="herr/negocios-ambiguos" hidden>Negocios ambiguos</a><!-- v8.0.0 T3: la muestra iniciarRedisenoR1 -->
         <a href="javascript:void(0)" data-sub="herr/backup">Mantenimiento y backups</a>
-        <a href="javascript:void(0)" class="is-soon" data-sub="herr/configuracion">Configuración<span class="sub-soon">Pronto</span></a>
       </div>
     </div>
 
@@ -4345,8 +4348,8 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
 <style id="gb-shell-v7-fab">
 /* v8.0.0 T4: z-index 250 (antes 1400): encima de la barra de cotizar (200) y de la inferior de R1 (150), debajo de todo modal u hoja (≥299) */
 .m-fab{position:fixed;right:20px;bottom:20px;width:56px;height:56px;background:var(--gb-primary-700,#3a43ad);color:#fff;border:none;border-radius:50%;box-shadow:0 8px 20px rgba(72,83,212,.35),0 2px 4px rgba(72,83,212,.25);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;z-index:250;transition:transform .15s ease,box-shadow .15s ease;padding:0}
-/* D6: FAB solo en móvil. Desktop usará botón "Crear" en sidebar (v7.1). */
-@media (min-width:1024px){.m-fab,.sheet,.sheet-backdrop{display:none!important}}
+/* D6: FAB solo en móvil. v8.0.4: en el computador la hoja la abre «+ Crear» del menú lateral. */
+@media (min-width:1024px){.m-fab{display:none!important}}
 .m-fab:hover{transform:scale(1.04);box-shadow:0 10px 24px rgba(72,83,212,.42),0 3px 6px rgba(72,83,212,.3)}
 .m-fab:active{transform:scale(.96)}
 .m-fab svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}
@@ -4391,7 +4394,8 @@ body{padding-bottom:84px}
       <div class="body"><div class="title">Nueva propuesta de evento</div><div class="desc">Con secciones, número de personas y montaje</div></div>
     </a>
     <div class="sheet__group-label">Operaciones y compras</div>
-    <a class="sheet__item is-soon" data-action="soon" href="#">
+    <!-- v8.0.4: "Registrar pedido directo" activado — cotización nueva que al guardar abre Marcar como pedido -->
+    <a class="sheet__item" data-action="pedido-directo" href="#">
       <span class="icon" style="background:var(--gb-warning-50);color:var(--gb-warning-600)"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="4" width="12" height="9" rx="1"/><path d="M5.5 4V2.5h5V4"/></svg></span>
       <div class="body"><div class="title">Registrar pedido directo</div><div class="desc">Sin pasar por cotización (cliente conocido)</div></div>
     </a>
@@ -4428,6 +4432,8 @@ body{padding-bottom:84px}
   function openSheet(){sheet.classList.add('is-open');backdrop.classList.add('is-open');document.body.style.overflow='hidden'}
   function closeSheet(){sheet.classList.remove('is-open');backdrop.classList.remove('is-open');document.body.style.overflow=''}
   fab.addEventListener('click',openSheet);
+  var crear=document.getElementById('gb-crear-btn'); // v8.0.4
+  if(crear)crear.addEventListener('click',openSheet);
   backdrop.addEventListener('click',closeSheet);
   document.addEventListener('keydown',function(e){if(e.key==='Escape'&&sheet.classList.contains('is-open'))closeSheet()});
   sheet.querySelectorAll('.sheet__item').forEach(function(a){
@@ -4446,7 +4452,7 @@ body{padding-bottom:84px}
           if(typeof window.setMode==='function')window.setMode('compras-pendientes');
           setTimeout(function(){var el=document.getElementById('compras-pend-quick-nombre');if(el)el.focus();},250);
         }
-        else if(action==='soon'&&typeof window.soonToast==='function')window.soonToast('Próximamente · v7.8');
+        else if(action==='pedido-directo'&&typeof window.gbPedidoDirecto==='function')window.gbPedidoDirecto();
       },200);
     });
   });
@@ -4862,13 +4868,13 @@ body{padding-bottom:84px}
   <button type="button" data-r1-ir="clientes"><span class="r1-barra-ic">👥</span>Clientes</button>
   <button type="button" data-r1-ir="mas"><span class="r1-barra-ic">☰</span>Más</button>
 </nav>
-<script src="app-assets.js?v=8.0.3"></script>
-<script src="app-core.js?v=8.0.3"></script>
-<script src="app-cotizar.js?v=8.0.3"></script>
-<script src="app-propuesta.js?v=8.0.3"></script>
-<script src="app-historial.js?v=8.0.3"></script>
-<script src="app-seguimiento.js?v=8.0.3"></script>
-<script src="app-dashboard.js?v=8.0.3"></script>
-<script src="app-negocios.js?v=8.0.3"></script>
+<script src="app-assets.js?v=8.0.4"></script>
+<script src="app-core.js?v=8.0.4"></script>
+<script src="app-cotizar.js?v=8.0.4"></script>
+<script src="app-propuesta.js?v=8.0.4"></script>
+<script src="app-historial.js?v=8.0.4"></script>
+<script src="app-seguimiento.js?v=8.0.4"></script>
+<script src="app-dashboard.js?v=8.0.4"></script>
+<script src="app-negocios.js?v=8.0.4"></script>
 </body>
 </html>

@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v8.0.3";
+const BUILD_VERSION="v8.0.4";
 const BUILD_DATE="2026-09-20";
 // v8.0.0 (D-v8-09): bandera del rediseño R1. Tapa sólo lo nuevo: Inicio, Negocios (y la ficha en T3), barra
 // inferior, entradas del menú y arranque en Inicio. F5 y los campos nuevos quedan siempre activos. Apagada, la app
@@ -3279,6 +3279,9 @@ function hideLoader(){const el=$("loader");if(el)el.style.display="none"}
 // ─── MODE SWITCHING ────────────────────────────────────────
 function setMode(m){
   curMode=m;
+  // v8.0.4 (Codex r1): cualquier navegación apaga el pedido directo, también «Nueva cotización» (gbPedidoDirecto
+  // lo enciende después de newQuote); si la revisión mostraba su botón, se repinta como cotización normal.
+  if(window._gbPedidoDirecto){window._gbPedidoDirecto=false;if(m==="cot"&&curStep==="review"&&typeof renderR==="function")renderR()}
   // v5.0.4: agregar 'seg' (seguimiento comercial) al switch de modos
   // v7.2: agregado 'cartera' (modulo de cobros / pagos pendientes)
   // v7.3: agregado 'reportes' (modulo de Excel + PDFs imprimibles)
@@ -3370,7 +3373,7 @@ async function newQuote(){
       okLabel:"Nueva cotización",
       tone:"warn"
     });
-    if(!ok)return;
+    if(!ok)return false;
   }
   // v7.9.32 CL-R2-02: una cotización nueva es la carga de un documento vacío. Antes esta
   // función tenía su propia lista de campos y no vaciaba fecha, hora, momentos, notas
@@ -3380,6 +3383,7 @@ async function newQuote(){
   // v4.12: limpiar panel de historial cliente
   const ch=$("cli-hist-panel");if(ch)ch.classList.add("hidden");
   go("info");
+  return true; // v8.0.4: el pedido directo sólo se enciende si de verdad empezó una nueva
 }
 async function newProp(){
   const ok=await confirmModal({
@@ -4338,6 +4342,7 @@ async function loadQuote(kind,id){
 // hora, fecha, notas internas o factura del documento abierto antes. Todo estado que el
 // guardado lea debe quedar definido AQUÍ por el documento que se carga.
 function cargarCotizacionEnEditor(q){
+  window._gbPedidoDirecto=false; // v8.0.4: abrir o empezar otro documento apaga el pedido directo
   markEditorContext("quote");
   rememberEditBase("quote",q.quoteNumber||null,q);
   cart=[];cust=[];

@@ -1725,6 +1725,31 @@ await test('T4 botón «+»: cualquier modal u hoja inferior queda encima; sigue
   assert.match(idx,/body\.r1-con-barra \.m-fab\{bottom:calc\(76px \+ env\(safe-area-inset-bottom,0\)\)\}/,'con la barra de R1 el «+» sube y no la tapa');
   assert.match(idx,/<button class="m-fab" id="gb-fab-btn" aria-label="Crear" type="button">/,'el botón sigue');
 });
+await test('v8.0.4 «+ Crear» en el computador: abre la misma hoja; el «+» flotante sigue sólo en el teléfono',()=>{
+  const idx=source('index.html');
+  assert.match(idx,/<nav class="gb-shell-sidebar__nav">\s*<!--[^>]*-->\s*<button class="gb-shell-sidebar__item gb-crear-btn" id="gb-crear-btn"/,'primero del menú lateral');
+  assert.match(idx,/getElementById\('gb-crear-btn'\);[^\n]*\n\s*if\(crear\)crear\.addEventListener\('click',openSheet\)/,'abre la hoja Crear');
+  assert.match(idx,/@media \(min-width:1024px\)\{\.m-fab\{display:none!important\}\}/,'en el computador se oculta sólo el «+» flotante');
+  assert.ok(!/@media \(min-width:1024px\)\{[^}]*\.sheet[,{]/.test(idx),'la hoja ya no se oculta en el computador');
+  assert.match(idx,/@media \(max-width:1023px\)\{ \.gb-crear-btn \{ display: none !important; \} \}/,'en el teléfono no se duplica');
+});
+await test('v8.0.4 perdidas del cliente desde su ficha y menú sin letreros «Pronto»',()=>{
+  const modos=[];
+  const c=vm.createContext({setMode:m=>modos.push(m),setTimeout,clearTimeout});
+  for(const n of ['_r1Estado','verPerdidasCliente'])vm.runInContext(functionSource('app-negocios.js',n),c);
+  c._r1Estado=vm.runInContext('_r1Estado',c);c._r1Estado.unir={origen:'X'};
+  vm.runInContext('verPerdidasCliente(\'Ana "La" O\\\'Neil\')',c);
+  assert.deepEqual(plain(c._r1Estado.filtro),{chip:'perdidas',metrica:null,texto:'Ana "La" O\'Neil',pagina:1},'chip Perdidas y el nombre en la búsqueda');
+  assert.equal(c._r1Estado.unir,null,'sale de «Unir» si estaba');
+  assert.deepEqual(modos,['negocios']);
+  const ficha=functionSource('app-dashboard.js','renderClienteFicha');
+  assert.match(ficha,/filtrarNegocios\(proyeccionNegocios\(\),\{chip:"perdidas",metrica:null,texto:c\.name\}\)\.filas\.length/,'el número sale del mismo filtro que mostrará Negocios');
+  assert.match(ficha,/if\(nPerdidas\)html\+='<button onclick="verPerdidasCliente\('\+jsArg\(c\.name\)\+'\)"/,'sólo con perdidas y con el nombre codificado (P-38)');
+  const idx=source('index.html');
+  assert.ok(!/class="[^"]*is-soon/.test(idx),'ningún elemento queda como «Pronto»');
+  assert.ok(!/data-sub="(ventas\/pipeline|clientes\/perdidas|herr\/configuracion)"/.test(idx),'se quitan Pipeline, Perdidas de Clientes y Configuración');
+  assert.match(idx,/data-sub="ventas\/perdidas"/,'Cotizaciones › Perdidas sigue');
+});
 await test('T4 menú: el módulo del Dashboard viejo no repite la sección que lo contiene (sólo con la bandera)',()=>{
   const secciones=[...source('index.html').matchAll(/<div class="sb-section-label">([^<]*)<\/div>/g)].map(m=>m[1]);
   assert.ok(secciones.includes('Tu día'),'la sección sigue como está');
@@ -1738,7 +1763,7 @@ await test('T4 menú: el módulo del Dashboard viejo no repite la sección que l
 // ─── Carga en la app ───────────────────────────────────────
 await test('app-negocios.js se carga en index.html con ?v= de BUILD_VERSION y check.mjs lo revisa',()=>{
   const v=source('app-core.js').match(/const BUILD_VERSION="v([^"]+)"/)[1];
-  assert.equal(v,'8.0.3');
+  assert.equal(v,'8.0.4');
   assert.ok(source('index.html').includes('<script src="app-negocios.js?v='+v+'"></script>'));
   assert.ok(/"app-negocios\.js"/.test(source('scripts/check.mjs')));
   assert.ok(source('.github/workflows/check.yml').includes('node scripts/test_negocios.mjs'));

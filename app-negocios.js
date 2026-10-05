@@ -960,6 +960,11 @@ function iniciarUnirR1(negocioId){
   _r1Estado.filtro={chip:null,metrica:null,texto:"",pagina:1};
   setMode("negocios");
 }
+// v8.0.4: desde la ficha del cliente, sus negocios perdidos (chip «Perdidas» + su nombre en la búsqueda).
+function verPerdidasCliente(nombre){
+  _r1Estado.filtro={chip:"perdidas",metrica:null,texto:String(nombre||""),pagina:1};_r1Estado.unir=null;
+  setMode("negocios");
+}
 async function pedirUnirR1(destinoId){
   const p=proyeccionNegocios(),a=_r1Estado.unir&&p.porNegocio.get(_r1Estado.unir.origen),b=p.porNegocio.get(destinoId);
   if(!a||!b||a===b||!canCurrentUserWrite())return false;

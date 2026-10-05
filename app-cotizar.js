@@ -166,15 +166,19 @@ function renderR(){
   // - Nuevo doc o "enviada/pedido" normal: botones estándar
   // - Doc con cambios recientes que afectan cliente: "Regenerar PDF del cliente" destacado
   // - Todos los docs editables: botón "Cancelar edición" que recarga desde Firestore
-  let actsHtml='<div class="acts">';
+  let actsHtml=window._gbPedidoDirecto?'<div style="margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--gb-warning-50);color:var(--gb-warning-600);font-size:13px">Pedido directo: al guardar se registra como pedido.</div>':'';
+  actsHtml+='<div class="acts">';
   actsHtml+='<button class="btn bd" onclick="go(\'products\')">+ Productos</button>';
-  // Regenerar PDF destacado si hubo cambios que afectan cliente
-  if(lastSaved&&lastSaved.afectaCliente){
+  // v8.0.4: el pedido directo sólo guarda y registra; el PDF sale después desde el pedido
+  if(window._gbPedidoDirecto){
+    actsHtml+='<button class="btn bp" onclick="guardarPedidoDirecto()">✅ Guardar y registrar pedido</button>';
+  }else if(lastSaved&&lastSaved.afectaCliente){
+    // Regenerar PDF destacado si hubo cambios que afectan cliente
     actsHtml+='<button class="btn bp" style="background:linear-gradient(135deg,#FF6F00,#E65100);animation:pulseHighlight 1.5s ease-in-out 3" onclick="genPDF()">📄 Regenerar PDF del cliente</button>';
   }else{
     actsHtml+='<button class="btn bp" onclick="genPDF()">📄 Generar PDF</button>';
   }
-  actsHtml+='<button class="btn bg" onclick="saveCurrentQuote()">💾 Guardar</button>';
+  if(!window._gbPedidoDirecto)actsHtml+='<button class="btn bg" onclick="saveCurrentQuote()">💾 Guardar</button>';
   // Cancelar edición: solo si hay un doc cargado (currentQuoteNumber existe)
   if(currentQuoteNumber){
     actsHtml+='<button class="btn" style="background:#B0BEC5;color:#fff" onclick="cancelEdicion()">↩️ Cancelar edición</button>';
@@ -219,6 +223,24 @@ async function cancelEdicion(){
 
 function chgCartPrice(id,newP){newP=parseInt(newP)||0;if(newP<=0)return;const i=cart.find(x=>x.id===id);if(i){if(!i.origP)i.origP=i.p;i.p=newP;i.edited=newP!==i.origP}renderR();updUI()}
 function chgCustPrice(id,newP){newP=parseInt(newP)||0;if(newP<=0)return;const i=cust.find(x=>x.id===id);if(i)i.p=newP;renderR();updUI()}
+
+// v8.0.4: pedido directo = cotización nueva que, al guardarse, abre «Marcar como pedido».
+// Sin formulario propio: el pedido queda con los mismos datos y auditoría que en dos pasos.
+async function gbPedidoDirecto(){
+  setMode("cot");
+  if(!(await newQuote()))return;
+  window._gbPedidoDirecto=true;
+  toast("Pedido directo: llena cliente y productos; al final toca «Guardar y registrar pedido».","info",6000);
+}
+async function guardarPedidoDirecto(){
+  if(!$("f-cli").value.trim()){toast("Pedido directo: escribe el nombre del cliente.","warn");go("info");return}
+  const r=await saveCurrentQuote();
+  if(!r||!r.ok)return;
+  window._gbPedidoDirecto=false;
+  if(curStep==="review")renderR();
+  toast("Completa los datos del pedido. Si cierras sin confirmar, queda como cotización: ábrela y toca «Marcar como pedido».","info",8000);
+  openOrderModal(r.id);
+}
 
 // ─── SAVE COTIZACIÓN ───────────────────────────────────────
 // v7.9.13 UX-02: guard anti doble-click (patrón _submitPagoBusy de app-historial).

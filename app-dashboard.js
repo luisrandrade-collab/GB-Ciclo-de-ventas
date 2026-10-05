@@ -7816,6 +7816,9 @@ async function renderClienteFicha(){
     _statCard("# docs",stats.nDocs,"#5D4037","#FFF8E1")+
     _statCard("Ticket prom",fm(stats.ticketProm),"#5D4037","#F3E5F5")+
   '</div>';
+  // v8.0.4: perdidas del cliente; el número sale del mismo filtro que mostrará Negocios
+  const nPerdidas=(c.name&&typeof GB_REDISENO_R1!=="undefined"&&GB_REDISENO_R1&&typeof filtrarNegocios==="function")?filtrarNegocios(proyeccionNegocios(),{chip:"perdidas",metrica:null,texto:c.name}).filas.length:0;
+  if(nPerdidas)html+='<button onclick="verPerdidasCliente('+jsArg(c.name)+')" style="background:#fff;color:#C62828;border:1px solid #EF9A9A;padding:7px 12px;border-radius:8px;font-size:12px;cursor:pointer;margin-bottom:18px;font-family:var(--gb-font-body)">Ver perdidas ('+h(nPerdidas)+')</button>';
   if(stats.primerContacto||stats.ultimoContacto){
     html+='<div style="font-size:11.5px;color:#9E9E9E;margin-bottom:18px">'+
       (stats.primerContacto?"Primer contacto: "+_cliDirFmtDate(stats.primerContacto):"")+
