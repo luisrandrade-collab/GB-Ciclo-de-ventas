@@ -10,7 +10,7 @@
 <link rel="icon" type="image/png" href="brand/cuchillo-negro.png">
 <link rel="apple-touch-icon" href="brand/cuchillo-negro.png">
 <title>Gourmet Bites - Cotizador</title>
-<link rel="stylesheet" href="gb-tokens.css?v=8.0.4"><!-- v7.9.13 INF-05: cache-buster CSS -->
+<link rel="stylesheet" href="gb-tokens.css?v=8.0.5"><!-- v7.9.13 INF-05: cache-buster CSS -->
 <!-- VERSION: 2026-04-26-v7.0.0-α-cascaron-v7-dashboard-rediseñado-fsm-pedido-vs-produccion -->
 <!--
   v6.3.0 (2026-04-24) — Robustez técnica + higiene (Entrega 3 del roadmap).
@@ -2197,7 +2197,10 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
         var key = sub.getAttribute('data-sub');
         var legacy = SUB_TO_LEGACY[key];
         if (legacy && typeof window.setMode === 'function') {
-          window.setMode(legacy);
+          // v8.0.5: «Nueva cotización/propuesta» pregunta y empieza un documento vacío, como en la hoja Crear
+          if (key === 'ventas/cotizar') window.nuevaCotizacion();
+          else if (key === 'ventas/propuesta') window.nuevaPropuesta();
+          else window.setMode(legacy);
           // v7.5 BUG-V7.4-01 fix: el modulo Reportes tiene tabs internos (Excel/Imprimibles).
           // Como ambos sub-items mapean al mismo modo 'reportes', setMode no cambia
           // automaticamente el tab interno. Caso especial:
@@ -2754,12 +2757,12 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     <h2 style="text-align:center;font-family:var(--gb-font-head);color:var(--gb-neutral-800);margin-bottom:8px">Nueva venta</h2>
     <p style="text-align:center;color:var(--gb-neutral-500);margin-bottom:32px;font-size:14px">Elige el tipo de documento que necesitas crear</p>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-      <button onclick="setMode('cot')" style="background:white;border:2px solid var(--gb-success-200);border-radius:16px;padding:32px 20px;cursor:pointer;text-align:center;transition:border-color .2s,box-shadow .2s" onmouseover="this.style.borderColor='var(--gb-success-500)';this.style.boxShadow='0 4px 12px rgba(76,175,80,.15)'" onmouseout="this.style.borderColor='var(--gb-success-200)';this.style.boxShadow='none'">
+      <button onclick="nuevaCotizacion()" style="background:white;border:2px solid var(--gb-success-200);border-radius:16px;padding:32px 20px;cursor:pointer;text-align:center;transition:border-color .2s,box-shadow .2s" onmouseover="this.style.borderColor='var(--gb-success-500)';this.style.boxShadow='0 4px 12px rgba(76,175,80,.15)'" onmouseout="this.style.borderColor='var(--gb-success-200)';this.style.boxShadow='none'">
         <div style="font-size:40px;margin-bottom:12px">📋</div>
         <div style="font-family:var(--gb-font-head);font-size:17px;font-weight:700;color:var(--gb-neutral-800);margin-bottom:6px">Cotizacion</div>
         <div style="font-size:12px;color:var(--gb-neutral-500);line-height:1.4">Productos del catalogo con precios unitarios. Para pedidos puntuales.</div>
       </button>
-      <button onclick="setMode('prop')" style="background:white;border:2px solid var(--gb-info-200);border-radius:16px;padding:32px 20px;cursor:pointer;text-align:center;transition:border-color .2s,box-shadow .2s" onmouseover="this.style.borderColor='var(--gb-info-500)';this.style.boxShadow='0 4px 12px rgba(33,150,243,.15)'" onmouseout="this.style.borderColor='var(--gb-info-200)';this.style.boxShadow='none'">
+      <button onclick="nuevaPropuesta()" style="background:white;border:2px solid var(--gb-info-200);border-radius:16px;padding:32px 20px;cursor:pointer;text-align:center;transition:border-color .2s,box-shadow .2s" onmouseover="this.style.borderColor='var(--gb-info-500)';this.style.boxShadow='0 4px 12px rgba(33,150,243,.15)'" onmouseout="this.style.borderColor='var(--gb-info-200)';this.style.boxShadow='none'">
         <div style="font-size:40px;margin-bottom:12px">🎪</div>
         <div style="font-family:var(--gb-font-head);font-size:17px;font-weight:700;color:var(--gb-neutral-800);margin-bottom:6px">Evento</div>
         <div style="font-size:12px;color:var(--gb-neutral-500);line-height:1.4">Propuesta por secciones con menaje y personal. Para eventos y catering.</div>
@@ -4358,6 +4361,8 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
 .sheet{position:fixed;left:0;right:0;bottom:0;background:var(--gb-surface,#fff);border-radius:16px 16px 0 0;z-index:1501;transform:translateY(100%);transition:transform .3s cubic-bezier(.32,.72,0,1);max-height:80vh;overflow-y:auto;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 16px);box-shadow:0 -8px 32px rgba(0,0,0,.18)}
 .sheet.is-open{transform:translateY(0)}
 @media (min-width:768px){.sheet{left:auto;right:20px;bottom:20px;width:420px;max-width:calc(100vw - 40px);border-radius:16px;max-height:min(80vh,640px);transform:translateY(20px) scale(.96);opacity:0}.sheet.is-open{transform:translateY(0) scale(1);opacity:1}}
+/* v8.0.5: cerrada, la hoja no recibe clics (en 768 px o más quedaba transparente encima de los botones de abajo a la derecha) */
+.sheet:not(.is-open){visibility:hidden;pointer-events:none;transition:transform .3s cubic-bezier(.32,.72,0,1),visibility 0s .3s}
 .sheet__handle{width:36px;height:4px;background:var(--gb-border-strong,#dde1e8);border-radius:2px;margin:10px auto 4px}
 @media (min-width:768px){.sheet__handle{display:none}}
 .sheet__title{font-family:var(--gb-font-display);font-size:20px;font-weight:600;letter-spacing:-.015em;padding:8px 20px 12px;color:var(--gb-text);margin:0}
@@ -4442,8 +4447,9 @@ body{padding-bottom:84px}
       var action=a.getAttribute('data-action');
       closeSheet();
       setTimeout(function(){
-        if(action==='cot'&&typeof window.setMode==='function')window.setMode('cot');
-        else if(action==='prop'&&typeof window.setMode==='function')window.setMode('prop');
+        // v8.0.5: «Nueva» empieza un documento vacío (antes sólo cambiaba de modo y dejaba cargado el anterior)
+        if(action==='cot'&&typeof window.nuevaCotizacion==='function')window.nuevaCotizacion();
+        else if(action==='prop'&&typeof window.nuevaPropuesta==='function')window.nuevaPropuesta();
         // v7.8 F1.5: atajos directos a modales (no cambian de modo)
         else if(action==='add-cliente'&&typeof window.openClienteEditor==='function')window.openClienteEditor(null);
         else if(action==='add-proveedor'&&typeof window.openProveedorEditor==='function')window.openProveedorEditor(null);
@@ -4868,13 +4874,13 @@ body{padding-bottom:84px}
   <button type="button" data-r1-ir="clientes"><span class="r1-barra-ic">👥</span>Clientes</button>
   <button type="button" data-r1-ir="mas"><span class="r1-barra-ic">☰</span>Más</button>
 </nav>
-<script src="app-assets.js?v=8.0.4"></script>
-<script src="app-core.js?v=8.0.4"></script>
-<script src="app-cotizar.js?v=8.0.4"></script>
-<script src="app-propuesta.js?v=8.0.4"></script>
-<script src="app-historial.js?v=8.0.4"></script>
-<script src="app-seguimiento.js?v=8.0.4"></script>
-<script src="app-dashboard.js?v=8.0.4"></script>
-<script src="app-negocios.js?v=8.0.4"></script>
+<script src="app-assets.js?v=8.0.5"></script>
+<script src="app-core.js?v=8.0.5"></script>
+<script src="app-cotizar.js?v=8.0.5"></script>
+<script src="app-propuesta.js?v=8.0.5"></script>
+<script src="app-historial.js?v=8.0.5"></script>
+<script src="app-seguimiento.js?v=8.0.5"></script>
+<script src="app-dashboard.js?v=8.0.5"></script>
+<script src="app-negocios.js?v=8.0.5"></script>
 </body>
 </html>

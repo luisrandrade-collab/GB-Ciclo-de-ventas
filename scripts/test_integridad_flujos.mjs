@@ -772,7 +772,7 @@ function cotReal(docs){
     notasCotData:{},notasCotLista:[],DEFAULT_NOTAS_COT:{n1:'Nota'},NOTAS_COT_TITULOS:{n1:'Título'},tituloInstruccionesPago:'',tituloCondiciones:'',
     firmaCot:'km',updTr:nada,togMom:nada,renderR:nada,getNextNumber:async()=>'nuevo'};
   const c=loadSourceFunctions([...mergeEntries,...core('TR','getTr','getTotal','allIt','getIdStr','getCityName','getMomentos','getDelivStr','getCollectionName',
-    'markEditorContext','gbNotasNormalizar','gbNotasALegacy','gbEsErrorDePermiso','gbMensajeError','loadQuote','newQuote'),
+    'markEditorContext','gbNotasNormalizar','gbNotasALegacy','gbEsErrorDePermiso','gbMensajeError','loadQuote','newQuote','firmaFormularioCotizacion'),
     ...opcional('app-core.js','cargarCotizacionEnEditor'),...opcional('app-cotizar.js','formularioCotizacion'),
     ['app-cotizar.js','_saveCurrentQuoteImpl'],['app-historial.js','duplicateQuote']],g);
   return {c,store,el,messages,
@@ -2470,6 +2470,11 @@ await test('v8.0.4 pedido directo: exige cliente, guarda, abre Marcar como pedid
   assert.equal(a.ctx.window._gbPedidoDirecto,false,'se apaga tras guardar');
   const b=fixture({nueva:false});await b.c.gbPedidoDirecto();
   assert.notEqual(b.ctx.window._gbPedidoDirecto,true,'si se cancela la nueva, no se enciende');
+  // v8.0.5 (Codex r3): pregunta antes de cambiar de pantalla; cancelar no apaga un pedido directo en curso.
+  assert.deepEqual(a.llamadas.slice(0,2).map(x=>x[0]),['newQuote','setMode'],'pregunta antes de cambiar de pantalla');
+  const b2=fixture({nueva:false});b2.ctx.window._gbPedidoDirecto=true;await b2.c.gbPedidoDirecto();
+  assert.equal(b2.ctx.window._gbPedidoDirecto,true,'cancelar no apaga el pedido directo en curso');
+  assert.equal(b2.llamadas.some(x=>x[0]==='setMode'),false,'cancelar no cambia de pantalla (setMode apagaría el pedido directo)');
   for(const caso of [{cliente:'  '},{guardado:undefined},{guardado:{ok:false,cancelado:true}}]){
     const f=fixture(caso);f.ctx.window._gbPedidoDirecto=true;await f.c.guardarPedidoDirecto();
     assert.equal(f.llamadas.some(x=>x[0]==='openOrderModal'),false,'sin pedido: '+JSON.stringify(caso));

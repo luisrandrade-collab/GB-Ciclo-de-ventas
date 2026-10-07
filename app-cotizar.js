@@ -227,8 +227,9 @@ function chgCustPrice(id,newP){newP=parseInt(newP)||0;if(newP<=0)return;const i=
 // v8.0.4: pedido directo = cotización nueva que, al guardarse, abre «Marcar como pedido».
 // Sin formulario propio: el pedido queda con los mismos datos y auditoría que en dos pasos.
 async function gbPedidoDirecto(){
-  setMode("cot");
+  // v8.0.5 (Codex r3): pregunta antes de cambiar de pantalla; si se cancela, quedan la pantalla y el pedido directo en curso.
   if(!(await newQuote()))return;
+  setMode("cot");
   window._gbPedidoDirecto=true;
   toast("Pedido directo: llena cliente y productos; al final toca «Guardar y registrar pedido».","info",6000);
 }

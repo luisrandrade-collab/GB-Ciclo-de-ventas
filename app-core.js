@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v8.0.4";
+const BUILD_VERSION="v8.0.5";
 const BUILD_DATE="2026-09-20";
 // v8.0.0 (D-v8-09): bandera del rediseño R1. Tapa sólo lo nuevo: Inicio, Negocios (y la ficha en T3), barra
 // inferior, entradas del menú y arranque en Inicio. F5 y los campos nuevos quedan siempre activos. Apagada, la app
@@ -3228,6 +3228,8 @@ function applyCustomRange(){
 
 // ─── INIT ──────────────────────────────────────────────────
 async function initApp(){
+  // v8.0.5 (Codex r3): la foto del formulario vacío se toma antes de nada que pueda fallar, y sólo una vez.
+  if(window._gbCotVacia===undefined)window._gbCotVacia=firmaFormularioCotizacion();
   showLoader("Conectando a la nube...");
   await fbReady();
   try{
@@ -3366,10 +3368,13 @@ function refreshActiveView(){
 }
 
 async function newQuote(){
-  if(allIt().length){
+  // v8.0.5 (Codex): pregunta también sin productos si hay un documento cargado o si el formulario ya no es el
+  // vacío (cliente, fecha, hora, notas, condiciones…). Sin foto del vacío todavía, basta el cliente escrito.
+  const conDatos=window._gbCotVacia!==undefined?firmaFormularioCotizacion()!==window._gbCotVacia:!!$("f-cli").value.trim();
+  if(allIt().length||currentQuoteNumber||conDatos){
     const ok=await confirmModal({
       title:"Nueva cotización",
-      body:"¿Empezar una nueva cotización? Se perderán los productos actuales.",
+      body:"¿Empezar una nueva cotización? Se perderán los datos actuales.",
       okLabel:"Nueva cotización",
       tone:"warn"
     });
@@ -3382,9 +3387,13 @@ async function newQuote(){
   $("sel-cli").value="";
   // v4.12: limpiar panel de historial cliente
   const ch=$("cli-hist-panel");if(ch)ch.classList.add("hidden");
+  window._gbCotVacia=firmaFormularioCotizacion(); // v8.0.5
   go("info");
   return true; // v8.0.4: el pedido directo sólo se enciende si de verdad empezó una nueva
 }
+// v8.0.5: firma del formulario de cotización; se guarda la del vacío al arrancar y al empezar una nueva.
+// Antes de firmar se completan las notas por defecto, que el paso «③ Cotización» agrega solas (Codex r3).
+function firmaFormularioCotizacion(){if(typeof initNotasCot==="function")initNotasCot();return gbStableJson(formularioCotizacion())}
 async function newProp(){
   const ok=await confirmModal({
     title:"Nueva propuesta",
@@ -3392,7 +3401,7 @@ async function newProp(){
     okLabel:"Nueva propuesta",
     tone:"warn"
   });
-  if(!ok)return;
+  if(!ok)return false;
   propSections=[];menajeItems=[];currentPropNumber=null;
   menajeAssignedTo=null; // v7.9.28: la asignación de menaje no se hereda entre documentos
   markEditorContext("proposal");
@@ -3416,9 +3425,13 @@ async function newProp(){
   personalData={meseros:{cantidad:"",valor4h:"",horasExtra:"",valorHoraExtra:""},auxiliares:{cantidad:"",valor4h:"",horasExtra:"",valorHoraExtra:""}};
   loadLastPersonalRates();
   document.querySelectorAll("#tipo-serv-sel .tipo-serv-opt").forEach(el=>el.classList.remove("act"));
-  menajeItems=DEFAULT_MENAJE.map((n,i)=>({id:"m"+i,name:n,qty:"",price:""}));
+  // v8.0.5 (Codex): la «Opción A» nace con el menaje por defecto; antes sólo se llenaba el espejo menajeItems
+  // y renderMenaje creaba la opción vacía encima.
+  menajeOptions=[{id:"opA_"+Date.now(),label:"Opción A",items:DEFAULT_MENAJE.map((n,i)=>({id:"m"+i,name:n,qty:"",price:""}))}];
+  activeMenajeOptionId=menajeOptions[0].id;
+  reposicionByOption={[activeMenajeOptionId]:{}};
+  _syncActiveMenajeRefs();
   condicionesData={};initCondiciones();
-  reposicionData={};
   aperturaFrase="Una experiencia culinaria diseñada a medida para su evento.";
   if($("fp-apertura"))$("fp-apertura").value=aperturaFrase;
   setDefaultFechaVenc();
@@ -3428,7 +3441,13 @@ async function newProp(){
   // v4.12: limpiar panel historial cliente prop
   const ch=$("cli-hist-panel-p");if(ch)ch.classList.add("hidden");
   renderMenaje();renderPropSections();renderPersonal();renderCondiciones();renderReposicion();
+  return true;
 }
+// v8.0.5: las entradas «Nueva …» de fuera del editor (hoja Crear, menú lateral, selector «Nueva venta») preguntan
+// antes de cambiar de modo. Si se cancela, llevan al editor con lo que había (era el camino de vuelta al borrador)
+// y, si ya se estaba en él, no lo tocan: el pedido directo sigue encendido.
+async function nuevaCotizacion(){const ok=await newQuote();if(ok||curMode!=="cot")setMode("cot")}
+async function nuevaPropuesta(){const ok=await newProp();if(ok||curMode!=="prop")setMode("prop")}
 
 // ─── GLOBAL SEARCH ─────────────────────────────────────────
 let searchTimer=null;

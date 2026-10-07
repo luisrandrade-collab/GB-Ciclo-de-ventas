@@ -1733,6 +1733,65 @@ await test('v8.0.4 «+ Crear» en el computador: abre la misma hoja; el «+» fl
   assert.ok(!/@media \(min-width:1024px\)\{[^}]*\.sheet[,{]/.test(idx),'la hoja ya no se oculta en el computador');
   assert.match(idx,/@media \(max-width:1023px\)\{ \.gb-crear-btn \{ display: none !important; \} \}/,'en el teléfono no se duplica');
 });
+await test('v8.0.5 la hoja Crear cerrada no recibe clics y «Nueva cotización/propuesta» empieza un documento vacío',async()=>{
+  const idx=source('index.html');
+  // En 768 px o más la hoja cerrada sólo era transparente (opacity:0) y, con z-index 1501, se robaba los clics
+  // de los botones de abajo a la derecha, también dentro de las ventanas (revisión integral de la v8.0.4).
+  const cerrada=idx.match(/\n\.sheet:not\(\.is-open\)\{([^}]*)\}/);
+  assert.ok(cerrada,'hay regla para la hoja cerrada');
+  assert.match(cerrada[1],/pointer-events:none/,'cerrada no recibe clics');
+  assert.match(cerrada[1],/visibility:hidden/,'cerrada no se ve ni se alcanza con el teclado');
+  assert.match(cerrada[1],/visibility 0s \.3s/,'se oculta al terminar la animación de cierre');
+  assert.ok(idx.indexOf(cerrada[0])>idx.indexOf('@media (min-width:768px){.sheet{'),'va después de la regla del computador');
+  assert.ok(!/\.sheet\{[^}]*pointer-events:auto/.test(idx),'ninguna regla de .sheet devuelve los clics a la hoja cerrada');
+  // Antes «Nueva» sólo cambiaba de modo y dejaba cargado el documento anterior (se podía guardar encima de un pedido).
+  assert.match(idx,/if\(action==='cot'&&typeof window\.nuevaCotizacion==='function'\)window\.nuevaCotizacion\(\);/,'hoja Crear: Nueva cotización');
+  assert.match(idx,/else if\(action==='prop'&&typeof window\.nuevaPropuesta==='function'\)window\.nuevaPropuesta\(\);/,'hoja Crear: Nueva propuesta');
+  assert.match(idx,/if \(key === 'ventas\/cotizar'\) window\.nuevaCotizacion\(\);\s*else if \(key === 'ventas\/propuesta'\) window\.nuevaPropuesta\(\);\s*else window\.setMode\(legacy\);/,'menú lateral: Nueva cotización/propuesta');
+  assert.match(idx,/<button onclick="nuevaCotizacion\(\)"[^>]*>\s*<div[^>]*>📋/,'selector «Nueva venta»: Cotización');
+  assert.match(idx,/<button onclick="nuevaPropuesta\(\)"[^>]*>\s*<div[^>]*>🎪/,'selector «Nueva venta»: Evento');
+  assert.ok(!/onclick="setMode\('(cot|prop)'\)"/.test(idx),'ningún botón entra al editor sin pasar por «Nueva»');
+  // Pregunta antes de cambiar de modo (Codex v8.0.5): aceptar → documento vacío; cancelar → al editor con lo que había,
+  // sin tocarlo si ya se estaba en él (el pedido directo no se apaga).
+  for(const [fn,nuevo,modo] of [['nuevaCotizacion','newQuote','cot'],['nuevaPropuesta','newProp','prop']]){
+    for(const [acepta,desde,esperado] of [[true,'clientes-directorio',[modo]],[true,modo,[modo]],[false,'clientes-directorio',[modo]],[false,modo,[]]]){
+      const modos=[];const c=vm.createContext({setMode:m=>modos.push(m),curMode:desde,[nuevo]:async()=>acepta});
+      vm.runInContext(functionSource('app-core.js',fn),c);
+      await vm.runInContext(fn+'()',c);
+      assert.deepEqual(modos,esperado,fn+' acepta='+acepta+' desde '+desde);
+    }
+  }
+  // «Nueva cotización» pregunta si el formulario ya no es el vacío aunque no tenga productos (Codex v8.0.5 r2).
+  const preguntas=async({form,vacia,num=null,items=0,cli=''})=>{
+    const c=vm.createContext({window:{_gbCotVacia:vacia},currentQuoteNumber:num,allIt:()=>Array(items),
+      $:id=>({value:id==='f-cli'?cli:'',classList:{add(){}}}),formularioCotizacion:()=>form,
+      gbStableJson:v=>JSON.stringify(v),cargarCotizacionEnEditor(){},go(){},n:0});
+    c.confirmModal=async()=>{c.n++;return true};
+    for(const f of ['firmaFormularioCotizacion','newQuote'])vm.runInContext(functionSource('app-core.js',f),c);
+    await vm.runInContext('newQuote()',c);return c;
+  };
+  const vacio={client:'Sin nombre',eventDate:'',notasInternas:''};
+  assert.equal((await preguntas({form:vacio,vacia:JSON.stringify(vacio)})).n,0,'formulario vacío: no pregunta');
+  assert.equal((await preguntas({form:{...vacio,notasInternas:'sin gluten'},vacia:JSON.stringify(vacio)})).n,1,'sólo notas: pregunta');
+  assert.equal((await preguntas({form:{...vacio,eventDate:'2026-10-20'},vacia:JSON.stringify(vacio)})).n,1,'sólo fecha: pregunta');
+  assert.equal((await preguntas({form:vacio,vacia:JSON.stringify(vacio),num:'GB-1'})).n,1,'documento cargado: pregunta');
+  assert.equal((await preguntas({form:vacio,vacia:undefined,cli:'Ana'})).n,1,'sin foto del vacío: el cliente escrito basta');
+  assert.equal((await preguntas({form:vacio,vacia:undefined})).n,0,'sin foto y sin cliente: no pregunta');
+  assert.equal((await preguntas({form:vacio,vacia:JSON.stringify(vacio)})).window._gbCotVacia,JSON.stringify(vacio),'al empezar guarda la foto del vacío');
+  assert.match(functionSource('app-core.js','initApp'),/^async function initApp\(\)\{\s*\/\/[^\n]*\n\s*if\(window\._gbCotVacia===undefined\)window\._gbCotVacia=firmaFormularioCotizacion\(\);\s*showLoader\(/,'la foto del vacío se toma al arrancar, antes de lo que puede fallar y una sola vez');
+  // Las notas por defecto que agrega el paso «③ Cotización» no cuentan como datos escritos (Codex r3).
+  {const c=vm.createContext({notas:[],gbStableJson:v=>JSON.stringify(v)});
+   c.formularioCotizacion=()=>({notasCotLista:c.notas});c.initNotasCot=()=>{if(!c.notas.length)c.notas=['nota por defecto']};
+   vm.runInContext(functionSource('app-core.js','firmaFormularioCotizacion'),c);
+   const antes=vm.runInContext('firmaFormularioCotizacion()',c);c.notas=[];c.initNotasCot();
+   assert.equal(vm.runInContext('firmaFormularioCotizacion()',c),antes,'visitar ③ Cotización no cambia la firma');}
+  // La propuesta nueva nace con la «Opción A» llena con el menaje por defecto (antes quedaba vacía).
+  const npx=functionSource('app-core.js','newProp');
+  assert.match(npx,/menajeOptions=\[\{id:"opA_"\+Date\.now\(\),label:"Opción A",items:DEFAULT_MENAJE\.map\(/,'Opción A con el menaje por defecto');
+  assert.match(npx,/_syncActiveMenajeRefs\(\);/);
+  const np=functionSource('app-core.js','newProp');
+  assert.match(np,/if\(!ok\)return false;/);assert.match(np,/return true;\s*\}$/,'newProp avisa si empezó');
+});
 await test('v8.0.4 perdidas del cliente desde su ficha y menú sin letreros «Pronto»',()=>{
   const modos=[];
   const c=vm.createContext({setMode:m=>modos.push(m),setTimeout,clearTimeout});
@@ -1763,7 +1822,7 @@ await test('T4 menú: el módulo del Dashboard viejo no repite la sección que l
 // ─── Carga en la app ───────────────────────────────────────
 await test('app-negocios.js se carga en index.html con ?v= de BUILD_VERSION y check.mjs lo revisa',()=>{
   const v=source('app-core.js').match(/const BUILD_VERSION="v([^"]+)"/)[1];
-  assert.equal(v,'8.0.4');
+  assert.equal(v,'8.0.5');
   assert.ok(source('index.html').includes('<script src="app-negocios.js?v='+v+'"></script>'));
   assert.ok(/"app-negocios\.js"/.test(source('scripts/check.mjs')));
   assert.ok(source('.github/workflows/check.yml').includes('node scripts/test_negocios.mjs'));
