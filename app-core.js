@@ -2382,7 +2382,7 @@ async function applyAjusteToDoc(q,docKind,ajusteEntry){
   // Antes pusheaba a q.ajustes del caché y escribía el array completo: un ajuste
   // concurrente de otra sesión se perdía (quedaba huérfano en ajustesLog sin aplicar).
   const {db,doc,runTransaction,serverTimestamp}=window.fb;
-  const coll=docKind==="quote"?"quotes":(docKind==="proposal"?"proposals":"propfinals");
+  const coll=getCollectionName(q.id,docKind); // v8.0.7 (Codex r6): una PF (kind proposal, id GB-PF-) vive en propfinals
   const ref=doc(db,coll,q.id);
   const ajusteEnDoc={
     id:ajusteEntry.id||("aj_"+Date.now()),

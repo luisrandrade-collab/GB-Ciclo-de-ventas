@@ -1339,7 +1339,8 @@ async function submitAjuste(){
           const ya=await _ajusteAplicadoEnServidor(tipo,q,logEntry.id);
           if(ya===true)return {payloadExtra:{ajusteLogId:logEntry.id,confirmadoTrasError:true}};
           if(ya===null)throw Object.assign(new Error("No se pudo comprobar si el ajuste quedó aplicado. Revisa el saldo del cliente antes de repetirlo."),{paraUsuario:true});
-          await _revertirAjusteNoAplicado(logEntry,monto);
+          // v8.0.7 (Codex r6): si tampoco se pudo anular el registro, se dice cuál queda por conciliar.
+          if(!await _revertirAjusteNoAplicado(logEntry,monto))throw Object.assign(new Error("El ajuste no se aplicó y tampoco se pudo anular su registro ("+logEntry.id+"): queda pendiente de conciliación. Avísale a Luis con ese número."),{paraUsuario:true});
           throw errAplicar;
         }
         return {payloadExtra:{ajusteLogId:logEntry.id}};
@@ -1624,12 +1625,17 @@ function cargosVerPagosHtml(q){
 async function _ajusteAplicadoEnServidor(tipo,q,logId){
   try{
     const {db,doc,collection,getDocFromServer,getDocsFromServer}=window.fb;
+    // v8.0.7 (Codex r6): si quedó, la caché toma lo confirmado para que la pantalla muestre el saldo real.
     if(tipo==="ajuste_saldo"){
       const s=await getDocFromServer(doc(db,getCollectionName(q.id,q.kind||"quote"),q.id));
-      return !!(s.exists()&&(s.data().ajustes||[]).some(a=>a&&(a.logId===logId||a.id===logId)));
+      const ok=!!(s.exists()&&(s.data().ajustes||[]).some(a=>a&&(a.logId===logId||a.id===logId)));
+      if(ok)q.ajustes=s.data().ajustes;
+      return ok;
     }
     const s=await getDocsFromServer(collection(db,"clients"));
-    return s.docs.some(d=>(d.data().saldoAFavorMovs||[]).some(m=>m&&m.logId===logId));
+    const d=s.docs.find(x=>(x.data().saldoAFavorMovs||[]).some(m=>m&&m.logId===logId));
+    if(d){clientsCache=clientsCache.filter(x=>x.id!==d.id);clientsCache.push({id:d.id,...d.data()})}
+    return !!d;
   }catch(e){return null}
 }
 // v8.0.7 (Codex r4): reversión de un registro de ajuste cuya aplicación falló (mismo formato que softDeleteAjuste).
@@ -1641,7 +1647,8 @@ async function _revertirAjusteNoAplicado(logEntry,monto){
       motivo:"No aplicada: falló al registrarse",fecha:gbTodayIso(),createdAt:serverTimestamp(),createdAtIso:nowIso,reversedBy:currentUser?.email||"",...auditStamp()});
     const local=ajustesLogCache.find(x=>x.id===logEntry.id);
     if(local){local.deletedAt=nowIso;local.reversalId=rid}
-  }catch(e){console.error("[ajuste no aplicado] no se pudo registrar la reversión",logEntry&&logEntry.id,e)}
+    return true;
+  }catch(e){console.error("[ajuste no aplicado] no se pudo registrar la reversión",logEntry&&logEntry.id,e);return false}
 }
 async function _addSaldoAFavor(clienteName,monto,motivo,logId){
   const {db,collection,doc,addDoc,serverTimestamp,runTransaction}=window.fb;

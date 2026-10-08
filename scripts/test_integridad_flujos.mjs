@@ -2978,12 +2978,12 @@ await test('v8.0.7 r4 guardar el editor no deshace un renombrado de otra sesión
   assert.equal(st2.get('ajustesLog/reversion_L1').reversesLogId,'L1');assert.ok(cache[0].deletedAt,'deja de contar en el log');
   const p=loadSourceFunctions(core('projectAjustesLog'));
   assert.ok(p.projectAjustesLog([{id:'L1',monto:5000},{id:'reversion_L1',reversesLogId:'L1',createdAtIso:'x'}])[0].deletedAt,'la proyección la marca anulada al recargar');
-  assert.match(functionSource('app-historial.js','submitAjuste'),/const ya=await _ajusteAplicadoEnServidor\(tipo,q,logEntry\.id\);\s*if\(ya===true\)return[^\n]*\n\s*if\(ya===null\)throw[^\n]*\n\s*await _revertirAjusteNoAplicado\(logEntry,monto\);/,'sólo se revierte si el servidor confirma que no se aplicó');
+  assert.match(functionSource('app-historial.js','submitAjuste'),/const ya=await _ajusteAplicadoEnServidor\(tipo,q,logEntry\.id\);\s*if\(ya===true\)return[^\n]*\n\s*if\(ya===null\)throw[^\n]*\n[^\n]*\n\s*if\(!await _revertirAjusteNoAplicado\(logEntry,monto\)\)/,'sólo se revierte si el servidor confirma que no se aplicó');
 });
 await test('v8.0.7 r5 antes de revertir se pregunta al servidor si el ajuste o la nota crédito sí quedaron; la caché local no interrumpe',async()=>{
   const {fb,store}=fakeDb({'quotes/Q':{ajustes:[{id:'L1',logId:'L1',monto:10}]},'clients/c1':{name:'Ana',saldoAFavorMovs:[{logId:'L2',monto:5}]}});
   fb.collection=(_,x)=>x;fb.getDocFromServer=fb.getDoc;fb.getDocsFromServer=async x=>({docs:[...store].filter(([k])=>k.startsWith(x+'/')).map(([k,v])=>({id:k.split('/')[1],data:()=>structuredClone(v)}))});
-  const c=loadSourceFunctions([...core('getCollectionName'),...h806('_ajusteAplicadoEnServidor')],{...common(),window:{fb}});
+  const c=loadSourceFunctions([...core('getCollectionName'),...h806('_ajusteAplicadoEnServidor')],{...common(),window:{fb},clientsCache:[]});
   assert.equal(await c._ajusteAplicadoEnServidor('ajuste_saldo',{id:'Q',kind:'quote'},'L1'),true);
   assert.equal(await c._ajusteAplicadoEnServidor('ajuste_saldo',{id:'Q',kind:'quote'},'L9'),false);
   assert.equal(await c._ajusteAplicadoEnServidor('nota_credito',{id:'Q'},'L2'),true,'la nota crédito abonada no se revierte');
@@ -2994,5 +2994,21 @@ await test('v8.0.7 r5 antes de revertir se pregunta al servidor si el ajuste o l
   const g=loadSourceFunctions(core('saveAjusteToCloud'),{...common(),window:{fb:f2},ajustesLogCache:[],localStorage:{setItem(){throw new Error('QuotaExceeded')},getItem(){return null}}});
   assert.equal((await g.saveAjusteToCloud({monto:1})).id,'L1','el registro guardado se devuelve aunque la caché local falle');
   for(const [f,fn] of [['app-core.js','saveClientToCloud'],['app-historial.js','_addSaldoAFavor']])assert.match(functionSource(f,fn),/try\{localStorage\.setItem\("gb_clients_cache"/,fn+': caché no fatal');
+});
+await test('v8.0.7 r6 ajuste confirmado tras error actualiza la caché; ajustar una PF llega a propfinals; reversión fallida avisa',async()=>{
+  const {fb,store}=fakeDb({'quotes/Q':{ajustes:[{id:'L1',logId:'L1',monto:10}]},'clients/c1':{name:'Ana',saldoAFavor:5,saldoAFavorMovs:[{logId:'L2',monto:5}]}});
+  fb.collection=(_,x)=>x;fb.getDocFromServer=fb.getDoc;fb.getDocsFromServer=async x=>({docs:[...store].filter(([k])=>k.startsWith(x+'/')).map(([k,v])=>({id:k.split('/')[1],data:()=>structuredClone(v)}))});
+  const q={id:'Q',kind:'quote',ajustes:[]};
+  const c=loadSourceFunctions([...core('getCollectionName'),...h806('_ajusteAplicadoEnServidor')],{...common(),window:{fb},clientsCache:[{id:'c1',name:'Ana',saldoAFavor:0}]});
+  assert.equal(await c._ajusteAplicadoEnServidor('ajuste_saldo',q,'L1'),true);assert.equal(q.ajustes.length,1,'la caché del documento toma el ajuste confirmado');
+  assert.equal(await c._ajusteAplicadoEnServidor('nota_credito',q,'L2'),true);assert.equal(c.clientsCache.find(x=>x.id==='c1').saldoAFavor,5,'la caché del cliente toma el saldo confirmado');
+  const {fb:f2,store:s2}=fakeDb({'propfinals/GB-PF-2026-0001':{ajustes:[]}});
+  const a=loadSourceFunctions(core('getCollectionName','applyAjusteToDoc'),{...common(),window:{fb:f2}});
+  await a.applyAjusteToDoc({id:'GB-PF-2026-0001',kind:'proposal'},'proposal',{id:'L5',monto:100,motivo:'x',tipo:'ajuste_saldo',fecha:'2026-10-08'});
+  assert.equal(s2.get('propfinals/GB-PF-2026-0001').ajustes.length,1,'el ajuste de una PF llega a propfinals');assert.ok(!s2.has('proposals/GB-PF-2026-0001'));
+  const {fb:f3}=fakeDb({});f3.setDoc=async()=>{throw new Error('permission-denied')};
+  const r=loadSourceFunctions(h806('_revertirAjusteNoAplicado'),{...common(),window:{fb:f3},ajustesLogCache:[]});
+  assert.equal(await r._revertirAjusteNoAplicado({id:'L9'},1),false,'la reversión fallida se informa');
+  assert.match(functionSource('app-historial.js','submitAjuste'),/if\(!await _revertirAjusteNoAplicado\(logEntry,monto\)\)throw.*pendiente de conciliación/);
 });
 console.log(`${passed} escenarios de integridad pasaron (adaptadores en memoria; no emulador Firebase).`);
