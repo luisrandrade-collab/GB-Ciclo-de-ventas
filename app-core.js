@@ -1829,9 +1829,20 @@ function _cleanClientObjForUpdate(obj){
 // mismo nombre según la regla de la caché (minúsculas, sin espacios en los extremos) → mismo documento.
 // Así dos creaciones simultáneas por cualquier camino escriben la misma ficha. José y Jose siguen distintos.
 function clienteIdAuto(nombre){return "nc_"+encodeURIComponent(String(nombre||"").toLowerCase().trim())}
+// v8.0.7 (Codex r2): antes de crear se busca en el SERVIDOR una ficha con ese nombre (también las antiguas con id
+// aleatorio, que no siguen clienteIdAuto). Si el servidor no responde no se crea nada: se pide reintentar.
+async function buscarClienteEnServidor(nombre){
+  const {db,collection,getDocsFromServer}=window.fb;
+  const k=String(nombre||"").toLowerCase().trim();
+  let snap;
+  try{snap=await getDocsFromServer(collection(db,"clients"))}
+  catch(e){throw Object.assign(new Error("No se pudo comprobar el directorio de clientes en el servidor; no se creó nada. Revisa la conexión y vuelve a intentar."),{paraUsuario:true,detalle:String(e)})}
+  const d=snap.docs.find(x=>String(x.data().name||"").toLowerCase().trim()===k);
+  return d?{id:d.id,...d.data()}:null;
+}
 
 async function saveClientToCloud(obj,opts){
-  const {db,doc,updateDoc,serverTimestamp,runTransaction}=window.fb;
+  const {db,collection,doc,addDoc,updateDoc,serverTimestamp,runTransaction}=window.fb;
   // v7.7.1: opts.fullUpdate=true → guarda obj tal cual (uso desde modal edición).
   //         opts.fullUpdate=false (default) → filtra vacíos (uso desde autosave).
   const fullUpdate=opts&&opts.fullUpdate===true;
@@ -1850,21 +1861,33 @@ async function saveClientToCloud(obj,opts){
     await updateDoc(doc(db,"clients",existing.id),{...updateObj,updatedAt:serverTimestamp()});
     Object.assign(existing,updateObj);
   }else{
-    // v8.0.7 (Codex r1): se crea (o se completa) en una transacción sobre la identidad por nombre.
-    const id=clienteIdAuto(obj.name),k=String(obj.name||"").toLowerCase().trim(),ref=doc(db,"clients",id);
-    let final=null;
-    await runTransaction(db,async tx=>{
-      const snap=await tx.get(ref);
-      if(snap.exists()){
-        const prev=snap.data();
-        if(String(prev.name||"").toLowerCase().trim()!==k)throw Object.assign(new Error("No se guardó el cliente: su ficha automática choca con otro cliente. Avísale a Luis."),{paraUsuario:true,detalle:"clients/"+id+" tiene name="+prev.name});
-        if(fullUpdate)throw Object.assign(new Error("Ya existe un cliente llamado «"+prev.name+"». Ábrelo desde el directorio o usa otro nombre."),{paraUsuario:true});
-        const updateObj=_cleanClientObjForUpdate(obj);
-        tx.update(ref,{...updateObj,updatedAt:serverTimestamp()});final={...prev,...updateObj};
-      }else{
-        tx.set(ref,{...obj,createdAt:serverTimestamp(),updatedAt:serverTimestamp()});final={...obj};
-      }
-    });
+    const hallado=await buscarClienteEnServidor(obj.name); // v8.0.7 (Codex r2): también fichas antiguas fuera de la caché
+    if(hallado&&fullUpdate)throw Object.assign(new Error("Ya existe un cliente llamado «"+hallado.name+"». Ábrelo desde el directorio o usa otro nombre."),{paraUsuario:true});
+    let id,final;
+    if(hallado){
+      const updateObj=_cleanClientObjForUpdate(obj);
+      await updateDoc(doc(db,"clients",hallado.id),{...updateObj,updatedAt:serverTimestamp()});
+      id=hallado.id;final={...hallado,...updateObj};delete final.id;
+    }else{
+      // v8.0.7 (Codex r1): se crea (o se completa) en una transacción sobre la identidad por nombre.
+      id=clienteIdAuto(obj.name);
+      const k=String(obj.name||"").toLowerCase().trim(),ref=doc(db,"clients",id);
+      let ocupado=false;
+      await runTransaction(db,async tx=>{
+        const snap=await tx.get(ref);ocupado=false;
+        if(snap.exists()){
+          const prev=snap.data();
+          // v8.0.7 (Codex r2): el lugar lo ocupa una ficha que se renombró después; se crea una ficha normal aparte.
+          if(String(prev.name||"").toLowerCase().trim()!==k){ocupado=true;return}
+          if(fullUpdate)throw Object.assign(new Error("Ya existe un cliente llamado «"+prev.name+"». Ábrelo desde el directorio o usa otro nombre."),{paraUsuario:true});
+          const updateObj=_cleanClientObjForUpdate(obj);
+          tx.update(ref,{...updateObj,updatedAt:serverTimestamp()});final={...prev,...updateObj};
+        }else{
+          tx.set(ref,{...obj,createdAt:serverTimestamp(),updatedAt:serverTimestamp()});final={...obj};
+        }
+      });
+      if(ocupado){const r=await addDoc(collection(db,"clients"),{...obj,createdAt:serverTimestamp(),updatedAt:serverTimestamp()});id=r.id;final={...obj}}
+    }
     clientsCache=clientsCache.filter(c=>c.id!==id);
     clientsCache.push({id,...final});
     clientsCache.sort((a,b)=>(a.name||"").localeCompare(b.name||""));

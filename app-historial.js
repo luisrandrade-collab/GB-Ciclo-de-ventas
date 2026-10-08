@@ -1473,6 +1473,7 @@ async function _submitCargoImpl(){
 // El índice viene de la lista de «Ver pagos» (caché); la transacción lo busca por id en el estado fresco.
 async function anularCargo(idx){
   const docId=window.__verPagosId,kind=window.__verPagosKind;
+  const apertura=window.__verPagosApertura; // v8.0.7 (Codex r2)
   const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
   const c=q&&Array.isArray(q.cargos)?q.cargos[idx]:null;
   if(!c||c.deletedAt)return;
@@ -1510,7 +1511,8 @@ async function anularCargo(idx){
     });
     hideLoader();
     toast(sinCambios?"El cargo ya estaba anulado (otra sesión); no se cambió nada.":"Cargo anulado",sinCambios?"warn":"success");
-    openVerPagosModal(docId,kind);
+    // v8.0.7 (Codex r2): como guardar y adjuntar, no repinta otra apertura ni encima de una edición de pago abierta.
+    if(window.__verPagosApertura===apertura&&!window.__pagoEditBase&&!$("verpagos-modal").classList.contains("hidden"))openVerPagosModal(docId,kind);
     renderHist();if(typeof refreshActiveView==="function")refreshActiveView(); // v8.0.6 N3: repinta la pantalla visible
     if(typeof renderCartera==="function")renderCartera();
     if(typeof docPreviewRefresh==="function")docPreviewRefresh(); // v7.9.36
@@ -1607,16 +1609,15 @@ function cargosVerPagosHtml(q){
 // Helper: agrega saldoAFavor a un cliente. Si el cliente no existe en
 // clientsCache, crea uno mínimo (solo nombre) para que el saldo persista.
 async function _addSaldoAFavor(clienteName,monto,motivo,logId){
-  const {db,collection,doc,serverTimestamp,runTransaction,getDocsFromServer}=window.fb;
+  const {db,collection,doc,addDoc,serverTimestamp,runTransaction}=window.fb;
   const k=(clienteName||"").toLowerCase().trim();
   if(!k)throw Object.assign(new Error("Nombre de cliente vacío"),{paraUsuario:true});
   let c=clientsCache.find(x=>(x.name||"").toLowerCase().trim()===k);
   // v8.0.7 D13: la caché puede no tener un cliente que otra sesión acaba de crear; se lee el directorio del
   // servidor con la misma regla de nombre de la caché (minúsculas y sin espacios en los extremos).
   if(!c){
-    const snapCli=await getDocsFromServer(collection(db,"clients"));
-    const d0=snapCli.docs.find(d=>String(d.data().name||"").toLowerCase().trim()===k);
-    if(d0){c={id:d0.id,...d0.data()};clientsCache.push(c)}
+    c=await buscarClienteEnServidor(clienteName); // v8.0.7 (Codex r2): la misma búsqueda que la creación normal
+    if(c)clientsCache.push(c);
   }
   const nowIso=new Date().toISOString();
   const movimiento={
@@ -1657,13 +1658,14 @@ async function _addSaldoAFavor(clienteName,monto,motivo,logId){
     // Cliente fantasma: crear mínimo.
     // v8.0.7 D13: id derivado del nombre y transacción: dos notas crédito simultáneas escriben la misma ficha
     // (la segunda suma) en vez de crear dos con el saldo repartido. Mismo nombre según la regla de la caché.
-    const idAuto=clienteIdAuto(clienteName); // la misma identidad que la creación normal (saveClientToCloud)
+    let idAuto=clienteIdAuto(clienteName); // la misma identidad que la creación normal (saveClientToCloud)
     const ref=doc(db,"clients",idAuto);
-    let objCommit=null;
+    let objCommit=null,ocupado=false;
     await runTransaction(db,async(tx)=>{
-      const snap=await tx.get(ref);
+      const snap=await tx.get(ref);ocupado=false;
       const prev=snap.exists()?snap.data():null;
-      if(prev&&String(prev.name||"").toLowerCase().trim()!==k)throw Object.assign(new Error("No se registró la nota crédito: la ficha automática de «"+clienteName+"» choca con otro cliente. Avísale a Luis."),{paraUsuario:true,detalle:"clients/"+idAuto+" tiene name="+prev.name});
+      // v8.0.7 (Codex r2): el lugar lo ocupa una ficha que se renombró; se crea una ficha normal aparte (abajo).
+      if(prev&&String(prev.name||"").toLowerCase().trim()!==k){ocupado=true;return}
       const movsTx=prev&&Array.isArray(prev.saldoAFavorMovs)?prev.saldoAFavorMovs.slice():[];
       const yaEsta=movsTx.some(m=>m.logId===logId);
       if(!yaEsta)movsTx.push(movimiento);
@@ -1677,6 +1679,11 @@ async function _addSaldoAFavor(clienteName,monto,motivo,logId){
         tx.set(ref,objCommit);
       }
     });
+    if(ocupado){
+      objCommit={name:clienteName,tipo:"persona",categoria:"particular",saldoAFavor:monto,saldoAFavorMovs:[movimiento],
+        createdAt:serverTimestamp(),updatedAt:serverTimestamp(),...auditStamp(),_autoCreated:true,_autoCreatedFrom:"nota_credito"};
+      idAuto=(await addDoc(collection(db,"clients"),objCommit)).id;
+    }
     clientsCache=clientsCache.filter(x=>x.id!==idAuto);
     clientsCache.push({id:idAuto,...objCommit});
     clientsCache.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
@@ -1983,8 +1990,9 @@ async function _submitPagoImpl(intento){
     let estadoPago="no";
     if(!(e&&e.paraUsuario)){
       try{
-        const {db,doc,getDoc}=window.fb;
-        const s=await getDoc(doc(db,getCollectionName(src.id,src.kind),src.id));
+        // v8.0.7 (Codex r2): sólo el servidor puede decir «no quedó»; la caché podría no tener el commit.
+        const {db,doc,getDocFromServer}=window.fb;
+        const s=await getDocFromServer(doc(db,getCollectionName(src.id,src.kind),src.id));
         estadoPago=s.exists()&&getPagos(s.data()).some(p=>p.clientId===clientId)?"si":"no";
         if(estadoPago==="si"&&src.doc)src.doc.pagos=s.data().pagos; // caché con el pago confirmado
       }catch(_){estadoPago="incierto"}

@@ -2751,7 +2751,8 @@ await test('v8.0.7 D11 revertir limpia la entrega de cada despacho y la deja en 
 function saldo807(store0,clientsCache=[]){
   const {fb,store}=fakeDb(store0);
   fb.collection=(_,c)=>c;fb.getDocsFromServer=async c=>({docs:[...store].filter(([k])=>k.startsWith(c+'/')).map(([k,v])=>({id:k.split('/')[1],data:()=>structuredClone(v)}))});
-  const c=loadSourceFunctions([...core('clienteIdAuto'),...h806('_addSaldoAFavor')],{...common(),window:{fb},clientsCache});
+  let n=0;fb.addDoc=async(c,data)=>{const id='rnd'+(++n);store.set(c+'/'+id,structuredClone(data));return {id}};
+  const c=loadSourceFunctions([...core('clienteIdAuto','buscarClienteEnServidor'),...h806('_addSaldoAFavor')],{...common(),window:{fb},clientsCache});
   return {c,store,fb};
 }
 await test('v8.0.7 D13 dos notas crédito simultáneas para un cliente nuevo quedan en una sola ficha con el saldo completo',async()=>{
@@ -2768,7 +2769,9 @@ await test('v8.0.7 D13 usa la ficha existente aunque no esté en la caché y no 
   await c._addSaldoAFavor('bea ruiz ',1000,'nc','L9');
   assert.equal(store.get('clients/abc').saldoAFavor,6000);assert.equal([...store.keys()].length,1);
   const t=saldo807({['clients/nc_'+encodeURIComponent('josé')]:{name:'Otra Persona',saldoAFavor:0}});
-  await assert.rejects(t.c._addSaldoAFavor('José',1000,'nc','LX'),/choca con otro cliente/);
+  await t.c._addSaldoAFavor('José',1000,'nc','LX'); // r2: el lugar lo ocupa una ficha renombrada → ficha aparte
+  assert.equal(t.store.get('clients/nc_'+encodeURIComponent('josé')).saldoAFavor,0,'la ficha renombrada no recibe el saldo');
+  assert.equal(t.store.get('clients/rnd1').saldoAFavor,1000);assert.equal(t.store.get('clients/rnd1').name,'José');
 });
 await test('v8.0.7 D14 la remisión toma el menaje sólo del documento, nunca del editor',()=>{
   const src=functionSource('app-propuesta.js','genRemisionDespachoPDF');
@@ -2879,7 +2882,7 @@ await test('v8.0.7 C4 «Migrar fotos» conserva el comentario que otra sesión c
 });
 await test('v8.0.7 r1 crear el cliente en el editor y una nota crédito al mismo tiempo escriben una sola ficha',async()=>{
   const {fb,store}=fakeDb({});fb.collection=(_,c)=>c;fb.getDocsFromServer=async()=>({docs:[]});fb.updateDoc=async()=>{throw new Error('no debería usar updateDoc')};
-  const c=loadSourceFunctions([...core('clienteIdAuto','saveClientToCloud','_cleanClientObjForUpdate'),...h806('_addSaldoAFavor')],{...common(),window:{fb},clientsCache:[]});
+  const c=loadSourceFunctions([...core('clienteIdAuto','buscarClienteEnServidor','saveClientToCloud','_cleanClientObjForUpdate'),...h806('_addSaldoAFavor')],{...common(),window:{fb},clientsCache:[]});
   await Promise.all([c.saveClientToCloud({name:'Carla Gómez',tel:'300'}),c._addSaldoAFavor('Carla Gómez',10000,'nc','L1')]);
   const fichas=[...store.keys()].filter(k=>k.startsWith('clients/'));
   assert.equal(fichas.length,1,'una sola ficha');const f=store.get(fichas[0]);assert.equal(f.saldoAFavor,10000);assert.equal(f.tel,'300');
@@ -2887,7 +2890,7 @@ await test('v8.0.7 r1 crear el cliente en el editor y una nota crédito al mismo
 });
 await test('v8.0.7 r1 si se pierde la confirmación de un pago ya escrito, se informa que sí quedó guardado',async()=>{
   const t=pago806({datosDom:{fecha:'2026-09-22',monto:'1000',metodo:'Efectivo',tipo:'parcial',notas:''}});
-  const {fb}=t.c.window;const orig=fb.runTransaction;let modales=0;
+  const {fb}=t.c.window;const orig=fb.runTransaction;let modales=0;fb.getDocFromServer=fb.getDoc;
   fb.runTransaction=async(...a)=>{await orig(...a);throw new Error('deadline-exceeded')};
   t.c.confirmModal=async()=>{modales++;return false};
   await t.c.submitPago();
@@ -2900,5 +2903,44 @@ await test('v8.0.7 r1 «Ver pagos»: cada apertura tiene número; un guardado vi
   assert.match(functionSource('app-historial.js','onAdjuntarPagoFile'),/window\.__verPagosApertura===apertura/);
   assert.match(functionSource('app-cotizar.js','_saveCurrentQuoteImpl'),/window\._gbEditBases\?\.quote\?\.id!==editingQuoteNumber/);
   assert.match(functionSource('app-propuesta.js','_savePropQuoteImpl'),/window\._gbEditBases\?\.proposal\?\.id!==editingPropNumber/);
+});
+await test('v8.0.7 r2 una ficha antigua (id aleatorio, fuera de la caché) se usa en vez de crear otra; una renombrada no bloquea su nombre viejo',async()=>{
+  const {fb,store}=fakeDb({'clients/viejo1':{name:'Dora Paz',tel:'1'},['clients/nc_'+encodeURIComponent('ana')]:{name:'Bea Renombrada'}});
+  fb.collection=(_,c)=>c;fb.getDocsFromServer=async c=>({docs:[...store].filter(([k])=>k.startsWith(c+'/')).map(([k,v])=>({id:k.split('/')[1],data:()=>structuredClone(v)}))});
+  let n=0;fb.addDoc=async(c,data)=>{const id='rnd'+(++n);store.set(c+'/'+id,structuredClone(data));return {id}};
+  fb.updateDoc=async(ref,data)=>store.set(ref,{...store.get(ref),...structuredClone(data)});
+  const c=loadSourceFunctions(core('clienteIdAuto','buscarClienteEnServidor','saveClientToCloud','_cleanClientObjForUpdate'),{...common(),window:{fb},clientsCache:[]});
+  await c.saveClientToCloud({name:'dora paz',tel:'2'});
+  assert.equal(store.get('clients/viejo1').tel,'2','el guardado automático completa la ficha antigua');assert.ok(![...store.keys()].some(k=>k.includes('dora')),'no crea otra');
+  await assert.rejects(c.saveClientToCloud({name:'Dora Paz'},{fullUpdate:true}),/Ya existe un cliente/);
+  await c.saveClientToCloud({name:'Ana',tel:'9'});
+  assert.equal(store.get('clients/rnd1').name,'Ana','el nombre viejo de una ficha renombrada se puede volver a usar');
+  fb.getDocsFromServer=async()=>{throw new Error('offline')};
+  await assert.rejects(c.saveClientToCloud({name:'Nueva Sin Red'}),/No se pudo comprobar el directorio/,'sin servidor no crea nada');
+});
+await test('v8.0.7 r2 si no se puede leer del servidor, el pago queda «sin comprobar» y no se afirma que no quedó',async()=>{
+  const t=pago806({datosDom:{fecha:'2026-09-22',monto:'1000',metodo:'Efectivo',tipo:'parcial',notas:''}});
+  const {fb}=t.c.window;let cuerpo='';
+  fb.runTransaction=async()=>{throw new Error('unavailable')};fb.getDocFromServer=async()=>{throw new Error('offline')};
+  t.c.confirmModal=async o=>{cuerpo=o.body;return false};
+  await t.c.submitPago();
+  assert.match(cuerpo,/No se pudo comprobar/);assert.doesNotMatch(cuerpo,/<strong>NO<\/strong> quedó guardado/);
+  assert.match(functionSource('app-historial.js','anularCargo'),/if\(window\.__verPagosApertura===apertura&&!window\.__pagoEditBase&&/,'anular cargo tampoco repinta sobre una edición abierta');
+});
+await test('v8.0.7 r2 la Propuesta Final confirmada lleva sólo el menaje escogido, su reposición y su total',async()=>{
+  const src={client:'Fixture',sections:[{id:'s1',name:'Menu',options:[{id:'a',label:'A',items:[{name:'f',qty:1,price:100}]}]}],menaje:[{name:'vaso',qty:1,price:10}],
+    menajeOptions:[{id:'mA',label:'Opción A',items:[{name:'vaso',qty:1,price:10}]},{id:'mB',label:'Opción B',items:[{name:'copa',qty:2,price:50}]}],propFinalSelection:{menaje:'mA'},
+    reposicionByOption:{mA:{vaso:1},mB:{copa:9}},reposicionData:{vaso:1}};
+  let pf=null;
+  const c=loadSourceFunctions([...core('TR','computePropTotal','getMenajeOpciones','getMenajeOpcionActiva','getReposicionActivos'),['app-propuesta.js','pfMenajeEscogido'],['app-propuesta.js','_generarPropuestaFinalImpl']],{...common(),
+    window:{},cloudOnline:true,propFinalSource:{id:'P1',...src},propFinalSelection:{s1:'a'},propFinalMenajeSel:'mB',getNextNumber:async()=>'GB-PF-2026-0001',APP_YEAR:2026,
+    gbNotasNormalizar:()=>[],gbNotasALegacy:()=>({}),DEFAULT_CONDICIONES:{},CONDICIONES_TITULOS:{},menajeAssignedTo:null,inheritPropFinalLogistics:()=>{},
+    commitPropFinal:async o=>{pf=structuredClone(o);throw Object.assign(new Error('fin de la prueba'),{paraUsuario:true})},gbMensajeError:e=>e.message,toast(){}});
+  c.window._propFinalFlowSeq=0;
+  await c._generarPropuestaFinalImpl();
+  assert.ok(pf,'llegó a confirmar');
+  assert.deepEqual(plain(pf.menajeOptions).map(o=>o.id),['mB']);assert.deepEqual(plain(pf.menaje),[{name:'copa',qty:2,price:50}]);
+  assert.equal(pf.propFinalSelection.menaje,'mB');assert.deepEqual(plain(pf.reposicionByOption),{mB:{copa:9}});assert.deepEqual(plain(pf.reposicionData),{copa:9});
+  assert.equal(pf.total,200,'menú 100 + menaje B 100');
 });
 console.log(`${passed} escenarios de integridad pasaron (adaptadores en memoria; no emulador Firebase).`);
