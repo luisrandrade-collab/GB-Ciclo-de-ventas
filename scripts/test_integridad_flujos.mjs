@@ -2966,4 +2966,18 @@ await test('v8.0.7 r3 importar clientes lee el directorio del servidor una sola 
   assert.equal(r.creados,3);assert.equal(lecturas,1,'una sola lectura del directorio para todo el lote');assert.equal(c.window.__gbLoteClientes,null);
   assert.match(functionSource('app-dashboard.js','cliDirRunMigration'),/if\(!r\.errores\)localStorage\.setItem\("gb_clients_migration_skipped"/);
 });
+await test('v8.0.7 r4 guardar el editor no deshace un renombrado de otra sesión y un ajuste no aplicado queda revertido',async()=>{
+  const {fb,store}=fakeDb({'clients/c1':{name:'Bea',tel:'1'}});fb.collection=(_,x)=>x;fb.getDocsFromServer=async()=>({docs:[]});
+  const c=loadSourceFunctions(core('clienteIdAuto','leerDirectorioClientesServidor','buscarClienteEnServidor','saveClientToCloud','_cleanClientObjForUpdate'),{...common(),window:{fb},clientsCache:[{id:'c1',name:'Ana',tel:'1'}]});
+  await assert.rejects(c.saveClientToCloud({name:'Ana',tel:'2'},{fullUpdate:true,id:'c1'}),/Otra sesión renombró/);
+  assert.deepEqual(plain(store.get('clients/c1')),{name:'Bea',tel:'1'},'no vuelve a escribir «Ana»');
+  const {fb:fb2,store:st2}=fakeDb({});fb2.setDoc=async(ref,data)=>st2.set(ref,structuredClone(data));
+  const cache=[{id:'L1',monto:5000,tipo:'nota_credito'}];
+  const h=loadSourceFunctions(h806('_revertirAjusteNoAplicado'),{...common(),window:{fb:fb2},ajustesLogCache:cache});
+  await h._revertirAjusteNoAplicado({id:'L1',docId:'Q',docKind:'quote'},5000);
+  assert.equal(st2.get('ajustesLog/reversion_L1').reversesLogId,'L1');assert.ok(cache[0].deletedAt,'deja de contar en el log');
+  const p=loadSourceFunctions(core('projectAjustesLog'));
+  assert.ok(p.projectAjustesLog([{id:'L1',monto:5000},{id:'reversion_L1',reversesLogId:'L1',createdAtIso:'x'}])[0].deletedAt,'la proyección la marca anulada al recargar');
+  assert.match(functionSource('app-historial.js','submitAjuste'),/catch\(errAplicar\)\{\s*await _revertirAjusteNoAplicado\(logEntry,monto\);/);
+});
 console.log(`${passed} escenarios de integridad pasaron (adaptadores en memoria; no emulador Firebase).`);

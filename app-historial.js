@@ -1317,18 +1317,25 @@ async function submitAjuste(){
           fecha:fecha
         });
         // 2. Aplicación según tipo
-        if(tipo==="ajuste_saldo"){
-          // Push al q.ajustes[] del doc → saldoPendiente() lo descuenta
-          await applyAjusteToDoc(q,q.kind||"quote",{
-            id:logEntry.id,
-            monto:monto,
-            motivo:motivo,
-            tipo:tipo,
-            fecha:fecha
-          });
-        }else if(tipo==="nota_credito"){
-          // NO toca el doc original. Crea/incrementa cliente.saldoAFavor.
-          await _addSaldoAFavor(q.client||"(sin cliente)",monto,motivo,logEntry.id);
+        // v8.0.7 (Codex r4): si la aplicación falla, el registro (append-only) recibe su reversión y deja de
+        // contar; antes quedaba activo en «Log de ajustes» sin efecto en el saldo.
+        try{
+          if(tipo==="ajuste_saldo"){
+            // Push al q.ajustes[] del doc → saldoPendiente() lo descuenta
+            await applyAjusteToDoc(q,q.kind||"quote",{
+              id:logEntry.id,
+              monto:monto,
+              motivo:motivo,
+              tipo:tipo,
+              fecha:fecha
+            });
+          }else if(tipo==="nota_credito"){
+            // NO toca el doc original. Crea/incrementa cliente.saldoAFavor.
+            await _addSaldoAFavor(q.client||"(sin cliente)",monto,motivo,logEntry.id);
+          }
+        }catch(errAplicar){
+          await _revertirAjusteNoAplicado(logEntry,monto);
+          throw errAplicar;
         }
         return {payloadExtra:{ajusteLogId:logEntry.id}};
       }
@@ -1608,6 +1615,17 @@ function cargosVerPagosHtml(q){
 
 // Helper: agrega saldoAFavor a un cliente. Si el cliente no existe en
 // clientsCache, crea uno mínimo (solo nombre) para que el saldo persista.
+// v8.0.7 (Codex r4): reversión de un registro de ajuste cuya aplicación falló (mismo formato que softDeleteAjuste).
+async function _revertirAjusteNoAplicado(logEntry,monto){
+  try{
+    const {db,doc,setDoc,serverTimestamp}=window.fb;
+    const nowIso=new Date().toISOString(),rid="reversion_"+logEntry.id;
+    await setDoc(doc(db,"ajustesLog",rid),{tipo:"reversion",reversesLogId:logEntry.id,docId:logEntry.docId||null,docKind:logEntry.docKind||null,monto:0,montoOriginal:monto,
+      motivo:"No aplicada: falló al registrarse",fecha:gbTodayIso(),createdAt:serverTimestamp(),createdAtIso:nowIso,reversedBy:currentUser?.email||"",...auditStamp()});
+    const local=ajustesLogCache.find(x=>x.id===logEntry.id);
+    if(local){local.deletedAt=nowIso;local.reversalId=rid}
+  }catch(e){console.error("[ajuste no aplicado] no se pudo registrar la reversión",logEntry&&logEntry.id,e)}
+}
 async function _addSaldoAFavor(clienteName,monto,motivo,logId){
   const {db,collection,doc,addDoc,serverTimestamp,runTransaction}=window.fb;
   const k=(clienteName||"").toLowerCase().trim();

@@ -1849,7 +1849,7 @@ async function buscarClienteEnServidor(nombre){
 }
 
 async function saveClientToCloud(obj,opts){
-  const {db,collection,doc,addDoc,updateDoc,serverTimestamp,runTransaction}=window.fb;
+  const {db,collection,doc,addDoc,serverTimestamp,runTransaction}=window.fb;
   // v7.7.1: opts.fullUpdate=true → guarda obj tal cual (uso desde modal edición).
   //         opts.fullUpdate=false (default) → filtra vacíos (uso desde autosave).
   const fullUpdate=opts&&opts.fullUpdate===true;
@@ -1872,7 +1872,14 @@ async function saveClientToCloud(obj,opts){
         const otroSrv=await buscarClienteEnServidor(obj.name);
         if(otroSrv&&otroSrv.id!==targetId)throw Object.assign(new Error("Ya existe un cliente llamado «"+otroSrv.name+"». Ábrelo desde el directorio o usa otro nombre."),{paraUsuario:true});
       }
-      await updateDoc(doc(db,"clients",existing.id),{...updateObj,updatedAt:serverTimestamp()});
+      // v8.0.7 (Codex r4): la ficha debe seguir con el nombre que se abrió; si otra sesión la renombró, no se deshace.
+      const ref=doc(db,"clients",existing.id),abierto=String(existing.name||"").toLowerCase().trim();
+      await runTransaction(db,async tx=>{
+        const snap=await tx.get(ref);
+        if(!snap.exists())throw Object.assign(new Error("Este cliente ya no existe. Recarga la página."),{paraUsuario:true});
+        if(String(snap.data().name||"").toLowerCase().trim()!==abierto)throw Object.assign(new Error("Otra sesión renombró este cliente (ahora «"+(snap.data().name||"")+"»). Recarga la página y vuelve a editarlo."),{paraUsuario:true});
+        tx.update(ref,{...updateObj,updatedAt:serverTimestamp()});
+      });
     }else{
       // v8.0.7 (Codex r3): guardado por nombre desde la caché: la ficha debe seguir llamándose así en el
       // servidor (otra sesión pudo renombrarla); si no, no se escribe encima.
@@ -1889,8 +1896,12 @@ async function saveClientToCloud(obj,opts){
     if(hallado&&fullUpdate)throw Object.assign(new Error("Ya existe un cliente llamado «"+hallado.name+"». Ábrelo desde el directorio o usa otro nombre."),{paraUsuario:true});
     let id,final;
     if(hallado){
-      const updateObj=_cleanClientObjForUpdate(obj);
-      await updateDoc(doc(db,"clients",hallado.id),{...updateObj,updatedAt:serverTimestamp()});
+      const updateObj=_cleanClientObjForUpdate(obj),k=String(obj.name||"").toLowerCase().trim(),ref=doc(db,"clients",hallado.id);
+      await runTransaction(db,async tx=>{ // v8.0.7 (Codex r4): con el nombre vigente comprobado en la misma transacción
+        const snap=await tx.get(ref);
+        if(!snap.exists()||String(snap.data().name||"").toLowerCase().trim()!==k)throw Object.assign(new Error("La ficha de «"+obj.name+"» cambió o se renombró en otra sesión. Recarga la página."),{paraUsuario:true});
+        tx.update(ref,{...updateObj,updatedAt:serverTimestamp()});
+      });
       id=hallado.id;final={...hallado,...updateObj};delete final.id;
     }else{
       // v8.0.7 (Codex r1): se crea (o se completa) en una transacción sobre la identidad por nombre.
