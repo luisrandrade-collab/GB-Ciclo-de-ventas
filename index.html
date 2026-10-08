@@ -8,7 +8,9 @@
 <meta name="theme-color" content="#1a1a1a">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="icon" type="image/png" href="brand/cuchillo-negro.png">
-<link rel="apple-touch-icon" href="brand/cuchillo-negro.png">
+<link rel="apple-touch-icon" href="brand/icono-180.png"><!-- v8.0.7.2: ícono cuadrado opaco (el cuchillo 374x132 transparente salía aplastado sobre negro) -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="Gourmet Bites">
 <title>Gourmet Bites - Cotizador</title>
 <link rel="stylesheet" href="gb-tokens.css?v=8.0.8"><!-- v7.9.13 INF-05: cache-buster CSS -->
 <!-- VERSION: 2026-04-26-v7.0.0-α-cascaron-v7-dashboard-rediseñado-fsm-pedido-vs-produccion -->
@@ -1405,6 +1407,9 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   border-top: 1px solid var(--gb-sidebar-border, rgba(255,255,255,.08));
   display: flex; flex-direction: column; gap: 2px; flex-shrink: 0;
 }
+/* v8.0.7.3: versión en el pie del menú, sólo en móvil (en escritorio está en el encabezado) */
+.gb-shell-sidebar__ver { display: none; padding: 6px 12px 2px; font-size: 12px; color: var(--gb-sidebar-text-muted, #6b7384); }
+@media (max-width: 1023px) { .gb-shell-sidebar__ver { display: block; } }
 
 @media (min-width: 1024px) {
   .gb-shell-sidebar { display: flex; }
@@ -1755,6 +1760,14 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
 
   /* cloud-ind: empujar un poco hacia abajo para no chocar con crumb */
   .cloud-ind { top: 56px !important; }
+
+  /* v8.0.7.4: app instalada en iPhone (viewport-fit=cover + barra translúcida) → la página empieza detrás de la
+     hora y el ☰ caía en una zona que iOS no deja tocar. Se suma el margen seguro superior (0 en Safari normal). */
+  .hdr { height: calc(48px + env(safe-area-inset-top, 0px)) !important; min-height: calc(48px + env(safe-area-inset-top, 0px)) !important; padding-top: env(safe-area-inset-top, 0px) !important; }
+  .gb-shell-mobile-burger { top: calc(4px + env(safe-area-inset-top, 0px)) !important; }
+  .gb-shell-mobile-close { top: calc(10px + env(safe-area-inset-top, 0px)) !important; }
+  .gb-shell-sidebar { padding-top: env(safe-area-inset-top, 0px) !important; }
+  .cloud-ind { top: calc(56px + env(safe-area-inset-top, 0px)) !important; }
 }
 </style>
 <!-- v8.0.0 T2 · Inicio y Negocios (sólo se usan con GB_REDISENO_R1; celular primero, 375 px) -->
@@ -1969,6 +1982,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   <div class="gb-shell-sidebar__foot">
     <button class="gb-shell-sidebar__item" onclick="openUserMenu&&openUserMenu()"><span class="gb-shell-icon">👤</span><span class="gb-shell-sidebar__label">Cuenta</span></button>
     <button class="gb-shell-sidebar__item" onclick="(function(){var s=document.getElementById('gb-shell-sidebar');var c=s.getAttribute('data-collapsed')==='true';s.setAttribute('data-collapsed', c?'false':'true');document.body.classList.toggle('gb-shell-collapsed', !c);try{localStorage.setItem('gbShellCollapsed', !c);}catch(e){}})()"><span class="gb-shell-icon">⇔</span><span class="gb-shell-sidebar__label">Colapsar</span></button>
+    <div class="gb-shell-sidebar__ver">Versión <span id="sb-ver"></span> · <span id="sb-date"></span></div>
   </div>
 </aside>
 

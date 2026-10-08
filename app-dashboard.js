@@ -2521,8 +2521,29 @@ function toggleDashSection(key){
 
 // Inicializar UI: catálogo + version markers
 renderCats();
-["hdr-ver","pin-ver"].forEach(id=>{const el=$(id);if(el)el.textContent=BUILD_VERSION});
-["hdr-date","pin-date"].forEach(id=>{const el=$(id);if(el)el.textContent=BUILD_DATE});
+["hdr-ver","pin-ver","sb-ver"].forEach(id=>{const el=$(id);if(el)el.textContent=BUILD_VERSION});
+["hdr-date","pin-date","sb-date"].forEach(id=>{const el=$(id);if(el)el.textContent=BUILD_DATE});
+
+// v8.0.7.2: aviso de versión vieja. Safari en iPhone reanuda la pestaña congelada sin recargar y sigue corriendo
+// código viejo. Se lee el cache buster publicado de app-core.js (check.mjs lo exige igual a BUILD_VERSION); cache
+// "reload" además refresca la copia del navegador para que el botón cargue la nueva. Nunca recarga sola (no perder
+// una edición abierta). Sin red o sin patrón: no hace nada.
+async function revisarVersionPublicada(){
+  if($("aviso-version"))return;
+  try{
+    const html=await (await fetch("index.html",{cache:"reload"})).text();
+    const m=html.match(/app-core\.js\?v=([\w.]+)/);
+    if(!m||"v"+m[1]===BUILD_VERSION)return;
+    const d=document.createElement("div");
+    d.id="aviso-version";
+    d.style.cssText="position:fixed;top:0;left:0;right:0;z-index:100000;display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;padding:calc(env(safe-area-inset-top) + 10px) 16px 10px;background:#1a1a1a;color:#fff;font-size:15px";
+    d.innerHTML='<span>Hay una versión nueva de la app.</span><button type="button" style="padding:8px 16px;border:0;border-radius:8px;background:#fff;color:#1a1a1a;font-weight:600;font-size:15px">Actualizar</button>';
+    d.querySelector("button").onclick=()=>location.reload();
+    document.body.appendChild(d);
+  }catch(_e){}
+}
+revisarVersionPublicada();
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")revisarVersionPublicada()});
 
 // v5.0: Firebase Auth reemplaza al PIN. initAuthObserver mira onAuthStateChanged:
 // - Si hay user: esconde overlay + initApp
@@ -4014,7 +4035,7 @@ function generarPdfProduccionPorCliente(){
     }
     pdf.setFontSize(9.5);pdf.setFont("helvetica","normal");
     pdf.text("Para entrega: "+fecha+(hora?"  "+hora:""),M,y);y+=4.5;
-    if(q.dir)pdf.text("Dirección: "+q.dir+(q.city?", "+q.city:""),M,y),y+=4.5;
+    if(q.dir){const dl=pdf.splitTextToSize("Dirección: "+q.dir+(q.city?", "+q.city:""),W-2*M);pdf.text(dl,M,y);y+=4.5*dl.length} // v8.0.7.4: la dirección larga se parte en líneas (antes se salía del papel)
     if(q.tel)pdf.text("Teléfono: "+q.tel,M,y),y+=4.5;
     if(q.att)pdf.text("Atención: "+q.att,M,y),y+=4.5;
     y+=3;
@@ -4412,7 +4433,7 @@ function generarPdfEmpaque(){
       dirText=(q.dir||"")+(q.city?", "+q.city:"");
     }
     pdf.text("Entrega: "+fecha+(hora?"  "+hora:""),M,y);y+=4.5;
-    if(dirText.trim())pdf.text("Dirección: "+dirText,M,y),y+=4.5;
+    if(dirText.trim()){const dl=pdf.splitTextToSize("Dirección: "+dirText,W-2*M);pdf.text(dl,M,y);y+=4.5*dl.length} // v8.0.7.4: la dirección larga se parte en líneas (antes se salía del papel)
     if(q.tel)pdf.text("Teléfono: "+q.tel,M,y),y+=4.5;
     if(despacho&&despacho.notas){
       pdf.setFont("helvetica","italic");pdf.setTextColor(100,100,100);

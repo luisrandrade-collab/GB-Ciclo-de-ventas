@@ -110,7 +110,7 @@
 
 // ─── BUILD METADATA ────────────────────────────────────────
 const BUILD_VERSION="v8.0.8";
-const BUILD_DATE="2026-09-20";
+const BUILD_DATE="2026-10-08";
 // v8.0.0 (D-v8-09): bandera del rediseño R1. Tapa sólo lo nuevo: Inicio, Negocios (y la ficha en T3), barra
 // inferior, entradas del menú y arranque en Inicio. F5 y los campos nuevos quedan siempre activos. Apagada, la app
 // es v7.10.2 más los arreglos de T1. Se enciende para todos a la vez tras la prueba de Kathy y JP (D-v8-03).
