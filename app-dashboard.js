@@ -5372,6 +5372,8 @@ function _heRenderTablaPdf(pdf,docs,state,W,M,startY,esRecogida){
 
 function _heRenderFooterPdf(pdf,docs,state,W,M,fmt,labelFirma,numCarro){
   let y=pdf.lastAutoTable.finalY+8;
+  // v8.0.7.1 (Codex): con direcciones completas la tabla crece; si total y firma no caben, van en una página nueva.
+  if(y+(state.incluirCobros?10:0)+6>pdf.internal.pageSize.getHeight()-18){pdf.addPage();y=20}
   if(state.incluirCobros){
     const saldo=docs.reduce((s,q)=>{
       if(!state.cobrosIncluidos.has(q.id))return s;
@@ -5659,6 +5661,8 @@ async function _generarPdfEntregasLegado(){
       y=pdf.lastAutoTable.finalY+8;
     }
 
+    // v8.0.7.1 (Codex): si total y firma no caben bajo la tabla, van en una página nueva.
+    if(y+(incluirCobro?10:0)+6>pdf.internal.pageSize.getHeight()-18){pdf.addPage();y=20}
     // Footer: total a cobrar solo de los marcados (ya filtrado por incluirCobro y selección)
     if(incluirCobro){
       const saldoDia=porDia[f].reduce((s,q)=>{

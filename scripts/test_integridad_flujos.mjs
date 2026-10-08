@@ -3016,4 +3016,10 @@ await test('v8.0.7.1 la Hoja de entregas imprime la dirección completa (con y s
   assert.doesNotMatch(src,/const dirCorta=.*substring\(0,40\)/,'sin recorte a 40 caracteres');
   assert.match(src,/const dirCorta=esRecogida\?"":\(dirEf\|\|""\);/);assert.match(src,/const dirCorta=q\.dir\|\|"";/);
 });
+await test('v8.0.7.1 r1 la remisión imprime todas las líneas de la dirección y el pie de la Hoja de entregas pasa de página si no cabe',()=>{
+  const rem=functionSource('app-propuesta.js','genRemisionDespachoPDF');
+  assert.doesNotMatch(rem,/\.slice\(0,2\)/,'sin tope de dos líneas');assert.match(rem,/doc\.text\(dirLineas,/);assert.match(rem,/roundedRect\(mg,y,tw,28\+extraDir/);assert.match(rem,/y\+=32\+extraDir;/);
+  assert.match(functionSource('app-dashboard.js','_heRenderFooterPdf'),/pdf\.internal\.pageSize\.getHeight\(\)-18\)\{pdf\.addPage\(\);y=20\}/);
+  assert.equal((source('app-dashboard.js').match(/getHeight\(\)-18\)\{pdf\.addPage\(\);y=20\}/g)||[]).length,2,'también la hoja anterior');
+});
 console.log(`${passed} escenarios de integridad pasaron (adaptadores en memoria; no emulador Firebase).`);

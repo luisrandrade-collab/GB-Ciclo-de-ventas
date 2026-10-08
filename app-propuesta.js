@@ -2245,9 +2245,14 @@ async function genRemisionDespachoPDF(q,despachoIdx){
     y+=6;
 
     // ── Bloque cliente
-    doc.setDrawColor(201,169,110);doc.setLineWidth(0.3);doc.roundedRect(mg,y,tw,28,1.5,1.5,"S");
-    doc.setFontSize(8.5);doc.setTextColor(60,60,60);
-    const labelX=mg+3,valueX=mg+3,colW2=tw/3;
+    // v8.0.7.1 (Codex): la dirección sale completa; el bloque crece con sus líneas (antes sólo 2 líneas).
+    const colW2=tw/3;
+    doc.setFontSize(8.5);
+    const dirLineas=doc.splitTextToSize(dirText||"—",colW2-2);
+    const extraDir=Math.max(0,dirLineas.length-2)*3.6;
+    doc.setDrawColor(201,169,110);doc.setLineWidth(0.3);doc.roundedRect(mg,y,tw,28+extraDir,1.5,1.5,"S");
+    doc.setTextColor(60,60,60);
+    const labelX=mg+3,valueX=mg+3;
     doc.setFont("helvetica","bold");doc.text("Cliente",labelX,y+5);
     doc.text("Doc",labelX+colW2,y+5);
     doc.text("Teléfono",labelX+colW2*2,y+5);
@@ -2262,9 +2267,8 @@ async function genRemisionDespachoPDF(q,despachoIdx){
     doc.setFont("helvetica","normal");doc.setTextColor(26,26,26);
     doc.text(fechaStr||"—",valueX,y+22);
     doc.text(horaStr||"—",valueX+colW2,y+22);
-    const dirShort=doc.splitTextToSize(dirText||"—",colW2-2);
-    doc.text(dirShort.slice(0,2),valueX+colW2*2,y+22);
-    y+=32;
+    doc.text(dirLineas,valueX+colW2*2,y+22);
+    y+=32+extraDir;
 
     // ── Despacho N/M (solo si > 1 despacho)
     if(totalDesp>1){
