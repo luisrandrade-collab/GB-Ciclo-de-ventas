@@ -13,10 +13,10 @@ Procedimiento operativo para deploy de la app, las rules de Firebase, y los roll
 | **Frontend (HTML/JS/CSS)** | `index.html`, `app-*.js` | GitHub Pages auto-deploy desde `origin/main` | 1-2 min |
 | **Firestore rules** | `firestore.rules` | `firebase deploy --only firestore:rules` | <30 s |
 | **Storage rules** | `storage.rules` | `firebase deploy --only storage:rules` | <30 s |
-| **Cloud Functions** | `functions/index.js` | `firebase deploy --only functions` | 2-5 min |
+| **Cloud Functions** | `functions/index.js` (+ `agenda-*.js` desde v8.0.8) | `firebase deploy --only functions` | 2-5 min |
 | **DNS / SSL** | Cloudflare | manual via panel Cloudflare | variable |
 
-**Punto crítico:** un `git push` a `main` solo despliega frontend. Las rules y functions requieren deploy explícito por CLI. Es posible quedar half-deployed (caso v7.9.4 → v7.9.4.1).
+**Punto crítico:** un push a `main` solo despliega frontend. Las rules y functions requieren deploy explícito por CLI. Es posible quedar half-deployed (caso v7.9.4 → v7.9.4.1).
 
 ---
 
@@ -28,8 +28,8 @@ Procedimiento operativo para deploy de la app, las rules de Firebase, y los roll
 - Repo limpio: `git status` en `main` sin cambios fuera del lote (sólo quedan sin seguimiento `AGENTS.md` y `_IA/`, que nunca se suben)
 - Revisión independiente con veredicto apto y recorrido en el emulador de lo que cambió
 - **Frase canónica de Luis** escrita textual: `APROBADO POR LUIS PARA QUE <herramienta> EJECUTE: <alcance>`. «ok», «sí» o «adelante» no autorizan commit, push ni despliegue
-- Gancho local `.git/hooks/pre-push` (no versionado): bloquea todo push salvo que `.git/gb_push_autorizado` contenga esa frase textual. Es de un solo uso: el gancho borra el archivo al publicar. Nunca usar `--no-verify`
-- Cuenta de GitHub: git toma la credencial de `gh`. Si la cuenta activa no es `luisrandrade-collab` (p. ej. `mihv-admin`), el push da 403: `gh auth switch --user luisrandrade-collab` antes y volver a la anterior después
+- Gancho local `.git/hooks/pre-push` (no versionado; el central de la canónica): bloquea todo push salvo que `.git/push_autorizado` contenga esa frase textual. Es de un solo uso: `con_cuenta.sh` y el gancho borran el archivo tras cualquier intento de push; para reintentar hace falta una frase nueva. Nunca usar `--no-verify`
+- Cuenta de GitHub: el push va siempre por `bash "C:\Proyectos\Interaccion Codex C Code/herramientas/relevo/con_cuenta.sh" git push origin main`, que usa el token de `luisrandrade-collab` (la cuenta de `.git/cuenta_github`) sólo dentro de ese proceso; no se cambia la cuenta activa de `gh`. Si dice que la cuenta no tiene sesión en `gh`, la inicia Luis (`AGENTS.md`, «Publicación en GitHub»)
 - Si el push lo hace Claude Code, la sesión debe estar en modo manual (en modo Auto el clasificador lo bloquea aunque exista la frase)
 
 ---
@@ -76,8 +76,8 @@ git add index.html
 git commit -m "feat(v7.X.Y.Z): <resumen>"
 # Google Drive sin subidas pendientes del proyecto (paso 7) ANTES del push
 # Autorizar el push con la frase canónica textual (un solo uso)
-printf '%s\n' 'APROBADO POR LUIS PARA QUE <herramienta> EJECUTE: <alcance>' > .git/gb_push_autorizado
-git push origin main
+printf '%s\n' 'APROBADO POR LUIS PARA QUE <herramienta> EJECUTE: <alcance>' > .git/push_autorizado
+bash "C:\Proyectos\Interaccion Codex C Code/herramientas/relevo/con_cuenta.sh" git push origin main
 ```
 
 GitHub Pages auto-despliega en 1-2 min. Verificar con:
@@ -88,6 +88,7 @@ curl -s https://app.gourmetbites.com.co/app-core.js | grep BUILD_VERSION
 ### 5. Deploy de rules (si cambiaron)
 
 ```bash
+# Antes, la frase de Luis que nombre este despliegue (Pre-requisitos): APROBADO POR LUIS PARA QUE <herramienta> EJECUTE: <alcance>
 firebase deploy --only firestore:rules --project gourmet-bites-cotizador
 firebase deploy --only storage:rules --project gourmet-bites-cotizador
 ```
@@ -120,6 +121,62 @@ Editar `_internos/Onboarding_chat_nuevo.json`:
 
 ---
 
+## v8.0.8 — Agenda con Google Calendar API (pendiente: F0 y F5)
+
+Plan: `_internos/Plan_de_accion_v7_11_0_agenda_google_calendar_2026-10-06.json` (D1–D7, C1–C4). El código (F1–F3) no despliega nada por sí solo. Funciones nuevas: `agendaQuotes`, `agendaProposals` y `agendaPropfinals` (trigger por documento) y `agendaReconciliar` (todos los días a las 03:00 de Bogotá; también hace la carga inicial). Se **elimina** `agendaIcs` (D3). Parámetros (no son secretos): `GB_CALENDAR_ID` y `GB_AGENDA_SA`.
+
+### F0 — Configuración que hace Luis (D4), cuando esté decidido D1
+
+Claude no toca la consola. En el proyecto `gourmet-bites-cotizador`:
+
+1. Google Cloud → APIs y servicios → Biblioteca → **Google Calendar API** → Habilitar.
+2. IAM → Cuentas de servicio → Crear: `gb-agenda`, con **un solo rol de proyecto**: `Visualizador de Cloud Datastore` (`roles/datastore.viewer`, D7). **Sin claves**: no descargar ningún JSON.
+3. En la cuenta de Google de D1: Google Calendar → Otros calendarios → + → Crear calendario **«Gourmet Bites — Pedidos»**, zona horaria Bogotá.
+4. Configuración de ese calendario → Compartir con personas:
+   - el correo de `gb-agenda@…iam.gserviceaccount.com` con **«Hacer cambios en eventos»** (no «Hacer cambios y administrar el uso compartido»);
+   - Kathy y JP con **«Ver todos los detalles del evento»**.
+5. Configuración del calendario → Integrar el calendario → copiar el **ID del calendario**.
+6. Valores de los parámetros: `GB_CALENDAR_ID` = ese id; `GB_AGENDA_SA` = el correo de la cuenta de servicio. En el primer despliegue la CLI los pide y los guarda en `functions/.env.<proyecto>`. Ese archivo no lleva secretos, pero no se añade al commit (el repositorio es público).
+
+Verificación de F0: la cuenta de servicio figura en «Compartir con personas» con «Hacer cambios en eventos» y su único rol de proyecto es `datastore.viewer`.
+
+**Por comprobar en F0/F5, sin mostrar tokens** (no verificable sin red; viene de la revisión de código):
+- **Permisos de los disparadores.** En funciones de 2.ª generación, Eventarc (trigger de Firestore) y Cloud Scheduler invocan la función con una identidad. Si la CLI usa para ello la cuenta dedicada, puede pedir `roles/eventarc.eventReceiver` o `roles/run.invoker`, además de `datastore.viewer`. Un segundo rol de proyecto choca con D4/D7 («un solo rol»): si la CLI lo pide, **parar y decide Luis**.
+- **Región.** Las funciones van en `us-central1`, como `agendaIcs`. Si la ubicación de Firestore no es compatible, la CLI lo rechaza al desplegar: parar.
+- **Alcance del token.** El servidor de metadatos debe entregar el token con `calendar.events`. Si el primer registro dice `HTTP 403` en Calendar, revisar el alcance y la compartición del calendario.
+
+### F5 — Despliegue, en este orden (cada paso con su frase)
+
+1. Precondiciones: `APTO` de Codex sobre este código, F0 hecha, batería en verde y lote local confirmado.
+2. **Desplegar las funciones**, con una frase que nombre expresamente la baja de `agendaIcs`. Por ejemplo: `APROBADO POR LUIS PARA QUE CLAUDE CODE EJECUTE: firebase deploy --only functions de v8.0.8 (crea agendaQuotes, agendaProposals, agendaPropfinals y agendaReconciliar y ELIMINA agendaIcs)`.
+   ```bash
+   firebase deploy --only functions --project gourmet-bites-cotizador
+   ```
+   La CLI pregunta si borra `agendaIcs`: se responde que sí (nunca `--force` sin que la frase lo diga).
+3. **Comprobar que el .ics ya no responde** (sin token en la URL): debe dar `404`.
+   ```bash
+   curl -s -o /dev/null -w "%{http_code}\n" https://agendaics-zeuz3hinla-uc.a.run.app
+   ```
+   Si no da 404, no se sigue.
+4. **Sólo después**, con su frase (`APROBADO POR LUIS PARA QUE <herramienta> EJECUTE: <alcance>`), destruir el secreto:
+   ```bash
+   firebase functions:secrets:destroy GB_AGENDA_TOKEN --project gourmet-bites-cotizador
+   ```
+5. **Carga inicial**: ejecutar `agendaReconciliar` una vez (Google Cloud → Cloud Scheduler → job `firebase-schedule-agendaReconciliar-us-central1` → Forzar ejecución), con la frase del despliegue si la incluye o con una propia. Escribe sólo en el calendario. Comprobar en el registro (`firebase functions:log --only agendaReconciliar`) la línea `agenda: reconciliación` con `errores: 0` y ver los pedidos futuros en el calendario. Si `errores` es mayor que 0 (p. ej. por el límite de escrituras de Calendar en la carga inicial), volver a forzar la ejecución: es idempotente y sólo rehace lo que falta.
+6. Medir y registrar la latencia de un cambio: cambiar la fecha de un pedido en la app y medir cuánto tarda en verse en el calendario. Es un objetivo, no una promesa.
+7. **Publicar la app** (push de v8.0.8 con su frase): la frase textual en `.git/push_autorizado` y `bash "C:\Proyectos\Interaccion Codex C Code/herramientas/relevo/con_cuenta.sh" git push origin main`, como en «Deploy completo», paso 4 (`AGENTS.md`, «Publicación en GitHub»). Con eso se retira el panel «Sync agenda externa» y cada navegador borra el token guardado al cargar.
+8. **C4** — `_internos/Sync_agenda_token_PRIVADO.md` **no se mueve ni lo lee la IA**. Después del paso 4, Luis lo revisa sin mostrar el valor a la IA y lo borra él, o autoriza su borrado con frase.
+9. F6: prueba con Kathy y JP en sus teléfonos, los dos a la vez.
+
+### Rollback de v8.0.8
+
+- **El calendario es sólo una vista**: borrar eventos o el calendario entero no toca Firestore. La reconciliación de las 03:00 lo vuelve a llenar.
+- **Detener la sincronización sin volver atrás**, con frase: `firebase functions:delete agendaQuotes agendaProposals agendaPropfinals agendaReconciliar --project gourmet-bites-cotizador`.
+- **Volver a `agendaIcs`**, con frase antes: `git checkout 2e7df15 -- functions/` y desplegar. Sólo funciona **antes del paso 4**. Después, `agendaIcs` exige un secreto nuevo (rotar el token) y eso lo decide Luis.
+- **App**: `git revert <commit de v8.0.8>` y push con frase (`.git/push_autorizado` y `con_cuenta.sh`, como en «Deploy completo», paso 4). Vuelve el panel, pero sin `agendaIcs` su link ya no sirve.
+
+---
+
 ## Rollback
 
 ### Rollback de frontend (GitHub Pages)
@@ -130,15 +187,22 @@ git log --oneline -10
 
 # 2. Revertir
 git revert <hash-bug>           # crea commit que deshace los cambios (preferido — preserva historia)
-# O en caso extremo:
-git reset --hard <hash-anterior> && git push --force-with-lease origin main
-# (CUIDADO: --force a main solo si está absolutamente justificado)
 
-# 3. El push del revert también exige la frase canónica en .git/gb_push_autorizado
-printf '%s\n' 'APROBADO POR LUIS PARA QUE <herramienta> EJECUTE: <alcance>' > .git/gb_push_autorizado
-git push origin main
+# 3. El push del revert también exige la frase canónica en .git/push_autorizado
+printf '%s\n' 'APROBADO POR LUIS PARA QUE <herramienta> EJECUTE: <alcance>' > .git/push_autorizado
+bash "C:\Proyectos\Interaccion Codex C Code/herramientas/relevo/con_cuenta.sh" git push origin main
 
 # 4. Pages auto-redeploya en 1-2 min
+```
+
+**Caso extremo (reescribe `main`):** sólo si la frase de Luis nombra expresamente el `git reset --hard` y el push forzado. Primero la frase, después los comandos:
+
+```bash
+# 1. La frase textual en .git/push_autorizado, ANTES de cualquier comando destructivo
+printf '%s\n' 'APROBADO POR LUIS PARA QUE <herramienta> EJECUTE: <alcance>' > .git/push_autorizado
+# 2. Sólo entonces el reinicio y el push forzado
+git reset --hard <hash-anterior>
+bash "C:\Proyectos\Interaccion Codex C Code/herramientas/relevo/con_cuenta.sh" git push --force-with-lease origin main
 ```
 
 ### Rollback de rules (Firestore o Storage)
@@ -146,13 +210,15 @@ git push origin main
 Firebase guarda historial de versiones de rules. Para revertir:
 
 ```bash
+# 0. Antes de todo, la frase de Luis que nombre este rollback (despliegue de rules y push): APROBADO POR LUIS PARA QUE <herramienta> EJECUTE: <alcance>
 # 1. Editar firestore.rules / storage.rules a la versión anterior (manual o desde git checkout)
 git checkout <hash-anterior> -- firestore.rules
 # 2. Redeployar
 firebase deploy --only firestore:rules --project gourmet-bites-cotizador
 # 3. Commit del revert
 git add firestore.rules && git commit -m "revert: rules a <hash-anterior>"
-git push origin main
+printf '%s\n' 'APROBADO POR LUIS PARA QUE <herramienta> EJECUTE: <alcance>' > .git/push_autorizado
+bash "C:\Proyectos\Interaccion Codex C Code/herramientas/relevo/con_cuenta.sh" git push origin main
 ```
 
 **Alternativa via Console:** Firebase Console → Firestore → Rules → "Historial de versiones" permite ver y reactivar versiones previas sin pasar por CLI. Útil en emergencia.
@@ -160,6 +226,7 @@ git push origin main
 ### Rollback de Cloud Functions
 
 ```bash
+# Antes, la frase de Luis que nombre este despliegue: APROBADO POR LUIS PARA QUE <herramienta> EJECUTE: <alcance>
 git checkout <hash-anterior> -- functions/
 firebase deploy --only functions --project gourmet-bites-cotizador
 ```
@@ -196,7 +263,7 @@ Si tras hard reload sigue sirviendo versión vieja:
 - **v8.0.0** (`ec75058`, publicada el 2026-09-28): rediseño R1 con Inicio (Pipeline y cinco números), lista única de Negocios, ficha del negocio, pagos con botones de método, estado de cuenta por WhatsApp y PDF, avisos «Por actualizar», unir/separar a mano, «Crear versión nueva» en vez de «Sobrescribir» y PDF sin guardado silencioso. Anteriores: v7.10.2 (`a37aea3`), v7.10.1 (`fc7ec13`), v7.10.0 (`4ce8b73`).
 - **Bandera del rediseño:** `GB_REDISENO_R1=true` en `app-core.js`. Reversión rápida: ponerla en `false` y publicar (con frase): vuelve a las pantallas de v7.10.2 y conserva los arreglos de datos de v8.0 (versión nueva, PDF, próximo contacto, pérdidas) y el ajuste del botón «+».
 - **Régimen Simple apagado:** v7.10.0 y v7.10.1 están en producción pero no se ven ni actúan hasta llenar fecha de inicio, razón social, NIT y DV en `GB_EMISOR` (`app-core.js`). Encenderlo es una versión propia, con revisión. En v8.0 también dependen de él «Por facturar» y «Registrar FE».
-- **Rollback de v8.0.0:** `git revert <commit de v8.0.0>` + push (con la frase en `.git/gb_push_autorizado`); vuelve a v7.10.2. Los campos nuevos (`businessId`, `proximoContacto`, `negocioManual`) son aditivos y v7.10.2 los ignora: no hay migración que revertir. Sólo frontend: las rules, las functions y `firebase.json` no cambiaron desde v7.9.33. La última comparación de las rules publicadas contra las del repositorio (idénticas) es del 2026-09-22.
+- **Rollback de v8.0.0:** `git revert <commit de v8.0.0>` + push (con la frase en `.git/push_autorizado` y `con_cuenta.sh`); vuelve a v7.10.2. Los campos nuevos (`businessId`, `proximoContacto`, `negocioManual`) son aditivos y v7.10.2 los ignora: no hay migración que revertir. Sólo frontend: las rules, las functions y `firebase.json` no cambiaron desde v7.9.33. La última comparación de las rules publicadas contra las del repositorio (idénticas) es del 2026-09-22.
 - **CI (`.github/workflows/check.yml`, "pre-deploy check"):** `check.mjs`, nueve suites unitarias (desde v8.0.0 incluye `test_negocios.mjs`, 80 pruebas), `test_integridad_flujos.mjs` (sobre la fuente real; 238 escenarios) y `check_drift.mjs` (23 comprobaciones, incluida la lista de administradores del cliente frente a `firestore.rules`).
 - **Backup previo a v8.0.0:** backup diario de Firestore del 2026-09-28 13:47 UTC en estado READY (`firebase firestore:backups:list`).
 - **Remoto:** `https://luisrandrade-collab@github.com/luisrandrade-collab/GB-Ciclo-de-ventas.git`, con la cuenta en la URL. GB publica siempre con `luisrandrade-collab`, nunca con `mihv-admin`.

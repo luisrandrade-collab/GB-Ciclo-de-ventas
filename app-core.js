@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v8.0.7.1";
+const BUILD_VERSION="v8.0.8";
 const BUILD_DATE="2026-09-20";
 // v8.0.0 (D-v8-09): bandera del rediseño R1. Tapa sólo lo nuevo: Inicio, Negocios (y la ficha en T3), barra
 // inferior, entradas del menú y arranque en Inicio. F5 y los campos nuevos quedan siempre activos. Apagada, la app
@@ -3504,7 +3504,6 @@ function renderMode(m){
   if(m==="compras-pendientes"&&typeof renderComprasPendientes==="function")renderComprasPendientes();
   if(m==="compras-historico"&&typeof renderComprasHistorico==="function")renderComprasHistorico();
   if(m==="compras-catalogo"&&typeof renderComprasCatalogo==="function")renderComprasCatalogo();
-  if(m==="backup"&&typeof renderSyncAgendaPanel==="function")renderSyncAgendaPanel();
   if(m==="herr-recetas"&&typeof renderRecetasInternas==="function")renderRecetasInternas();
   if(m==="herr-catalogo"&&typeof renderCatalogoProductos==="function")renderCatalogoProductos();
   if(m==="herr-auditoria"&&typeof loadAuditoria==="function")loadAuditoria();

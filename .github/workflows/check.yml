@@ -35,6 +35,8 @@ jobs:
         run: node scripts/test_regimen_simple.mjs
       - name: Run negocios unit tests (v8.0.0)
         run: node scripts/test_negocios.mjs
+      - name: Run agenda unit tests (v8.0.8)
+        run: node scripts/test_agenda.mjs
       - name: Run integridad de flujos sobre fuente real
         run: node scripts/test_integridad_flujos.mjs
       - name: Run drift check (fuente vs copias de test)

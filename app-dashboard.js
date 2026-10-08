@@ -1026,15 +1026,8 @@ function calFocusDay(d){
 }
 
 // ═══════════════════════════════════════════════════════════
-// EXPORT .ics (idempotente, 2 eventos por pedido)
+// EXPORT .ics (idempotente; v8.0.8: eventos de agenda-eventos.js)
 // ═══════════════════════════════════════════════════════════
-
-// Hash determinístico simple para UIDs (no cripto, suficiente para idempotencia)
-function _hashStr(str){
-  let h=0;for(let i=0;i<str.length;i++){h=((h<<5)-h)+str.charCodeAt(i);h|=0}
-  return Math.abs(h).toString(16).padStart(8,"0");
-}
-function _uid(docId,tipo){return "gb-"+_hashStr(docId+"-"+tipo)+"-"+docId.toLowerCase().replace(/[^a-z0-9]/g,"")+"@gourmetbites"}
 
 // Escapa texto para .ics (RFC 5545)
 function _icsEscape(s){if(!s)return"";return String(s).replace(/\\/g,"\\\\").replace(/;/g,"\\;").replace(/,/g,"\\,").replace(/\n/g,"\\n").replace(/\r/g,"")}
@@ -1090,31 +1083,20 @@ function _buildItemsInline(q){
 // se organizan en slots consecutivos de 5 min desde 8:00 AM.
 // Orden: por horaEntrega ascendente (quien sale más temprano se produce primero).
 // Tiebreak: por quoteNumber.
-function _getProdSlot(q){
-  if(!q.eventDate&&!q.productionDate)return null;
-  // Helper: derivar productionDate = eventDate - 1 si no existe
-  const derivePD=x=>{
-    if(x.productionDate)return x.productionDate;
-    if(!x.eventDate)return null;
-    const d=isoToDate(x.eventDate);d.setDate(d.getDate()-1);
-    return dateToIso(d);
-  };
-  const prodDate=derivePD(q);
+// v8.0.8: prodDate = fecha del evento de producción de agenda-eventos.js (puede haber varias por pedido);
+// los pedidos del día y su hora de entrega salen del mismo módulo (incluye fechas sólo en despachos).
+function _eventosAgenda(q){return GBAgenda.eventosDeDoc(q,getCollectionName(q.id,q.kind))}
+function _tieneEventosAgenda(q){return _eventosAgenda(q).length>0}
+function _getProdSlot(q,prodDate){
   if(!prodDate)return null;
-  // Todos los pedidos/eventos que se producirán ese mismo día
-  const sameDay=quotesCache.filter(x=>{
-    if(!(x.eventDate||x.productionDate))return false;
-    // Solo docs activos que van a producción (pedido/aprobada/en_produccion/entregado)
-    const s=x.status||"enviada";
-    const okStatus=(x.kind==="quote"&&["pedido","en_produccion","entregado"].includes(s))
-                 ||(x.kind==="proposal"&&["aprobada","en_produccion","entregado"].includes(s));
-    if(!okStatus)return false;
-    return derivePD(x)===prodDate;
-  });
-  // Ordenar por horaEntrega, tiebreak por quoteNumber/id
+  const horaDe=x=>_eventosAgenda(x).filter(e=>e.tipo==="entrega"&&e.hora).map(e=>e.hora).sort()[0]||"99:99";
+  // Todos los documentos agendables que se producirán ese mismo día
+  const sameDay=quotesCache.filter(x=>GBAgenda.esAgendable(x,getCollectionName(x.id,x.kind))
+    &&_eventosAgenda(x).some(e=>e.tipo==="produccion"&&e.fecha===prodDate));
+  // Ordenar por hora de entrega, tiebreak por quoteNumber/id
   sameDay.sort((a,b)=>{
-    const hA=a.horaEntrega||"99:99";
-    const hB=b.horaEntrega||"99:99";
+    const hA=horaDe(a);
+    const hB=horaDe(b);
     if(hA!==hB)return hA.localeCompare(hB);
     return (a.quoteNumber||a.id||"").localeCompare(b.quoteNumber||b.id||"");
   });
@@ -1137,34 +1119,31 @@ function _getProdSlot(q){
 //   - Entrega: "Cliente · Dirección · A ENTREGAR: ... · NOTAS: ..."
 //     Horario: hora real, 1h duración.
 //     2 alarmas: 24h antes + 2h antes
-function _buildVeventsForDoc(q){
+// v8.0.8: la LISTA de eventos (una entrega por despacho, una producción por fecha, ids) sale de
+// agenda-eventos.js, la misma que el calendario de Google; el formato sigue siendo el de la descarga.
+function _buildVeventsForDoc(q,filtro){
   const lines=[];
   const dtStamp=_icsDateUtc(new Date());
   const productos=_buildItemsInline(q);
   const summaryBase=(q.client||"—")+(q.kind==="proposal"?" (Evento)":"");
-
-  // ─── PRODUCCIÓN ─── slot 5 min desde 8AM + 1 alerta -1d
-  // Se activa si hay productionDate O si hay eventDate (derivamos prod = entrega-1)
-  if(q.productionDate||q.eventDate){
-    const slot=_getProdSlot(q);
-    if(slot){
+  const hh=s=>String(s).padStart(2,"0");
+  _eventosAgenda(q).filter(filtro||(()=>true)).forEach(ev=>{
+    const dateStr=_icsDateOnly(ev.fecha);
+    lines.push("BEGIN:VEVENT");
+    lines.push(_icsFold("UID:"+ev.id+"@gourmetbites"));
+    lines.push("DTSTAMP:"+dtStamp);
+    if(ev.tipo==="produccion"){
+      // ─── PRODUCCIÓN ─── slot 5 min desde 8AM + 1 alerta -1d
+      const slot=_getProdSlot(q,ev.fecha);
       const notas=q.orderData?.notasProduccion||q.approvalData?.notasProduccion||"";
       // Descripción compacta: cliente · productos · notas (una línea con ·)
       const descParts=[q.client||"—"];
       if(productos)descParts.push("A PRODUCIR: "+productos);
       if(notas)descParts.push("NOTAS: "+notas);
-      const desc=descParts.map(_icsEscape).join(" · ");
-      const dateStr=slot.prodDate.replace(/-/g,"");
-      const hh=s=>String(s).padStart(2,"0");
-      const startLocal=dateStr+"T"+hh(slot.startH)+hh(slot.startM)+"00";
-      const endLocal=dateStr+"T"+hh(slot.endH)+hh(slot.endM)+"00";
-      lines.push("BEGIN:VEVENT");
-      lines.push(_icsFold("UID:"+_uid(q.id,"PRODUCCION")));
-      lines.push("DTSTAMP:"+dtStamp);
-      lines.push("DTSTART:"+startLocal);
-      lines.push("DTEND:"+endLocal);
+      lines.push("DTSTART:"+dateStr+"T"+hh(slot.startH)+hh(slot.startM)+"00");
+      lines.push("DTEND:"+dateStr+"T"+hh(slot.endH)+hh(slot.endM)+"00");
       lines.push(_icsFold("SUMMARY:🔪 Producción "+_icsEscape(summaryBase)));
-      lines.push(_icsFold("DESCRIPTION:"+desc));
+      lines.push(_icsFold("DESCRIPTION:"+descParts.map(_icsEscape).join(" · ")));
       lines.push("CATEGORIES:GOURMET-BITES,PRODUCCION");
       lines.push("STATUS:CONFIRMED");
       // Una sola alerta: 24 horas antes
@@ -1173,56 +1152,46 @@ function _buildVeventsForDoc(q){
       lines.push("ACTION:DISPLAY");
       lines.push(_icsFold("DESCRIPTION:Mañana producción "+hh(slot.startH)+":"+hh(slot.startM)+" — "+_icsEscape(q.client||"—")));
       lines.push("END:VALARM");
-      lines.push("END:VEVENT");
-    }
-  }
-
-  // ─── ENTREGA ─── hora real (1h duración) + alertas -1d y -2h
-  if(q.eventDate){
-    const notas=q.entregaData?.notasEntrega||"";
-    // Descripción compacta: cliente · dirección · productos · notas (una línea con ·)
-    const descParts=[q.client||"—"];
-    if(q.dir)descParts.push(q.dir);
-    if(productos)descParts.push("A ENTREGAR: "+productos);
-    if(notas)descParts.push("NOTAS: "+notas);
-    const desc=descParts.map(_icsEscape).join(" · ");
-    lines.push("BEGIN:VEVENT");
-    lines.push(_icsFold("UID:"+_uid(q.id,"ENTREGA")));
-    lines.push("DTSTAMP:"+dtStamp);
-    if(q.horaEntrega){
-      const startLocal=q.eventDate.replace(/-/g,"")+"T"+q.horaEntrega.replace(":","")+"00";
-      const [h,m]=q.horaEntrega.split(":").map(Number);
-      let endH=h+1,endM=m;
-      if(endH>=24){endH-=24}
-      const endLocal=q.eventDate.replace(/-/g,"")+"T"+String(endH).padStart(2,"0")+String(endM).padStart(2,"0")+"00";
-      lines.push("DTSTART:"+startLocal);
-      lines.push("DTEND:"+endLocal);
     }else{
-      lines.push("DTSTART;VALUE=DATE:"+_icsDateOnly(q.eventDate));
-      const ed=isoToDate(q.eventDate);ed.setDate(ed.getDate()+1);
-      lines.push("DTEND;VALUE=DATE:"+_icsDateOnly(dateToIso(ed)));
-    }
-    lines.push(_icsFold("SUMMARY:🎉 Entrega "+_icsEscape(summaryBase)+(q.horaEntrega?" "+q.horaEntrega:"")));
-    lines.push(_icsFold("DESCRIPTION:"+desc));
-    if(q.dir)lines.push(_icsFold("LOCATION:"+_icsEscape(q.dir)));
-    lines.push("CATEGORIES:GOURMET-BITES,ENTREGA");
-    lines.push("STATUS:CONFIRMED");
-    // Alerta 1: 24 horas antes
-    lines.push("BEGIN:VALARM");
-    lines.push("TRIGGER:-P1D");
-    lines.push("ACTION:DISPLAY");
-    lines.push(_icsFold("DESCRIPTION:Mañana entrega"+(q.horaEntrega?" "+q.horaEntrega:"")+" — "+_icsEscape(q.client||"—")));
-    lines.push("END:VALARM");
-    // Alerta 2: 2 horas antes (v4.12.6: bajó de 3h → 2h)
-    if(q.horaEntrega){
+      // ─── ENTREGA ─── hora real (1h duración) + alertas -1d y -2h
+      const notas=q.entregaData?.notasEntrega||"";
+      // Descripción compacta: cliente · dirección · productos · notas (una línea con ·)
+      const descParts=[q.client||"—"];
+      if(ev.lugar)descParts.push(ev.lugar);
+      if(productos)descParts.push("A ENTREGAR: "+productos);
+      if(notas)descParts.push("NOTAS: "+notas);
+      if(ev.hora){
+        // Fin = inicio + 1 h; a las 23:xx cruza al día siguiente (y de año el 31-dic).
+        const [h,m]=ev.hora.split(":").map(Number);
+        const finFecha=h===23?GBAgenda.sumarDias(ev.fecha,1):ev.fecha;
+        lines.push("DTSTART:"+dateStr+"T"+ev.hora.replace(":","")+"00");
+        lines.push("DTEND:"+_icsDateOnly(finFecha)+"T"+hh((h+1)%24)+hh(m)+"00");
+      }else{
+        lines.push("DTSTART;VALUE=DATE:"+dateStr);
+        lines.push("DTEND;VALUE=DATE:"+_icsDateOnly(GBAgenda.sumarDias(ev.fecha,1)));
+      }
+      lines.push(_icsFold("SUMMARY:🎉 Entrega "+_icsEscape(summaryBase)+(ev.hora?" "+ev.hora:"")));
+      lines.push(_icsFold("DESCRIPTION:"+descParts.map(_icsEscape).join(" · ")));
+      if(ev.lugar)lines.push(_icsFold("LOCATION:"+_icsEscape(ev.lugar)));
+      lines.push("CATEGORIES:GOURMET-BITES,ENTREGA");
+      lines.push("STATUS:CONFIRMED");
+      // Alerta 1: 24 horas antes
       lines.push("BEGIN:VALARM");
-      lines.push("TRIGGER:-PT2H");
+      lines.push("TRIGGER:-P1D");
       lines.push("ACTION:DISPLAY");
-      lines.push(_icsFold("DESCRIPTION:Entrega en 2h ("+q.horaEntrega+") — "+_icsEscape(q.client||"—")));
+      lines.push(_icsFold("DESCRIPTION:Mañana entrega"+(ev.hora?" "+ev.hora:"")+" — "+_icsEscape(q.client||"—")));
       lines.push("END:VALARM");
+      // Alerta 2: 2 horas antes (v4.12.6: bajó de 3h → 2h)
+      if(ev.hora){
+        lines.push("BEGIN:VALARM");
+        lines.push("TRIGGER:-PT2H");
+        lines.push("ACTION:DISPLAY");
+        lines.push(_icsFold("DESCRIPTION:Entrega en 2h ("+ev.hora+") — "+_icsEscape(q.client||"—")));
+        lines.push("END:VALARM");
+      }
     }
     lines.push("END:VEVENT");
-  }
+  });
   return lines;
 }
 
@@ -1263,7 +1232,7 @@ async function exportPedidoIcs(docId,kind,ev){
   if(ev){ev.stopPropagation();ev.preventDefault()}
   const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
   if(!q){alert("No encontrado");return}
-  if(!q.eventDate&&!q.productionDate){alert("Este pedido no tiene fechas de entrega ni producción asignadas.");return}
+  if(!_tieneEventosAgenda(q)){alert("Este pedido no tiene fechas de entrega ni producción asignadas.");return}
   const lines=[..._icsHeader(),..._buildVeventsForDoc(q),..._icsFooter()];
   // v7.9.7.1 F8.6: normalizar acentos en filename .ics (mismo bug que PDFs).
   const cliSafe=(q.client||"sin").normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-zA-Z0-9]/g,"_");
@@ -1277,13 +1246,13 @@ async function exportAgendaIcs(){
   const past=new Date(today);past.setDate(past.getDate()-30);
   const future=new Date(today);future.setDate(future.getDate()+60);
   const pastIso=dateToIso(past),futureIso=dateToIso(future);
-  const docs=eventsAllStatuses().filter(q=>{
-    const f=q.eventDate||q.productionDate;
-    return f&&f>=pastIso&&f<=futureIso;
-  });
+  // v8.0.8: agendable y con algún evento en el rango, según agenda-eventos.js (como el calendario de Google);
+  // de cada documento se emiten sólo los eventos del rango.
+  const enRango=e=>e.fecha>=pastIso&&e.fecha<=futureIso;
+  const docs=quotesCache.filter(q=>GBAgenda.esAgendable(q,getCollectionName(q.id,q.kind))&&_eventosAgenda(q).some(enRango));
   if(!docs.length){alert("No hay eventos en el rango (30 días atrás → 60 días adelante).");return}
   const lines=[..._icsHeader()];
-  docs.forEach(q=>{lines.push(..._buildVeventsForDoc(q))});
+  docs.forEach(q=>{lines.push(..._buildVeventsForDoc(q,enRango))});
   lines.push(..._icsFooter());
   await shareOrDownloadIcs("gourmet-bites-agenda-"+dateToIso(today)+".ics",lines);
 }
@@ -1870,109 +1839,10 @@ function renderCustomRangeInfo(){
 // Permite al usuario tener respaldo antes de hacer cambios arriesgados
 // o simplemente para archivar.
 // ═══════════════════════════════════════════════════════════
-// v7.7.5: SYNC AGENDA EXTERNA — panel UI para link suscribible
-// ═══════════════════════════════════════════════════════════
-// El backend (Firebase Function agendaIcs) ya está deployado en
-// https://agendaics-zeuz3hinla-uc.a.run.app y requiere ?token=XXX.
-// El TOKEN no se hardcodea acá (repo público) — Luis lo introduce
-// una vez y queda en localStorage de su PC.
-//
-// v7.9.6 F3 (2026-05-11): trade-off Codex 6.4 documentado y aceptado.
-// Token viaja en query string + localStorage. Filtración limitada por
-// uso interno (3 personas). Proceso de rotación documentado en
-// functions/index.js y _internos/Onboarding_infraestructura.json.
-// Cambio a Bearer descartado: clientes .ics (Apple/Google Cal) no
-// soportan Authorization headers en suscripciones.
-
-const SYNC_AGENDA_URL_BASE = "https://agendaics-zeuz3hinla-uc.a.run.app";
-const SYNC_AGENDA_TOKEN_KEY = "gb_sync_agenda_token";
-
-function renderSyncAgendaPanel(){
-  const el = $("sync-agenda-panel");
-  if(!el) return;
-  const token = (localStorage.getItem(SYNC_AGENDA_TOKEN_KEY)||"").trim();
-  if(!token){
-    el.innerHTML = ''+
-      '<div style="background:#FFF3E0;border:1px solid #FFB300;border-left:4px solid #FB8C00;border-radius:10px;padding:14px 16px;font-size:13px;color:#5D4037">'+
-        '<div style="font-weight:700;color:#E65100;margin-bottom:8px">🔐 Configurar token (1 sola vez)</div>'+
-        '<div style="margin-bottom:10px;line-height:1.5">El token es un código privado que protege la URL. Lo tenés en <code style="background:#fff;padding:1px 5px;border-radius:3px">_internos/Sync_agenda_token_PRIVADO.md</code> de tu OneDrive. Pegalo abajo:</div>'+
-        '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
-          '<input id="sync-agenda-token-in" type="password" placeholder="Pegar token aquí" style="flex:1;min-width:200px;padding:8px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:13px;font-family:monospace">'+
-          '<button onclick="saveSyncAgendaToken()" style="background:#1B5E20;color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">Guardar</button>'+
-        '</div>'+
-      '</div>';
-    return;
-  }
-  const url = SYNC_AGENDA_URL_BASE + "?token=" + encodeURIComponent(token);
-  el.innerHTML = ''+
-    '<div style="margin-bottom:12px">'+
-      '<label style="font-size:11px;color:#757575;display:block;margin-bottom:4px;font-weight:700;text-transform:uppercase;letter-spacing:.3px">🔗 Link de suscripción para Kathy y JP</label>'+
-      '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
-        '<input id="sync-agenda-url" type="text" readonly value="'+h(url)+'" onclick="this.select()" style="flex:1;min-width:200px;padding:8px 11px;border:1.5px solid #BDBDBD;border-radius:6px;font-size:11.5px;font-family:monospace;background:#FAFAFA">'+
-        '<button onclick="copySyncAgendaUrl()" style="background:#1B5E20;color:#fff;border:none;padding:8px 14px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">📋 Copiar</button>'+
-      '</div>'+
-    '</div>'+
-    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">'+
-      '<button onclick="shareSyncAgendaWA(\'kathy\')" style="background:#25D366;color:#fff;border:none;padding:7px 12px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">📲 Mandar a Kathy</button>'+
-      '<button onclick="shareSyncAgendaWA(\'jp\')" style="background:#25D366;color:#fff;border:none;padding:7px 12px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--gb-font-body)">📲 Mandar a JP</button>'+
-      '<button onclick="forgetSyncAgendaToken()" style="background:#fff;color:#C62828;border:1px solid #EF9A9A;padding:7px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:var(--gb-font-body)">🗑️ Borrar token guardado</button>'+
-    '</div>'+
-    '<details style="background:#F5F5F5;border-radius:8px;padding:10px 14px;font-size:12.5px;color:#5D4037">'+
-      '<summary style="cursor:pointer;font-weight:700">📱 Cómo se suscriben Kathy y JP (instrucciones para mandarles)</summary>'+
-      '<div style="margin-top:10px;line-height:1.6">'+
-        '<div style="font-weight:700;margin-bottom:4px;color:#01579B">Si usan iPhone (Apple Calendar):</div>'+
-        '<ol style="margin:0 0 12px 18px;padding:0">'+
-          '<li>Abrir <strong>Configuración</strong> del iPhone.</li>'+
-          '<li>Calendario → Cuentas → Añadir cuenta.</li>'+
-          '<li>Otra → Añadir calendario suscrito.</li>'+
-          '<li>Pegar la URL y tocar "Siguiente" → "Guardar".</li>'+
-        '</ol>'+
-        '<div style="font-weight:700;margin-bottom:4px;color:#01579B">Si usan Google Calendar:</div>'+
-        '<ol style="margin:0 0 8px 18px;padding:0">'+
-          '<li>Entrar a <code style="background:#fff;padding:1px 5px;border-radius:3px">calendar.google.com</code> desde computador.</li>'+
-          '<li>Lateral izq: <strong>+ Otros calendarios</strong> → "Por URL".</li>'+
-          '<li>Pegar la URL y "Añadir calendario".</li>'+
-        '</ol>'+
-        '<div style="margin-top:10px;font-style:italic;color:#757575">El calendario se actualiza solo cada 1-3 horas. Los eventos aparecen como "🔥 Producir [cliente]" y "🚚 Entrega [cliente]".</div>'+
-      '</div>'+
-    '</details>';
-}
-
-function saveSyncAgendaToken(){
-  const v = ($("sync-agenda-token-in")?.value||"").trim();
-  if(!v){toast("Pegá el token primero","warn");return}
-  localStorage.setItem(SYNC_AGENDA_TOKEN_KEY, v);
-  toast("✅ Token guardado","success");
-  renderSyncAgendaPanel();
-}
-
-function forgetSyncAgendaToken(){
-  if(!confirm("¿Borrar el token guardado en este dispositivo? Vas a tener que pegarlo de nuevo si querés ver el link otra vez."))return;
-  localStorage.removeItem(SYNC_AGENDA_TOKEN_KEY);
-  toast("Token borrado","success");
-  renderSyncAgendaPanel();
-}
-
-function copySyncAgendaUrl(){
-  const inp = $("sync-agenda-url");
-  if(!inp)return;
-  inp.select();
-  try{
-    navigator.clipboard.writeText(inp.value).then(()=>toast("📋 Link copiado al portapapeles","success"));
-  }catch(e){
-    document.execCommand("copy");
-    toast("📋 Link copiado","success");
-  }
-}
-
-function shareSyncAgendaWA(quien){
-  const url = $("sync-agenda-url")?.value;
-  if(!url)return;
-  const nombre = quien==="kathy"?"Kathy":"JP";
-  const msg = "Hola "+nombre+"! Te paso el link para suscribir tu calendario y ver los pedidos de Gourmet Bites. Lo abrís y lo agregás a tu Apple Calendar / Google Calendar (instrucciones en el panel de la app, te paso aparte si necesitás). Link:\n\n"+url+"\n\n— Luis";
-  const wa = "https://wa.me/?text="+encodeURIComponent(msg);
-  window.open(wa,"_blank");
-}
+// v8.0.8: se retiró el panel «Sync agenda externa» (v7.7.5: link .ics con ?token=).
+// La agenda está en el calendario de Google «Gourmet Bites — Pedidos» (functions/index.js).
+// D3: el token que guardaba cada navegador se borra al cargar.
+try{localStorage.removeItem("gb_sync_agenda_token")}catch(e){console.warn("No se pudo borrar el token de la agenda",e)}
 
 async function exportHistoryJson(){
   try{

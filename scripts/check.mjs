@@ -8,8 +8,8 @@
 // Sale con código 0 si TODO está OK. Cualquier fallo → exit 1.
 //
 // Checks:
-//   1. node --check en los 7 JS frontend + functions/index.js (sintaxis)
-//   2. BUILD_VERSION en app-core.js coincide con los 7 cache busters de index.html
+//   1. node --check en los JS frontend + functions/*.js de la agenda (sintaxis)
+//   2. BUILD_VERSION en app-core.js coincide con los cache busters de index.html
 //   3. Existencia de archivos clave (frontend + rules)
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -63,6 +63,7 @@ const jsFiles = [
   "app-seguimiento.js",
   "app-dashboard.js",
   "app-negocios.js", // v8.0.0
+  "agenda-eventos.js", // v8.0.8: eventos de agenda (copia íntegra en functions/)
 ];
 for (const f of jsFiles) {
   const p = join(ROOT, f);
@@ -77,13 +78,15 @@ for (const f of jsFiles) {
     msg.split("\n").forEach((l) => l && console.log(`        ${l}`));
   }
 }
-const fxPath = join(ROOT, "functions/index.js");
-if (existsSync(fxPath)) {
+// v8.0.8: también los módulos de la agenda.
+for (const fx of ["functions/index.js", "functions/agenda-eventos.js", "functions/agenda-calendar.js", "functions/agenda-sync.js"]) {
+  const fxPath = join(ROOT, fx);
+  if (!existsSync(fxPath)) { fail(`${fx} no existe`); continue; }
   try {
     execSync(`node --check "${fxPath}"`, { stdio: ["ignore", "ignore", "pipe"] });
-    pass("functions/index.js");
+    pass(fx);
   } catch (e) {
-    fail("functions/index.js — SYNTAX ERROR");
+    fail(`${fx} — SYNTAX ERROR`);
     const msg = e.stderr ? e.stderr.toString() : String(e);
     msg.split("\n").forEach((l) => l && console.log(`        ${l}`));
   }
@@ -103,7 +106,7 @@ if (!buildVer) {
   // v7.9.13 INF-04: contar matches POR ARCHIVO (no solo unicidad de versión):
   // si un <script> pierde su ?v=, antes pasaba igual. Ahora cada JS esperado
   // debe tener exactamente su buster con la versión de BUILD_VERSION.
-  const reg = /<script\s+src="(app-[^"?]+\.js)\?v=([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?)"/g;
+  const reg = /<script\s+src="((?:app|agenda)-[^"?]+\.js)\?v=([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?)"/g;
   const busters = new Map(); // archivo → versión
   let mm;
   while ((mm = reg.exec(htmlSrc)) !== null) busters.set(mm[1], mm[2]);
@@ -142,6 +145,7 @@ const expected = [
   "app-seguimiento.js",
   "app-dashboard.js",
   "app-negocios.js",
+  "agenda-eventos.js",
   "index.html",
   "firestore.rules",
   "storage.rules",

@@ -162,9 +162,24 @@ for (const [name, srcFile, testFile] of ENTRIES) {
   else { console.log(`  ${c.r}❌${c.x} ${label} — DESINCRONIZADA\n      cliente: ${cli.join(", ")}\n      reglas:  ${reg.join(", ")}`); errors++; }
 }
 
+// v8.0.8 (C3): functions/agenda-eventos.js es copia ÍNTEGRA de agenda-eventos.js (functions/ se despliega aparte).
+// Archivo completo, sin normalizar nada salvo los finales de línea.
+{
+  const label = "agenda-eventos.js ↔ functions/agenda-eventos.js (archivo completo)";
+  let a = null, b = null;
+  try { a = read("agenda-eventos.js").replace(/\r\n/g, "\n"); b = read("functions/agenda-eventos.js").replace(/\r\n/g, "\n"); } catch {}
+  if (a === null || b === null) { console.log(`  ${c.r}❌${c.x} ${label} — falta uno de los archivos`); errors++; }
+  else if (a === b) console.log(`  ${c.g}✅${c.x} ${label}`);
+  else {
+    const la = a.split("\n"), lb = b.split("\n"), i = la.findIndex((l, k) => l !== lb[k]);
+    console.log(`  ${c.r}❌${c.x} ${label} — DISTINTOS (primera diferencia en la línea ${(i < 0 ? la.length : i) + 1}): copiar agenda-eventos.js a functions/`);
+    errors++;
+  }
+}
+
 console.log("");
 if (errors === 0) {
-  console.log(`${c.g}${c.b}✅ ${ENTRIES.length + 1} copias sincronizadas${c.x}`);
+  console.log(`${c.g}${c.b}✅ ${ENTRIES.length + 2} copias sincronizadas${c.x}`);
   process.exit(0);
 } else {
   console.log(`${c.r}${c.b}❌ ${errors} copia(s) desincronizada(s) — actualizar el test correspondiente${c.x}`);

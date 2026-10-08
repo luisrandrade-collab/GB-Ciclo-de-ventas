@@ -531,7 +531,7 @@ async function renderHist(){
       else actionBtns.push('<button class="btn hc-btn-edit" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" title="Toca para desmarcar producido" onclick="confirmUnproduced('+jsArg(q.id)+',\'quote\',event)">🔪 Producido ✓</button>');
       // v7.0-α FIX-02a: gate — solo permitir entregar si está producido
       if(q.produced)actionBtns.push('<button class="btn hc-btn-deliver" onclick="openDeliveryModal('+jsArg(q.id)+',\'quote\',event)">🎉 Marcar como entregado</button>');
-      if(q.eventDate||q.productionDate)actionBtns.push('<button class="btn hc-btn-ics" onclick="exportPedidoIcs('+jsArg(q.id)+',\'quote\',event)">📅 .ics</button>');
+      if(_tieneEventosAgenda(q))actionBtns.push('<button class="btn hc-btn-ics" onclick="exportPedidoIcs('+jsArg(q.id)+',\'quote\',event)">📅 .ics</button>');
     }else if(isProp&&status==="enviada"){
       // v5.0.5: bloquear PF/aprobada si es perdida; ofrecer Reactivar
       if(!_esPerdida){
@@ -556,7 +556,7 @@ async function renderHist(){
       else actionBtns.push('<button class="btn hc-btn-edit" style="background:#E8F5E9;color:#1B5E20;border-color:#A5D6A7" title="Toca para desmarcar producido" onclick="confirmUnproduced('+jsArg(q.id)+',\'proposal\',event)">🔪 Producido ✓</button>');
       // v7.0-α FIX-02a: gate — solo permitir entregar si está producido
       if(q.produced)actionBtns.push('<button class="btn hc-btn-deliver" onclick="openDeliveryModal('+jsArg(q.id)+',\'proposal\',event)">🎉 Marcar como entregado</button>');
-      if(q.eventDate||q.productionDate)actionBtns.push('<button class="btn hc-btn-ics" onclick="exportPedidoIcs('+jsArg(q.id)+',\'proposal\',event)">📅 .ics</button>');
+      if(_tieneEventosAgenda(q))actionBtns.push('<button class="btn hc-btn-ics" onclick="exportPedidoIcs('+jsArg(q.id)+',\'proposal\',event)">📅 .ics</button>');
     }
     // v4.12.7: botón 🔄 Nueva versión para PFs (cliente pidió cambios → regenerar PF nueva)
     if(isPF&&status!=="superseded"){
@@ -4383,7 +4383,7 @@ function _actionBtnsPorContexto(q,contexto){
     const lbl=q.feData?'🧾 FE ✓':(q.requiereFE?'🧾 FE pendiente':'🧾 FE');
     return '<button class="btn hc-btn-fe" onclick="event.stopPropagation();openFeModal('+jsArg(id)+','+jsArg(kind)+')">'+lbl+'</button>';
   };
-  const btnIcs=()=>(q.eventDate||q.productionDate)?'<button class="btn hc-btn-ics" onclick="exportPedidoIcs('+jsArg(id)+','+jsArg(kind)+',event)">📅 .ics</button>':'';
+  const btnIcs=()=>_tieneEventosAgenda(q)?'<button class="btn hc-btn-ics" onclick="exportPedidoIcs('+jsArg(id)+','+jsArg(kind)+',event)">📅 .ics</button>':'';
   const btnAnular=()=>{
     const _anulable=(typeof canAnular==="function")?canAnular(q):["pedido","en_produccion","aprobada"].includes(status);
     return _anulable?'<button class="btn hc-btn-anular" onclick="openAnularModal('+jsArg(id)+','+jsArg(kind)+',event)">↩️ Anular</button>':'';

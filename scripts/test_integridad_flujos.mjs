@@ -1666,7 +1666,7 @@ await test('R1B-P3-1 anulación que no hizo nada: el log la marca sin cambios y 
 // ═══ v7.9.35 ronda 2 de Codex (gpt-5.6-sol): 2 P2 y 1 P3 ═══
 // R2-P2-1: D2 permite el cargo en los tres estados vendidos; el botón debe estar en todas las vistas de Pedidos.
 await test('R2-P2-1 el botón del cargo sale en Pedidos aprobados, en producción, producidos y por entregar',async()=>{
-  const g={...cargosCtx(),getDocTotal:x=>x.total||0,fm:fmReal,h:hReal,STATUS_META:{},quotesCache:[],canEdit:()=>false,requiresWarning:()=>false,canAnular:()=>false};
+  const g={...cargosCtx(),getDocTotal:x=>x.total||0,fm:fmReal,h:hReal,STATUS_META:{},quotesCache:[],canEdit:()=>false,requiresWarning:()=>false,canAnular:()=>false,_tieneEventosAgenda:()=>false}; // v8.0.8: el botón .ics usa la lista de agenda-eventos.js (app-dashboard.js)
   const r=loadSourceFunctions([...hist('_btnCargoReposicion','_actionBtnsPorContexto')],g);
   const casos=[['pedidos-aprobados','aprobada'],['pedidos-produccion','en_produccion'],['pedidos-producidos','en_produccion'],['entregar','en_produccion'],['entregadas','entregado'],['cartera','entregado']];
   for(const [ctx,status] of casos){
@@ -1897,7 +1897,7 @@ await test('v7.10.2 P-38: jsArg devuelve un literal JS seguro dentro de un atrib
   }
 });
 await test('v7.10.2 P-38: los botones de acción de Historial pasan un ID hostil como dato',async()=>{
-  const g={...cargosCtx(),jsArg:jsArgReal,getDocTotal:x=>x.total||0,fm:fmReal,h:hReal,STATUS_META:{},quotesCache:[],canEdit:()=>true,requiresWarning:()=>false,canAnular:()=>true};
+  const g={...cargosCtx(),jsArg:jsArgReal,getDocTotal:x=>x.total||0,fm:fmReal,h:hReal,STATUS_META:{},quotesCache:[],canEdit:()=>true,requiresWarning:()=>false,canAnular:()=>true,_tieneEventosAgenda:()=>true}; // v8.0.8: también el botón .ics
   const r=loadSourceFunctions([...hist('_btnCargoReposicion','_actionBtnsPorContexto')],g);
   let vistos=0;
   for(const id of idsHostiles)for(const [ctx,status] of [['cotizaciones','enviada'],['pedidos-aprobados','aprobada'],['entregar','en_produccion'],['entregadas','entregado'],['cartera','entregado']]){
