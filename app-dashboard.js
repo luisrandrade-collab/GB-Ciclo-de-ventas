@@ -5303,7 +5303,7 @@ function _heRenderTablaPdf(pdf,docs,state,W,M,startY,esRecogida){
     }else{
       dirEf=q.dir||"";cityEf=q.city||"";
     }
-    const dirCorta=esRecogida?"":((dirEf||"").substring(0,40)+((dirEf||"").length>40?"...":""));
+    const dirCorta=esRecogida?"":(dirEf||""); // v8.0.7.1: dirección completa; la celda la parte en líneas (antes 40 caracteres y «...»)
     const fila=[hora,cliente,q.id||""];
     if(!esRecogida)fila.push(dirCorta+(cityEf?"\n"+cityEf:""));
     fila.push(q.tel||"");
@@ -5552,7 +5552,7 @@ async function _generarPdfEntregasLegado(){
     porDia[f].forEach(q=>{
       const saldo=(typeof saldoPendiente==="function")?saldoPendiente(q):0;
       const cobraEsteCliente=cobrosIncluidos.has(q.id);
-      const dirCorta=(q.dir||"").substring(0,40)+((q.dir||"").length>40?"...":"");
+      const dirCorta=q.dir||""; // v8.0.7.1: dirección completa; la celda la parte en líneas (antes 40 caracteres y «...»)
       // Fila principal
       const fila=[
         (q.horaEntrega||"—"),

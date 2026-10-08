@@ -3011,4 +3011,9 @@ await test('v8.0.7 r6 ajuste confirmado tras error actualiza la caché; ajustar 
   assert.equal(await r._revertirAjusteNoAplicado({id:'L9'},1),false,'la reversión fallida se informa');
   assert.match(functionSource('app-historial.js','submitAjuste'),/if\(!await _revertirAjusteNoAplicado\(logEntry,monto\)\)throw.*pendiente de conciliación/);
 });
+await test('v8.0.7.1 la Hoja de entregas imprime la dirección completa (con y sin despachos)',()=>{
+  const src=source('app-dashboard.js');
+  assert.doesNotMatch(src,/const dirCorta=.*substring\(0,40\)/,'sin recorte a 40 caracteres');
+  assert.match(src,/const dirCorta=esRecogida\?"":\(dirEf\|\|""\);/);assert.match(src,/const dirCorta=q\.dir\|\|"";/);
+});
 console.log(`${passed} escenarios de integridad pasaron (adaptadores en memoria; no emulador Firebase).`);
