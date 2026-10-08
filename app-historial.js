@@ -1657,7 +1657,7 @@ async function _addSaldoAFavor(clienteName,monto,motivo,logId){
     // Cliente fantasma: crear mínimo.
     // v8.0.7 D13: id derivado del nombre y transacción: dos notas crédito simultáneas escriben la misma ficha
     // (la segunda suma) en vez de crear dos con el saldo repartido. Mismo nombre según la regla de la caché.
-    const idAuto="nc_"+encodeURIComponent(k); // José y Jose siguen siendo fichas distintas
+    const idAuto=clienteIdAuto(clienteName); // la misma identidad que la creación normal (saveClientToCloud)
     const ref=doc(db,"clients",idAuto);
     let objCommit=null;
     await runTransaction(db,async(tx)=>{
@@ -1978,13 +1978,33 @@ async function _submitPagoImpl(intento){
       return;
     }
 
+    // v8.0.7 (Codex r1): la confirmación pudo perderse con el pago ya escrito. Antes de afirmar «NO quedó
+    // guardado» se busca este pago (su clientId) en el documento; si está, se informa que sí quedó.
+    let estadoPago="no";
+    if(!(e&&e.paraUsuario)){
+      try{
+        const {db,doc,getDoc}=window.fb;
+        const s=await getDoc(doc(db,getCollectionName(src.id,src.kind),src.id));
+        estadoPago=s.exists()&&getPagos(s.data()).some(p=>p.clientId===clientId)?"si":"no";
+        if(estadoPago==="si"&&src.doc)src.doc.pagos=s.data().pagos; // caché con el pago confirmado
+      }catch(_){estadoPago="incierto"}
+    }
+    if(estadoPago==="si"){
+      if(pagoSrc===src)closePagoModal();
+      toast("✅ El pago sí quedó guardado (la confirmación tardó en llegar). Puedes verlo en «Ver pagos».","success",8000);
+      renderHist();if(typeof refreshActiveView==="function")refreshActiveView();
+      if(typeof renderCartera==="function")renderCartera();
+      return;
+    }
     // PERSISTENT ERROR MODAL — con Reintentar
     // v7.9.32 P2-R2-04: el motivo se explica en español; el detalle técnico queda en la
     // consola (gbMensajeError lo registra). Se conserva «Reintentar» para fallos pasajeros.
     const reintentar=await confirmModal({
       title:"❌ Error al registrar pago",
       body:'<div style="font-size:13px;line-height:1.6">'+
-        '<p>El pago <strong>NO</strong> quedó guardado en el sistema.</p>'+
+        (estadoPago==="incierto"
+          ?'<p>No se pudo comprobar si el pago quedó guardado. Reintentar es seguro: si ya quedó, no se duplica.</p>'
+          :'<p>El pago <strong>NO</strong> quedó guardado en el sistema.</p>')+
         '<div style="background:#FFEBEE;border-left:3px solid #C62828;padding:8px 12px;margin:10px 0;font-size:12px;color:#C62828;word-break:break-word">'+
           String(gbMensajeError(e)).replace(/</g,"&lt;")+
         '</div>'+
@@ -2053,6 +2073,8 @@ function openVerPagosModal(docId,kindOrEv,evMaybe){
   if(!q){if(typeof toast==="function")toast("No se encontró","error");else alert("No se encontró");return}
   window.__verPagosId=docId;
   window.__verPagosKind=q.kind;
+  window.__verPagosApertura=(window.__verPagosApertura||0)+1; // v8.0.7 (Codex r1): cada apertura tiene su número
+  window.__pagoEditBase=null; // repintar la lista descarta cualquier edición abierta
   $("vp-num").value=q.quoteNumber||q.id;
   $("vp-cli").value=q.client||"";
   const total=(typeof getDocTotal==="function"?getDocTotal(q):(q.total||q.totalReal||0));
@@ -2092,7 +2114,7 @@ function openVerPagosModal(docId,kindOrEv,evMaybe){
   $("verpagos-modal").classList.remove("hidden");
 }
 // v8.0.7 C1 (Codex): cerrar olvida el documento; así una reapertura tras guardar no revive una ventana cerrada.
-function closeVerPagosModal(){$("verpagos-modal").classList.add("hidden");window.__verPagosId=null;window.__verPagosKind=null}
+function closeVerPagosModal(){$("verpagos-modal").classList.add("hidden");window.__verPagosId=null;window.__verPagosKind=null;window.__pagoEditBase=null}
 
 function editPago(idx){
   const docId=window.__verPagosId;
@@ -2141,6 +2163,7 @@ function _findPagoIdxFresh(arr,ref,fallbackIdx){
 async function savePagoEdit(idx){
   const docId=window.__verPagosId;
   const kind=window.__verPagosKind;
+  const apertura=window.__verPagosApertura;
   if(!docId)return;
   const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
   if(!q)return;
@@ -2216,7 +2239,8 @@ async function savePagoEdit(idx){
     hideLoader();
     toast("✏️ Pago actualizado","success");
     if(window.__pagoEditBase===base)window.__pagoEditBase=null; // v8.0.7 C2: no borrar la edición que se abrió mientras guardaba
-    if(window.__verPagosId===docId&&window.__verPagosKind===kind&&!$("verpagos-modal").classList.contains("hidden"))openVerPagosModal(docId,kind); // r3: no reabrir otro documento; v8.0.7 C1: ni una ventana cerrada
+    // r3: no reabrir otro documento; v8.0.7: ni una ventana cerrada (C1), ni otra apertura, ni encima de otra edición abierta (Codex r1)
+    if(window.__verPagosApertura===apertura&&!window.__pagoEditBase&&!$("verpagos-modal").classList.contains("hidden"))openVerPagosModal(docId,kind);
     // v7.2 F5: auto-refresh Cartera y Historico tras editar pago.
     if(typeof renderHist==="function")renderHist();if(typeof refreshActiveView==="function")refreshActiveView(); // v8.0.6 N3: repinta la pantalla visible
     if(typeof renderCartera==="function")renderCartera();
@@ -2236,6 +2260,7 @@ async function onAdjuntarPagoFile(ev,idx){
   if(!file)return;
   const docId=window.__verPagosId;
   const kind=window.__verPagosKind;
+  const apertura=window.__verPagosApertura;
   if(!docId){alert("Contexto perdido");return}
   const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
   if(!q){alert("Documento no encontrado");return}
@@ -2243,7 +2268,7 @@ async function onAdjuntarPagoFile(ev,idx){
   if(idx<0||idx>=pagos.length){alert("Pago no encontrado");return}
   // Preview mientras sube
   _compressImageFile(file,async b64=>{
-    const mismaVentana=()=>window.__verPagosId===docId&&window.__verPagosKind===kind&&!$("verpagos-modal").classList.contains("hidden"); // r3 (Codex); v8.0.7 C1
+    const mismaVentana=()=>window.__verPagosApertura===apertura&&!$("verpagos-modal").classList.contains("hidden"); // r3 (Codex); v8.0.7: la misma apertura y visible
     if(mismaVentana()&&$("vp-adj-prev-"+idx))$("vp-adj-prev-"+idx).innerHTML='<img src="'+b64+'" style="max-width:100%;max-height:120px;border-radius:6px;margin-top:6px;opacity:.6"><div style="font-size:10px;color:#666">Subiendo...</div>';
     try{
       showLoader("Subiendo comprobante...");
@@ -2272,7 +2297,7 @@ async function onAdjuntarPagoFile(ev,idx){
       hideLoader();
       toast("📎 Comprobante adjuntado","success");
       // Re-abrir el modal para que se vea actualizado (r3: sólo si sigue siendo el de este documento)
-      if(mismaVentana())openVerPagosModal(docId,kind);
+      if(mismaVentana()&&!window.__pagoEditBase)openVerPagosModal(docId,kind); // v8.0.7: no borra una edición abierta
     }catch(e){
       hideLoader();
       console.error("onAdjuntarPagoFile error:",e);

@@ -318,6 +318,8 @@ async function _saveCurrentQuoteImpl(silent){
           return;
         }
         // v8.0.7 D17: sin cambios en el formulario el PDF no escribe; sale del documento recién leído.
+        // v8.0.7 (Codex r1): sin la versión abierta recordada el guardado no puede verificarse; se dice qué hacer.
+        if(silent&&window._gbEditBases?.quote?.id!==editingQuoteNumber){toast("No se pudo verificar la versión abierta: vuelve a abrir el documento desde el historial para generar el PDF.","warn",7000);return {ok:false,cancelado:true}}
         if(silent&&!silentConCambios)return {ok:true,id:editingQuoteNumber,document:{...oldDoc,quoteNumber:editingQuoteNumber},sinCambios:true};
         // Status "entregado": solo notas internas. Avisamos pero permitimos (el usuario sabrá qué toca).
         if(statusActual==="entregado"&&(!silent||silentConCambios)){

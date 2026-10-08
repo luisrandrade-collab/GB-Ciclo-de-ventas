@@ -1825,8 +1825,13 @@ function _cleanClientObjForUpdate(obj){
   });
   return out;
 }
+// v8.0.7 (Codex r1): identidad única de un cliente creado por la app (editor, guardado automático, nota crédito):
+// mismo nombre según la regla de la caché (minúsculas, sin espacios en los extremos) → mismo documento.
+// Así dos creaciones simultáneas por cualquier camino escriben la misma ficha. José y Jose siguen distintos.
+function clienteIdAuto(nombre){return "nc_"+encodeURIComponent(String(nombre||"").toLowerCase().trim())}
+
 async function saveClientToCloud(obj,opts){
-  const {db,collection,doc,addDoc,updateDoc,serverTimestamp}=window.fb;
+  const {db,doc,updateDoc,serverTimestamp,runTransaction}=window.fb;
   // v7.7.1: opts.fullUpdate=true → guarda obj tal cual (uso desde modal edición).
   //         opts.fullUpdate=false (default) → filtra vacíos (uso desde autosave).
   const fullUpdate=opts&&opts.fullUpdate===true;
@@ -1845,9 +1850,24 @@ async function saveClientToCloud(obj,opts){
     await updateDoc(doc(db,"clients",existing.id),{...updateObj,updatedAt:serverTimestamp()});
     Object.assign(existing,updateObj);
   }else{
-    const ref=await addDoc(collection(db,"clients"),{...obj,createdAt:serverTimestamp(),updatedAt:serverTimestamp()});
-    clientsCache.push({id:ref.id,...obj});
-    clientsCache.sort((a,b)=>a.name.localeCompare(b.name));
+    // v8.0.7 (Codex r1): se crea (o se completa) en una transacción sobre la identidad por nombre.
+    const id=clienteIdAuto(obj.name),k=String(obj.name||"").toLowerCase().trim(),ref=doc(db,"clients",id);
+    let final=null;
+    await runTransaction(db,async tx=>{
+      const snap=await tx.get(ref);
+      if(snap.exists()){
+        const prev=snap.data();
+        if(String(prev.name||"").toLowerCase().trim()!==k)throw Object.assign(new Error("No se guardó el cliente: su ficha automática choca con otro cliente. Avísale a Luis."),{paraUsuario:true,detalle:"clients/"+id+" tiene name="+prev.name});
+        if(fullUpdate)throw Object.assign(new Error("Ya existe un cliente llamado «"+prev.name+"». Ábrelo desde el directorio o usa otro nombre."),{paraUsuario:true});
+        const updateObj=_cleanClientObjForUpdate(obj);
+        tx.update(ref,{...updateObj,updatedAt:serverTimestamp()});final={...prev,...updateObj};
+      }else{
+        tx.set(ref,{...obj,createdAt:serverTimestamp(),updatedAt:serverTimestamp()});final={...obj};
+      }
+    });
+    clientsCache=clientsCache.filter(c=>c.id!==id);
+    clientsCache.push({id,...final});
+    clientsCache.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
   }
   localStorage.setItem("gb_clients_cache",JSON.stringify(clientsCache));
 }

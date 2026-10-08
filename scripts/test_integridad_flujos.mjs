@@ -224,7 +224,7 @@ for(const kind of ['quote','proposal']){
     assert.equal((await f.save(false))?.ok,true,JSON.stringify(f.messages));assert.equal(f.store.get(f.path).status,'superseded');assert.equal(f.store.get(f.childPath).parentQuote,'q');
   });
   await test(kind+': sin base de edición no guarda a ciegas',async()=>{
-    const f=editorFixture(kind);f.c.window._gbEditBases={};assert.equal(await f.save(true),undefined);assert.equal(f.store.get(f.path).client,'Original');
+    const f=editorFixture(kind);f.c.window._gbEditBases={};assert.notEqual((await f.save(true))?.ok,true,'v8.0.7: el PDF devuelve cancelado con un aviso');assert.equal(f.store.get(f.path).client,'Original');
   });
   await test(kind+': padre confirmado durante guardado no se archiva',async()=>{
     const f=editorFixture(kind);f.c.shouldVersionWithSuffix=()=>true;
@@ -2563,7 +2563,7 @@ await test('v8.0.6 N3 «Marcar como pedido» y «Aprobar» no abren ni escriben 
 await test('v8.0.6 N4 el pago se escribe en el documento donde se empezó (destino y foto fijados al entrar)',()=>{
   const imp=functionSource('app-historial.js','_submitPagoImpl');
   assert.match(imp,/const src=intento\?intento\.src:pagoSrc,fotoB64=intento\?null:pagoFotoBase64;/); // r2: el reintento trae su intento
-  assert.equal(imp.match(/\bpagoSrc\b/g).length,3,'sólo la captura, la comprobación del reintento y la de antes de cerrar');
+  assert.equal(imp.match(/\bpagoSrc\b/g).length,4,'sólo la captura, la comprobación del reintento y las dos de antes de cerrar (éxito y v8.0.7 «sí quedó guardado»)');
   assert.match(imp,/if\(pagoSrc===src\)closePagoModal\(\)/);
   assert.ok(!/\bpagoFotoBase64\b/.test(imp.replace('fotoB64=intento?null:pagoFotoBase64','').replace('Mantener pagoFotoBase64','')),'la foto también se fija al entrar');
 });
@@ -2751,7 +2751,7 @@ await test('v8.0.7 D11 revertir limpia la entrega de cada despacho y la deja en 
 function saldo807(store0,clientsCache=[]){
   const {fb,store}=fakeDb(store0);
   fb.collection=(_,c)=>c;fb.getDocsFromServer=async c=>({docs:[...store].filter(([k])=>k.startsWith(c+'/')).map(([k,v])=>({id:k.split('/')[1],data:()=>structuredClone(v)}))});
-  const c=loadSourceFunctions(h806('_addSaldoAFavor'),{...common(),window:{fb},clientsCache});
+  const c=loadSourceFunctions([...core('clienteIdAuto'),...h806('_addSaldoAFavor')],{...common(),window:{fb},clientsCache});
   return {c,store,fb};
 }
 await test('v8.0.7 D13 dos notas crédito simultáneas para un cliente nuevo quedan en una sola ficha con el saldo completo',async()=>{
@@ -2876,5 +2876,29 @@ await test('v8.0.7 C4 «Migrar fotos» conserva el comentario que otra sesión c
     uploadFotoFromBase64:async b=>{if(b==='data:c1')store.get('quotes/Q').comentarioCliente={fotoBase64:'data:c2',texto:'cambiado'};return {url:'url-'+b.slice(5)}}});
   await c.migrarFotosStorage();
   assert.deepEqual(store.get('quotes/Q').comentarioCliente,{fotoBase64:'data:c2',texto:'cambiado'},'el comentario nuevo no se pisa con la foto vieja');
+});
+await test('v8.0.7 r1 crear el cliente en el editor y una nota crédito al mismo tiempo escriben una sola ficha',async()=>{
+  const {fb,store}=fakeDb({});fb.collection=(_,c)=>c;fb.getDocsFromServer=async()=>({docs:[]});fb.updateDoc=async()=>{throw new Error('no debería usar updateDoc')};
+  const c=loadSourceFunctions([...core('clienteIdAuto','saveClientToCloud','_cleanClientObjForUpdate'),...h806('_addSaldoAFavor')],{...common(),window:{fb},clientsCache:[]});
+  await Promise.all([c.saveClientToCloud({name:'Carla Gómez',tel:'300'}),c._addSaldoAFavor('Carla Gómez',10000,'nc','L1')]);
+  const fichas=[...store.keys()].filter(k=>k.startsWith('clients/'));
+  assert.equal(fichas.length,1,'una sola ficha');const f=store.get(fichas[0]);assert.equal(f.saldoAFavor,10000);assert.equal(f.tel,'300');
+  await assert.rejects(c.saveClientToCloud({name:'carla gómez'},{fullUpdate:true}),/Ya existe un cliente/,'«Nuevo cliente» con ese nombre no la pisa aunque la caché no la tenga');
+});
+await test('v8.0.7 r1 si se pierde la confirmación de un pago ya escrito, se informa que sí quedó guardado',async()=>{
+  const t=pago806({datosDom:{fecha:'2026-09-22',monto:'1000',metodo:'Efectivo',tipo:'parcial',notas:''}});
+  const {fb}=t.c.window;const orig=fb.runTransaction;let modales=0;
+  fb.runTransaction=async(...a)=>{await orig(...a);throw new Error('deadline-exceeded')};
+  t.c.confirmModal=async()=>{modales++;return false};
+  await t.c.submitPago();
+  assert.equal(t.store.get('quotes/Q').pagos.length,1);
+  assert.ok(t.toasts.some(x=>/sí quedó guardado/.test(x[0])),'avisa que quedó');assert.equal(modales,0,'no muestra «NO quedó guardado»');
+});
+await test('v8.0.7 r1 «Ver pagos»: cada apertura tiene número; un guardado viejo no repinta otra apertura ni una edición abierta; PDF sin versión recordada lo dice',()=>{
+  const ab=functionSource('app-historial.js','openVerPagosModal');assert.match(ab,/window\.__verPagosApertura=\(window\.__verPagosApertura\|\|0\)\+1/);assert.match(ab,/window\.__pagoEditBase=null/);
+  assert.match(functionSource('app-historial.js','savePagoEdit'),/if\(window\.__verPagosApertura===apertura&&!window\.__pagoEditBase&&/);
+  assert.match(functionSource('app-historial.js','onAdjuntarPagoFile'),/window\.__verPagosApertura===apertura/);
+  assert.match(functionSource('app-cotizar.js','_saveCurrentQuoteImpl'),/window\._gbEditBases\?\.quote\?\.id!==editingQuoteNumber/);
+  assert.match(functionSource('app-propuesta.js','_savePropQuoteImpl'),/window\._gbEditBases\?\.proposal\?\.id!==editingPropNumber/);
 });
 console.log(`${passed} escenarios de integridad pasaron (adaptadores en memoria; no emulador Firebase).`);

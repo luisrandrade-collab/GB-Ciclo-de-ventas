@@ -1024,6 +1024,8 @@ async function _savePropQuoteImpl(silent){
           }
           return;
         }
+        // v8.0.7 (Codex r1): sin la versión abierta recordada el guardado no puede verificarse; se dice qué hacer.
+        if(silent&&window._gbEditBases?.proposal?.id!==editingPropNumber){toast("No se pudo verificar la versión abierta: vuelve a abrir el documento desde el historial para generar el PDF.","warn",7000);return {ok:false,cancelado:true}}
         if(silent&&!silentConCambios)return {ok:true,id:editingPropNumber,document:{...oldDoc,quoteNumber:editingPropNumber},sinCambios:true};
         if(statusActual==="entregado"&&(!silent||silentConCambios)){
           if(silent)hideLoader();
