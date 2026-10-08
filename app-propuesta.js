@@ -518,20 +518,31 @@ function renderPropSections(){
 // v7.9.16: snapshot/restore de propSections para Deshacer en borrados del editor.
 // Deep-copy por JSON (propSections es data plana: strings/números/arrays/objetos).
 // El undo restaura el estado COMPLETO previo al borrado — simple y sin aliasing.
-function _propSnapshot(){return JSON.parse(JSON.stringify(propSections))}
-function _propRestore(snap){propSections=snap;renderPropSections()}
 
+// v8.0.6 N5 (Codex): «Deshacer» devuelve SÓLO lo quitado, por referencia, a su contenedor si sigue existiendo y si
+// el editor sigue en el mismo documento. Antes restauraba una foto completa de propSections: pisaba lo editado
+// después y podía meter las secciones de una propuesta en otra.
+function _propCtx(){return (window._gbEditorContexts&&window._gbEditorContexts.proposal)||0}
+function _propDeshacer(ctx,contenedor,obj,pos,vigente){
+  if(_propCtx()!==ctx||!vigente()){if(typeof toast==="function")toast("Ya no se puede deshacer: cambiaste de documento o se quitó lo que lo contenía.","warn",5000);return}
+  if(contenedor.includes(obj))return;
+  contenedor.splice(Math.min(pos,contenedor.length),0,obj);
+  renderPropSections();
+}
 function delPropSec(si){
-  const nombre=propSections[si]&&propSections[si].name||"";
+  const sec=propSections[si];
+  const nombre=sec&&sec.name||"";
   confirmModal({
     title:"Eliminar sección",
     body:"¿Eliminar sección <strong>"+h(nombre)+"</strong>?",
     okLabel:"Eliminar",
     tone:"warn",
     onOk:()=>{
-      const snap=_propSnapshot();
-      propSections.splice(si,1);renderPropSections();
-      if(typeof toastUndo==="function")toastUndo('Sección "'+nombre+'" eliminada',()=>_propRestore(snap));
+      const pos=propSections.indexOf(sec); // el mismo objeto, no el índice de antes del diálogo
+      if(pos<0)return;
+      const ctx=_propCtx();
+      propSections.splice(pos,1);renderPropSections();
+      if(typeof toastUndo==="function")toastUndo('Sección "'+nombre+'" eliminada',()=>_propDeshacer(ctx,propSections,sec,pos,()=>true));
     }
   });
 }
@@ -545,9 +556,11 @@ function delPropOpt(si,oi){
   const opt=sec.options[oi];if(!opt)return;
   const nItems=(opt.items||[]).length;
   const doDel=()=>{
-    const snap=_propSnapshot();
-    sec.options.splice(oi,1);renderPropSections();
-    if(typeof toastUndo==="function")toastUndo((opt.label||"Opción")+" eliminada"+(nItems?" ("+nItems+" item"+(nItems===1?"":"s")+")":""),()=>_propRestore(snap));
+    const pos=sec.options.indexOf(opt); // v8.0.6 N5: el mismo objeto, no el índice de antes del diálogo
+    if(pos<0)return;
+    const ctx=_propCtx();
+    sec.options.splice(pos,1);renderPropSections();
+    if(typeof toastUndo==="function")toastUndo((opt.label||"Opción")+" eliminada"+(nItems?" ("+nItems+" item"+(nItems===1?"":"s")+")":""),()=>_propDeshacer(ctx,sec.options,opt,pos,()=>propSections.includes(sec)));
   };
   if(nItems>0){
     confirmModal({
@@ -815,10 +828,12 @@ function submitPropItemCustom(){
 function updPropItem(si,oi,ii,field,val){propSections[si].options[oi].items[ii][field]=val;renderPropSections()}
 // v7.9.16: Deshacer al quitar un item (sin confirmación — granularidad fina).
 function delPropItem(si,oi,ii){
-  const it=propSections[si]&&propSections[si].options[oi]&&propSections[si].options[oi].items[ii];
-  const snap=_propSnapshot();
-  propSections[si].options[oi].items.splice(ii,1);renderPropSections();
-  if(typeof toastUndo==="function")toastUndo('"'+((it&&it.name)||"Item")+'" quitado',()=>_propRestore(snap));
+  const sec=propSections[si],opt=sec&&sec.options[oi];
+  const it=opt&&opt.items[ii];
+  if(!it)return;
+  const ctx=_propCtx(); // v8.0.6 N5
+  opt.items.splice(ii,1);renderPropSections();
+  if(typeof toastUndo==="function")toastUndo('"'+((it&&it.name)||"Item")+'" quitado',()=>_propDeshacer(ctx,opt.items,it,ii,()=>propSections.includes(sec)&&sec.options.includes(opt)));
 }
 
 // ─── MENAJE (v7.9.8: con opciones A/B/...) ─────────────────

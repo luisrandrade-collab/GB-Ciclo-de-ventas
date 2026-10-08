@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v8.0.5";
+const BUILD_VERSION="v8.0.6";
 const BUILD_DATE="2026-09-20";
 // v8.0.0 (D-v8-09): bandera del rediseño R1. Tapa sólo lo nuevo: Inicio, Negocios (y la ficha en T3), barra
 // inferior, entradas del menú y arranque en Inicio. F5 y los campos nuevos quedan siempre activos. Apagada, la app
@@ -2432,6 +2432,17 @@ async function registerCustomProduct(n,d,p,u,inCatalog){
   localStorage.setItem("gb_cprods_cache",JSON.stringify(customProductsCache));
 }
 
+// v8.0.6 N6: ¿hay ya documentos de este tipo numerados con el año? Se pregunta al SERVIDOR (no a la caché, que
+// arranca vacía). Sin respuesta segura se trata como «sí»: nunca se reinicia una numeración que pueda existir.
+async function _hayDocsDelAnio(kind){
+  const {db,collection,query,where,documentId,limit,getDocsFromServer}=window.fb;
+  const coll=kind==="quote"?"quotes":"proposals";
+  const prefijo=(kind==="quote"?"GB-":"GB-P-")+APP_YEAR+"-";
+  try{
+    const r=await getDocsFromServer(query(collection(db,coll),where(documentId(),">=",prefijo),where(documentId(),"<",prefijo+"\uf8ff"),limit(1)));
+    return !r.empty;
+  }catch(e){console.warn("[getNextNumber] no se pudo comprobar el año en el servidor:",e&&e.message);return true}
+}
 async function getNextNumber(kind){
   const {db,doc,runTransaction}=window.fb;
   let docId;
@@ -2440,18 +2451,31 @@ async function getNextNumber(kind){
   else if(kind==="propfinal")docId="propfinals-"+APP_YEAR;
   else throw new Error("Tipo de consecutivo inválido: "+kind);
   const ref=doc(db,"counters",docId);
+  let puedeCrear=null; // v8.0.6 N6: se decide fuera de la transacción, sólo si hace falta
+  for(;;){
+  try{
   const next=await runTransaction(db,async(tx)=>{
     const snap=await tx.get(ref);
     if(!snap.exists()){
       if(kind==="propfinal"){tx.set(ref,{current:100});return 100}
-      throw new Error("Contador no existe: "+docId);
+      // v8.0.6 N6: año nuevo sin contador (p. ej. 1-ene-2027). Antes: «Contador no existe» y nadie podía crear
+      // documentos. Se crea en 1 sólo si el servidor confirmó que no hay documentos del año.
+      if(puedeCrear===true){tx.set(ref,{current:1});return 1}
+      if(puedeCrear===false)throw Object.assign(new Error("Falta el contador de "+(kind==="quote"?"cotizaciones":"propuestas")+" de "+APP_YEAR+" y ya hay documentos de ese año: no se puede continuar la numeración sin riesgo de repetir. Avisa a Luis."),{paraUsuario:true});
+      throw Object.assign(new Error("contador-ausente"),{contadorAusente:true});
     }
     const cur=snap.data().current||0;
     const nn=cur+1;
     tx.update(ref,{current:nn});
     return nn;
   });
-  const padded=String(next).padStart(4,"0");
+  var nextNum=next;break;
+  }catch(e){
+    if(!(e&&e.contadorAusente)||puedeCrear!==null)throw e;
+    puedeCrear=!(await _hayDocsDelAnio(kind));
+  }
+  }
+  const padded=String(nextNum).padStart(4,"0");
   let prefix;
   if(kind==="quote")prefix="GB-";
   else if(kind==="proposal")prefix="GB-P-";
@@ -2835,12 +2859,22 @@ async function autoTransitionToEnProduccion(list){
   const candidatos=list.filter(q=>q.status==="aprobada" && q.eventDate && q.eventDate<=todayIso);
   if(!candidatos.length)return;
   try{
-    const {db,doc,updateDoc,serverTimestamp}=window.fb;
+    const {db,doc,runTransaction,serverTimestamp}=window.fb;
     for(const q of candidatos){
       const coll=getCollectionName(q.id,q.kind);
       try{
-        await updateDoc(doc(db,coll,q.id),{status:"en_produccion",updatedAt:serverTimestamp()});
-        q.status="en_produccion";
+        // v8.0.6 N7 (Codex): sólo si el snapshot sigue «aprobada» con la fecha llegada. Antes un updateDoc ciego
+        // revertía una anulación o una entrega hecha en otra sesión mientras se cargaba la lista.
+        const ref=doc(db,coll,q.id);
+        const nuevo=await runTransaction(db,async tx=>{
+          const snap=await tx.get(ref);
+          if(!snap.exists())return null;
+          const f=snap.data();
+          if(f.status!=="aprobada"||!f.eventDate||f.eventDate>todayIso)return f.status||null;
+          tx.update(ref,{status:"en_produccion",updatedAt:serverTimestamp()});
+          return "en_produccion";
+        });
+        if(nuevo)q.status=nuevo;
       }catch(innerE){
         console.warn("No se pudo transicionar "+q.id,innerE);
         // v7.9.13 UX-01: el fallo era invisible (solo console.warn) — Kathy no se enteraba
@@ -2994,7 +3028,7 @@ async function setFollowUp(docId,kind,nuevoEstado,extra){
   if(!cloudOnline){toast("Sin conexión.","error");return false}
   const q=quotesCache.find(x=>x.id===docId&&x.kind===kind);
   if(!q)return false;
-  const {db,doc,updateDoc,serverTimestamp}=window.fb;
+  const {db,doc,runTransaction,serverTimestamp}=window.fb;
   const coll=getCollectionName(docId,kind);
   const patch={
     followUp:nuevoEstado,
@@ -3004,10 +3038,8 @@ async function setFollowUp(docId,kind,nuevoEstado,extra){
   // v5.2.3: auto-normalización — si el doc no tiene `status` (legacy pre-v5.0.3),
   // al etiquetar followUp aprovechamos para escribirle también status="enviada"
   // (o "propfinal" si es una PF). Así los datos se auto-reparan con el uso normal.
-  if(!q.status){
-    const defaultStatus=(kind==="proposal"&&docId&&docId.startsWith("GB-PF-"))?"propfinal":"enviada";
-    patch.status=defaultStatus;
-  }
+  // v8.0.6 (Codex): esa decisión se toma con el snapshot dentro de la transacción (abajo), no con la caché.
+  const defaultStatus=(kind==="proposal"&&docId&&docId.startsWith("GB-PF-"))?"propfinal":"enviada";
   if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
   if(nuevoEstado==="perdida"&&extra){
     patch.perdidaData={
@@ -3022,7 +3054,19 @@ async function setFollowUp(docId,kind,nuevoEstado,extra){
   if(nuevoEstado==="perdida")patch.proximoContacto=null;
   else if(extra&&Object.prototype.hasOwnProperty.call(extra,"proximoContacto"))patch.proximoContacto=extra.proximoContacto;
   try{
-    await updateDoc(doc(db,coll,docId),patch);
+    const ref=doc(db,coll,docId);
+    await runTransaction(db,async tx=>{
+      const snap=await tx.get(ref);
+      if(!snap.exists())throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true});
+      const f=snap.data();
+      // v8.0.6 (F2-CL-06): «perdida» sólo para algo que sigue siendo cotización/propuesta; antes un pedido ya
+      // vendido marcado perdido desde una lista vieja desaparecía de Cartera.
+      if(nuevoEstado==="perdida"&&f.status&&!["enviada","propfinal"].includes(f.status))throw Object.assign(new Error("El documento cambió en otra sesión (estado actual: "+f.status+"): ya no se puede marcar como perdido. No se guardó nada."),{paraUsuario:true});
+      const p={...patch};
+      if(f.status)delete p.status;else p.status=defaultStatus;
+      tx.update(ref,p);
+      if(p.status)patch.status=p.status;else delete patch.status;
+    });
     q.followUp=nuevoEstado;
     q.followUpUpdatedAt=patch.followUpUpdatedAt;
     if(patch.status)q.status=patch.status; // v5.2.3: reflejar normalización en cache
@@ -3920,8 +3964,10 @@ async function revertDelivery(quoteId,kind,opts){
       if(typeof auditTransition==="function"&&!auditTransition("entregado","en_produccion","revertDelivery "+quoteId))return {ok:false,reason:"fsm_blocked"};
       const ed=q.entregaData||{};
       const fechaEntrega=ed.fechaEntrega||q.fechaEntrega||"";
-      const pagos=Array.isArray(q.pagos)?q.pagos:[];
-      const pagoMismaFecha=pagos.find(p=>(p.fecha||"")===fechaEntrega&&fechaEntrega);
+      // v8.0.6 (Codex): getPagos incluye los cobros legados (orderData/approvalData/saldoData); la fecha se normaliza.
+      const pagos=(typeof getPagos==="function")?getPagos(q):(Array.isArray(q.pagos)?q.pagos:[]);
+      const _fIso=v=>(typeof pagoFechaIso==="function")?pagoFechaIso(v):String(v||"").slice(0,10);
+      const pagoMismaFecha=pagos.find(p=>fechaEntrega&&_fIso(p.fecha)===fechaEntrega);
       if(pagoMismaFecha)return {ok:false,reason:"pago_mismo_dia",fecha:fechaEntrega,pago:pagoMismaFecha};
       const auditTrail=Array.isArray(q.auditTrail)?q.auditTrail.slice():[];
       const entry={

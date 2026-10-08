@@ -42,6 +42,35 @@ function getPagos(q){
   return out;
 }
 function totalCobrado(q){return getPagos(q).reduce((s,p)=>s+(parseInt(p.monto)||0),0)}
+// v8.0.6 N1: base para escribir pagos[] dentro de una transacción. Si el documento todavía no tiene
+// pagos[] (anticipo/saldo en orderData, approvalData o saldoData), parte de los legados que muestra
+// getPagos; antes se partía de [] y el primer pago nuevo los borraba del cobrado. Copias, no referencias.
+function pagosBaseParaEscribir(fresh){
+  if(Array.isArray(fresh&&fresh.pagos)&&fresh.pagos.length)return fresh.pagos.map(p=>({...p}));
+  return fresh?getPagos(fresh).map(p=>({...p})):[];
+}
+// v8.0.6 N8: una confirmación a la vez (el doble toque registraba dos veces el anticipo, la devolución o la
+// entrega). La bandera se toma antes de cualquier await y se libera en finally, también si el flujo sale por
+// una validación o una cancelación; el botón que la llamó queda deshabilitado mientras corre.
+async function gbUnaVez(nombre,fn){
+  const k="_gbOcupado_"+nombre;
+  if(window[k])return;
+  window[k]=true;
+  const btn=(typeof document!=="undefined"&&document.querySelector)?document.querySelector('[onclick="'+nombre+'()"]'):null;
+  if(btn)btn.disabled=true;
+  try{return await fn()}finally{window[k]=false;if(btn)btn.disabled=false}
+}
+// v8.0.6 N7: el documento cambió en otra sesión entre lo que muestra la pantalla y la escritura. La transacción
+// aborta sin escribir; el aviso lo dice y la vista se recarga desde la nube.
+function gbErrorDocCambio(texto){return Object.assign(new Error(texto+" No se guardó nada; se va a actualizar la vista."),{paraUsuario:true,docCambio:true})}
+function gbRecargarTrasCambio(e){
+  if(!(e&&e.docCambio)||typeof loadAllHistory!=="function")return;
+  // r2 (Codex): el aviso no promete lo que no pasó; si la recarga falla, se dice.
+  loadAllHistory().then(()=>{if(typeof refreshActiveView==="function")refreshActiveView()})
+    .catch(()=>{if(typeof toast==="function")toast("No se pudo actualizar la vista desde la nube; recarga la página.","warn",6000)});
+}
+// Estados en que un pedido sigue abierto (producir, entregar, anular, cambiar fecha).
+const GB_ESTADOS_ABIERTOS=["pedido","aprobada","en_produccion"];
 // v7.9.34 P-02: pago que parece ya registrado. Mismo monto y (misma fecha de pago, o
 // es otro anticipo). No basta el monto: con anticipo y saldo del 50 % los dos pagos
 // legítimos valen lo mismo; los separa la fecha. Devoluciones no cuentan.
@@ -649,7 +678,7 @@ async function quickMarkViva(docId,kind,ev){
   if(typeof hideLoader==="function")hideLoader();
   if(ok){
     if(typeof toast==="function")toast("🟢 Marcada como ACTIVA (viva, caliente)","success");
-    renderHist();
+    renderHist();if(typeof refreshActiveView==="function")refreshActiveView(); // v8.0.6 N3: repinta la pantalla visible
     if(typeof renderDashboard==="function"&&curMode==="dash")renderDashboard();
     if(typeof renderSeguimiento==="function"&&curMode==="seg")renderSeguimiento();
   }
@@ -687,6 +716,9 @@ function openOrderModal(quoteId,ev){
   if(ev){ev.stopPropagation();ev.preventDefault()}
   const q=quotesCache.find(x=>x.id===quoteId&&x.kind==="quote");
   if(!q){if(typeof toast==="function")toast("No se encontró la cotización","error");else alert("No se encontró la cotización");return}
+  // v8.0.6 N3: sólo una cotización enviada y no perdida se confirma (antes se podía repetir y duplicar el anticipo).
+  const _fuOM=typeof getFollowUp==="function"?getFollowUp(q):q.followUp;
+  if((q.status||"enviada")!=="enviada"||_fuOM==="perdida"){toast("Esta cotización ya no se puede marcar como pedido (estado: "+((typeof STATUS_META!=="undefined"&&STATUS_META[q.status]?.label)||q.status||"enviada")+(_fuOM==="perdida"?", perdida":"")+").","warn",6000);return}
   $("om-num").value=q.quoteNumber||q.id;
   $("om-cli").value=q.client||"";
   const hoy=gbTodayIso();
@@ -771,8 +803,10 @@ function openOrderModal(quoteId,ev){
 }
 function closeOrderModal(){$("order-modal").classList.add("hidden")}
 
-async function submitMarkAsOrder(){
+async function submitMarkAsOrder(){return gbUnaVez("submitMarkAsOrder",_submitMarkAsOrderImpl)}
+async function _submitMarkAsOrderImpl(){
   const quoteId=$("om-num").dataset.quoteId;
+  const numMostrado=$("om-num").value; // r2 (Codex): el aviso y el cierre son de ESTE documento
   if(!quoteId)return;
   if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión","error");else alert("Sin conexión.");return}
   const fecha=$("om-fecha").value;if(!fecha){alert("Ingresa la fecha de aprobación del cliente");return}
@@ -849,27 +883,35 @@ async function submitMarkAsOrder(){
       },
       runner:async()=>{
         showLoader("Actualizando estado...");
-        const {db,doc,getDoc,updateDoc,serverTimestamp}=window.fb;
-        const patch={
-          status:initialStatus,orderData:orderData,
-          eventDate:fechaEntrega,horaEntrega:horaEntrega,
-          productionDate:productionDate,produced:produced,
-          producedAt:produced?new Date().toISOString():null,
-          proximoContacto:null, // v8.0.0 F5: confirmado ya no se persigue; null para que la fusión no lo resucite
-          updatedAt:serverTimestamp()
-        };
-        if(selloFiscal)Object.assign(patch,selloFiscal); // v7.10.0
-        // v7.9.13 DAT-02: el anticipo se APPENDEA a los pagos frescos del doc.
-        // Antes patch.pagos=pagos PISABA pagos ya registrados (lost update).
-        if(pagos.length){
-          const freshSnap=await getDoc(doc(db,"quotes",quoteId));
-          const pagosFresh=(freshSnap.exists()&&Array.isArray(freshSnap.data().pagos))?freshSnap.data().pagos.slice():[];
-          patch.pagos=pagosFresh.concat(pagos);
-        }
-        // v5.0.2: al confirmar un pedido con fecha futura, queda needsSync=true automáticamente.
+        const {db,doc,runTransaction,serverTimestamp}=window.fb;
+        const ref=doc(db,"quotes",quoteId);
         const hoyIso=gbTodayIso();
-        if(fechaEntrega&&fechaEntrega>=hoyIso)patch.needsSync=true;
-        await updateDoc(doc(db,"quotes",quoteId),patch);
+        let patch=null;
+        // v8.0.6 N7/N9: estado y anticipo en UNA transacción sobre el documento fresco. Antes: getDoc + updateDoc
+        // (un pago registrado entre ambos se perdía) y sin revisar el estado (repetir duplicaba el anticipo).
+        await runTransaction(db,async tx=>{
+          const snap=await tx.get(ref);
+          if(!snap.exists())throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true});
+          const fresh=snap.data();
+          if((fresh.status||"enviada")!=="enviada"||fresh.followUp==="perdida")throw gbErrorDocCambio("La cotización cambió en otra sesión (estado actual: "+(fresh.status||"enviada")+(fresh.followUp==="perdida"?", perdida":"")+").");
+          const p={
+            status:initialStatus,orderData:orderData,
+            eventDate:fechaEntrega,horaEntrega:horaEntrega,
+            productionDate:productionDate,produced:produced,
+            producedAt:produced?new Date().toISOString():null,
+            proximoContacto:null, // v8.0.0 F5: confirmado ya no se persigue; null para que la fusión no lo resucite
+            updatedAt:serverTimestamp()
+          };
+          if(selloFiscal)Object.assign(p,selloFiscal); // v7.10.0
+          if(pagos.length){ // N1: parte de los pagos frescos, legados incluidos; el anticipo no se repite en reintentos
+            const base=pagosBaseParaEscribir(fresh);
+            p.pagos=base.some(x=>x.tipo==="anticipo"&&x.registradoEn===pagos[0].registradoEn)?base:base.concat(pagos);
+          }
+          // v5.0.2: al confirmar un pedido con fecha futura, queda needsSync=true automáticamente.
+          if(fechaEntrega&&fechaEntrega>=hoyIso)p.needsSync=true;
+          tx.update(ref,p);
+          patch=p;
+        });
         const local=quotesCache.find(x=>x.id===quoteId&&x.kind==="quote");
         if(local){
           local.status=initialStatus;local.orderData=orderData;
@@ -883,11 +925,11 @@ async function submitMarkAsOrder(){
         }
       }
     });
-    hideLoader();closeOrderModal();
-    toast("✅ Pedido "+($("om-num").value)+" · Entrega "+fechaEntrega+" "+horaEntrega+" · Producción "+productionDate+(produced?" (✓ ya producido)":""),"success");
-    renderHist();
+    hideLoader();if($("om-num").dataset.quoteId===quoteId)closeOrderModal(); // r2: no cerrar la ventana de otro documento
+    toast("✅ Pedido "+numMostrado+" · Entrega "+fechaEntrega+" "+horaEntrega+" · Producción "+productionDate+(produced?" (✓ ya producido)":""),"success");
+    renderHist();if(typeof refreshActiveView==="function")refreshActiveView(); // v8.0.6 N3: repinta la pantalla visible
     if(curMode==="dash")renderDashboard();
-  }catch(e){hideLoader();toast("Error al actualizar: "+gbMensajeError(e),"error");console.error("[submitMarkAsOrder]",e)}
+  }catch(e){hideLoader();toast("Error al actualizar: "+gbMensajeError(e),"error");console.error("[submitMarkAsOrder]",e);gbRecargarTrasCambio(e)}
 }
 
 // ─── ASIGNAR FECHA DE ENTREGA ──────────────────────────────
@@ -906,19 +948,29 @@ async function assignDeliveryDate(quoteId,kind,ev){
   if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión","error");else alert("Sin conexión");return}
   try{
     showLoader("Asignando fecha...");
-    const {db,doc,updateDoc,serverTimestamp}=window.fb;
-    const patch={eventDate:fecha,horaEntrega:hora,updatedAt:serverTimestamp()};
-    if(q.orderData){patch["orderData.fechaEntrega"]=fecha;patch["orderData.horaEntrega"]=hora}
-    // v5.0.2: fecha futura → needsSync
-    if(fecha>=hoy)patch.needsSync=true;
+    const {db,doc,runTransaction,serverTimestamp}=window.fb;
     const coll=getCollectionName(quoteId,kind);
-    await updateDoc(doc(db,coll,quoteId),patch);
+    const ref=doc(db,coll,quoteId);
+    let patch=null;
+    // v8.0.6 (Codex, misma raíz que N7): transacción con el pedido abierto en el snapshot; orderData según el fresco.
+    await runTransaction(db,async tx=>{
+      const snap=await tx.get(ref);
+      if(!snap.exists())throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true});
+      const fresh=snap.data();
+      if(!GB_ESTADOS_ABIERTOS.includes(fresh.status||"enviada"))throw gbErrorDocCambio("El pedido cambió en otra sesión (estado actual: "+(fresh.status||"enviada")+").");
+      const p={eventDate:fecha,horaEntrega:hora,updatedAt:serverTimestamp()};
+      if(fresh.orderData){p["orderData.fechaEntrega"]=fecha;p["orderData.horaEntrega"]=hora}
+      // v5.0.2: fecha futura → needsSync
+      if(fecha>=hoy)p.needsSync=true;
+      tx.update(ref,p);
+      patch=p;
+    });
     q.eventDate=fecha;q.horaEntrega=hora;
     if(q.orderData){q.orderData.fechaEntrega=fecha;q.orderData.horaEntrega=hora}
     if(patch.needsSync)q.needsSync=true;
-    hideLoader();renderHist();
+    hideLoader();renderHist();if(typeof refreshActiveView==="function")refreshActiveView(); // v8.0.6 N3: repinta la pantalla visible
     if(typeof renderDashboard==="function")renderDashboard();
-  }catch(e){hideLoader();toast("Error: "+gbMensajeError(e),"error")}
+  }catch(e){hideLoader();toast("Error: "+gbMensajeError(e),"error");gbRecargarTrasCambio(e)}
 }
 
 // ─── APROBAR PROPUESTA ─────────────────────────────────────
@@ -926,6 +978,9 @@ function openApproveModal(propId,kind,ev){
   if(ev){ev.stopPropagation();ev.preventDefault()}
   const p=quotesCache.find(x=>x.id===propId&&x.kind===kind);
   if(!p){if(typeof toast==="function")toast("No se encontró la propuesta","error");else alert("No se encontró la propuesta");return}
+  // v8.0.6 N3: sólo se aprueba una propuesta enviada o una PF, no perdida.
+  const _fuAM=typeof getFollowUp==="function"?getFollowUp(p):p.followUp;
+  if(!["enviada","propfinal"].includes(p.status||"enviada")||_fuAM==="perdida"){toast("Esta propuesta ya no se puede aprobar (estado: "+((typeof STATUS_META!=="undefined"&&STATUS_META[p.status]?.label)||p.status||"enviada")+(_fuAM==="perdida"?", perdida":"")+").","warn",6000);return}
   $("am-num").value=p.quoteNumber||p.id;
   $("am-cli").value=p.client||"";
   $("am-fecha").value=gbTodayIso();
@@ -962,8 +1017,10 @@ function openApproveModal(propId,kind,ev){
 }
 function closeApproveModal(){$("approve-modal").classList.add("hidden")}
 
-async function submitApproveProposal(){
+async function submitApproveProposal(){return gbUnaVez("submitApproveProposal",_submitApproveProposalImpl)}
+async function _submitApproveProposalImpl(){
   const propId=$("am-num").dataset.propId;
+  const numMostrado=$("am-num").value; // r2 (Codex)
   const kind=$("am-num").dataset.propKind||"proposal";
   if(!propId)return;
   if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión","error");else alert("Sin conexión.");return}
@@ -1005,32 +1062,40 @@ async function submitApproveProposal(){
       },
       runner:async()=>{
         showLoader("Actualizando estado...");
-        const {db,doc,getDoc,updateDoc,serverTimestamp}=window.fb;
+        const {db,doc,runTransaction,serverTimestamp}=window.fb;
         const coll=getCollectionName(propId,kind);
-        const patch={status:"aprobada",approvalData:approvalData,proximoContacto:null,updatedAt:serverTimestamp()}; // v8.0.0 F5: aprobar borra el próximo contacto (null)
-        if(selloFiscal)Object.assign(patch,selloFiscal); // v7.10.0
-        if(fechaEntrega)patch.eventDate=fechaEntrega;
-        if(horaEntrega)patch.horaEntrega=horaEntrega;
-        // v7.9.13 DAT-02: el anticipo se APPENDEA a los pagos frescos del doc.
-        // Antes patch.pagos=pagos PISABA pagos ya registrados (lost update).
-        if(pagos.length){
-          const freshSnap=await getDoc(doc(db,coll,propId));
-          const pagosFresh=(freshSnap.exists()&&Array.isArray(freshSnap.data().pagos))?freshSnap.data().pagos.slice():[];
-          patch.pagos=pagosFresh.concat(pagos);
-        }
+        const ref=doc(db,coll,propId);
         const hoyIso=gbTodayIso();
-        const effectiveEventDate=fechaEntrega||(quotesCache.find(x=>x.id===propId&&x.kind===kind)||{}).eventDate;
-        if(effectiveEventDate&&effectiveEventDate>=hoyIso)patch.needsSync=true;
-        await updateDoc(doc(db,coll,propId),patch);
+        let patch=null;
+        // v8.0.6 N7/N9: estado y anticipo en UNA transacción sobre el documento fresco (antes getDoc + updateDoc,
+        // sin revisar el estado). Aprobar desde enviada o desde una PF (propfinal) sigue permitido.
+        await runTransaction(db,async tx=>{
+          const snap=await tx.get(ref);
+          if(!snap.exists())throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true});
+          const fresh=snap.data();
+          if(!["enviada","propfinal"].includes(fresh.status||"enviada")||fresh.followUp==="perdida")throw gbErrorDocCambio("La propuesta cambió en otra sesión (estado actual: "+(fresh.status||"enviada")+(fresh.followUp==="perdida"?", perdida":"")+").");
+          const p={status:"aprobada",approvalData:approvalData,proximoContacto:null,updatedAt:serverTimestamp()}; // v8.0.0 F5: aprobar borra el próximo contacto (null)
+          if(selloFiscal)Object.assign(p,selloFiscal); // v7.10.0
+          if(fechaEntrega)p.eventDate=fechaEntrega;
+          if(horaEntrega)p.horaEntrega=horaEntrega;
+          if(pagos.length){ // N1: pagos frescos con legados; el anticipo no se repite en reintentos
+            const base=pagosBaseParaEscribir(fresh);
+            p.pagos=base.some(x=>x.tipo==="anticipo"&&x.registradoEn===pagos[0].registradoEn)?base:base.concat(pagos);
+          }
+          const effectiveEventDate=fechaEntrega||fresh.eventDate;
+          if(effectiveEventDate&&effectiveEventDate>=hoyIso)p.needsSync=true;
+          tx.update(ref,p);
+          patch=p;
+        });
         const local=quotesCache.find(x=>x.id===propId&&x.kind===kind);
         if(local){local.status="aprobada";local.approvalData=approvalData;local.proximoContacto=null;if(fechaEntrega)local.eventDate=fechaEntrega;if(horaEntrega)local.horaEntrega=horaEntrega;if(patch.pagos)local.pagos=patch.pagos;if(patch.needsSync)local.needsSync=true} // v7.9.13 DAT-02: cache con array completo
         if(local&&selloFiscal)Object.assign(local,selloFiscal); // v7.10.0
       }
     });
-    hideLoader();closeApproveModal();
-    toast("✓ Propuesta aprobada: "+($("am-num").value),"success");
+    hideLoader();if($("am-num").dataset.propId===propId)closeApproveModal(); // r2: no cerrar la ventana de otro documento
+    toast("✓ Propuesta aprobada: "+numMostrado,"success");
     refreshActiveView(); // v7.9.9 F1: refresca cualquier pantalla origen (Hist/Dash/Seg/Pedidos)
-  }catch(e){hideLoader();toast("Error al actualizar: "+gbMensajeError(e),"error");console.error("[submitApproveProposal]",e)}
+  }catch(e){hideLoader();toast("Error al actualizar: "+gbMensajeError(e),"error");console.error("[submitApproveProposal]",e);gbRecargarTrasCambio(e)}
 }
 
 // ─── DUPLICAR ──────────────────────────────────────────────
@@ -1269,7 +1334,7 @@ async function submitAjuste(){
     toast(tipo==="ajuste_saldo"?"✅ Ajuste aplicado · saldo descontado":"✅ Nota crédito · saldo a favor del cliente","success",5000);
     closeAjusteModal();
     // Refrescar UI
-    if(typeof renderHist==="function")renderHist();
+    if(typeof renderHist==="function")renderHist();if(typeof refreshActiveView==="function")refreshActiveView(); // v8.0.6 N3: repinta la pantalla visible
     if(typeof renderCartera==="function"&&curMode==="cartera")renderCartera();
     if(typeof renderDashboard==="function"&&curMode==="dash")renderDashboard();
     if(typeof docPreviewRefresh==="function")docPreviewRefresh(); // v7.9.36
@@ -1392,7 +1457,7 @@ async function _submitCargoImpl(){
     hideLoader();
     closeCargoModal();
     toast("✅ Cargo registrado: "+fm(monto)+". El cobro se envía desde «Ver pagos».","success",6000);
-    renderHist();
+    renderHist();if(typeof refreshActiveView==="function")refreshActiveView(); // v8.0.6 N3: repinta la pantalla visible
     if(curMode==="dash"&&typeof renderDashboard==="function")renderDashboard();
     if(typeof renderCartera==="function")renderCartera();
     if(typeof docPreviewRefresh==="function")docPreviewRefresh(); // v7.9.36
@@ -1443,7 +1508,7 @@ async function anularCargo(idx){
     hideLoader();
     toast(sinCambios?"El cargo ya estaba anulado (otra sesión); no se cambió nada.":"Cargo anulado",sinCambios?"warn":"success");
     openVerPagosModal(docId,kind);
-    renderHist();
+    renderHist();if(typeof refreshActiveView==="function")refreshActiveView(); // v8.0.6 N3: repinta la pantalla visible
     if(typeof renderCartera==="function")renderCartera();
     if(typeof docPreviewRefresh==="function")docPreviewRefresh(); // v7.9.36
   }catch(e){
@@ -1637,7 +1702,7 @@ function previewPagoFoto(ev){
 // - Console.log estructurado: timing, doc, monto, error stack.
 // - Validación monto vs saldo: confirma si difiere significativamente del saldo pendiente.
 
-async function submitPago(){
+async function submitPago(intento){
   // GUARD anti-double-click. El _submitPagoBusy global bloquea entradas concurrentes.
   // v7.9.34 R2 (P3-02 de Codex): se toma AL ENTRAR y cubre también los avisos; antes se
   // tomaba después de ellos y dos clics podían pasar a la vez. Se libera siempre.
@@ -1646,11 +1711,19 @@ async function submitPago(){
     return;
   }
   window._submitPagoBusy=true;
-  try{await _submitPagoImpl()}finally{window._submitPagoBusy=false}
+  try{await _submitPagoImpl(intento)}finally{window._submitPagoBusy=false}
 }
-async function _submitPagoImpl(){
-  if(!pagoSrc)return;
+async function _submitPagoImpl(intento){
+  // v8.0.6 N4 (Codex): el destino y la foto se fijan al entrar. Antes se releían los globales después de
+  // esperar la subida: si se cerraba la ventana y se abría el pago de otro documento, se escribía en ese.
+  // r2: «Reintentar» llega con el intento original (destino, foto ya subida e identidad) y no lo cambia.
+  const src=intento?intento.src:pagoSrc,fotoB64=intento?null:pagoFotoBase64;
+  if(!src)return;
+  if(intento&&pagoSrc!==src){toast("La ventana de pago ya es de otro documento: vuelve a abrir el pago para reintentar.","warn",6000);return}
   if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión","error");else alert("Sin conexión");return}
+  // r3 (Codex): «Reintentar» repone en la ventana los datos del intento original antes de leerlos; antes se leían
+  // los campos actuales (editables durante la subida) con la identidad y la foto del intento original.
+  if(intento&&intento.datos)for(const [k,v] of Object.entries(intento.datos)){const e=$("pm-"+k);if(e)e.value=v}
   const fecha=$("pm-fecha").value;if(!fecha){alert("Fecha");return}
   const monto=parseInt($("pm-monto").value)||0;if(monto<=0){alert("Monto inválido");return}
   const metodo=$("pm-metodo").value;if(!metodo){alert("Método");return}
@@ -1680,11 +1753,11 @@ async function _submitPagoImpl(){
     if(ok)aceptados.add(pagoClave(previo));
     return ok;
   };
-  let previo=pagoPareceRepetido(pagoSrc.doc,datosPago,aceptados);
+  let previo=pagoPareceRepetido(src.doc,datosPago,aceptados);
   if(previo&&!await confirmarRepetido(previo))return;
   try{
     const {db,doc,runTransaction}=window.fb;
-    const ref=doc(db,getCollectionName(pagoSrc.id,pagoSrc.kind),pagoSrc.id);
+    const ref=doc(db,getCollectionName(src.id,src.kind),src.id);
     while((previo=await runTransaction(db,async tx=>{const s=await tx.get(ref);return s.exists()?pagoPareceRepetido(s.data(),datosPago,aceptados):null}))){
       if(!await confirmarRepetido(previo))return;
     }
@@ -1693,9 +1766,9 @@ async function _submitPagoImpl(){
   }
 
   // VALIDATION: monto vs saldo pendiente
-  const totalDoc=(typeof getDocTotal==="function"?getDocTotal(pagoSrc.doc):(pagoSrc.doc.total||0));
-  const cobradoLocal=totalCobrado(pagoSrc.doc);
-  const saldoLocal=saldoPendiente(pagoSrc.doc); // v7.9.35 R1B-P2-1: saldo canónico (con cargos y ajustes)
+  const totalDoc=(typeof getDocTotal==="function"?getDocTotal(src.doc):(src.doc.total||0));
+  const cobradoLocal=totalCobrado(src.doc);
+  const saldoLocal=saldoPendiente(src.doc); // v7.9.35 R1B-P2-1: saldo canónico (con cargos y ajustes)
   if(saldoLocal>0&&Math.abs(monto-saldoLocal)>=100){
     const diff=Math.abs(monto-saldoLocal);
     const direccion=monto<saldoLocal?"<strong style='color:#C62828'>Quedará saldo pendiente</strong>":"<strong style='color:#E65100'>Sobrepago (crédito a favor cliente)</strong>";
@@ -1720,32 +1793,35 @@ async function _submitPagoImpl(){
   }
 
   // CLIENT ID para forensics + idempotency
-  const clientId="pago_"+Date.now()+"_"+Math.random().toString(36).slice(2,9);
+  const clientId=(intento&&intento.clientId)||("pago_"+Date.now()+"_"+Math.random().toString(36).slice(2,9)); // r2: el reintento conserva la identidad (idempotencia)
   const t0=Date.now();
-  console.log("[submitPago] start",{clientId,docId:pagoSrc.id,kind:pagoSrc.kind,monto,metodo,fecha});
+  console.log("[submitPago] start",{clientId,docId:src.id,kind:src.kind,monto,metodo,fecha});
 
   const nuevo={fecha,monto,metodo,tipo,notas,registradoEn:new Date().toISOString(),clientId};
 
   // Foto upload (best-effort, foto es opcional)
-  if(pagoFotoBase64){
+  if(intento&&intento.fotoUrl)nuevo.fotoUrl=intento.fotoUrl; // r2: el comprobante ya subido no se vuelve a subir
+  else if(intento&&intento.foto)nuevo.foto=intento.foto;
+  if(fotoB64){
     try{
       // v7.9.7.2: timeout 30s al upload. Si Storage cuelga (red inestable, CORS roto,
       // SDK que no resuelve), evita que el await espere infinito y bloquee el flag
       // _submitPagoBusy. Caso original 12/05/2026: Andrea Barrera y Emilia Aguilera
       // quedaron stuck "Guardando..." → flag heredado entre intentos.
       const UPLOAD_TIMEOUT_MS=30000;
-      const uploadPromise=uploadFotoFromBase64(pagoFotoBase64,"pago",pagoSrc.id,"pagos");
+      const uploadPromise=uploadFotoFromBase64(fotoB64,"pago",src.id,"pagos");
       const timeoutPromise=new Promise((_,reject)=>setTimeout(()=>reject(new Error("Timeout: upload de foto > 30s. Reintenta sin foto y adjunta despues con Ver pagos > Adjuntar.")),UPLOAD_TIMEOUT_MS));
       const {url}=await Promise.race([uploadPromise,timeoutPromise]);
       nuevo.fotoUrl=url;
       console.log("[submitPago] foto upload OK",{clientId,url:url.slice(0,80)+"..."});
     }catch(e){
       console.warn("[submitPago] foto upload falló, fallback base64:",e);
-      nuevo.foto=pagoFotoBase64; // compat legacy
+      nuevo.foto=fotoB64; // compat legacy
     }
   }
 
   let exito=false;
+  let pagoYaGuardado=null; // r3: si el pago ya estaba (reintento idempotente), el aviso muestra el guardado
   let totalPagosFinal=null,saldoNuevo=null,cobradoNuevo=null,pagosFreshFinal=null,fresh=null;
   try{
     showLoader("Registrando pago...");
@@ -1755,8 +1831,8 @@ async function _submitPagoImpl(){
     let opResult;
     for(;;){try{opResult=await logOperacion({
       operacion:"registrarPago",
-      docId:pagoSrc.id,
-      docKind:pagoSrc.kind,
+      docId:src.id,
+      docKind:src.kind,
       payload:{
         clientId,
         monto,
@@ -1768,8 +1844,8 @@ async function _submitPagoImpl(){
       },
       runner:async(logId)=>{
         const {db,doc,runTransaction,serverTimestamp}=window.fb;
-        const coll=getCollectionName(pagoSrc.id,pagoSrc.kind);
-        const ref=doc(db,coll,pagoSrc.id);
+        const coll=getCollectionName(src.id,src.kind);
+        const ref=doc(db,coll,src.id);
 
         // Vincula este pago con el log para trazabilidad cruzada
         nuevo.logId=logId;
@@ -1783,12 +1859,13 @@ async function _submitPagoImpl(){
         await runTransaction(db,async(tx)=>{
           const snap=await tx.get(ref);
           if(!snap.exists()){
-            throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true,detalle:"Documento "+pagoSrc.id+" no existe en Firestore (collection "+coll+")"});
+            throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true,detalle:"Documento "+src.id+" no existe en Firestore (collection "+coll+")"});
           }
           const freshTx=snap.data();
-          const pagosTx=Array.isArray(freshTx.pagos)?freshTx.pagos.slice():[];
+          const pagosTx=pagosBaseParaEscribir(freshTx); // v8.0.6 N1: antes partía de [] y borraba los legados
           // IDEMPOTENCY: si por alguna razón el clientId ya está, no duplicar
-          if(pagosTx.some(p=>p.clientId===clientId)){
+          pagoYaGuardado=pagosTx.find(p=>p.clientId===clientId)||null; // r3: reintento tras un commit sin respuesta
+          if(pagoYaGuardado){
             console.warn("[submitPago] clientId ya existe en Firestore (intento idempotente)",clientId);
           }else{
             // v7.9.34 R2 (P1-01): la regla se aplica al snapshot que se escribe. Un repetido
@@ -1809,7 +1886,7 @@ async function _submitPagoImpl(){
         // Post-commit: sincronizar estado/cache FUERA del callback (no depender de
         // valores de un reintento intermedio de la transacción).
         fresh=freshCommit;
-        pagoSrc.doc.pagos=pagosCommit;
+        src.doc.pagos=pagosCommit;
         pagosFreshFinal=pagosCommit;
         totalPagosFinal=pagosCommit.length;
 
@@ -1826,29 +1903,29 @@ async function _submitPagoImpl(){
     exito=true;
 
     hideLoader();
-    closePagoModal();
+    if(pagoSrc===src)closePagoModal(); // v8.0.6 N4: no cerrar una ventana abierta para otro documento
 
     // PERSISTENT SUCCESS MODAL (en vez de toast efímero)
     cobradoNuevo=(pagosFreshFinal||[]).reduce((s,p)=>s+(parseInt(p.monto)||0),0);
     // v7.9.35: la reposición pagada no es crédito a favor. R1B-P2-1: los ajustes también cuentan.
-    saldoNuevo=totalDoc+totalCargos(fresh||pagoSrc.doc)-cobradoNuevo-totalAjustes(fresh||pagoSrc.doc);
+    saldoNuevo=totalDoc+totalCargos(fresh||src.doc)-cobradoNuevo-totalAjustes(fresh||src.doc);
     const cliente=(fresh&&fresh.client)||"(sin cliente)";
-    const num=(fresh&&(fresh.quoteNumber||fresh.id))||pagoSrc.id;
+    const num=(fresh&&(fresh.quoteNumber||fresh.id))||src.id;
     const saldoLabel=saldoNuevo>0
       ?'Saldo pendiente: <strong style="color:#C62828">'+fm(saldoNuevo)+'</strong>'
       :saldoNuevo<0
         ?'<strong style="color:#1B5E20">Crédito a favor: '+fm(-saldoNuevo)+'</strong>'
         :'<strong style="color:#1B5E20">Saldo: $0 (cancelado)</strong>';
     await _showPagoSuccessModal({
-      monto:fm(monto),
-      metodo:metodo,
+      monto:fm(pagoYaGuardado?(parseInt(pagoYaGuardado.monto)||0):monto),
+      metodo:pagoYaGuardado?(pagoYaGuardado.metodo||metodo):metodo,
       cliente:cliente,
       num:num,
       cobradoTotal:fm(cobradoNuevo),
       saldoLabel:saldoLabel
     });
 
-    renderHist();
+    renderHist();if(typeof refreshActiveView==="function")refreshActiveView(); // v8.0.6 N3: repinta la pantalla visible
     if(curMode==="dash")renderDashboard();
     if(typeof renderCartera==="function")renderCartera();
     if(typeof docPreviewRefresh==="function")docPreviewRefresh(); // v7.9.36
@@ -1897,7 +1974,7 @@ async function _submitPagoImpl(){
     });
     if(reintentar){
       // Mantener pagoFotoBase64 para no re-subir foto. Llamar de nuevo.
-      setTimeout(()=>submitPago(),100);
+      setTimeout(()=>submitPago({src,clientId,fotoUrl:nuevo.fotoUrl||null,foto:nuevo.foto||null,datos:{fecha,monto:String(monto),metodo,tipo,notas}}),100);
       return;
     }
   }finally{
@@ -2003,6 +2080,9 @@ function editPago(idx){
   const p=pagos[idx];
   const el=$("pago-item-"+idx);
   if(!el)return;
+  // r3 (Codex): copia inmutable del pago tal como se abrió; savePagoEdit compara el snapshot contra ESTA copia
+  // (la caché puede recargarse con el cambio de otra sesión mientras el formulario sigue abierto).
+  window.__pagoEditBase={docId,kind,idx,pago:JSON.parse(JSON.stringify(p))};
   el.innerHTML=
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:4px 0">'+
       '<div><label style="font-size:10px;color:#888;display:block">Monto</label><input type="number" id="pe-monto-'+idx+'" value="'+Math.abs(p.monto)+'" style="width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px" inputmode="numeric"></div>'+
@@ -2026,7 +2106,12 @@ function editPago(idx){
 function _findPagoIdxFresh(arr,ref,fallbackIdx){
   if(ref&&ref.clientId){const i=arr.findIndex(p=>p.clientId===ref.clientId);if(i>=0)return i}
   if(ref&&ref.registradoEn){const i=arr.findIndex(p=>p.registradoEn===ref.registradoEn);if(i>=0)return i}
-  return (typeof fallbackIdx==="number"&&fallbackIdx>=0&&fallbackIdx<arr.length)?fallbackIdx:-1;
+  // v8.0.6 N1 (Codex): el índice sólo sirve si en esa posición está el mismo pago (monto, fecha y tipo);
+  // antes, si la identidad había desaparecido, se editaba el pago que ocupara ese lugar.
+  if(!(typeof fallbackIdx==="number"&&fallbackIdx>=0&&fallbackIdx<arr.length))return -1;
+  const c=arr[fallbackIdx];
+  const mismo=!ref||(c&&(parseInt(c.monto)||0)===(parseInt(ref.monto)||0)&&pagoFechaIso(c.fecha)===pagoFechaIso(ref.fecha)&&(c.tipo||"")===(ref.tipo||""));
+  return mismo?fallbackIdx:-1;
 }
 
 async function savePagoEdit(idx){
@@ -2037,7 +2122,9 @@ async function savePagoEdit(idx){
   if(!q)return;
   const pagos=getPagos(q).map(p=>({...p}));
   if(idx<0||idx>=pagos.length)return;
-  const old={...pagos[idx]};
+  const base=window.__pagoEditBase;
+  if(!base||base.docId!==docId||base.kind!==kind||base.idx!==idx){toast("Vuelve a abrir la edición del pago.","warn",5000);return}
+  const old={...base.pago}; // r3: el pago como se abrió, no el de la caché actual
   const nuevoMonto=parseInt($("pe-monto-"+idx).value)||0;
   const nuevoFecha=$("pe-fecha-"+idx).value;
   const nuevoMetodo=$("pe-metodo-"+idx).value;
@@ -2083,9 +2170,13 @@ async function savePagoEdit(idx){
           const snap=await tx.get(ref);
           if(!snap.exists())throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true,detalle:"Documento "+docId+" no existe en Firestore (collection "+coll+")"});
           const freshTx=snap.data();
-          const pagosTx=Array.isArray(freshTx.pagos)?freshTx.pagos.map(p=>({...p})):[];
+          const pagosTx=pagosBaseParaEscribir(freshTx); // v8.0.6 N1: incluye los legados
           const idxTx=_findPagoIdxFresh(pagosTx,old,idx);
           if(idxTx<0)throw Object.assign(new Error("No se encontró el pago a editar en el documento actual. Recarga (F1) y reintenta."),{paraUsuario:true});
+          // r2 (Codex): si otra sesión cambió ese pago mientras estaba abierto, no se pisa su cambio.
+          const pf=pagosTx[idxTx];
+          if((parseInt(pf.monto)||0)!==(parseInt(old.monto)||0)||pagoFechaIso(pf.fecha)!==pagoFechaIso(old.fecha)||(pf.metodo||"")!==(old.metodo||"")||(pf.tipo||"")!==(old.tipo||"")||(pf.notas||"")!==(old.notas||""))
+            throw gbErrorDocCambio("Ese pago cambió en otra sesión mientras lo editabas.");
           pagosTx[idxTx]={...pagosTx[idxTx],monto:pagos[idx].monto,fecha:nuevoFecha,metodo:nuevoMetodo,tipo:nuevoTipo,notas:nuevoNotas,editadoEn:pagos[idx].editadoEn};
           const changelogTx=Array.isArray(freshTx.pago_changelog)?freshTx.pago_changelog.slice():[];
           changelogTx.push({pagoIdx:idxTx,timestamp:new Date().toISOString(),changes});
@@ -2100,12 +2191,13 @@ async function savePagoEdit(idx){
     });
     hideLoader();
     toast("✏️ Pago actualizado","success");
-    openVerPagosModal(docId,kind);
+    window.__pagoEditBase=null;
+    if(window.__verPagosId===docId&&window.__verPagosKind===kind)openVerPagosModal(docId,kind); // r3: no reabrir otro documento
     // v7.2 F5: auto-refresh Cartera y Historico tras editar pago.
-    if(typeof renderHist==="function")renderHist();
+    if(typeof renderHist==="function")renderHist();if(typeof refreshActiveView==="function")refreshActiveView(); // v8.0.6 N3: repinta la pantalla visible
     if(typeof renderCartera==="function")renderCartera();
     if(typeof docPreviewRefresh==="function")docPreviewRefresh(); // v7.9.36
-  }catch(e){hideLoader();toast("Error: "+gbMensajeError(e),"error")}
+  }catch(e){hideLoader();toast("Error: "+gbMensajeError(e),"error");gbRecargarTrasCambio(e)}
 }
 
 // v5.1.0: Adjuntar comprobante DESPUÉS de registrar un pago.
@@ -2127,7 +2219,8 @@ async function onAdjuntarPagoFile(ev,idx){
   if(idx<0||idx>=pagos.length){alert("Pago no encontrado");return}
   // Preview mientras sube
   _compressImageFile(file,async b64=>{
-    $("vp-adj-prev-"+idx).innerHTML='<img src="'+b64+'" style="max-width:100%;max-height:120px;border-radius:6px;margin-top:6px;opacity:.6"><div style="font-size:10px;color:#666">Subiendo...</div>';
+    const mismaVentana=()=>window.__verPagosId===docId&&window.__verPagosKind===kind; // r3 (Codex)
+    if(mismaVentana()&&$("vp-adj-prev-"+idx))$("vp-adj-prev-"+idx).innerHTML='<img src="'+b64+'" style="max-width:100%;max-height:120px;border-radius:6px;margin-top:6px;opacity:.6"><div style="font-size:10px;color:#666">Subiendo...</div>';
     try{
       showLoader("Subiendo comprobante...");
       const {url}=await uploadFotoFromBase64(b64,"pago",docId,"pagos");
@@ -2143,9 +2236,10 @@ async function onAdjuntarPagoFile(ev,idx){
       await runTransaction(db,async(tx)=>{
         const snap=await tx.get(ref);
         if(!snap.exists())throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true,detalle:"Documento "+docId+" no existe en Firestore (collection "+coll+")"});
-        const pagosTx=Array.isArray(snap.data().pagos)?snap.data().pagos.map(p=>({...p})):[];
+        const pagosTx=pagosBaseParaEscribir(snap.data()); // v8.0.6 N1: incluye los legados
         const idxTx=_findPagoIdxFresh(pagosTx,pagoRef,idx);
         if(idxTx<0)throw Object.assign(new Error("No se encontró el pago en el documento actual. Recarga (F1) y reintenta."),{paraUsuario:true});
+        if(pagosTx[idxTx].fotoUrl&&pagosTx[idxTx].fotoUrl!==pagoRef.fotoUrl)throw gbErrorDocCambio("Otra sesión ya adjuntó un comprobante a ese pago."); // r2 (Codex)
         pagosTx[idxTx]={...pagosTx[idxTx],fotoUrl:url,fotoAdjuntadaEn:fotoAdjuntadaEn};
         tx.update(ref,{pagos:pagosTx,updatedAt:serverTimestamp(),...auditStamp()});
         pagosCommit=pagosTx;
@@ -2153,12 +2247,13 @@ async function onAdjuntarPagoFile(ev,idx){
       q.pagos=pagosCommit;
       hideLoader();
       toast("📎 Comprobante adjuntado","success");
-      // Re-abrir el modal para que se vea actualizado
-      openVerPagosModal(docId,kind);
+      // Re-abrir el modal para que se vea actualizado (r3: sólo si sigue siendo el de este documento)
+      if(mismaVentana())openVerPagosModal(docId,kind);
     }catch(e){
       hideLoader();
       console.error("onAdjuntarPagoFile error:",e);
       toast("Error subiendo comprobante: "+gbMensajeError(e),"error");
+      gbRecargarTrasCambio(e);
     }
   });
 }
@@ -2177,16 +2272,26 @@ async function toggleProduced(docId,kind,ev){
   if(!cloudOnline){if(typeof toast==="function")toast("Sin conexión","error");else alert("Sin conexión");return}
   try{
     showLoader("Actualizando...");
-    const {db,doc,updateDoc,serverTimestamp}=window.fb;
+    const {db,doc,runTransaction,serverTimestamp}=window.fb;
     const coll=getCollectionName(docId,kind);
-    await updateDoc(doc(db,coll,docId),{produced:newVal,producedAt:newVal?new Date().toISOString():null,updatedAt:serverTimestamp()});
-    q.produced=newVal;q.producedAt=newVal?new Date().toISOString():null;
+    const ref=doc(db,coll,docId);
+    const producedAt=newVal?new Date().toISOString():null;
+    // v8.0.6 N7 (Codex): la intención sale del clic (lo que mostraba la pantalla), pero si el valor fresco ya no es
+    // el de la pantalla o el pedido ya no está abierto, no se escribe: un toque viejo no desmarca un entregado.
+    await runTransaction(db,async tx=>{
+      const snap=await tx.get(ref);
+      if(!snap.exists())throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true});
+      const fresh=snap.data();
+      if(!GB_ESTADOS_ABIERTOS.includes(fresh.status||"enviada")||!!fresh.produced===newVal)throw gbErrorDocCambio("El pedido cambió en otra sesión (estado actual: "+(fresh.status||"enviada")+(fresh.produced?", producido":", sin producir")+").");
+      tx.update(ref,{produced:newVal,producedAt:producedAt,updatedAt:serverTimestamp()});
+    });
+    q.produced=newVal;q.producedAt=producedAt;
     hideLoader();refreshActiveView(); // v7.9.9 F1
     // v7.0-α FIX-02b: toast de confirmación visible
     if(typeof toast==="function"){
       toast(newVal?"🔪 Marcado como producido":"↩️ Desmarcado producido — el pedido vuelve a 'pendiente de producir'",newVal?"success":"info",newVal?3000:5000);
     }
-  }catch(e){hideLoader();toast("Error: "+gbMensajeError(e),"error")}
+  }catch(e){hideLoader();toast("Error: "+gbMensajeError(e),"error");gbRecargarTrasCambio(e)}
 }
 
 // v7.9.7.1 F6: marca producido un DESPACHO individual de una propuesta con despachos[] explícitos.
@@ -2220,6 +2325,11 @@ async function toggleProducedDespacho(docId,despachoId,kind,ev){
       if(!despachosTx)throw Object.assign(new Error("El documento ya no tiene despachos. Recarga (F1) y reintenta."),{paraUsuario:true});
       idxTx=despachosTx.findIndex(d=>d.id===despachoId);
       if(idxTx<0)throw Object.assign(new Error("Despacho no encontrado en el documento actual. Recarga (F1) y reintenta."),{paraUsuario:true});
+      // v8.0.6 N7 (Codex): con el despacho FRESCO. Si ya no está como lo mostraba la pantalla, o el documento
+      // ya no está abierto, no se escribe: un despacho entregado nunca vuelve a pendiente por un toque viejo.
+      const dFresco=despachosTx[idxTx];
+      const frescoProd=dFresco.status==="producido"||dFresco.status==="entregado";
+      if(!GB_ESTADOS_ABIERTOS.includes(freshTx.status||"enviada")||dFresco.status==="entregado"||frescoProd!==yaProd)throw gbErrorDocCambio("El despacho cambió en otra sesión (estado actual: "+(dFresco.status||"pendiente")+", documento "+(freshTx.status||"enviada")+").");
       nuevoArr=despachosTx.map((d,i)=>{
         if(i!==idxTx)return d;
         const next={...d,status:nuevoStatus};
@@ -2248,7 +2358,7 @@ async function toggleProducedDespacho(docId,despachoId,kind,ev){
         :"↩️ Despacho "+numDesp+"/"+totalDesp+" vuelto a pendiente";
       toast(msg,nuevoStatus==="producido"?"success":"info",3000);
     }
-  }catch(e){hideLoader();if(typeof toast==="function")toast("Error: "+gbMensajeError(e),"error");else console.error(e)}
+  }catch(e){hideLoader();if(typeof toast==="function")toast("Error: "+gbMensajeError(e),"error");else console.error(e);gbRecargarTrasCambio(e)}
 }
 
 // v7.9.7.1 F7: marca ENTREGADO un despacho individual.
@@ -2307,6 +2417,9 @@ async function toggleEntregadoDespacho(docId,despachoId,kind,ev){
       if(!despachosTx)throw Object.assign(new Error("El documento ya no tiene despachos. Recarga (F1) y reintenta."),{paraUsuario:true});
       idxTx=despachosTx.findIndex(d=>d.id===despachoId);
       if(idxTx<0)throw Object.assign(new Error("Despacho no encontrado en el documento actual. Recarga (F1) y reintenta."),{paraUsuario:true});
+      // v8.0.6 N7: el despacho fresco debe seguir «producido» y el documento abierto (antes un anulado podía
+      // terminar «entregado»).
+      if(!GB_ESTADOS_ABIERTOS.includes(freshTx.status||"enviada")||despachosTx[idxTx].status!=="producido")throw gbErrorDocCambio("El despacho cambió en otra sesión (estado actual: "+(despachosTx[idxTx].status||"pendiente")+", documento "+(freshTx.status||"enviada")+").");
       nuevoArr=despachosTx.map((d,i)=>{
         if(i!==idxTx)return d;
         return {...d,status:"entregado",entregadoEn:nowIso,entregaData:entregaDataDesp};
@@ -2586,8 +2699,13 @@ function clearEntregaFoto(idx){
   if(typeof _syncFotoClearBtns==="function")_syncFotoClearBtns();
 }
 
-async function submitDelivery(){
+async function submitDelivery(){return gbUnaVez("submitDelivery",_submitDeliveryImpl)}
+// v8.0.6 N8 (Codex): una subida colgada no debe dejar la entrega a medias ni la guarda tomada para siempre.
+function _conTopeSubida(promesa,ms){return Promise.race([promesa,new Promise((_,rej)=>setTimeout(()=>rej(new Error("La subida de la foto tardó más de "+Math.round(ms/1000)+" s.")),ms))])}
+async function _submitDeliveryImpl(){
   if(!deliverySrc)return;
+  const src=deliverySrc; // v8.0.6: el destino se fija al entrar (como el pago, N4)
+  const foto1=entregaFotoBase64,foto2=entregaFoto2Base64; // r2 (Codex): y también las dos fotos
   // v7.0-α FIX-02a: gate de transición — defensa profunda en el save final
   if(!deliverySrc.doc.produced){
     if(typeof toast==="function")toast("⚠️ Falta marcar como producido antes de entregar","warn",5000);
@@ -2610,72 +2728,75 @@ async function submitDelivery(){
     marcadoEn:new Date().toISOString()
   };
   // v5.0: foto a Storage (solo si es base64 nueva — si es URL legacy la mantiene)
-  if(entregaFotoBase64){
-    if(entregaFotoBase64.startsWith("data:")){
+  if(foto1){
+    if(foto1.startsWith("data:")){
       try{
-        const {url}=await uploadFotoFromBase64(entregaFotoBase64,"entrega",deliverySrc.id,"entregas");
+        const {url}=await _conTopeSubida(uploadFotoFromBase64(foto1,"entrega",src.id,"entregas"),30000);
         entregaData.fotoUrl=url;
       }catch(e){
         console.warn("Upload foto entrega falló, fallback a base64:",e);
-        entregaData.fotoBase64=entregaFotoBase64;
+        entregaData.fotoBase64=foto1;
       }
     }else{
       // Ya es URL (doc viejo recargado)
-      entregaData.fotoUrl=entregaFotoBase64;
+      entregaData.fotoUrl=foto1;
     }
   }
   // v6.4.0 P6: misma lógica para la segunda foto
-  if(entregaFoto2Base64){
-    if(entregaFoto2Base64.startsWith("data:")){
+  if(foto2){
+    if(foto2.startsWith("data:")){
       try{
-        const {url}=await uploadFotoFromBase64(entregaFoto2Base64,"entrega2",deliverySrc.id,"entregas");
+        const {url}=await _conTopeSubida(uploadFotoFromBase64(foto2,"entrega2",src.id,"entregas"),30000);
         entregaData.foto2Url=url;
       }catch(e){
         console.warn("Upload foto2 entrega falló, fallback a base64:",e);
-        entregaData.foto2Base64=entregaFoto2Base64;
+        entregaData.foto2Base64=foto2;
       }
     }else{
-      entregaData.foto2Url=entregaFoto2Base64;
+      entregaData.foto2Url=foto2;
     }
   }
   try{
     showLoader("Registrando entrega...");
-    const {db,doc,updateDoc,serverTimestamp}=window.fb;
-    const propId=deliverySrc.id;
-    const coll=getCollectionName(propId,deliverySrc.kind);
-    await updateDoc(doc(db,coll,propId),{
-      status:"entregado",
-      fechaEntrega:fecha,
-      entregaData:entregaData,
-      updatedAt:serverTimestamp(),
-      ...auditStamp()
+    const {db,doc,runTransaction,serverTimestamp}=window.fb;
+    const propId=src.id;
+    const coll=getCollectionName(propId,src.kind);
+    const ref=doc(db,coll,propId);
+    // v8.0.6 N7: transacción que exige pedido abierto y producido en el snapshot. Antes un updateDoc ciego
+    // podía volver «entregado» un pedido que otra sesión había anulado. Entregar desde «aprobada» sigue valiendo.
+    await runTransaction(db,async tx=>{
+      const snap=await tx.get(ref);
+      if(!snap.exists())throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true});
+      const fresh=snap.data();
+      if(!GB_ESTADOS_ABIERTOS.includes(fresh.status||"enviada")||!fresh.produced)throw gbErrorDocCambio("El pedido cambió en otra sesión (estado actual: "+(fresh.status||"enviada")+(fresh.produced?"":", sin producir")+").");
+      tx.update(ref,{status:"entregado",fechaEntrega:fecha,entregaData:entregaData,updatedAt:serverTimestamp(),...auditStamp()});
     });
-    deliverySrc.doc.status="entregado";
-    deliverySrc.doc.fechaEntrega=fecha;
-    deliverySrc.doc.entregaData=entregaData;
+    src.doc.status="entregado";
+    src.doc.fechaEntrega=fecha;
+    src.doc.entregaData=entregaData;
     hideLoader();
     // v6.4.0 P6: si hay al menos una foto, ofrecer envío por WhatsApp a Kathy ANTES de cerrar
     const tieneFotos=!!(entregaData.fotoUrl||entregaData.foto2Url||entregaData.fotoBase64||entregaData.foto2Base64);
     const docInfoForWA={
-      id:deliverySrc.id,
-      kind:deliverySrc.kind,
-      cliente:deliverySrc.doc.client||"—",
-      direccion:deliverySrc.doc.dir||"",
+      id:src.id,
+      kind:src.kind,
+      cliente:src.doc.client||"—",
+      direccion:src.doc.dir||"",
       fecha:fecha,
-      hora:deliverySrc.doc.horaEntrega||"",
+      hora:src.doc.horaEntrega||"",
       receptor:nombreReceptor||"",
       foto1:entregaData.fotoUrl||"",
       foto2:entregaData.foto2Url||""
     };
-    closeDeliveryModal();
+    if(deliverySrc===src)closeDeliveryModal(); // v8.0.6: no cerrar una ventana abierta para otro pedido
     toast("🎉 Entrega registrada","success");
-    renderHist();
+    renderHist();if(typeof refreshActiveView==="function")refreshActiveView(); // v8.0.6 N3: repinta la pantalla visible
     if(curMode==="dash")renderDashboard();
     if(tieneFotos&&typeof openEntregaWhatsAppModal==="function"){
       // Pequeño delay para que se vea el toast antes del modal
       setTimeout(()=>openEntregaWhatsAppModal(docInfoForWA),700);
     }
-  }catch(e){hideLoader();toast("Error: "+gbMensajeError(e),"error");console.error(e)}
+  }catch(e){hideLoader();toast("Error: "+gbMensajeError(e),"error");console.error(e);gbRecargarTrasCambio(e)}
 }
 
 // v6.4.0 P6: modal post-entrega para enviar foto(s) a Kathy por WhatsApp.
@@ -2968,7 +3089,7 @@ async function submitComentario(){
     comentSrc.doc.comentarioCliente=comentarioCliente;
     hideLoader();closeComentModal();
     toast("💬 Comentario guardado","success");
-    renderHist();
+    renderHist();if(typeof refreshActiveView==="function")refreshActiveView(); // v8.0.6 N3: repinta la pantalla visible
     if(curMode==="dash")renderDashboard();
   }catch(e){hideLoader();toast("Error: "+gbMensajeError(e),"error");console.error(e)}
 }
@@ -3092,7 +3213,8 @@ function onMotivoChange(){
   else $("an-motivo-otro-wrap").classList.add("hidden");
 }
 
-async function submitAnular(){
+async function submitAnular(){return gbUnaVez("submitAnular",_submitAnularImpl)}
+async function _submitAnularImpl(){
   if(!_anularCtx){alert("Contexto perdido.");return}
   const motivo=$("an-motivo").value;
   if(!motivo){alert("Escoge un motivo.");return}
@@ -3151,15 +3273,14 @@ async function submitAnular(){
         const coll=getCollectionName(docId,kind);
         const ref=doc(db,coll,docId);
 
-        const anuladaData={
+        const anuladaBase={
           fecha:new Date().toISOString(),
           motivo:motivo,
           motivoLabel:motivoLabel,
           notas:notas,
-          accion:accion,
-          estadoAnterior:q.status,
-          totalCobradoAlAnular:cobrado
+          accion:accion
         };
+        let anuladaData=null;
 
         const expectsRepl=$("an-reemplazo")&&$("an-reemplazo").checked;
         let pagosCommit=null;
@@ -3170,6 +3291,15 @@ async function submitAnular(){
           }
           const freshTx=snap.data();
           if(freshTx.feData&&freshTx.feData.cufe&&(accion==="regresar"||!gbFeAnuladaConNotas(freshTx.feData)))throw Object.assign(new Error("Este pedido tiene factura electrónica registrada: anularlo requiere anular la factura por completo con nota crédito; regresarlo a cotización no se permite."),{paraUsuario:true});
+          // v8.0.6 N2 (Codex): estado, cobro y devolución se revisan con el snapshot, para «anular» y «regresar».
+          // Antes sólo se miraba la caché: se podía anular algo que otra sesión acababa de cobrar por completo.
+          const docFresco={...freshTx,id:docId,kind:kind};
+          if(!GB_ESTADOS_ABIERTOS.includes(freshTx.status||"enviada"))throw gbErrorDocCambio("El documento cambió en otra sesión (estado actual: "+(freshTx.status||"enviada")+").");
+          const cobradoFresco=getPagos(docFresco).reduce((s,p)=>s+(parseInt(p.monto)||0),0);
+          const totalFresco=(typeof getDocTotal==="function")?getDocTotal(docFresco):(freshTx.total||0);
+          if(totalFresco>0&&cobradoFresco>=totalFresco)throw gbErrorDocCambio("El cliente ya pagó el 100% ("+fm(cobradoFresco)+" de "+fm(totalFresco)+").");
+          if(devPago&&Math.abs(devPago.monto)>cobradoFresco)throw gbErrorDocCambio("La devolución ("+fm(Math.abs(devPago.monto))+") supera lo cobrado ("+fm(cobradoFresco)+").");
+          anuladaData={...anuladaBase,estadoAnterior:freshTx.status,totalCobradoAlAnular:cobradoFresco};
 
           const patch={updatedAt:serverTimestamp()};
           if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
@@ -3197,7 +3327,7 @@ async function submitAnular(){
           if(devPago){
             // Pagos FRESCOS del snapshot (no del caché). getPagos maneja el formato
             // legacy (anticipo/saldoData) igual que en el resto del sistema.
-            const pagosFrescos=getPagos({...freshTx,id:docId,kind:kind})||[];
+            const pagosFrescos=pagosBaseParaEscribir(docFresco); // v8.0.6 N1: copias, legados incluidos
             // IDEMPOTENCY en reintentos de la tx: no duplicar por registradoEn
             const yaEsta=pagosFrescos.some(p=>p.tipo==="devolucion"&&p.registradoEn===devPago.registradoEn);
             patch.pagos=yaEsta?pagosFrescos:[...pagosFrescos,devPago];
@@ -3228,18 +3358,19 @@ async function submitAnular(){
       }
     });
     hideLoader();
-    closeAnularModal();
+    if(_anularCtx&&_anularCtx.docId===docId)closeAnularModal(); // r2 (Codex): no cerrar la ventana de otro documento
     const msg=accion==="anular"
       ? "❌ "+(q.quoteNumber||docId)+" anulada: "+motivoLabel+(devPago?" · Devolución registrada "+fm(Math.abs(devPago.monto)):"")
       : "↩️ "+(q.quoteNumber||docId)+" regresada a cotización viva · "+motivoLabel+(devPago?" · Devolución registrada "+fm(Math.abs(devPago.monto)):"");
     toast(msg,"success");
-    renderHist();
+    renderHist();if(typeof refreshActiveView==="function")refreshActiveView(); // v8.0.6 N3: repinta la pantalla visible
     if(curMode==="dash"&&typeof renderDashboard==="function")renderDashboard();
     if(typeof renderMiniDash==="function")renderMiniDash();
   }catch(e){
     hideLoader();
     toast("Error al anular: "+gbMensajeError(e),"error");
     console.error("[submitAnular]",e);
+    gbRecargarTrasCambio(e);
   }
 }
 
@@ -3597,7 +3728,7 @@ async function linkOptionGroup(docIdA,kindA,docIdB,kindB){
     if(typeof hideLoader==="function")hideLoader();
     toast("🔗 Vinculados como opciones del mismo evento","success");
     if(typeof closeConfirmModal==="function")closeConfirmModal();
-    renderHist();
+    renderHist();if(typeof refreshActiveView==="function")refreshActiveView(); // v8.0.6 N3: repinta la pantalla visible
     if(typeof renderDashboard==="function")renderDashboard();
   }catch(e){
     if(typeof hideLoader==="function")hideLoader();
@@ -3628,7 +3759,7 @@ async function unlinkOptionGroup(docIdA,kindA,docIdB,kindB){
     if(typeof hideLoader==="function")hideLoader();
     toast("Desvinculado","success");
     if(typeof closeConfirmModal==="function")closeConfirmModal();
-    renderHist();
+    renderHist();if(typeof refreshActiveView==="function")refreshActiveView(); // v8.0.6 N3: repinta la pantalla visible
     if(typeof renderDashboard==="function")renderDashboard();
   }catch(e){
     if(typeof hideLoader==="function")hideLoader();
@@ -3931,7 +4062,7 @@ async function submitFe(docId,kind){
     if(typeof hideLoader==="function")hideLoader();
     toast("🧾 Factura electrónica actualizada","success");
     if(typeof closeConfirmModal==="function")closeConfirmModal();
-    renderHist();
+    renderHist();if(typeof refreshActiveView==="function")refreshActiveView(); // v8.0.6 N3: repinta la pantalla visible
     if(typeof renderCartera==="function"&&curMode==="cartera")renderCartera(); // v7.10.0: Por facturar
     if(curMode==="dash"&&typeof renderDashboard==="function")renderDashboard();
   }catch(e){
@@ -3982,7 +4113,7 @@ async function submitNotaCredito(docId,kind){
     if(typeof hideLoader==="function")hideLoader();
     toast("🧾 Nota crédito registrada"+(q.feData.estado==="anulada"?" · la factura quedó anulada":""),"success");
     if(typeof closeConfirmModal==="function")closeConfirmModal();
-    renderHist();
+    renderHist();if(typeof refreshActiveView==="function")refreshActiveView(); // v8.0.6 N3: repinta la pantalla visible
   }catch(e){
     if(typeof hideLoader==="function")hideLoader();
     console.error("submitNotaCredito error:",e);

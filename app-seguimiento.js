@@ -359,7 +359,7 @@ async function submitReactivar(destino){
     closeReactivarModal();
     renderSeguimiento();
     if(typeof renderDashboard==="function")renderDashboard();
-    if(typeof renderHist==="function"&&curMode==="hist")renderHist();
+    if(typeof renderHist==="function"&&curMode==="hist")renderHist(); if(typeof refreshActiveView==="function")refreshActiveView(); // v8.0.6 N3
   }
 }
 

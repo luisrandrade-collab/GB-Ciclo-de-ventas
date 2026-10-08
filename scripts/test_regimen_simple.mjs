@@ -130,7 +130,7 @@ await test('fuente: los campos del sello son operativos y ambas confirmaciones l
     const i=hist.search(new RegExp('async function '+fn+'\\('));const body=hist.slice(i,hist.indexOf('\n}\n',i));
     assert.ok(body.includes('gbFiscalLeerSello("'+p+'"'),fn+' lee el sello');
     assert.ok(/if\(selloFiscal&&selloFiscal\.error\)\{toast\(/.test(body),fn+' bloquea si faltan datos');
-    assert.ok(body.includes('if(selloFiscal)Object.assign(patch,selloFiscal);'),fn+' escribe el sello');
+    assert.ok(/if\(selloFiscal\)Object\.assign\((patch|p),selloFiscal\);/.test(body),fn+' escribe el sello'); // v8.0.6: el parche se arma dentro de la transacción
   }
   assert.ok(/if\(gbEmisorActivo\(gbTodayIso\(\)\)\)DEFAULT_NOTAS_COT\.n4=gbTextoLegalSimple\(\);/.test(source('app-cotizar.js')));
   assert.ok(/if\(gbEmisorActivo\(gbTodayIso\(\)\)\)DEFAULT_CONDICIONES\.c7=gbTextoLegalSimple\(\)/.test(source('app-propuesta.js')));
@@ -238,7 +238,7 @@ const anular=({accion,q,fresco})=>{
   const els={'an-motivo':{value:'cliente_cancelo'},'an-motivo-otro':{value:''},'an-notas':{value:''},'an-accion':{value:accion},'an-dev-monto':{value:''},'an-reemplazo':{checked:false}};
   const fb={db:{},doc:(db,c,id)=>({c,id}),serverTimestamp:()=>'TS',
     runTransaction:async(db,fn)=>fn({get:async()=>({exists:()=>true,data:()=>fresco}),update:(ref,p)=>writes.push(p)})};
-  const ctx=loadSourceFunctions([['app-historial.js','submitAnular'],['app-historial.js','gbFeAnuladaConNotas'],['app-historial.js','gbFeSumaNotas']],{
+  const ctx=loadSourceFunctions([['app-historial.js','submitAnular'],['app-historial.js','gbFeAnuladaConNotas'],['app-historial.js','gbFeSumaNotas'],...['_submitAnularImpl','gbUnaVez','gbErrorDocCambio','gbRecargarTrasCambio','GB_ESTADOS_ABIERTOS','pagosBaseParaEscribir'].map(n=>['app-historial.js',n])],{
     window:{fb},$:id=>els[id],_anularCtx:{docId:q.id,kind:q.kind,q},quotesCache:[q],MOTIVOS_ANULACION:{cliente_cancelo:'Cliente canceló'},totalCobrado:()=>0,
     getCollectionName:()=>'quotes',auditStamp:()=>({}),logOperacion:async o=>o.runner(),showLoader:()=>{},hideLoader:()=>{},closeAnularModal:()=>{},renderHist:()=>{},
     curMode:'hist',toast:(m,t)=>toasts.push([m,t]),alert:m=>toasts.push([m,'alert']),getPagos:x=>x.pagos||[],fm:x=>String(x),

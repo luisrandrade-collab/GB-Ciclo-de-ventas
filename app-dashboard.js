@@ -2263,7 +2263,7 @@ async function migrarFotosStorage(){
   if(!ok2)return;
 
   showLoader("Migrando fotos a Storage · 0/"+tareas.length);
-  const {db,doc,getDoc,updateDoc,serverTimestamp}=window.fb;
+  const {db,doc,serverTimestamp}=window.fb;
   let ok=0,skip=0,err=0;
   for(let i=0;i<tareas.length;i++){
     const t=tareas[i];
@@ -2273,26 +2273,41 @@ async function migrarFotosStorage(){
       const {url}=await uploadFotoFromBase64(t.base64,t.tipo,t.docId,t.path);
       // Recargar doc desde Firestore para tener data fresca
       const coll=getCollectionName(t.docId,t.kind);
-      const snap=await getDoc(doc(db,coll,t.docId));
-      if(!snap.exists()){skip++;continue}
-      const d=snap.data();
-      const patch={updatedAt:serverTimestamp(),...auditStamp()};
       if(t.tipo==="pago"){
-        const pagos=(d.pagos||[]).map(p=>({...p}));
-        if(pagos[t.idx]){
-          pagos[t.idx].fotoUrl=url;
-          delete pagos[t.idx].foto;
-          patch.pagos=pagos;
-        }
-      }else if(t.tipo==="entrega"){
-        patch.entregaData={...(d.entregaData||{}),fotoUrl:url};
-        delete patch.entregaData.fotoBase64;
-      }else if(t.tipo==="comentario"){
-        patch.comentarioCliente={...(d.comentarioCliente||{}),fotoUrl:url};
-        delete patch.comentarioCliente.fotoBase64;
+        // v8.0.6 (Codex, raíz de N1/N9): transacción que localiza el pago por SU foto, no por índice; antes un
+        // getDoc + updateDoc podía perder un pago concurrente o poner la foto en otro movimiento.
+        const {runTransaction}=window.fb;
+        const ref=doc(db,coll,t.docId);
+        const r=await runTransaction(db,async tx=>{
+          const s=await tx.get(ref);
+          if(!s.exists())return "skip";
+          const pagos=(s.data().pagos||[]).map(p=>({...p}));
+          const i=pagos.findIndex(p=>p.foto===t.base64);
+          if(i<0)return "skip";
+          pagos[i].fotoUrl=url;
+          delete pagos[i].foto;
+          tx.update(ref,{pagos,updatedAt:serverTimestamp(),...auditStamp()});
+          return "ok";
+        });
+        if(r==="ok")ok++;else skip++;
+        continue;
       }
-      await updateDoc(doc(db,coll,t.docId),patch);
-      ok++;
+      // r2 (Codex): entrega y comentario también en transacción, sólo si el base64 fresco es el que se subió;
+      // antes getDoc + updateDoc del objeto completo podía restaurar valores viejos de otra sesión.
+      const {runTransaction}=window.fb;
+      const ref2=doc(db,coll,t.docId);
+      const campo=t.tipo==='entrega'?'entregaData':'comentarioCliente';
+      const r2=await runTransaction(db,async tx=>{
+        const s2=await tx.get(ref2);
+        if(!s2.exists())return 'skip';
+        const obj=s2.data()[campo];
+        if(!obj||obj.fotoBase64!==t.base64)return 'skip';
+        const nuevoObj={...obj,fotoUrl:url};
+        delete nuevoObj.fotoBase64;
+        tx.update(ref2,{[campo]:nuevoObj,updatedAt:serverTimestamp(),...auditStamp()});
+        return 'ok';
+      });
+      if(r2==='ok')ok++;else skip++;
     }catch(e){
       console.warn("Migración "+t.tipo+" de "+t.docId+" falló:",e);
       err++;
@@ -2348,9 +2363,20 @@ async function normalizarDocsSinStatus(){
       const coll=getCollectionName(q.id,q.kind);
       const patch={status:nuevoStatus,updatedAt:serverTimestamp()};
       if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
-      await updateDoc(doc(db,coll,q.id),patch);
+      // v8.0.6 (Codex): sólo si el snapshot tampoco tiene status; antes se escribía desde la caché y podía
+      // devolver a «enviada» un documento que otra sesión ya había confirmado.
+      const {runTransaction}=window.fb;
+      const ref=doc(db,coll,q.id);
+      const actual=await runTransaction(db,async tx=>{
+        const s=await tx.get(ref);
+        if(!s.exists())return null;
+        const st=s.data().status;
+        if(st)return st;
+        tx.update(ref,patch);
+        return nuevoStatus;
+      });
       // Reflejar en cache
-      q.status=nuevoStatus;
+      if(actual)q.status=actual;
       ok++;
     }catch(e){
       console.error("Error normalizando "+q.id,e);

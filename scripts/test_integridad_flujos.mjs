@@ -56,7 +56,7 @@ await test('PF mantiene logística y calcula dos transportes',()=>{
   final.despachos[0].transporteCosto=999;assert.equal(src.despachos[0].transporteCosto,20);
 });
 await test('cartera distingue pagos, ajustes y saldo a favor',()=>{
-  const c=loadSourceFunctions([...['getPagos','totalCobrado','totalAjustes','saldoPendiente','saldoNeto','creditoAFavor'].map(n=>['app-historial.js',n]),...opcional('app-historial.js','totalCargos','puedeCargoReposicion'),['app-dashboard.js','renderCarteraCard']],{carteraGetFecha:()=>'',fm:n=>String(n),h:s=>String(s),jsArg:jsArgReal});
+  const c=loadSourceFunctions([...['getPagos','pagosBaseParaEscribir','totalCobrado','totalAjustes','saldoPendiente','saldoNeto','creditoAFavor'].map(n=>['app-historial.js',n]),...opcional('app-historial.js','totalCargos','puedeCargoReposicion'),['app-dashboard.js','renderCarteraCard']],{carteraGetFecha:()=>'',fm:n=>String(n),h:s=>String(s),jsArg:jsArgReal});
   const html=c.renderCarteraCard({total:100000,pagos:[{monto:20000}],ajustes:[{monto:30000}]},'vencido');
   assert.ok(html.includes('Cobrado 20000'));assert.ok(html.includes('Ajustes 30000'));assert.ok(html.includes('Saldo 50000'));
   assert.ok(c.renderCarteraCard({total:100,pagos:[{monto:120}]},'vencido').includes('Saldo a favor 20'));
@@ -69,7 +69,7 @@ await test('selector PF incluye transportes y excluye secciones alternativas',()
 await test('Excel informa cobrado real tanto por pedido como por día',()=>{
   const sheets={};let downloaded=false;
   const styles=Object.fromEntries(['_REP_FILL_ZEBRA','_REP_FILL_WHITE','_REP_FONT_BASE','_REP_BORDER_FULL','_REP_FMT_PESOS','_REP_FILL_DARK','_REP_FONT_TITLE','_REP_FILL_TITLE','_REP_FILL_GOLD','_REP_FONT_SECTION','_REP_FONT_HEADER','_REP_FILL_HEADER'].map(k=>[k,{}]));
-  const c=loadSourceFunctions([...['getPagos','totalCobrado','totalAjustes','saldoPendiente'].map(n=>['app-historial.js',n]),...opcional('app-historial.js','totalCargos'),['app-dashboard.js','descargarExcel']],{...styles,reportesResultado:{docs:[{id:'q',kind:'quote',total:100000,pagos:[{monto:20000}],ajustes:[{monto:30000}]}],filtros:{desde:'2026-09-01',hasta:'2026-09-20'}},XLSX:{utils:{book_new:()=>({}),aoa_to_sheet:rows=>({rows}),book_append_sheet:(_,ws,name)=>{sheets[name]=ws.rows}},writeFile:()=>{downloaded=true}},_repCalcularKPIs:()=>({}),_reportesGetFecha:()=> '2026-09-18',_repFormatearTabla(){}});
+  const c=loadSourceFunctions([...['getPagos','pagosBaseParaEscribir','totalCobrado','totalAjustes','saldoPendiente'].map(n=>['app-historial.js',n]),...opcional('app-historial.js','totalCargos'),['app-dashboard.js','descargarExcel']],{...styles,reportesResultado:{docs:[{id:'q',kind:'quote',total:100000,pagos:[{monto:20000}],ajustes:[{monto:30000}]}],filtros:{desde:'2026-09-01',hasta:'2026-09-20'}},XLSX:{utils:{book_new:()=>({}),aoa_to_sheet:rows=>({rows}),book_append_sheet:(_,ws,name)=>{sheets[name]=ws.rows}},writeFile:()=>{downloaded=true}},_repCalcularKPIs:()=>({}),_reportesGetFecha:()=> '2026-09-18',_repFormatearTabla(){}});
   c.descargarExcel();assert.ok(downloaded);assert.equal(sheets.Pedidos[1][9],20000);assert.equal(sheets['Por dia'][1][3],20000);
 });
 await test('restauración no reemplaza ID existente aunque el preview esté viejo',async()=>{
@@ -1181,7 +1181,7 @@ function pagoFixture(errorDelRunner){
   const modales=[];
   const store=new Map();
   const fb={db:{},doc:(_,c,i)=>c+'/'+i,serverTimestamp:()=>'T',runTransaction:async(_,cb)=>cb({get:async p=>({exists:()=>store.has(p),data:()=>store.get(p)}),update(){}})};
-  const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName','gbDateToIso'),...['getPagos','totalCobrado','pagoFechaIso','pagoClave','pagoPareceRepetido','submitPago','_submitPagoImpl'].map(n=>['app-historial.js',n]),...opcional('app-historial.js','totalCargos','totalAjustes','saldoPendiente')],{
+  const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName','gbDateToIso'),...['getPagos','pagosBaseParaEscribir','totalCobrado','pagoFechaIso','pagoClave','pagoPareceRepetido','submitPago','_submitPagoImpl'].map(n=>['app-historial.js',n]),...opcional('app-historial.js','totalCargos','totalAjustes','saldoPendiente')],{
     ...common(),console:quiet,window:{fb},$:el,cloudOnline:true,pagoSrc:{id:'GB-1',kind:'quote',doc:{total:0,pagos:[]}},pagoFotoBase64:null,
     getDocTotal:()=>0,fm:String,alert(){},closePagoModal(){},renderHist(){},
     logOperacion:async({runner})=>{if(errorDelRunner)throw errorDelRunner;return runner('log1')},
@@ -1213,7 +1213,7 @@ function repetidoFixture({pagos,doc,fecha='2026-09-22',monto='500',tipo='parcial
   const d=doc||{total:1000,pagos};
   const store=new Map([['quotes/GB-1',plain(d)]]);const escritos=[];const modales=[];
   const fb={db:{},doc:(_,c,i)=>c+'/'+i,serverTimestamp:()=>'T',runTransaction:async(_,cb)=>cb({get:async p=>({exists:()=>store.has(p),data:()=>store.get(p)}),update(p,v){escritos.push(v)}})};
-  const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName','gbDateToIso'),...['getPagos','totalCobrado','pagoFechaIso','pagoClave','pagoPareceRepetido','submitPago','_submitPagoImpl'].map(n=>['app-historial.js',n]),...opcional('app-historial.js','totalCargos','totalAjustes','saldoPendiente')],{
+  const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName','gbDateToIso'),...['getPagos','pagosBaseParaEscribir','totalCobrado','pagoFechaIso','pagoClave','pagoPareceRepetido','submitPago','_submitPagoImpl'].map(n=>['app-historial.js',n]),...opcional('app-historial.js','totalCargos','totalAjustes','saldoPendiente')],{
     ...common(),window:{fb},$:el,cloudOnline:true,pagoSrc:{id:'GB-1',kind:'quote',doc:d},pagoFotoBase64:null,
     getDocTotal:q=>q.total||0,fm:n=>'$'+n,_showPagoSuccessModal:async()=>{},curMode:'hist',escapeHtml:s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'),closePagoModal(){},renderHist(){},
     logOperacion:async({runner})=>runner('log1'),
@@ -1288,7 +1288,7 @@ function carreraFixture({cache=[],fresco=[],frescoEnEscritura=null,respuestas=[]
       v.forEach(({p,x})=>{escrituras.push({p,v:x});doc={...doc,...plain(x)}});
       return r;
     }};
-  const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName','gbDateToIso','logOperacion'),...['getPagos','totalCobrado','pagoFechaIso','pagoClave','pagoPareceRepetido','submitPago','_submitPagoImpl'].map(n=>['app-historial.js',n]),...opcional('app-historial.js','totalCargos','totalAjustes','saldoPendiente')],{
+  const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName','gbDateToIso','logOperacion'),...['getPagos','pagosBaseParaEscribir','totalCobrado','pagoFechaIso','pagoClave','pagoPareceRepetido','submitPago','_submitPagoImpl'].map(n=>['app-historial.js',n]),...opcional('app-historial.js','totalCargos','totalAjustes','saldoPendiente')],{
     ...common(),window:{fb},$:el,cloudOnline:true,pagoSrc:{id:'GB-1',kind:'quote',doc:{total:1000,pagos:cache.map(p=>({...p}))}},pagoFotoBase64:null,
     fbReady:async()=>{},BUILD_VERSION:'test',
     getDocTotal:q=>q.total||0,fm:n=>'$'+n,_showPagoSuccessModal:async()=>{},curMode:'hist',
@@ -1367,7 +1367,7 @@ await test('P2-01 monto guardado con marcado: el aviso muestra el número compar
 const hist=(...n)=>n.map(x=>['app-historial.js',x]);
 const menajeCore=core('getMenajeOpciones','getMenajeOpcionActiva','getMenajeItemsActivos','getReposicionActivos','gbDateToIso');
 // Copia de h() de app-core.js: el extractor no admite sus regex con comillas.
-const cargoFns=['getPagos','totalCobrado','totalAjustes','totalCargos','saldoPendiente','saldoNeto','creditoAFavor','pagoFechaIso','pagoTipoLabel','puedeCargoReposicion','cargoLineas','cargoCalcular','plantillaCobroCargo','cargosVerPagosHtml'];
+const cargoFns=['getPagos','pagosBaseParaEscribir','totalCobrado','totalAjustes','totalCargos','saldoPendiente','saldoNeto','creditoAFavor','pagoFechaIso','pagoTipoLabel','puedeCargoReposicion','cargoLineas','cargoCalcular','plantillaCobroCargo','cargosVerPagosHtml'];
 const fmReal=n=>'$'+n.toLocaleString('es-CO');
 const cargosCtx=(extra={})=>loadSourceFunctions([...menajeCore,...opcional('app-historial.js',...cargoFns)],{...common(),fm:fmReal,h:hReal,getDocTotal:q=>q.total||0,GB_DATOS_PAGO:'',...extra});
 const vaso={id:'cg1',clientId:'cg1',tipo:'reposicion_menaje',items:[{name:'Vaso',qty:1,precio:15000}],monto:15000,fecha:'2026-09-26'};
@@ -1392,7 +1392,7 @@ await test('P-35 caso real: pagado completo + vaso de $15.000 → pendiente 15.0
   assert.equal(c.saldoPendiente(q),15000);
   q.pagos.push(pagoRepo);
   assert.equal(c.saldoPendiente(q),0);assert.equal(c.creditoAFavor(q),0);
-  const d=loadSourceFunctions([...hist('getPagos','totalCobrado','totalAjustes'),...opcional('app-historial.js','totalCargos'),['app-dashboard.js','getSobrepagosCliente']],{getDocTotal:x=>x.total||0});
+  const d=loadSourceFunctions([...hist('getPagos','pagosBaseParaEscribir','totalCobrado','totalAjustes'),...opcional('app-historial.js','totalCargos'),['app-dashboard.js','getSobrepagosCliente']],{getDocTotal:x=>x.total||0});
   assert.deepEqual(plain(d.getSobrepagosCliente([q])),{total:0,detalle:[]},'la reposición pagada no es saldo a favor');
   assert.equal(d.getSobrepagosCliente([{...q,cargos:[]}]).total,15000,'sin cargo, el mismo pago sí sería sobrepago');
 });
@@ -1535,7 +1535,7 @@ await test('P-35 «Ver pagos»: los cargos se muestran escapados, con su estado'
 await test('P-35 lectores del pendiente: cumplido, notas de la hoja, estado de pago y tarjeta cuentan los cargos',()=>{
   const q={...eventoPagado(),cargos:[vaso]};
   const g={getDocTotal:x=>x.total||0,fm:fmReal,h:String,STATUS_META:{},jsArg:jsArgReal};
-  const base=[...hist('getPagos','totalCobrado','totalAjustes','saldoPendiente'),...opcional('app-historial.js','totalCargos')];
+  const base=[...hist('getPagos','pagosBaseParaEscribir','totalCobrado','totalAjustes','saldoPendiente'),...opcional('app-historial.js','totalCargos')];
   const k=loadSourceFunctions([...base,...core('isCumplido'),['app-dashboard.js','hojaNotasPago'],['app-dashboard.js','_estadoPago']],g);
   assert.equal(k.isCumplido(q),false,'debe la reposición: no está cumplido');
   assert.equal(k.hojaNotasPago(q),'SALDO $15.000');
@@ -1553,7 +1553,7 @@ await test('P-35 registrar pago tras el cargo: el modal de éxito no muestra la 
   el('pm-submit-btn').style={};
   const d={...eventoPagado(),cargos:[vaso]};let almacen=plain(d);const exitos=[];const modales=[];
   const fb={db:{},doc:(_,c,i)=>c+'/'+i,serverTimestamp:()=>'T',runTransaction:async(_,cb)=>cb({get:async()=>({exists:()=>true,data:()=>plain(almacen)}),update(p,v){almacen={...almacen,...plain(v)}}})};
-  const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName','gbDateToIso'),...hist('getPagos','totalCobrado','pagoFechaIso','pagoClave','pagoPareceRepetido','submitPago','_submitPagoImpl'),...opcional('app-historial.js','totalCargos','totalAjustes','saldoPendiente')],{
+  const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName','gbDateToIso'),...hist('getPagos','pagosBaseParaEscribir','totalCobrado','pagoFechaIso','pagoClave','pagoPareceRepetido','submitPago','_submitPagoImpl'),...opcional('app-historial.js','totalCargos','totalAjustes','saldoPendiente')],{
     ...common(),window:{fb},$:el,cloudOnline:true,pagoSrc:{id:'GB-P-1',kind:'proposal',doc:plain(d)},pagoFotoBase64:null,
     getDocTotal:q=>q.total||0,fm:fmReal,_showPagoSuccessModal:async o=>{exitos.push(o)},curMode:'hist',escapeHtml:String,closePagoModal(){},renderHist(){},
     logOperacion:async({runner})=>runner('log1'),confirmModal:async o=>{modales.push(o);return true}});
@@ -1576,7 +1576,7 @@ function pagoConAjusteFixture({monto='15000',respuestas=[]}={}){
   let almacen=plain(d);const exitos=[];const modales=[];
   const fb={db:{},doc:(_,c,i)=>c+'/'+i,serverTimestamp:()=>'T',runTransaction:async(_,cb)=>cb({get:async()=>({exists:()=>true,data:()=>plain(almacen)}),update(p,v){almacen={...almacen,...plain(v)}}})};
   const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName','gbDateToIso'),
-    ...hist('getPagos','totalCobrado','totalAjustes','saldoPendiente','pagoFechaIso','pagoClave','pagoPareceRepetido','submitPago','_submitPagoImpl','openPagoModal'),...opcional('app-historial.js','totalCargos')],{
+    ...hist('getPagos','pagosBaseParaEscribir','totalCobrado','totalAjustes','saldoPendiente','pagoFechaIso','pagoClave','pagoPareceRepetido','submitPago','_submitPagoImpl','openPagoModal'),...opcional('app-historial.js','totalCargos')],{
     ...common(),window:{fb},$:el,cloudOnline:true,pagoSrc:{id:'GB-P-1',kind:'proposal',doc:plain(d)},pagoFotoBase64:null,quotesCache:[{...plain(d),id:'GB-P-1'}],
     getDocTotal:q=>q.total||0,fm:fmReal,_showPagoSuccessModal:async o=>{exitos.push(o)},curMode:'hist',escapeHtml:String,closePagoModal(){},renderHist(){},
     logOperacion:async({runner})=>runner('log1'),confirmModal:async o=>{modales.push(o);return respuestas.length?respuestas.shift():true}});
@@ -1608,7 +1608,7 @@ await test('R1B-P2-2 la propuesta se anuló en otra sesión mientras el modal es
 // R1B-P2-3: estados de pago con el saldo canónico.
 await test('R1B-P2-3 lectores de estado: cortesía con cargo, porcentaje con cargo y pedido saldado con ajuste',async()=>{
   const g={getDocTotal:x=>x.total||0,fm:fmReal,h:hReal,STATUS_META:{}};
-  const base=[...hist('getPagos','totalCobrado','totalAjustes','saldoPendiente'),...opcional('app-historial.js','totalCargos')];
+  const base=[...hist('getPagos','pagosBaseParaEscribir','totalCobrado','totalAjustes','saldoPendiente'),...opcional('app-historial.js','totalCargos')];
   const k=loadSourceFunctions([...base,...core('isCumplido'),['app-dashboard.js','hojaNotasPago'],['app-dashboard.js','_estadoPago']],g);
   // (1) cortesía entregada con cargo impago
   const cortesia={kind:'proposal',status:'entregado',total:0,pagos:[],cargos:[vaso]};
@@ -1676,7 +1676,7 @@ function dashEntregado(docs){
   let lista=null;
   const g={getDocTotal:x=>x.total||0,fm:fmReal,h:hReal,quotesCache:docs,_dashDetailTipoActual:null,
     getDashRange:()=>({start:'2026-09-01',end:'2026-09-30',label:'sep'}),_renderDashGroupedList:o=>{lista=o}};
-  const d=loadSourceFunctions([...hist('getPagos','totalCobrado','totalAjustes','saldoPendiente'),...opcional('app-historial.js','totalCargos'),...core('isCumplido','isCortesia'),['app-dashboard.js','openDashDetail']],g);
+  const d=loadSourceFunctions([...hist('getPagos','pagosBaseParaEscribir','totalCobrado','totalAjustes','saldoPendiente'),...opcional('app-historial.js','totalCargos'),...core('isCumplido','isCortesia'),['app-dashboard.js','openDashDetail']],g);
   d.openDashDetail('entregado');
   return lista.rows.map(x=>x.extra);
 }
@@ -1693,7 +1693,7 @@ await test('R2-P3-1 «Pagado ✓» en una propuesta antigua sin q.total: usa get
   const ini=src.indexOf('const _pagos=getPagos(q);');const lin=src.indexOf('const pagadoBadge=',ini);
   assert.ok(ini>0&&lin>ini,'bloque del distintivo');
   const trozo=src.slice(ini,src.indexOf('\n',lin));
-  const c=loadSourceFunctions([...hist('getPagos','totalCobrado','totalAjustes','saldoPendiente'),...opcional('app-historial.js','totalCargos')],{getDocTotal:x=>x.total||x._calculado||0});
+  const c=loadSourceFunctions([...hist('getPagos','pagosBaseParaEscribir','totalCobrado','totalAjustes','saldoPendiente'),...opcional('app-historial.js','totalCargos')],{getDocTotal:x=>x.total||x._calculado||0});
   const vm=await import('node:vm');vm.runInContext('function _badge(q){'+trozo+';return pagadoBadge}',c);
   const antigua={kind:'proposal',status:'entregado',_calculado:100000,pagos:[{fecha:'2026-09-20',monto:100000,tipo:'saldo'}]};
   assert.ok(/Pagado ✓/.test(c._badge(antigua)),'sin q.total, saldada según getDocTotal: '+c._badge(antigua));
@@ -2392,10 +2392,12 @@ await test('v8.0.0 PF regenerada: businessId de la propuesta fresca y próximo c
 });
 function confirmacionFixture(fn,doc){
   const escrituras=[];const {el}=domSimulado();
-  const c=loadSourceFunctions([['app-historial.js',fn]],{...common(),$:el,cloudOnline:true,quotesCache:[structuredClone(doc)],
-    gbFiscalLeerSello:()=>null,auditTransition:()=>true,logOperacion:async({runner})=>runner(),confirmModal:async()=>true,
+  // v8.0.6: la confirmación es un envoltorio de una vez (gbUnaVez) sobre _<fn>Impl, y escribe en una transacción.
+  const c=loadSourceFunctions([['app-historial.js',fn],['app-historial.js','_'+fn+'Impl'],...['gbUnaVez','gbErrorDocCambio','gbRecargarTrasCambio','GB_ESTADOS_ABIERTOS','pagosBaseParaEscribir','getPagos'].map(n=>['app-historial.js',n])],{...common(),$:el,cloudOnline:true,quotesCache:[structuredClone(doc)],
+    gbFiscalLeerSello:()=>null,auditTransition:()=>true,logOperacion:async({runner})=>runner(),confirmModal:async()=>true,gbMensajeError:e=>e.message,
     closeOrderModal(){},closeApproveModal(){},renderHist(){},renderDashboard(){},refreshActiveView(){},curMode:'hist',getCollectionName:()=>doc.kind==='quote'?'quotes':'proposals',
-    window:{fb:{db:{},doc:(_,coll,id)=>coll+'/'+id,serverTimestamp:()=>'TS',getDoc:async()=>({exists:()=>true,data:()=>structuredClone(doc)}),updateDoc:async(ref,patch)=>{escrituras.push({ref,patch:plain(patch)})}}}});
+    window:{fb:{db:{},doc:(_,coll,id)=>coll+'/'+id,serverTimestamp:()=>'TS',getDoc:async()=>({exists:()=>true,data:()=>structuredClone(doc)}),updateDoc:async(ref,patch)=>{escrituras.push({ref,patch:plain(patch)})},
+      runTransaction:async(_,cb)=>cb({get:async()=>({exists:()=>true,data:()=>structuredClone(doc)}),update:(ref,patch)=>{escrituras.push({ref,patch:plain(patch)})}})}}});
   return {c,el,escrituras};
 }
 await test('v8.0.0 confirmar pedido y aprobar propuesta borran el próximo contacto con null en su misma escritura',async()=>{
@@ -2414,7 +2416,7 @@ await test('v8.0.0 confirmar pedido y aprobar propuesta borran el próximo conta
   assert.equal(b.escrituras[0].patch.status,'aprobada');assert.equal(b.c.quotesCache[0].proximoContacto,null);
 });
 await test('v8.0.0 regresar a cotización conserva el negocio; anular con reemplazo sólo relaciona (replacedBy/replaces)',()=>{
-  const src=functionSource('app-historial.js','submitAnular');
+  const src=functionSource('app-historial.js','_submitAnularImpl'); // v8.0.6: submitAnular es el envoltorio de una vez
   assert.ok(/tx\.update\(ref,patch\)/.test(src));assert.ok(!/businessId|negocioManual/.test(src));
   const enlace=functionSource('app-historial.js','linkPendingReplacement');
   assert.ok(/replacedBy:newDocId/.test(enlace)&&/replaces:oldId/.test(enlace)&&!/businessId|negocioManual/.test(enlace),'el reemplazo es otro negocio');
@@ -2500,5 +2502,213 @@ await test('v8.0.4 pedido directo: exige cliente, guarda, abre Marcar como pedid
   assert.ok(/guardarPedidoDirecto\(\)/.test(html)&&!/saveCurrentQuote\(\)|genPDF\(\)/.test(html),'en pedido directo sólo «Guardar y registrar pedido»');
   ctxR.window._gbPedidoDirecto=false;r.renderR();html=r.$('rev-content').innerHTML;
   assert.ok(!/guardarPedidoDirecto/.test(html)&&/saveCurrentQuote\(\)/.test(html)&&/genPDF\(\)/.test(html),'cotización normal sin cambios');
+});
+// ═══ v8.0.6: datos y dinero (núcleo, revisión integral de v8.0.5) ═══
+const h806=(...n)=>n.map(x=>['app-historial.js',x]);
+await test('v8.0.6 N1 pagos legados: la base para escribir los incluye y el índice de respaldo exige el mismo pago',()=>{
+  const c=loadSourceFunctions([...h806('getPagos','pagosBaseParaEscribir','pagoFechaIso','_findPagoIdxFresh'),...core('gbDateToIso')],{...common()});
+  const legado={orderData:{anticipo:80000,fechaAprobacion:'2026-09-01',metodoPago:'Nequi'}};
+  const base=plain(c.pagosBaseParaEscribir(legado));
+  assert.equal(base.length,1);assert.equal(base[0].monto,80000);assert.equal(base[0].tipo,'anticipo');assert.equal(base[0].legacy,true);
+  const conPagos={pagos:[{monto:5,fecha:'2026-09-02',tipo:'abono'}]};
+  assert.notEqual(c.pagosBaseParaEscribir(conPagos)[0],conPagos.pagos[0],'copias, no referencias');
+  assert.equal(c._findPagoIdxFresh(base,{monto:80000,fecha:'2026-09-01',tipo:'anticipo'},0),0,'el legado se encuentra por posición si coincide');
+  assert.equal(c._findPagoIdxFresh([{monto:1,fecha:'2026-09-01',tipo:'anticipo'}],{monto:80000,fecha:'2026-09-01',tipo:'anticipo'},0),-1,'otro pago en esa posición: no se edita');
+  for(const f of ['_submitPagoImpl','savePagoEdit','onAdjuntarPagoFile','_submitMarkAsOrderImpl','_submitApproveProposalImpl','_submitAnularImpl'])
+    assert.ok(/pagosBaseParaEscribir\(/.test(functionSource('app-historial.js',f)),f+' parte de los pagos con legados');
+});
+function anular806({accion='anular',q,fresco,dev=''}){
+  const writes=[],toasts=[];
+  const els={'an-motivo':{value:'cliente_cancelo'},'an-motivo-otro':{value:''},'an-notas':{value:''},'an-accion':{value:accion},'an-dev-monto':{value:dev},'an-dev-fecha':{value:'2026-09-20'},'an-dev-metodo':{value:'Nequi'},'an-dev-notas':{value:''},'an-reemplazo':{checked:false}};
+  const fb={db:{},doc:(db,c,id)=>c+'/'+id,serverTimestamp:()=>'TS',runTransaction:async(db,fn)=>fn({get:async()=>({exists:()=>true,data:()=>plain(fresco)}),update:(ref,p)=>writes.push(plain(p))})};
+  const c=loadSourceFunctions(h806('submitAnular','_submitAnularImpl','gbUnaVez','gbErrorDocCambio','gbRecargarTrasCambio','GB_ESTADOS_ABIERTOS','pagosBaseParaEscribir','getPagos','totalCobrado','gbFeAnuladaConNotas','gbFeSumaNotas'),{
+    ...common(),window:{fb},$:id=>els[id],_anularCtx:{docId:q.id,kind:q.kind,q},quotesCache:[q],MOTIVOS_ANULACION:{cliente_cancelo:'Cliente canceló'},
+    getCollectionName:()=>'quotes',logOperacion:async o=>o.runner(),closeAnularModal(){},renderHist(){},curMode:'hist',getDocTotal:x=>x.total||0,fm:String,
+    toast:(m,t)=>toasts.push([m,t]),alert:m=>toasts.push([m,'alert']),gbMensajeError:e=>e.paraUsuario?e.message:'error genérico'});
+  return {c,writes,toasts};
+}
+await test('v8.0.6 N2 anular revisa estado, cobro y devolución con el snapshot (anular y regresar)',async()=>{
+  const q={id:'Q',kind:'quote',status:'pedido',total:1000,pagos:[{monto:400,fecha:'2026-09-10',tipo:'anticipo'}]};
+  let t=anular806({q,fresco:{...q,status:'entregado'}});await t.c.submitAnular();
+  assert.equal(t.writes.length,0,'entregado en otra sesión');assert.match(t.toasts.at(-1)[0],/cambió en otra sesión/);
+  for(const accion of ['anular','regresar']){
+    t=anular806({accion,q,fresco:{...q,pagos:[...q.pagos,{monto:600,fecha:'2026-09-12',tipo:'saldo'}]}});await t.c.submitAnular();
+    assert.equal(t.writes.length,0,accion+': pagado al 100% en otra sesión');assert.match(t.toasts.at(-1)[0],/100%/);
+  }
+  t=anular806({q,fresco:q,dev:'500'});await t.c.submitAnular();
+  assert.equal(t.writes.length,0,'devolución mayor que lo cobrado');assert.match(t.toasts.at(-1)[0],/supera lo cobrado/);
+  t=anular806({q,fresco:q,dev:'400'});await t.c.submitAnular();
+  assert.equal(t.writes.length,1,'camino normal');assert.equal(t.writes[0].anuladaData.totalCobradoAlAnular,400);assert.equal(t.writes[0].pagos.length,2);
+});
+await test('v8.0.6 N3 «Marcar como pedido» y «Aprobar» no abren ni escriben sobre algo ya confirmado o perdido; cada acción repinta',async()=>{
+  const toasts=[];const {el}=domSimulado();
+  const c=loadSourceFunctions(h806('openOrderModal','openApproveModal'),{...common(),$:el,toast:(m,t)=>toasts.push([m,t]),STATUS_META:{pedido:{label:'Pedido'}},
+    quotesCache:[{id:'Q',kind:'quote',status:'pedido'},{id:'L',kind:'quote',status:'enviada',followUp:'perdida'},{id:'P',kind:'proposal',status:'aprobada'}],getFollowUp:q=>q.followUp||'pendiente'});
+  c.openOrderModal('Q');c.openOrderModal('L');c.openApproveModal('P','proposal');
+  assert.equal(toasts.length,3);assert.ok(toasts.every(t=>t[1]==='warn'));assert.equal(el('om-num').value,'','no se abrió');
+  const a=confirmacionFixture('submitMarkAsOrder',{id:'Q',kind:'quote',status:'pedido',client:'Ana'});
+  a.el('om-num').dataset={quoteId:'Q'};a.el('om-num').value='Q';a.el('om-fecha').value='2026-09-20';a.el('om-entrega-fecha').value='2026-09-25';a.el('om-entrega-hora').value='10:00';a.el('om-prod-fecha').value='2026-09-24';
+  await a.c.submitMarkAsOrder();assert.equal(a.escrituras.length,0,'el snapshot ya es pedido: no se repite');
+  const b=confirmacionFixture('submitApproveProposal',{id:'P',kind:'proposal',status:'enviada',followUp:'perdida',client:'Ana'});
+  b.el('am-num').dataset={propId:'P',propKind:'proposal'};b.el('am-num').value='P';b.el('am-fecha').value='2026-09-20';
+  await b.c.submitApproveProposal();assert.equal(b.escrituras.length,0,'perdida en el snapshot');
+  for(const f of ['quickMarkViva','_submitMarkAsOrderImpl','assignDeliveryDate','submitAjuste','_submitCargoImpl','anularCargo','_submitPagoImpl','savePagoEdit','_submitDeliveryImpl','submitComentario','_submitAnularImpl','linkOptionGroup','unlinkOptionGroup','submitFe','submitNotaCredito'])
+    assert.ok(/refreshActiveView\(\)/.test(functionSource('app-historial.js',f)),f+' repinta la pantalla visible');
+});
+await test('v8.0.6 N4 el pago se escribe en el documento donde se empezó (destino y foto fijados al entrar)',()=>{
+  const imp=functionSource('app-historial.js','_submitPagoImpl');
+  assert.match(imp,/const src=intento\?intento\.src:pagoSrc,fotoB64=intento\?null:pagoFotoBase64;/); // r2: el reintento trae su intento
+  assert.equal(imp.match(/\bpagoSrc\b/g).length,3,'sólo la captura, la comprobación del reintento y la de antes de cerrar');
+  assert.match(imp,/if\(pagoSrc===src\)closePagoModal\(\)/);
+  assert.ok(!/\bpagoFotoBase64\b/.test(imp.replace('fotoB64=intento?null:pagoFotoBase64','').replace('Mantener pagoFotoBase64','')),'la foto también se fija al entrar');
+});
+await test('v8.0.6 N5 «Deshacer» de Propuesta devuelve sólo lo quitado y no actúa en otro documento',()=>{
+  let undo=null;const toasts=[];
+  const sec={id:'s',name:'Menú',options:[{id:'o',label:'Opción A',items:[{name:'Uno',price:1},{name:'Dos',price:2}]}]};
+  const c=loadSourceFunctions([['app-propuesta.js','_propCtx'],['app-propuesta.js','_propDeshacer'],['app-propuesta.js','delPropItem']],{...common(),window:{_gbEditorContexts:{proposal:1}},propSections:[sec],renderPropSections(){},toastUndo:(m,f)=>{undo=f},toast:(m,t)=>toasts.push([m,t])});
+  c.delPropItem(0,0,0);assert.deepEqual(c.propSections[0].options[0].items.map(i=>i.name),['Dos']);
+  c.propSections[0].options[0].items[0].price=99; // edición posterior
+  undo();assert.deepEqual(plain(c.propSections[0].options[0].items),[{name:'Uno',price:1},{name:'Dos',price:99}],'vuelve el ítem y se conserva la edición');
+  c.delPropItem(0,0,0);c.window._gbEditorContexts.proposal=2; // otro documento
+  undo();assert.deepEqual(c.propSections[0].options[0].items.map(i=>i.name),['Dos'],'no toca el otro documento');assert.match(toasts.at(-1)[0],/Ya no se puede deshacer/);
+});
+await test('v8.0.6 N6 año nuevo sin contador: se crea sólo si el servidor confirma que no hay documentos del año',async()=>{
+  const mk=respuesta=>{const {fb,store}=fakeDb({});Object.assign(fb,{collection:(_,c)=>c,query:(...a)=>a,where:()=>0,documentId:()=>0,limit:()=>0,getDocsFromServer:async()=>{if(respuesta==='error')throw new Error('offline');return {empty:respuesta===0}}});
+    return {c:loadSourceFunctions(core('_hayDocsDelAnio','getNextNumber'),{...common(),window:{fb},APP_YEAR:2027}),store}};
+  let m=mk(0);assert.equal(await m.c.getNextNumber('quote'),'GB-2027-0001');assert.equal(m.store.get('counters/quotes-2027').current,1);
+  assert.equal(await m.c.getNextNumber('quote'),'GB-2027-0002','luego sigue normal');
+  m=mk(1);await assert.rejects(m.c.getNextNumber('proposal'),/ya hay documentos/);assert.ok(!m.store.has('counters/proposals-2027'),'no reinicia la numeración');
+  m=mk('error');await assert.rejects(m.c.getNextNumber('quote'),/ya hay documentos/);assert.equal(m.store.size,0,'sin comprobación segura no escribe');
+});
+await test('v8.0.6 N7 producido, entregado por despacho y paso automático revisan el snapshot',async()=>{
+  const mk=(doc,cache)=>{const {fb,store}=fakeDb({['quotes/'+doc.id]:doc});const toasts=[];
+    const c=loadSourceFunctions([...h806('toggleProduced','toggleEntregadoDespacho','gbErrorDocCambio','gbRecargarTrasCambio','GB_ESTADOS_ABIERTOS'),...core('autoTransitionToEnProduccion')],{...common(),window:{fb},cloudOnline:true,quotesCache:[cache],getCollectionName:()=>'quotes',refreshActiveView(){},confirm:()=>true,toast:(m,t)=>toasts.push([m,t]),gbMensajeError:e=>e.message,curMode:'x'});
+    return {c,store,toasts}};
+  let m=mk({id:'Q',status:'anulada',produced:false},{id:'Q',kind:'quote',status:'pedido',produced:false});
+  await m.c.toggleProduced('Q','quote');assert.equal(m.store.get('quotes/Q').produced,false,'anulado en otra sesión: no se marca');
+  m=mk({id:'Q',status:'entregado',produced:true},{id:'Q',kind:'quote',status:'pedido',produced:true});
+  await m.c.toggleProduced('Q','quote');assert.equal(m.store.get('quotes/Q').produced,true,'un toque viejo no desmarca un entregado');
+  m=mk({id:'Q',status:'aprobada',produced:false},{id:'Q',kind:'quote',status:'aprobada',produced:false});
+  await m.c.toggleProduced('Q','quote');assert.equal(m.store.get('quotes/Q').produced,true,'camino normal');
+  const desp=s=>({id:'Q',status:'pedido',despachos:[{id:'d1',status:s}]});
+  m=mk(desp('pendiente'),{id:'Q',kind:'quote',status:'pedido',despachos:[{id:'d1',status:'producido'}]});
+  await m.c.toggleEntregadoDespacho('Q','d1','quote');assert.equal(m.store.get('quotes/Q').despachos[0].status,'pendiente','el despacho fresco no está producido');
+  m=mk(desp('producido'),{id:'Q',kind:'quote',status:'pedido',despachos:[{id:'d1',status:'producido'}]});
+  await m.c.toggleEntregadoDespacho('Q','d1','quote');assert.equal(m.store.get('quotes/Q').status,'entregado','camino normal');
+  m=mk({id:'A',status:'anulada',eventDate:'2026-09-01'},{id:'A',kind:'quote',status:'aprobada',eventDate:'2026-09-01'});
+  await m.c.autoTransitionToEnProduccion(m.c.quotesCache);assert.equal(m.store.get('quotes/A').status,'anulada','no revierte una anulación');
+  m=mk({id:'A',status:'aprobada',eventDate:'2026-09-01'},{id:'A',kind:'quote',status:'aprobada',eventDate:'2026-09-01'});
+  await m.c.autoTransitionToEnProduccion(m.c.quotesCache);assert.equal(m.store.get('quotes/A').status,'en_produccion','camino normal');
+});
+await test('v8.0.6 N8 una confirmación a la vez: el doble toque no corre dos veces y la guarda se libera',async()=>{
+  const c=loadSourceFunctions(h806('gbUnaVez'),{window:{}});let n=0,soltar;
+  const lenta=()=>new Promise(r=>{n++;soltar=r});
+  const p1=c.gbUnaVez('x',lenta);await c.gbUnaVez('x',lenta);assert.equal(n,1,'el segundo toque no entra');
+  soltar();await p1;await c.gbUnaVez('x',async()=>{n++});assert.equal(n,2,'liberada al terminar');
+  await assert.rejects(c.gbUnaVez('y',async()=>{throw new Error('falla')}));await c.gbUnaVez('y',async()=>{n++});assert.equal(n,3,'liberada también tras un error');
+  for(const f of ['submitMarkAsOrder','submitApproveProposal','submitAnular','submitDelivery'])assert.match(functionSource('app-historial.js',f),/gbUnaVez\(/);
+});
+await test('v8.0.6 N9 el anticipo se suma a los pagos frescos en la misma transacción',async()=>{
+  const a=confirmacionFixture('submitMarkAsOrder',{id:'Q',kind:'quote',status:'enviada',client:'Ana',pagos:[{monto:50,fecha:'2026-09-19',tipo:'abono',clientId:'ajeno'}]});
+  a.el('om-num').dataset={quoteId:'Q'};a.el('om-num').value='Q';a.el('om-fecha').value='2026-09-20';a.el('om-entrega-fecha').value='2026-09-25';a.el('om-entrega-hora').value='10:00';a.el('om-prod-fecha').value='2026-09-24';
+  a.el('om-anticipo').value='300';a.el('om-metodo').value='Nequi';
+  await a.c.submitMarkAsOrder();
+  assert.equal(a.escrituras.length,1);assert.deepEqual(a.escrituras[0].patch.pagos.map(p=>[p.tipo,p.monto]),[['abono',50],['anticipo',300]]);
+});
+await test('v8.0.6 r3 editar un pago compara contra el pago tal como se abrió (aunque la caché se recargue con el cambio de otra sesión)',async()=>{
+  const abierto={monto:100,fecha:'2026-09-10',metodo:'Nequi',tipo:'abono',notas:'',clientId:'c1'};
+  const mk=fresco=>{const {fb,store}=fakeDb({'quotes/Q':{pagos:[fresco]}});const {el}=domSimulado();const toasts=[];
+    const c=loadSourceFunctions([...h806('editPago','savePagoEdit','getPagos','pagosBaseParaEscribir','_findPagoIdxFresh','pagoFechaIso','gbErrorDocCambio','gbRecargarTrasCambio'),...core('gbDateToIso')],{...common(),
+      window:{fb,__verPagosId:'Q',__verPagosKind:'quote'},$:el,quotesCache:[{id:'Q',kind:'quote',pagos:[{...abierto}]}],getCollectionName:()=>'quotes',h:hReal,
+      logOperacion:async o=>o.runner(),openVerPagosModal(){},renderHist(){},renderCartera(){},toast:(m,t)=>toasts.push([m,t]),gbMensajeError:e=>e.message});
+    c.editPago(0); // abre el editor con 100
+    for(const [k,v] of Object.entries({monto:'100',fecha:'2026-09-10',metodo:'Nequi',tipo:'abono',notas:'nota nueva'}))el('pe-'+k+'-0').value=v;
+    return {c,store,toasts}};
+  let m=mk({...abierto,monto:150});
+  m.c.quotesCache[0].pagos[0].monto=150; // la caché se recargó con el cambio de la otra sesión; el formulario sigue en 100
+  await m.c.savePagoEdit(0);
+  assert.equal(m.store.get('quotes/Q').pagos[0].monto,150,'el 150 de la otra sesión se conserva');assert.match(m.toasts.at(-1)[0],/cambió en otra sesión/);
+  m=mk({...abierto});await m.c.savePagoEdit(0);
+  assert.equal(m.store.get('quotes/Q').pagos[0].notas,'nota nueva','sin conflicto, se guarda');
+});
+function pago806({store0={'quotes/Q':{pagos:[]}},datosDom,pagoSrcActual}){
+  const {fb,store}=fakeDb(store0);const {el}=domSimulado();const toasts=[],avisos=[];
+  for(const [k,v] of Object.entries(datosDom))el('pm-'+k).value=v;
+  el('pm-submit-btn').style={};
+  const src={id:'Q',kind:'quote',doc:{total:2000,pagos:[]}};
+  const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError','getCollectionName','gbDateToIso'),...h806('submitPago','_submitPagoImpl','getPagos','pagosBaseParaEscribir','totalCobrado','pagoFechaIso','pagoClave','pagoPareceRepetido')],{
+    ...common(),window:{fb},$:el,cloudOnline:true,pagoSrc:pagoSrcActual==='otro'?{id:'Z',kind:'quote',doc:{pagos:[]}}:src,pagoFotoBase64:null,
+    getDocTotal:()=>2000,saldoPendiente:()=>1000,totalCargos:()=>0,totalAjustes:()=>0,fm:String,confirmModal:async()=>true,
+    logOperacion:async({runner})=>({result:await runner('log1'),logId:'log1'}),closePagoModal(){},renderHist(){},
+    _showPagoSuccessModal:async o=>avisos.push(o),toast:(m,t)=>toasts.push([m,t]),setTimeout:()=>{},console:{log(){},warn(){},error:(...a)=>toasts.push(['ERR '+String(a[1]&&a[1].error||a[0]),'err'])}});
+  return {c,store,src,toasts,avisos};
+}
+await test('v8.0.6 r3 «Reintentar» un pago usa los datos, la identidad y la foto del intento original',async()=>{
+  const intento=src=>({src,clientId:'c1',fotoUrl:'u1',foto:null,datos:{fecha:'2026-09-22',monto:'1000',metodo:'Efectivo',tipo:'parcial',notas:''}});
+  let t=pago806({datosDom:{fecha:'2026-09-22',monto:'999',metodo:'Nequi',tipo:'parcial',notas:'editado'}});
+  await t.c.submitPago(intento(t.src));
+  const g=t.store.get('quotes/Q').pagos;assert.equal(g.length,1);
+  assert.deepEqual([g[0].monto,g[0].metodo,g[0].clientId,g[0].fotoUrl],[1000,'Efectivo','c1','u1'],'los datos editados durante la espera no se cuelan');
+  t=pago806({store0:{'quotes/Q':{pagos:[{fecha:'2026-09-22',monto:1000,metodo:'Efectivo',tipo:'parcial',clientId:'c1'}]}},datosDom:{fecha:'2026-09-22',monto:'1000',metodo:'Efectivo',tipo:'parcial',notas:''}});
+  await t.c.submitPago(intento(t.src));
+  assert.equal(t.store.get('quotes/Q').pagos.length,1,'commit anterior sin respuesta: no se duplica');assert.equal(t.avisos.at(-1).monto,'1000');
+  t=pago806({datosDom:{fecha:'2026-09-22',monto:'1000',metodo:'Efectivo',tipo:'parcial',notas:''},pagoSrcActual:'otro'});
+  await t.c.submitPago(intento(t.src));assert.equal(t.store.get('quotes/Q').pagos.length,0,'la ventana ya es de otro documento: no reintenta');assert.match(t.toasts.at(-1)[0],/otro documento/);
+});
+await test('v8.0.6 r3 adjuntar un comprobante no reemplaza el que otra sesión adjuntó',async()=>{
+  const {fb,store}=fakeDb({'quotes/Q':{pagos:[{monto:5,fecha:'2026-09-01',tipo:'abono',clientId:'c1',fotoUrl:'u-otra'}]}});const {el}=domSimulado();const toasts=[];
+  const c=loadSourceFunctions([...h806('onAdjuntarPagoFile','getPagos','pagosBaseParaEscribir','_findPagoIdxFresh','pagoFechaIso','gbErrorDocCambio','gbRecargarTrasCambio'),...core('gbDateToIso')],{...common(),
+    window:{fb,__verPagosId:'Q',__verPagosKind:'quote'},$:el,quotesCache:[{id:'Q',kind:'quote',pagos:[{monto:5,fecha:'2026-09-01',tipo:'abono',clientId:'c1'}]}],getCollectionName:()=>'quotes',
+    _compressImageFile:(f,cb)=>cb('data:x'),uploadFotoFromBase64:async()=>({url:'u-mia'}),openVerPagosModal(){},toast:(m,t)=>toasts.push([m,t]),gbMensajeError:e=>e.message});
+  await c.onAdjuntarPagoFile({target:{files:[{}]}},0);await new Promise(r=>setTimeout(r,0));
+  assert.equal(store.get('quotes/Q').pagos[0].fotoUrl,'u-otra');assert.match(toasts.at(-1)[0],/ya adjuntó/);
+});
+await test('v8.0.6 r3 cambiar de ventana durante las subidas de la entrega no mezcla pedidos ni fotos',async()=>{
+  const {fb,store}=fakeDb({'quotes/A':{status:'pedido',produced:true}});const {el}=domSimulado();let cerro=0;
+  Object.assign(el('dm-fecha'),{value:'2026-09-20'});Object.assign(el('dm-entregado-por'),{value:'Emilio'});Object.assign(el('dm-recibido-conforme'),{checked:true});
+  const A={id:'A',kind:'quote',doc:{produced:true,status:'pedido',client:'Ana'}};
+  const c=loadSourceFunctions(h806('submitDelivery','_submitDeliveryImpl','_conTopeSubida','gbUnaVez','gbErrorDocCambio','gbRecargarTrasCambio','GB_ESTADOS_ABIERTOS'),{...common(),
+    window:{fb},$:el,document:{querySelector:()=>null},setTimeout,cloudOnline:true,getCollectionName:()=>'quotes',deliverySrc:A,entregaFotoBase64:'data:a1',entregaFoto2Base64:'data:a2',
+    closeDeliveryModal(){cerro++},renderHist(){},gbMensajeError:e=>e.message,
+    uploadFotoFromBase64:async b=>{if(b==='data:a1'){c.deliverySrc={id:'B',kind:'quote',doc:{produced:true,status:'pedido'}};c.entregaFoto2Base64='data:b2'}return {url:'url-'+b.slice(5)}}});
+  await c.submitDelivery();
+  const e=store.get('quotes/A').entregaData;
+  assert.equal(store.get('quotes/A').status,'entregado');assert.deepEqual([e.fotoUrl,e.foto2Url],['url-a1','url-a2'],'las dos fotos son las de A');
+  assert.equal(cerro,0,'no cierra la ventana que ahora es de B');
+});
+await test('v8.0.6 r3 «Migrar fotos» no pisa entrega ni comentario cambiados en otra sesión y localiza el pago por su foto',async()=>{
+  const doc0={entregaData:{fotoBase64:'data:e1',receptor:'X'},comentarioCliente:{fotoBase64:'data:c1',texto:'ok'},pagos:[{foto:'data:p1',monto:1},{monto:2}]};
+  const {fb,store}=fakeDb({'quotes/Q':structuredClone(doc0)});const {el}=domSimulado();
+  const c=loadSourceFunctions([['app-dashboard.js','migrarFotosStorage']],{...common(),window:{fb},$:el,currentUser:{email:'x'},quotesCache:[{id:'Q',kind:'quote',...structuredClone(doc0)}],
+    getCollectionName:()=>'quotes',confirmModal:async()=>true,loadAllHistory:async()=>{},renderDashboard(){},
+    uploadFotoFromBase64:async b=>{if(b==='data:e1')store.get('quotes/Q').entregaData={fotoBase64:'data:otra',receptor:'Y'};if(b==='data:p1')store.get('quotes/Q').pagos.unshift({monto:9,clientId:'nuevo'});return {url:'url-'+b.slice(5)}}});
+  await c.migrarFotosStorage();
+  const d=store.get('quotes/Q');
+  assert.deepEqual(d.entregaData,{fotoBase64:'data:otra',receptor:'Y'},'la entrega cambiada por otra sesión se conserva');
+  assert.equal(d.comentarioCliente.fotoUrl,'url-c1');assert.ok(!('fotoBase64' in d.comentarioCliente));
+  assert.equal(d.pagos.length,3,'el pago nuevo de la otra sesión se conserva');assert.equal(d.pagos[1].fotoUrl,'url-p1','la foto va al pago que la tenía');
+});
+await test('v8.0.6 r3 N6 la consulta del año pregunta por el rango real del prefijo',async()=>{
+  const {fb}=fakeDb({});const filtros=[];
+  Object.assign(fb,{collection:(_,c)=>c,query:(...a)=>a,where:(campo,op,v)=>{filtros.push([op,v]);return 0},documentId:()=>'__id__',limit:()=>0,getDocsFromServer:async()=>({empty:true})});
+  const c=loadSourceFunctions(core('_hayDocsDelAnio','getNextNumber'),{...common(),window:{fb},APP_YEAR:2027});
+  await c.getNextNumber('proposal');
+  assert.deepEqual(filtros,[['>=','GB-P-2027-'],['<','GB-P-2027-\uf8ff']]);
+});
+await test('v8.0.6 r2 entrega, migración, cierre de ventanas y reintento usan el intento original',()=>{
+  const ent=functionSource('app-historial.js','_submitDeliveryImpl');
+  assert.match(ent,/const foto1=entregaFotoBase64,foto2=entregaFoto2Base64;/);
+  assert.equal((ent.match(/\bentregaFoto2?Base64\b/g)||[]).length,2,'las fotos se leen una sola vez, al entrar');
+  const mig=functionSource('app-dashboard.js','migrarFotosStorage');
+  assert.ok(!/getDoc\(|updateDoc\(/.test(mig),'la migración ya no usa getDoc + updateDoc');
+  assert.match(mig,/obj\.fotoBase64!==t\.base64/);assert.match(mig,/p\.foto===t\.base64/);
+  assert.match(functionSource('app-historial.js','_submitMarkAsOrderImpl'),/if\(\$\("om-num"\)\.dataset\.quoteId===quoteId\)closeOrderModal\(\)/);
+  assert.match(functionSource('app-historial.js','_submitApproveProposalImpl'),/if\(\$\("am-num"\)\.dataset\.propId===propId\)closeApproveModal\(\)/);
+  assert.match(functionSource('app-historial.js','_submitAnularImpl'),/if\(_anularCtx&&_anularCtx\.docId===docId\)closeAnularModal\(\)/);
+  const imp=functionSource('app-historial.js','_submitPagoImpl');
+  assert.match(imp,/submitPago\(\{src,clientId,fotoUrl:nuevo\.fotoUrl\|\|null,foto:nuevo\.foto\|\|null,datos:\{fecha,monto:String\(monto\),metodo,tipo,notas\}\}\)/,'reintentar con destino, identidad, foto subida y datos'); // r3
+  assert.match(imp,/if\(intento&&pagoSrc!==src\)/,'si la ventana ya es de otro documento, no reintenta allí');
+  assert.match(imp,/const clientId=\(intento&&intento\.clientId\)\|\|/);
+  assert.match(functionSource('app-historial.js','onAdjuntarPagoFile'),/Otra sesión ya adjuntó un comprobante/);
 });
 console.log(`${passed} escenarios de integridad pasaron (adaptadores en memoria; no emulador Firebase).`);

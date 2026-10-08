@@ -156,7 +156,7 @@ await test('F1 businessIdHeredado: el del padre; si el padre es viejo, la clave 
 
 // ─── F2: métricas = cifras de renderDashboard y getPipelineActivo ───
 const METRICAS=neg('montoNegocio','saldoNegocio','_negEnRango','_negCuentaEnKpis','_negEnPipeline','_negMetrica','_negSi','contextoMetricas','metricaCotizado','metricaVendido','metricaEntregado','metricaRecaudado','metricaPorCobrar','metricaPipelineCotizacion','metricaPipelineConfirmados','metricaPipelineEntregadosConSaldo');
-const DINERO=[...['getPagos','totalCobrado','totalAjustes','totalCargos','saldoPendiente','METODOS_PAGO'].map(n=>['app-historial.js',n]),...['TR','computePropTotal','getDocTotal','isAnulada','noSumaEnKpis','buildOptionExclusions','FOLLOW_UP_META','getFollowUp','isCumplido'].map(n=>['app-core.js',n]),...['dateOfCreation','dateOfSale'].map(n=>['app-dashboard.js',n])];
+const DINERO=[...['getPagos','pagosBaseParaEscribir','totalCobrado','totalAjustes','totalCargos','saldoPendiente','METODOS_PAGO'].map(n=>['app-historial.js',n]),...['TR','computePropTotal','getDocTotal','isAnulada','noSumaEnKpis','buildOptionExclusions','FOLLOW_UP_META','getFollowUp','isCumplido'].map(n=>['app-core.js',n]),...['dateOfCreation','dateOfSale'].map(n=>['app-dashboard.js',n])];
 const RANGO={start:'2026-09-01',end:'2026-09-30'};
 const secciones=precio=>[{name:'Menú',options:[{label:'Opción A',items:[{price:precio,qty:1}]}]}];
 const universo=()=>[
@@ -374,7 +374,8 @@ function followUpFixture(doc){
   const escrituras=[];const cache=[{...doc}];
   const c=loadSourceFunctions([...['FOLLOW_UP_META','MOTIVOS_PERDIDA','setFollowUp'].map(n=>['app-core.js',n])],{
     cloudOnline:true,quotesCache:cache,toast(){},console:quiet,gbMensajeError:e=>e.message,getCollectionName:()=>'quotes',auditStamp:()=>({}),
-    window:{fb:{db:{},doc:(_,coll,id)=>coll+'/'+id,serverTimestamp:()=>'TS',updateDoc:async(ref,patch)=>{escrituras.push({ref,patch:plain(patch)})}}}});
+    window:{fb:{db:{},doc:(_,coll,id)=>coll+'/'+id,serverTimestamp:()=>'TS',updateDoc:async(ref,patch)=>{escrituras.push({ref,patch:plain(patch)})},
+      runTransaction:async(_,cb)=>cb({get:async()=>({exists:()=>true,data:()=>plain(doc)}),update:(ref,patch)=>{escrituras.push({ref,patch:plain(patch)})}})}}}); // v8.0.6: setFollowUp en transacción
   return {c,escrituras,cache};
 }
 await test('F5 marcar perdida borra el próximo contacto con null en la misma escritura',async()=>{
@@ -971,7 +972,7 @@ await test('T2 R2 refresco sin llamadas por flujo: asignar entrega (Historial) y
   const fb={db:{},doc:(_,col,id)=>col+'/'+id,serverTimestamp:()=>'TS',updateDoc:async(ref,p)=>{escritos.push([ref,p])},
     runTransaction:async(_,cb)=>cb({get:async ref=>({exists:()=>true,data:()=>plain(docs.find(d=>ref.endsWith('/'+d.id)))}),update:(ref,p)=>escritos.push([ref,p])})};
   const {c}=ctxR1(docs,{curMode:'dash'});
-  for(const n of ['assignDeliveryDate','submitAnular','gbFeAnuladaConNotas','gbFeSumaNotas'])vm.runInContext(functionSource('app-historial.js',n),c);
+  for(const n of ['assignDeliveryDate','submitAnular','_submitAnularImpl','gbUnaVez','gbErrorDocCambio','gbRecargarTrasCambio','GB_ESTADOS_ABIERTOS','pagosBaseParaEscribir','gbFeAnuladaConNotas','gbFeSumaNotas'])vm.runInContext(functionSource('app-historial.js',n),c);
   const prompts=[];
   Object.assign(c,{window:{fb},prompt:()=>prompts.shift(),cloudOnline:true,showLoader(){},hideLoader(){},getCollectionName:(id,k)=>k==='quote'?'quotes':'proposals',
     renderHist(){},renderDashboard(){},renderMiniDash(){},toast(){},alert(){},gbMensajeError:e=>String(e),auditStamp:()=>({}),logOperacion:async o=>o.runner(),
@@ -982,8 +983,9 @@ await test('T2 R2 refresco sin llamadas por flujo: asignar entrega (Historial) y
   prompts.push(MAN,'10:00');await c.assignDeliveryDate('Q10','quote');await esperar();
   assert.equal(escritos.length,1);assert.equal(insignia(),n0+1,'asignar entrega para mañana: aviso «Entrega mañana» sin cambiar de pantalla');
   Object.assign(c.$('an-motivo'),{value:'cliente_cancelo'});Object.assign(c.$('an-accion'),{value:'anular'});
-  c._anularCtx={docId:'Q8',kind:'quote',q:docs.find(d=>d.id==='Q8')};await c.submitAnular();await esperar();
-  assert.equal(escritos.length,2);assert.equal(insignia(),n0,'anular: sale el aviso de pago');
+  // v8.0.6 N2: un entregado (Q8) ya no se anula ni saltándose la ventana; se anula Q10, el pedido recién agendado.
+  c._anularCtx={docId:'Q10',kind:'quote',q:docs.find(d=>d.id==='Q10')};await c.submitAnular();await esperar();
+  assert.equal(escritos.length,2);assert.equal(insignia(),n0,'anular: sale el aviso de entrega mañana');
   Object.assign(c.$('an-accion'),{value:'regresar'});
   c._anularCtx={docId:'Q7',kind:'quote',q:docs.find(d=>d.id==='Q7')};await c.submitAnular();await esperar();
   assert.equal(escritos.length,3);assert.equal(insignia(),n0-1,'regresar a cotización: sale el aviso de entrega pasada');
@@ -1228,7 +1230,7 @@ await test('T3 F6 chips de método: el select sigue siendo la fuente; obligatori
   }
   const imp=functionSource('app-historial.js','_submitPagoImpl');
   assert.ok(imp.includes('const metodo=$("pm-metodo").value;if(!metodo){alert("Método");return}'),'el envío sigue leyendo el select y exige método');
-  assert.ok(/pagoPareceRepetido\(pagoSrc\.doc,datosPago,aceptados\)/.test(imp)&&/Posible pago repetido/.test(imp),'aviso de pago repetido intacto');
+  assert.ok(/pagoPareceRepetido\((pagoSrc|src)\.doc,datosPago,aceptados\)/.test(imp)&&/Posible pago repetido/.test(imp),'aviso de pago repetido intacto'); // v8.0.6 N4: src fijado al entrar
   assert.ok(/pintarChipsMetodoR1\(\)/.test(functionSource('app-historial.js','openPagoModal')),'el mismo modal en todas las pantallas');
   assert.match(source('index.html'),/<select id="pm-metodo">[\s\S]*?<\/select><div id="pm-metodo-chips"[^>]*hidden><\/div>/);
 });
@@ -1822,7 +1824,7 @@ await test('T4 menú: el módulo del Dashboard viejo no repite la sección que l
 // ─── Carga en la app ───────────────────────────────────────
 await test('app-negocios.js se carga en index.html con ?v= de BUILD_VERSION y check.mjs lo revisa',()=>{
   const v=source('app-core.js').match(/const BUILD_VERSION="v([^"]+)"/)[1];
-  assert.equal(v,'8.0.5');
+  assert.equal(v,'8.0.6');
   assert.ok(source('index.html').includes('<script src="app-negocios.js?v='+v+'"></script>'));
   assert.ok(/"app-negocios\.js"/.test(source('scripts/check.mjs')));
   assert.ok(source('.github/workflows/check.yml').includes('node scripts/test_negocios.mjs'));
