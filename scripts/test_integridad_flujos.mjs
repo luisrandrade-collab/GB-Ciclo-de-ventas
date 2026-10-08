@@ -994,7 +994,7 @@ await test('P2-R2-04 gbMensajeError: lo técnico en español, lo propio intacto,
 function pfErrorFixture(g){
   const messages=[];
   const c=loadSourceFunctions([...core('gbEsErrorDePermiso','gbMensajeError'),...['openPropFinalFlow','_generarPropuestaFinalImpl','regeneratePropFinal'].map(n=>['app-propuesta.js',n])],
-    {...common(),toast:m=>messages.push(m),cloudOnline:true,$:()=>({classList:{remove(){},add(){}}}),renderPropFinalPicker:nada,h:String,...g});
+    {...common(),toast:m=>messages.push(m),cloudOnline:true,$:()=>({classList:{remove(){},add(){}}}),renderPropFinalPicker:nada,h:String,propFinalMenajeSel:null,getMenajeOpcionActiva:()=>null,...g});
   return {c,messages};
 }
 const permisoNegado=()=>Object.assign(new Error('Missing or insufficient permissions.'),{name:'FirebaseError',code:'permission-denied'});
@@ -2855,7 +2855,7 @@ await test('v8.0.7 D18 la Propuesta Final escoge el menaje y lleva sólo esa opc
   c.pfSelectMenaje('mB');assert.equal(nodes['pf-total'].textContent,'150','el total usa el menaje escogido');
   const e=c.pfMenajeEscogido(src);assert.equal(e.op.id,'mB');assert.deepEqual(plain(e.repo),{copa:9});
   const gen=functionSource('app-propuesta.js','_generarPropuestaFinalImpl');
-  assert.match(gen,/const menEsc=pfMenajeEscogido\(src\)/);assert.doesNotMatch(gen,/JSON\.stringify\(src\.menajeOptions\)/,'ya no copia todas las opciones');
+  assert.match(gen,/const menEsc=pfMenajeEscogido\(src,menajeSel\)/);assert.doesNotMatch(gen,/JSON\.stringify\(src\.menajeOptions\)/,'ya no copia todas las opciones');
 });
 await test('v8.0.7 C1 cerrar «Ver pagos» olvida el documento y las reaperturas exigen la ventana visible',()=>{
   const {el}=domSimulado();const w={__verPagosId:'Q',__verPagosKind:'quote'};
@@ -2936,7 +2936,7 @@ await test('v8.0.7 r3 la Propuesta Final GUARDADA (commitPropFinal real) lleva s
     reposicionByOption:{mA:{vaso:1},mB:{copa:9}},reposicionData:{vaso:1}};
   const {fb,store}=fakeDb({'proposals/P1':structuredClone(src)});
   const c=loadSourceFunctions([...mergeEntries,...core('TR','computePropTotal','getMenajeOpciones','getMenajeOpcionActiva','getReposicionActivos'),['app-propuesta.js','pfMenajeEscogido'],['app-propuesta.js','commitPropFinal'],['app-propuesta.js','_generarPropuestaFinalImpl']],{...common(),
-    window:{fb,_propFinalFlowSeq:0},cloudOnline:true,propFinalSource:{id:'P1',...structuredClone(src)},propFinalSelection:{s1:'a'},propFinalMenajeSel:'mB',getNextNumber:async()=>'GB-PF-2026-0001',APP_YEAR:2026,
+    window:{fb,_propFinalFlowSeq:0},cloudOnline:true,propFinalSource:{id:'P1',...structuredClone(src)},propFinalSelection:{s1:'a'},propFinalMenajeSel:'mB',getNextNumber:async()=>{c.propFinalMenajeSel='mA';return 'GB-PF-2026-0001'} /* r7: cambiar el selector durante la espera no cambia la PF */,APP_YEAR:2026,
     gbNotasNormalizar:()=>[],gbNotasALegacy:()=>({}),DEFAULT_CONDICIONES:{},CONDICIONES_TITULOS:{},menajeAssignedTo:null,inheritPropFinalLogistics:o=>o,gbMensajeError:e=>e.message,toast(){}});
   await c._generarPropuestaFinalImpl();
   const pf=store.get('propfinals/GB-PF-2026-0001');

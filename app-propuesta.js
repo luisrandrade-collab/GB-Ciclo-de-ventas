@@ -1411,9 +1411,10 @@ function closePropFinalModal(){
 function pfSelectOption(sectionId,optionId){propFinalSelection[sectionId]=optionId;renderPropFinalPicker()}
 function pfSelectMenaje(opId){propFinalMenajeSel=opId;renderPropFinalPicker()}
 // v8.0.7 D18: la propuesta final lleva UNA opción de menaje (la escogida), con su reposición.
-function pfMenajeEscogido(src){
+function pfMenajeEscogido(src,selId){
   const ops=getMenajeOpciones(src);
-  const op=ops.find(o=>o.id===propFinalMenajeSel)||getMenajeOpcionActiva(src);
+  const sel=selId===undefined?propFinalMenajeSel:selId;
+  const op=ops.find(o=>o.id===sel)||getMenajeOpcionActiva(src);
   if(!op)return {op:null,items:[],repo:{}};
   const porOpcion=src.reposicionByOption&&typeof src.reposicionByOption==="object"&&!Array.isArray(src.reposicionByOption)?src.reposicionByOption[op.id]:null;
   return {op,items:Array.isArray(op.items)?op.items:[],repo:porOpcion||getReposicionActivos(src,op.id)||{}};
@@ -1470,6 +1471,7 @@ async function _generarPropuestaFinalImpl(){
   const flowSeq=window._propFinalFlowSeq||0;
   const regeneration=window.__regenerating_pf?{...window.__regenerating_pf}:null;
   const selection={...propFinalSelection};
+  const menajeSel=propFinalMenajeSel; // v8.0.7 (Codex r7): el menaje se fija al pulsar, como las secciones
   const secs=src.sections||[];
   const sinSeleccion=secs.filter(s=>(s.options||[]).length>0&&!selection[s.id]);
   if(sinSeleccion.length){if(typeof toast==="function")toast("Falta escoger opción en: "+sinSeleccion.map(s=>s.name).join(", "),"warn",5000);else alert("Falta escoger opción en: "+sinSeleccion.map(s=>s.name).join(", "));return}
@@ -1485,7 +1487,7 @@ async function _generarPropuestaFinalImpl(){
     // Preparar una instantánea local: el editor sólo cambia después del commit.
     // v8.0.7 D18: la PF lleva sólo la opción de menaje escogida en la ventana (antes copiaba todas, el PDF
     // las imprimía todas y el total cobraba la pestaña que estaba abierta al guardar la propuesta).
-    const menEsc=pfMenajeEscogido(src);
+    const menEsc=pfMenajeEscogido(src,menajeSel);
     const pfActiveMenajeOptionId=menEsc.op?menEsc.op.id:"opA_legacy_"+Date.now();
     const pfMenajeItems=JSON.parse(JSON.stringify(menEsc.items));
     const pfMenajeOptions=[{...(menEsc.op?JSON.parse(JSON.stringify(menEsc.op)):{label:"Opción A"}),id:pfActiveMenajeOptionId,items:JSON.parse(JSON.stringify(menEsc.items))}];
