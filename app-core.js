@@ -1928,14 +1928,14 @@ async function saveClientToCloud(obj,opts){
     clientsCache.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
     if(window.__gbLoteClientes)window.__gbLoteClientes.set(String(obj.name||"").toLowerCase().trim(),{id,...final});
   }
-  localStorage.setItem("gb_clients_cache",JSON.stringify(clientsCache));
+  try{localStorage.setItem("gb_clients_cache",JSON.stringify(clientsCache))}catch(e){console.warn("Caché local no disponible (v8.0.7: no interrumpe la operación ya guardada)",e)}
 }
 
 async function deleteClientFromCloud(id){
   const {db,doc,deleteDoc}=window.fb;
   await deleteDoc(doc(db,"clients",id));
   clientsCache=clientsCache.filter(c=>c.id!==id);
-  localStorage.setItem("gb_clients_cache",JSON.stringify(clientsCache));
+  try{localStorage.setItem("gb_clients_cache",JSON.stringify(clientsCache))}catch(e){console.warn("Caché local no disponible (v8.0.7: no interrumpe la operación ya guardada)",e)}
 }
 
 // ─── v7.8 F1: PROVEEDORES (collection 'proveedores') ───────
@@ -2335,7 +2335,7 @@ async function saveAjusteToCloud(obj){
   const ref=await addDoc(collection(db,"ajustesLog"),payload);
   const entry={id:ref.id,...payload,createdAtIso:nowIso};
   ajustesLogCache.unshift(entry);
-  localStorage.setItem("gb_ajustesLog_cache",JSON.stringify(ajustesLogCache));
+  try{localStorage.setItem("gb_ajustesLog_cache",JSON.stringify(ajustesLogCache))}catch(e){console.warn("Caché local no disponible (v8.0.7: no interrumpe la operación ya guardada)",e)}
   return entry;
 }
 

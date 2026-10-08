@@ -2978,6 +2978,21 @@ await test('v8.0.7 r4 guardar el editor no deshace un renombrado de otra sesión
   assert.equal(st2.get('ajustesLog/reversion_L1').reversesLogId,'L1');assert.ok(cache[0].deletedAt,'deja de contar en el log');
   const p=loadSourceFunctions(core('projectAjustesLog'));
   assert.ok(p.projectAjustesLog([{id:'L1',monto:5000},{id:'reversion_L1',reversesLogId:'L1',createdAtIso:'x'}])[0].deletedAt,'la proyección la marca anulada al recargar');
-  assert.match(functionSource('app-historial.js','submitAjuste'),/catch\(errAplicar\)\{\s*await _revertirAjusteNoAplicado\(logEntry,monto\);/);
+  assert.match(functionSource('app-historial.js','submitAjuste'),/const ya=await _ajusteAplicadoEnServidor\(tipo,q,logEntry\.id\);\s*if\(ya===true\)return[^\n]*\n\s*if\(ya===null\)throw[^\n]*\n\s*await _revertirAjusteNoAplicado\(logEntry,monto\);/,'sólo se revierte si el servidor confirma que no se aplicó');
+});
+await test('v8.0.7 r5 antes de revertir se pregunta al servidor si el ajuste o la nota crédito sí quedaron; la caché local no interrumpe',async()=>{
+  const {fb,store}=fakeDb({'quotes/Q':{ajustes:[{id:'L1',logId:'L1',monto:10}]},'clients/c1':{name:'Ana',saldoAFavorMovs:[{logId:'L2',monto:5}]}});
+  fb.collection=(_,x)=>x;fb.getDocFromServer=fb.getDoc;fb.getDocsFromServer=async x=>({docs:[...store].filter(([k])=>k.startsWith(x+'/')).map(([k,v])=>({id:k.split('/')[1],data:()=>structuredClone(v)}))});
+  const c=loadSourceFunctions([...core('getCollectionName'),...h806('_ajusteAplicadoEnServidor')],{...common(),window:{fb}});
+  assert.equal(await c._ajusteAplicadoEnServidor('ajuste_saldo',{id:'Q',kind:'quote'},'L1'),true);
+  assert.equal(await c._ajusteAplicadoEnServidor('ajuste_saldo',{id:'Q',kind:'quote'},'L9'),false);
+  assert.equal(await c._ajusteAplicadoEnServidor('nota_credito',{id:'Q'},'L2'),true,'la nota crédito abonada no se revierte');
+  assert.equal(await c._ajusteAplicadoEnServidor('nota_credito',{id:'Q'},'L9'),false);
+  fb.getDocsFromServer=async()=>{throw new Error('offline')};
+  assert.equal(await c._ajusteAplicadoEnServidor('nota_credito',{id:'Q'},'L2'),null,'sin servidor: no se sabe, no se revierte');
+  const {fb:f2}=fakeDb({});f2.collection=(_,x)=>x;let n=0;f2.addDoc=async()=>({id:'L'+(++n)});
+  const g=loadSourceFunctions(core('saveAjusteToCloud'),{...common(),window:{fb:f2},ajustesLogCache:[],localStorage:{setItem(){throw new Error('QuotaExceeded')},getItem(){return null}}});
+  assert.equal((await g.saveAjusteToCloud({monto:1})).id,'L1','el registro guardado se devuelve aunque la caché local falle');
+  for(const [f,fn] of [['app-core.js','saveClientToCloud'],['app-historial.js','_addSaldoAFavor']])assert.match(functionSource(f,fn),/try\{localStorage\.setItem\("gb_clients_cache"/,fn+': caché no fatal');
 });
 console.log(`${passed} escenarios de integridad pasaron (adaptadores en memoria; no emulador Firebase).`);

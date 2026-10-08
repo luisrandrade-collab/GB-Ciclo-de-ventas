@@ -1334,6 +1334,11 @@ async function submitAjuste(){
             await _addSaldoAFavor(q.client||"(sin cliente)",monto,motivo,logEntry.id);
           }
         }catch(errAplicar){
+          // v8.0.7 (Codex r5): antes de revertir se pregunta al servidor si la aplicación sí quedó (confirmación
+          // perdida); si quedó, el ajuste es válido; si no se puede saber, no se revierte y se avisa.
+          const ya=await _ajusteAplicadoEnServidor(tipo,q,logEntry.id);
+          if(ya===true)return {payloadExtra:{ajusteLogId:logEntry.id,confirmadoTrasError:true}};
+          if(ya===null)throw Object.assign(new Error("No se pudo comprobar si el ajuste quedó aplicado. Revisa el saldo del cliente antes de repetirlo."),{paraUsuario:true});
           await _revertirAjusteNoAplicado(logEntry,monto);
           throw errAplicar;
         }
@@ -1615,6 +1620,18 @@ function cargosVerPagosHtml(q){
 
 // Helper: agrega saldoAFavor a un cliente. Si el cliente no existe en
 // clientsCache, crea uno mínimo (solo nombre) para que el saldo persista.
+// v8.0.7 (Codex r5): ¿la aplicación de este ajuste quedó en el servidor? true/false; null si no se pudo leer.
+async function _ajusteAplicadoEnServidor(tipo,q,logId){
+  try{
+    const {db,doc,collection,getDocFromServer,getDocsFromServer}=window.fb;
+    if(tipo==="ajuste_saldo"){
+      const s=await getDocFromServer(doc(db,getCollectionName(q.id,q.kind||"quote"),q.id));
+      return !!(s.exists()&&(s.data().ajustes||[]).some(a=>a&&(a.logId===logId||a.id===logId)));
+    }
+    const s=await getDocsFromServer(collection(db,"clients"));
+    return s.docs.some(d=>(d.data().saldoAFavorMovs||[]).some(m=>m&&m.logId===logId));
+  }catch(e){return null}
+}
 // v8.0.7 (Codex r4): reversión de un registro de ajuste cuya aplicación falló (mismo formato que softDeleteAjuste).
 async function _revertirAjusteNoAplicado(logEntry,monto){
   try{
@@ -1708,7 +1725,7 @@ async function _addSaldoAFavor(clienteName,monto,motivo,logId){
     clientsCache.push({id:idAuto,...objCommit});
     clientsCache.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
   }
-  localStorage.setItem("gb_clients_cache",JSON.stringify(clientsCache));
+  try{localStorage.setItem("gb_clients_cache",JSON.stringify(clientsCache))}catch(e){console.warn("Caché local no disponible (v8.0.7: no interrumpe la operación ya guardada)",e)}
 }
 
 // Comprime foto en cliente: 800px JPEG 0.7
