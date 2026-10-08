@@ -751,10 +751,15 @@ function eventsForCalendarEntries(){
   const out=[];
   eventsAllStatuses().forEach(q=>{
     const evs=window.GBAgenda.eventosDeDoc(q,getCollectionName(q.id,q.kind));
-    const diasEntrega=new Set(evs.filter(e=>e.tipo==="entrega").map(e=>e.fecha));
+    const entregas=evs.filter(e=>e.tipo==="entrega").sort((a,b)=>(a.fecha+a.hora).localeCompare(b.fecha+b.hora));
+    const diasEntrega=new Set(entregas.map(e=>e.fecha));
     evs.forEach(e=>{
       if(e.tipo==="entrega")out.push({iso:e.fecha,tipo:"entregar",q:q,hora:e.hora});
-      else if(_shouldShowProduccion(q)&&!diasEntrega.has(e.fecha))out.push({iso:e.fecha,tipo:"producir",q:q,hora:""});
+      else if(_shouldShowProduccion(q)&&!diasEntrega.has(e.fecha)){
+        // v8.0.8 (Codex r2): la tarjeta de producción nombra la entrega que atiende (la próxima desde ese día).
+        const sig=entregas.find(x=>x.fecha>=e.fecha)||null;
+        out.push({iso:e.fecha,tipo:"producir",q:q,hora:"",entregaIso:sig?sig.fecha:"",entregaHora:sig?sig.hora:""});
+      }
     });
   });
   return out;
@@ -773,11 +778,13 @@ function _calEntregaLabel(iso){
 }
 // v7.6.5: tarjeta CHICA de "producir" — Opción B confirmada con Luis.
 // Una sola línea: cliente + cuándo entrega + monto. Click → abre doc.
-function renderWeekProductionCard(q){
+function renderWeekProductionCard(q,e){
   const cli=(q.client||"—").replace(/[<>]/g,"");
   const total=fm(getDocTotal(q));
-  const entStr=_calEntregaLabel(q.eventDate);
-  const hora=q.horaEntrega?" "+q.horaEntrega:"";
+  // v8.0.8 (Codex r2): fecha y hora de la entrega que atiende (despacho), no las del documento.
+  const entStr=_calEntregaLabel(e?e.entregaIso:q.eventDate);
+  const horaE=e?e.entregaHora:q.horaEntrega;
+  const hora=horaE?" "+horaE:"";
   return '<div class="wd-ev-prod" onclick="openDocument('+jsArg(q.kind)+','+jsArg(q.id)+')">'+
     '<span class="wep-icon">🔥</span>'+
     '<span class="wep-label">Producir <strong>'+cli+'</strong></span>'+
@@ -817,7 +824,7 @@ function renderWeek(){
     if(!evs.length){evsHtml='<div class="wd-empty-msg">Sin eventos</div>'}
     else{
       evsHtml='<div class="wd-evs">'+evs.map(e=>{
-        return e.tipo==="producir"?renderWeekProductionCard(e.q):renderWeekEventCard(e.q,iso,todayIso);
+        return e.tipo==="producir"?renderWeekProductionCard(e.q,e):renderWeekEventCard(e.q,iso,todayIso,e.hora);
       }).join("")+'</div>';
     }
     html+='<div class="'+dayClass+'">'+dateBox+evsHtml+'</div>';
@@ -829,9 +836,9 @@ function renderWeek(){
 // Muestra chip de estado operativo (por producir / en producción /
 // producido / entregado), chip de pago (pagado / anticipo / sin
 // anticipo), hora destacada y resumen de productos clave.
-function renderWeekEventCard(q,iso,todayIso){
+function renderWeekEventCard(q,iso,todayIso,horaDespacho){
   const tag=q.kind==="quote"?'<span class="we-tag prod">Pedido</span>':'<span class="we-tag ent">Evento</span>';
-  const hora=q.horaEntrega||"";
+  const hora=(horaDespacho!==undefined?horaDespacho:q.horaEntrega)||""; // v8.0.8 (Codex r2): hora del despacho
   const total=fm(getDocTotal(q));
   const sCls=q.status||"enviada";
   // Estado operativo (chip principal)
@@ -854,7 +861,7 @@ function renderWeekEventCard(q,iso,todayIso){
   // Chip 🔪 acción rápida: solo si es pedido en un día próximo sin producir aún
   let accionChip="";
   if(q.kind==="quote"&&["pedido","en_produccion"].includes(sCls)&&!q.produced&&iso>=todayIso){
-    accionChip='<button class="we-accion-chip" onclick="event.stopPropagation();toggleProduced('+jsArg(q.id)+',event)" title="Marcar como producido">🔪 Marcar producido</button>';
+    accionChip='<button class="we-accion-chip" onclick="event.stopPropagation();toggleProduced('+jsArg(q.id)+','+jsArg(q.kind)+',event)" title="Marcar como producido">🔪 Marcar producido</button>'; // v8.0.8 (Codex r2): faltaba el kind
   }
   return '<div class="wd-ev '+sCls+(opEstado?' op-'+opEstado.cls:'')+'" onclick="openDocument('+jsArg(q.kind)+','+jsArg(q.id)+')">'+
     '<div class="we-row-top">'+
@@ -1007,7 +1014,8 @@ function renderMonth(){
     const typeTag=isQuote?'<span class="hc-type cot" style="margin-left:4px">Pedido</span>':'<span class="hc-type prop" style="margin-left:4px">Evento</span>';
     const pax=q.pers?q.pers+" pax · ":"";
     const mom=q.momento?q.momento:"";
-    const hora=q.horaEntrega?"⏰ "+q.horaEntrega:"";
+    const horaE=e.tipo==="entregar"?e.hora:e.entregaHora; // v8.0.8 (Codex r2): hora del despacho
+    const hora=horaE?"⏰ "+horaE:"";
     const meta=[pax+mom,hora].filter(Boolean).join(" · ");
     // v7.6.5: prefijo según tipo
     const accionPrefix=e.tipo==="producir"?'<span class="cal-ev-accion cal-ev-prod">🔥 Producir</span> ':'<span class="cal-ev-accion cal-ev-ent">🚚 Entregar</span> ';

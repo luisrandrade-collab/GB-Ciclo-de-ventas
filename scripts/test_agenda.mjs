@@ -498,5 +498,18 @@ await test('v8.0.8 r1: la agenda interna usa la lista del módulo (despachos sin
 await test('v8.0.8 r1: DEPLOY exige errores 0 y sinConverger 0 en la carga inicial',()=>{
   assert.match(leer('DEPLOY.md'),/`errores: 0` \*\*y\*\* `sinConverger: 0`/);
 });
+await test('v8.0.8 r2: las tarjetas usan la fecha y hora del despacho; «Marcar producido» en la semana pasa el kind',()=>{
+  const q={id:'GB-P-2026-0009',kind:'proposal',status:'aprobada',client:'C',horaEntrega:'07:00',despachos:[desp('a','2026-10-20T08:00'),desp('b','2026-10-22T15:30')]};
+  const fns=['eventsAllStatuses','_shouldShowProduccion','eventsForCalendarEntries','renderWeekProductionCard'].map(n=>['app-dashboard.js',n]).concat([['app-core.js','getCollectionName']]);
+  const c=loadSourceFunctions(fns,{window:{GBAgenda:A},quotesCache:[q],getFollowUp:()=>null,fm:String,getDocTotal:()=>0,jsArg:JSON.stringify,_calEntregaLabel:iso=>'«'+iso+'»'});
+  const e=c.eventsForCalendarEntries();
+  const p=e.filter(x=>x.tipo==='producir');
+  assert.deepEqual([...p.map(x=>x.entregaIso+' '+x.entregaHora)],['2026-10-20 08:00','2026-10-22 15:30'],'cada producción nombra su entrega');
+  const html=c.renderWeekProductionCard(q,p[1]);
+  assert.match(html,/«2026-10-22» 15:30/);assert.doesNotMatch(html,/07:00/,'no la hora vieja del documento');
+  const dash=leer('app-dashboard.js');
+  assert.match(dash,/renderWeekEventCard\(e\.q,iso,todayIso,e\.hora\)/);assert.match(dash,/const horaE=e\.tipo==="entregar"\?e\.hora:e\.entregaHora;/);
+  assert.match(dash,/toggleProduced\('\+jsArg\(q\.id\)\+','\+jsArg\(q\.kind\)\+',event\)" title="Marcar como producido"/);
+});
 console.log(`\n${ok} OK · ${fallos} fallo(s)`);
 process.exit(fallos?1:0);
