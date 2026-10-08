@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-title" content="Gourmet Bites">
 <title>Gourmet Bites - Cotizador</title>
-<link rel="stylesheet" href="gb-tokens.css?v=8.0.7.2"><!-- v7.9.13 INF-05: cache-buster CSS -->
+<link rel="stylesheet" href="gb-tokens.css?v=8.0.7.3"><!-- v7.9.13 INF-05: cache-buster CSS -->
 <!-- VERSION: 2026-04-26-v7.0.0-α-cascaron-v7-dashboard-rediseñado-fsm-pedido-vs-produccion -->
 <!--
   v6.3.0 (2026-04-24) — Robustez técnica + higiene (Entrega 3 del roadmap).
@@ -1407,6 +1407,9 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   border-top: 1px solid var(--gb-sidebar-border, rgba(255,255,255,.08));
   display: flex; flex-direction: column; gap: 2px; flex-shrink: 0;
 }
+/* v8.0.7.3: versión en el pie del menú, sólo en móvil (en escritorio está en el encabezado) */
+.gb-shell-sidebar__ver { display: none; padding: 6px 12px 2px; font-size: 12px; color: var(--gb-sidebar-text-muted, #6b7384); }
+@media (max-width: 1023px) { .gb-shell-sidebar__ver { display: block; } }
 
 @media (min-width: 1024px) {
   .gb-shell-sidebar { display: flex; }
@@ -1971,6 +1974,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   <div class="gb-shell-sidebar__foot">
     <button class="gb-shell-sidebar__item" onclick="openUserMenu&&openUserMenu()"><span class="gb-shell-icon">👤</span><span class="gb-shell-sidebar__label">Cuenta</span></button>
     <button class="gb-shell-sidebar__item" onclick="(function(){var s=document.getElementById('gb-shell-sidebar');var c=s.getAttribute('data-collapsed')==='true';s.setAttribute('data-collapsed', c?'false':'true');document.body.classList.toggle('gb-shell-collapsed', !c);try{localStorage.setItem('gbShellCollapsed', !c);}catch(e){}})()"><span class="gb-shell-icon">⇔</span><span class="gb-shell-sidebar__label">Colapsar</span></button>
+    <div class="gb-shell-sidebar__ver">Versión <span id="sb-ver"></span> · <span id="sb-date"></span></div>
   </div>
 </aside>
 
@@ -4876,13 +4880,13 @@ body{padding-bottom:84px}
   <button type="button" data-r1-ir="clientes"><span class="r1-barra-ic">👥</span>Clientes</button>
   <button type="button" data-r1-ir="mas"><span class="r1-barra-ic">☰</span>Más</button>
 </nav>
-<script src="app-assets.js?v=8.0.7.2"></script>
-<script src="app-core.js?v=8.0.7.2"></script>
-<script src="app-cotizar.js?v=8.0.7.2"></script>
-<script src="app-propuesta.js?v=8.0.7.2"></script>
-<script src="app-historial.js?v=8.0.7.2"></script>
-<script src="app-seguimiento.js?v=8.0.7.2"></script>
-<script src="app-dashboard.js?v=8.0.7.2"></script>
-<script src="app-negocios.js?v=8.0.7.2"></script>
+<script src="app-assets.js?v=8.0.7.3"></script>
+<script src="app-core.js?v=8.0.7.3"></script>
+<script src="app-cotizar.js?v=8.0.7.3"></script>
+<script src="app-propuesta.js?v=8.0.7.3"></script>
+<script src="app-historial.js?v=8.0.7.3"></script>
+<script src="app-seguimiento.js?v=8.0.7.3"></script>
+<script src="app-dashboard.js?v=8.0.7.3"></script>
+<script src="app-negocios.js?v=8.0.7.3"></script>
 </body>
 </html>

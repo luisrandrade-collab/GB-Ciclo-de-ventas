@@ -2636,8 +2636,8 @@ function toggleDashSection(key){
 
 // Inicializar UI: catálogo + version markers
 renderCats();
-["hdr-ver","pin-ver"].forEach(id=>{const el=$(id);if(el)el.textContent=BUILD_VERSION});
-["hdr-date","pin-date"].forEach(id=>{const el=$(id);if(el)el.textContent=BUILD_DATE});
+["hdr-ver","pin-ver","sb-ver"].forEach(id=>{const el=$(id);if(el)el.textContent=BUILD_VERSION});
+["hdr-date","pin-date","sb-date"].forEach(id=>{const el=$(id);if(el)el.textContent=BUILD_DATE});
 
 // v8.0.7.2: aviso de versión vieja. Safari en iPhone reanuda la pestaña congelada sin recargar y sigue corriendo
 // código viejo. Se lee el cache buster publicado de app-core.js (check.mjs lo exige igual a BUILD_VERSION); cache
