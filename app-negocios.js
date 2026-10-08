@@ -282,7 +282,7 @@ function proximaAccion(q,porFacturar){
   const e=etapaNegocio(q);
   if(e==="cotizacion"){
     if(q.kind==="quote")return "pedido";
-    if((q.status||"enviada")==="enviada"&&(q.sections||[]).some(s=>(s.options||[]).length>1))return "pf"; // como Historial
+    if((q.status||"enviada")==="enviada"&&propRequierePF(q))return "pf"; // como Historial (v8.0.7 D18: también menaje A/B)
     return "aprobar";
   }
   if(e==="confirmado")return "listo";

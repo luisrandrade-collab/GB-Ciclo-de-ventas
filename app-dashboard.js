@@ -1328,6 +1328,9 @@ function _buildDashDocRow(q,monto,extra,tagStyle){
       chips.push('<button class="dd-chip dd-chip-perdida" onclick="event.stopPropagation();openPerdidaModal('+jsArg(q.id)+','+jsArg(q.kind)+')" title="Perdida">❌</button>');
       if(q.kind==="quote"&&s==="enviada"){
         chips.push('<button class="dd-chip dd-chip-convert" onclick="event.stopPropagation();closeDashDetail();openOrderModal('+jsArg(q.id)+',event)" title="Marcar como pedido">🤝 Pedido</button>');
+      }else if(q.kind==="proposal"&&s==="enviada"&&propRequierePF(q)){
+        // v8.0.7 D18 (M4-08): con opciones por escoger se va a la Propuesta Final, no a aprobar directo.
+        chips.push('<button class="dd-chip dd-chip-convert" onclick="event.stopPropagation();closeDashDetail();openPropFinalFlow('+jsArg(q.id)+',event)" title="Generar Propuesta Final">✓ Propuesta Final</button>');
       }else if(q.kind==="proposal"&&(s==="enviada"||s==="propfinal")){
         chips.push('<button class="dd-chip dd-chip-convert" onclick="event.stopPropagation();closeDashDetail();openApproveModal('+jsArg(q.id)+',\'proposal\',event)" title="Marcar como aprobada">✓ Aprobar</button>');
       }
@@ -2434,9 +2437,8 @@ function renderUrgent3d(){
   //    pasa al nivel de despacho).
   const docsCandidatos=(quotesCache||[]).filter(q=>{
     if(q._wrongCollection)return false;
-    const s=q.status||"enviada";
-    if(["anulada","superseded","convertida","entregado"].includes(s))return false;
-    return true;
+    // v8.0.7 D15: sólo lo vendido y abierto se produce; antes entraban propuestas sin aprobar y perdidas.
+    return GB_ESTADOS_ABIERTOS.includes(q.status||"enviada");
   });
 
   // 2. Expandir a (doc, despacho) y filtrar por ventana 3 días sobre fechaHora del despacho.
@@ -6521,7 +6523,7 @@ async function saveClienteEditor(){
   };
   showLoader("Guardando...");
   try{
-    await saveClientToCloud(obj,{fullUpdate:true});
+    await saveClientToCloud(obj,{fullUpdate:true,id:_cliEditorId}); // v8.0.7 D16: por id, no por nombre
     hideLoader();
     toast("✅ Cliente guardado","success");
     closeClienteEditor();
@@ -6695,9 +6697,11 @@ async function saveProveedorEditor(){
   };
   showLoader("Guardando...");
   try{
-    await saveProveedorToCloud(obj,{fullUpdate:true,id:_provEditorId});
+    const r=await saveProveedorToCloud(obj,{fullUpdate:true,id:_provEditorId});
     hideLoader();
-    toast("✅ Proveedor guardado","success");
+    // v8.0.7 D16: un nombre existente no se sobrescribe; si estaba archivado se reactiva con sus datos.
+    if(r&&r.yaExistia)toast(r.reactivado?"«"+nombre+"» ya existía archivado: lo volví a activar con sus datos. No se cambió nada más.":"Ya existe un proveedor llamado «"+nombre+"». No se cambió nada; ábrelo desde el directorio.","warn",7000);
+    else toast("✅ Proveedor guardado","success");
     closeProveedorEditor();
     renderProveedoresDirectorio();
   }catch(e){
@@ -6959,12 +6963,13 @@ async function saveProvQuick(){
   if(!nombre){toast("El nombre es obligatorio","warn");return}
   showLoader("Creando...");
   try{
-    await saveProveedorToCloud({nombre:nombre},{fullUpdate:true});
+    const r=await saveProveedorToCloud({nombre:nombre},{fullUpdate:true});
     hideLoader();
     closeProvQuick();
-    toast("✅ Proveedor creado","success");
+    // v8.0.7 D16: con un nombre existente se selecciona ese proveedor sin borrarle los datos.
+    toast(r&&r.yaExistia?(r.reactivado?"«"+nombre+"» estaba archivado: lo reactivé y lo seleccioné.":"«"+nombre+"» ya existía: lo seleccioné."):"✅ Proveedor creado",r&&r.yaExistia?"info":"success");
     // Refrescar dropdown del modal compra y seleccionar el nuevo
-    const nuevo=proveedoresCache.find(p=>(p.nombre||"").toLowerCase()===nombre.toLowerCase());
+    const nuevo=(r&&r.id&&proveedoresCache.find(p=>p.id===r.id))||proveedoresCache.find(p=>(p.nombre||"").toLowerCase()===nombre.toLowerCase());
     _compraEdRefreshProveedorOptions(nuevo?.id||"");
   }catch(e){
     hideLoader();

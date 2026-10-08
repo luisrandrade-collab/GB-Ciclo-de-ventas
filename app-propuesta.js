@@ -474,7 +474,7 @@ function togglePropSecIncluir(si){
 }
 
 function renderPropSections(){
-  const hasMulti=propSections.some(s=>s.options.length>1);
+  const hasMulti=propSections.some(s=>s.options.length>1)||menajeOptions.length>1; // v8.0.7 D18: también menaje A/B
   const avisoHTML=hasMulti
     ?'<div class="prop-info-box"><div class="pib-title">Esta propuesta tiene varias opciones</div>Esta propuesta contiene varias opciones para que tu cliente escoja. Una vez el cliente confirme su selección en cada sección, genera una <strong>Propuesta Final</strong> con los ítems definitivos desde el Historial — ese será el documento que el cliente firma y aprueba formalmente para reservar la fecha.</div>'
     :'';
@@ -1006,6 +1006,9 @@ async function _savePropQuoteImpl(silent){
   // v5.5.0: matriz de edición reemplaza el bloqueo duro v4.13.0
   let oldDoc=null;
   let statusActual="enviada";
+  // v8.0.7 D17: «Generar PDF» (silencioso) con cambios sigue las reglas de «Guardar» (confirmar entregado,
+  // historial 🕒 con razón, aviso de producción); sin cambios no escribe y el PDF sale del documento leído.
+  let silentConCambios=false;
   if(editingPropNumber){
     try{
       const {db,doc,getDoc}=window.fb;
@@ -1013,6 +1016,7 @@ async function _savePropQuoteImpl(silent){
       if(snap.exists()){
         oldDoc=snap.data();
         statusActual=oldDoc.status||"enviada";
+        silentConCambios=!!silent&&formularioConCambios("proposal",formularioPropuesta(),editingPropNumber);
         if(["anulada","convertida","superseded"].includes(statusActual)){
           if(!silent){
             const _lbl=(STATUS_META[statusActual]||{}).label||statusActual;
@@ -1020,14 +1024,16 @@ async function _savePropQuoteImpl(silent){
           }
           return;
         }
-        if(statusActual==="entregado"&&!silent){
+        if(silent&&!silentConCambios)return {ok:true,id:editingPropNumber,document:{...oldDoc,quoteNumber:editingPropNumber},sinCambios:true};
+        if(statusActual==="entregado"&&(!silent||silentConCambios)){
+          if(silent)hideLoader();
           const ok=await confirmModal({
             title:"Evento ya ejecutado",
             body:"ℹ️ Este evento ya fue ejecutado.<br><br>Solo deberías cambiar <strong>NOTAS INTERNAS</strong>.<br><br>¿Continuar guardando?",
             okLabel:"Continuar",
             tone:"warn"
           });
-          if(!ok)return;
+          if(!ok)return silent?{ok:false,cancelado:true}:undefined; // v8.0.7 D17: cancelar no es un error del PDF
         }
       }
     }catch(e){console.warn("No se pudo verificar status previo:",e)}
@@ -1123,7 +1129,7 @@ async function _savePropQuoteImpl(silent){
     // v5.5.0: construir editHistory entry
     let nuevosHistory=prevEditHistory?[...prevEditHistory]:[];
     let cambiosDetectados=[];
-    if(oldDoc&&!creatingChild&&!silent){
+    if(oldDoc&&!creatingChild&&(!silent||silentConCambios)){
       cambiosDetectados=diffDocs(oldDoc,pObj);
       if(cambiosDetectados.length>0){
         const razon=prompt("Razón del cambio (opcional, máx 200 chars):","")||"";
@@ -1281,6 +1287,7 @@ async function _savePropQuoteImpl(silent){
           if(incorporados.length)toast("Se incorporaron cambios hechos en otra sesión: "+etiquetasDeCampos(incorporados).join(", ")+".","info",7000);
         }
       }
+      if(silent&&!creatingChild&&cambiosDetectados.length>0&&statusActual==="en_produccion"&&typeof toast==="function")toast("⚠️ Propuesta en producción modificada. Aviso visible al equipo.","warn",5000); // v8.0.7 D17
       if(typeof renderPropEditBanners==="function")renderPropEditBanners();
     }else if(!silent)hideLoader();
     return {ok:true,id:pNum,document:{...pObj}};
@@ -1389,6 +1396,7 @@ async function openPropFinalFlow(propId,ev){
     propFinalSource={id:propId,...snap.data()};
     propFinalSelection={};
     (propFinalSource.sections||[]).forEach(sec=>{if(sec.options&&sec.options.length){propFinalSelection[sec.id]=sec.options[0].id}});
+    propFinalMenajeSel=(getMenajeOpcionActiva(propFinalSource)||{}).id||null; // v8.0.7 D18: arranca en la opción guardada
     renderPropFinalPicker();
     $("propfinal-modal").classList.remove("hidden");
   }catch(e){hideLoader();window.__regenerating_pf=null;toast("Error: "+gbMensajeError(e),"error");console.error(e)}
@@ -1396,9 +1404,18 @@ async function openPropFinalFlow(propId,ev){
 function closePropFinalModal(){
   if(window._generarPfBusy){toast("Espera a que termine la propuesta final en curso.","warn",5000);return false}
   window._propFinalFlowSeq=(window._propFinalFlowSeq||0)+1;
-  $("propfinal-modal").classList.add("hidden");propFinalSource=null;propFinalSelection={};window.__regenerating_pf=null;return true
+  $("propfinal-modal").classList.add("hidden");propFinalSource=null;propFinalSelection={};propFinalMenajeSel=null;window.__regenerating_pf=null;return true
 }
 function pfSelectOption(sectionId,optionId){propFinalSelection[sectionId]=optionId;renderPropFinalPicker()}
+function pfSelectMenaje(opId){propFinalMenajeSel=opId;renderPropFinalPicker()}
+// v8.0.7 D18: la propuesta final lleva UNA opción de menaje (la escogida), con su reposición.
+function pfMenajeEscogido(src){
+  const ops=getMenajeOpciones(src);
+  const op=ops.find(o=>o.id===propFinalMenajeSel)||getMenajeOpcionActiva(src);
+  if(!op)return {op:null,items:[],repo:{}};
+  const porOpcion=src.reposicionByOption&&typeof src.reposicionByOption==="object"&&!Array.isArray(src.reposicionByOption)?src.reposicionByOption[op.id]:null;
+  return {op,items:Array.isArray(op.items)?op.items:[],repo:porOpcion||getReposicionActivos(src,op.id)||{}};
+}
 
 function renderPropFinalPicker(){
   if(!propFinalSource)return;
@@ -1417,10 +1434,23 @@ function renderPropFinalPicker(){
     });
     html+='</div>';
   });
+  // v8.0.7 D18: con varias opciones de menaje se escoge una aquí (antes pasaban todas y se cobraba la pestaña abierta).
+  const opsMenaje=getMenajeOpciones(propFinalSource);
+  if(opsMenaje.length>1){
+    html+='<div class="pf-section-card"><div class="pf-sec-name">Menaje</div>';
+    opsMenaje.forEach(op=>{
+      const isSel=propFinalMenajeSel===op.id;
+      const items=op.items||[];
+      const sub=items.reduce((s,it)=>s+(parseFloat(it.price)||0)*(parseFloat(it.qty)||0),0);
+      const itemsText=items.length?items.map(it=>h(String(it.qty||""))+" × "+h(it.name||"")).join(" · "):"<em>Sin ítems</em>";
+      html+='<label class="pf-opt-radio '+(isSel?"sel":"")+'"><input type="radio" name="pf-menaje" '+(isSel?"checked":"")+' onchange="pfSelectMenaje('+jsArg(op.id)+')"><div class="pf-opt-body"><div class="pf-opt-label">'+h(op.label||"Opción")+' · '+fm(sub)+'</div><div class="pf-opt-items">'+itemsText+'</div></div></label>';
+    });
+    html+='</div>';
+  }
   $("pf-sections-list").innerHTML=html;
   // Misma fórmula que el documento final, incluidas alternativas y despachos.
   const selectedSections=secs.map(sec=>({...sec,options:(sec.options||[]).filter(o=>o.id===propFinalSelection[sec.id])}));
-  const total=computePropTotal({...propFinalSource,sections:selectedSections});
+  const total=computePropTotal({...propFinalSource,sections:selectedSections,menaje:pfMenajeEscogido(propFinalSource).items});
   $("pf-total").textContent=fm(total);
 }
 
@@ -1451,27 +1481,16 @@ async function _generarPropuestaFinalImpl(){
     const pfNum=await getNextNumber("propfinal");
     if(window._propFinalFlowSeq!==flowSeq||propFinalSource?.id!==src.id)throw Object.assign(new Error("El selector cambió durante la generación. No se guardó; vuelve a abrir la propuesta."),{paraUsuario:true});
     // Preparar una instantánea local: el editor sólo cambia después del commit.
-    const pfMenajeOptions=Array.isArray(src.menajeOptions)&&src.menajeOptions.length
-      ?JSON.parse(JSON.stringify(src.menajeOptions))
-      :[{id:"opA_legacy_"+Date.now(),label:"Opción A",items:Array.isArray(src.menaje)?JSON.parse(JSON.stringify(src.menaje)):[]}];
-    const srcSelOpId=src?.propFinalSelection?.menaje;
-    const pfActiveMenajeOptionId=(srcSelOpId&&pfMenajeOptions.find(o=>o.id===srcSelOpId))
-      ?srcSelOpId
-      :pfMenajeOptions[0].id;
-    const pfMenajeItems=JSON.parse(JSON.stringify(src.menaje||[]));
+    // v8.0.7 D18: la PF lleva sólo la opción de menaje escogida en la ventana (antes copiaba todas, el PDF
+    // las imprimía todas y el total cobraba la pestaña que estaba abierta al guardar la propuesta).
+    const menEsc=pfMenajeEscogido(src);
+    const pfActiveMenajeOptionId=menEsc.op?menEsc.op.id:"opA_legacy_"+Date.now();
+    const pfMenajeItems=JSON.parse(JSON.stringify(menEsc.items));
+    const pfMenajeOptions=[{...(menEsc.op?JSON.parse(JSON.stringify(menEsc.op)):{label:"Opción A"}),id:pfActiveMenajeOptionId,items:JSON.parse(JSON.stringify(menEsc.items))}];
     const pfPersonalData=JSON.parse(JSON.stringify(src.personalData||{meseros:{},auxiliares:{}}));
     const pfCondicionesLista=gbNotasNormalizar(src.condicionesLista,src.condicionesData,DEFAULT_CONDICIONES,CONDICIONES_TITULOS);
-    const pfReposicionData=JSON.parse(JSON.stringify(src.reposicionData||{}));
-    let pfReposicionByOption;
-    if(src.reposicionByOption&&typeof src.reposicionByOption==="object"&&!Array.isArray(src.reposicionByOption)){
-      pfReposicionByOption=JSON.parse(JSON.stringify(src.reposicionByOption));
-    }else{
-      pfReposicionByOption={};
-      if(src.reposicionData&&typeof src.reposicionData==="object"){
-        pfReposicionByOption[pfActiveMenajeOptionId]=JSON.parse(JSON.stringify(src.reposicionData));
-      }
-    }
-    if(!pfReposicionByOption[pfActiveMenajeOptionId])pfReposicionByOption[pfActiveMenajeOptionId]={};
+    const pfReposicionData=JSON.parse(JSON.stringify(menEsc.repo||{}));
+    const pfReposicionByOption={[pfActiveMenajeOptionId]:JSON.parse(JSON.stringify(menEsc.repo||{}))};
     const pfApertura="Confirmación final del servicio de catering acordado con las opciones seleccionadas por el cliente.";
     const pfObj={
       quoteNumber:pfNum,type:"propfinal",year:APP_YEAR,
@@ -1486,7 +1505,7 @@ async function _generarPropuestaFinalImpl(){
       condicionesLista:JSON.parse(JSON.stringify(pfCondicionesLista)),
       condicionesData:gbNotasALegacy(pfCondicionesLista,DEFAULT_CONDICIONES),
       personalData:pfPersonalData,
-      // v7.9.8: PropFinal incluye TODAS las opciones de menaje preservadas + propFinalSelection.menaje marca la activa
+      // v8.0.7 D18: PropFinal con UNA opción de menaje (la escogida); propFinalSelection.menaje la marca
       sections:pfSections,menaje:pfMenajeItems,
       menajeOptions:pfMenajeOptions,
       menajeAssignedTo:(src&&src.menajeAssignedTo)||menajeAssignedTo||null, // v7.9.28: la PF hereda dónde se entrega el menaje
@@ -1742,8 +1761,8 @@ async function genPropPDF(confirmedDoc){
       const sumTranspDesp=_despachosArr.reduce((s,d)=>s+(parseFloat(d.transporteCosto)||0),0);
       dtd.push([
         {content:"",colSpan:2},
-        {content:"Total transporte despachos",styles:{fontStyle:"bold",halign:"right",fontSize:8}},
-        {content:fm(sumTranspDesp),styles:{fontStyle:"bold",halign:"right",fontSize:8,textColor:[230,81,0]}}
+        {content:sumTranspDesp>0?"Total transporte despachos":"Transporte (tarifa general, en el total)",styles:{fontStyle:"bold",halign:"right",fontSize:8}}, // v8.0.7 D12: con despachos en 0 se cobra la tarifa general
+        {content:sumTranspDesp>0?fm(sumTranspDesp):"—",styles:{fontStyle:"bold",halign:"right",fontSize:8,textColor:[230,81,0]}}
       ]);
       const estD=estH(_despachosArr.length+2);
       if(y+estD>H-footerH){doc.addPage();y=20}
@@ -1867,9 +1886,10 @@ async function genPropPDF(confirmedDoc){
     const totPersonal=persTotal;
     // v7.9.7 F4: si hay despachos múltiples, sumar transportes de cada uno (en vez de legacy único).
     const trP=getTrP();
-    const _totTranspDespachos=_despachosArr.length>=2?_despachosArr.reduce((s,d)=>s+(parseFloat(d.transporteCosto)||0),0):0;
+    // v8.0.7 D12: también con un solo despacho, igual que computePropTotal.
+    const _totTranspDespachos=_despachosArr.reduce((s,d)=>s+(parseFloat(d.transporteCosto)||0),0);
     const totTransp=_totTranspDespachos>0?_totTranspDespachos:(trP?trP.p:0);
-    const _transpLabel=_totTranspDespachos>0?("Transporte ("+_despachosArr.length+" despachos)"):("Transporte "+(trP?trP.n.replace("Transporte ",""):""));
+    const _transpLabel=_totTranspDespachos>0?(_despachosArr.length>1?"Transporte ("+_despachosArr.length+" despachos)":"Transporte"):("Transporte "+(trP?trP.n.replace("Transporte ",""):""));
     // Total global: suma de min y suma de max
     const totalServicioMin=totMenuMin+totCateringMin+totMenajeVal+totPersonal+totTransp;
     const totalServicioMax=totMenuMax+totCateringMax+totMenajeVal+totPersonal+totTransp;
@@ -2287,25 +2307,11 @@ async function genRemisionDespachoPDF(q,despachoIdx){
     // ── Tabla menaje (solo si primer despacho cronológico Y hay menaje cargado)
     // v7.9.8: usa la opción activa via helpers (getMenajeItemsActivos + getReposicionActivos)
     // con retrocompat al modelo legacy q.menaje[] plano.
-    let menajeItemsLocal=[];
-    let repoLocal={};
-    if(typeof getMenajeItemsActivos==="function"){
-      menajeItemsLocal=getMenajeItemsActivos(q);
-      if(!menajeItemsLocal.length&&typeof menajeItems!=="undefined"){
-        // Si q no tiene opciones cargadas (caso edición en memoria), cae a menajeItems global
-        menajeItemsLocal=menajeItems;
-      }
-      if(typeof getReposicionActivos==="function"){
-        repoLocal=getReposicionActivos(q);
-        if(!repoLocal||Object.keys(repoLocal).length===0){
-          repoLocal=(q.reposicionData&&typeof q.reposicionData==="object")?q.reposicionData:(typeof reposicionData!=="undefined"?reposicionData:{});
-        }
-      }
-    }else{
-      // Fallback ultra-defensivo (no debería ocurrir si app-core.js está cargado)
-      menajeItemsLocal=Array.isArray(q.menaje)?q.menaje:(typeof menajeItems!=="undefined"?menajeItems:[]);
-      repoLocal=(q.reposicionData&&typeof q.reposicionData==="object")?q.reposicionData:(typeof reposicionData!=="undefined"?reposicionData:{});
-    }
+    // v8.0.7 D14: menaje y reposición salen sólo del documento. Antes, sin menaje en q, se caía a los
+    // globales del editor y la remisión firmable imprimía el menaje de otro documento.
+    const menajeItemsLocal=getMenajeItemsActivos(q);
+    let repoLocal=getReposicionActivos(q);
+    if(!repoLocal||Object.keys(repoLocal).length===0)repoLocal=(q.reposicionData&&typeof q.reposicionData==="object")?q.reposicionData:{};
     // v7.9.28: el menaje va en la hoja del despacho asignado (o en la primera
     // cronológica si no hay asignación). Antes se exigía esPrimeroCronologico
     // siempre, y un evento que entrega el menaje en un despacho posterior sacaba

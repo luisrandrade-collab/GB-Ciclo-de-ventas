@@ -12,12 +12,17 @@ const common=()=>({jsArg:jsArgReal,TextEncoder,console:quiet,toast(){},alert(){}
 function fakeDb(initial={},rejectWrite=()=>false,onTxGet=async()=>{}){
   const store=new Map(Object.entries(initial));
   const snap=path=>({exists:()=>store.has(path),data:()=>structuredClone(store.get(path))});
+  // v8.0.7: control optimista como Firestore: si un documento leído cambió antes del commit, se repite la transacción.
+  const versiones=new Map();const ver=path=>versiones.get(path)||0;
   const fb={db:{},doc:(_,coll,id)=>coll+'/'+id,serverTimestamp:()=> 'SERVER_TIME',getDoc:async path=>snap(path),runTransaction:async(_,cb)=>{
-    const writes=[];
-    const result=await cb({get:async path=>{assert.equal(writes.length,0,'las lecturas preceden a las escrituras');await onTxGet(path);return snap(path)},set:(path,data)=>writes.push({path,data:structuredClone(data),mode:'set'}),update:(path,data)=>writes.push({path,data:structuredClone(data),mode:'update'})});
-    if(writes.some(rejectWrite))throw new Error('permission-denied');
-    for(const w of writes)store.set(w.path,w.mode==='update'?{...store.get(w.path),...w.data}:w.data);
-    return result;
+    for(let intento=0;;intento++){
+      const writes=[],leidas=new Map();
+      const result=await cb({get:async path=>{assert.equal(writes.length,0,'las lecturas preceden a las escrituras');await onTxGet(path);leidas.set(path,ver(path));return snap(path)},set:(path,data)=>writes.push({path,data:structuredClone(data),mode:'set'}),update:(path,data)=>writes.push({path,data:structuredClone(data),mode:'update'})});
+      if([...leidas].some(([path,v])=>ver(path)!==v)){if(intento<5)continue;throw new Error('aborted: demasiados conflictos')}
+      if(writes.some(rejectWrite))throw new Error('permission-denied');
+      for(const w of writes){store.set(w.path,w.mode==='update'?{...store.get(w.path),...w.data}:w.data);versiones.set(w.path,ver(w.path)+1)}
+      return result;
+    }
   }};
   return {fb,store};
 }
@@ -63,7 +68,7 @@ await test('cartera distingue pagos, ajustes y saldo a favor',()=>{
 });
 await test('selector PF incluye transportes y excluye secciones alternativas',()=>{
   const nodes={'pf-sections-list':{},'pf-total':{}};
-  const c=loadSourceFunctions([...core('TR','computePropTotal'),['app-propuesta.js','renderPropFinalPicker']],{propFinalSource:{sections:[{id:'s1',name:'Menu',options:[{id:'a',label:'A',items:[{name:'fixture',qty:1,price:100}]}]},{id:'s2',name:'Extra',incluirEnTotal:false,options:[{id:'b',label:'B',items:[{name:'extra',qty:1,price:500}]}]}],despachos:[{transporteCosto:20},{transporteCosto:30}]},propFinalSelection:{s1:'a',s2:'b'},$:id=>nodes[id],h:String,fm:String,jsArg:jsArgReal});
+  const c=loadSourceFunctions([...core('TR','computePropTotal','getMenajeOpciones','getMenajeOpcionActiva','getReposicionActivos'),['app-propuesta.js','renderPropFinalPicker'],['app-propuesta.js','pfMenajeEscogido']],{propFinalMenajeSel:null,propFinalSource:{sections:[{id:'s1',name:'Menu',options:[{id:'a',label:'A',items:[{name:'fixture',qty:1,price:100}]}]},{id:'s2',name:'Extra',incluirEnTotal:false,options:[{id:'b',label:'B',items:[{name:'extra',qty:1,price:500}]}]}],despachos:[{transporteCosto:20},{transporteCosto:30}]},propFinalSelection:{s1:'a',s2:'b'},$:id=>nodes[id],h:String,fm:String,jsArg:jsArgReal});
   c.renderPropFinalPicker();assert.equal(nodes['pf-total'].textContent,'150');
 });
 await test('Excel informa cobrado real tanto por pedido como por día',()=>{
@@ -138,7 +143,7 @@ await test('guardar cotización devuelve snapshot confirmado y sincroniza cache'
   const {fb,store}=fakeDb({'quotes/q':{status:'pedido',followUp:'perdida',pagos:[{monto:30}],feData:{id:'fresh'}}});
   const nodes=new Map();const $=id=>{if(!nodes.has(id))nodes.set(id,{value:id==='f-cli'?'Fixture':'',checked:false});return nodes.get(id)};
   const c=loadSourceFunctions([...mergeEntries,...opcional('app-cotizar.js','formularioCotizacion'),['app-cotizar.js','_saveCurrentQuoteImpl'],['app-cotizar.js','saveCurrentQuote']],{
-    ...common(),window:{fb},$,cloudOnline:true,currentQuoteNumber:'q',APP_YEAR:2026,cart:[{id:'text-id',n:'fixture',p:100,qty:1}],cust:[],allIt:()=>[{}],curStep:'items',shouldVersionWithSuffix:()=>false,autoSaveClientFromCot:async()=>{},getIdStr:()=>'',getCityName:()=>'',getDelivStr:()=>'',getTotal:()=>100,gbNotasALegacy:()=>({}),notasCotLista:[],DEFAULT_NOTAS_COT:{},firmaCot:'km',tituloInstruccionesPago:'',tituloCondiciones:'',cambiosAfectanCliente:()=>false
+    ...common(),window:{fb},$,cloudOnline:true,currentQuoteNumber:'q',APP_YEAR:2026,cart:[{id:'text-id',n:'fixture',p:100,qty:1}],cust:[],allIt:()=>[{}],curStep:'items',shouldVersionWithSuffix:()=>false,autoSaveClientFromCot:async()=>{},getIdStr:()=>'',getCityName:()=>'',getDelivStr:()=>'',getTotal:()=>100,gbNotasALegacy:()=>({}),notasCotLista:[],DEFAULT_NOTAS_COT:{},firmaCot:'km',tituloInstruccionesPago:'',tituloCondiciones:'',cambiosAfectanCliente:()=>false,diffDocs:()=>[] /* v8.0.7 D17: el PDF con cambios calcula el historial */
   });
   c.rememberEditBase('quote','q',store.get('quotes/q'));
   const result=await c.saveCurrentQuote(true);
@@ -737,7 +742,7 @@ for(const kind of ['quote','proposal']){
 // fallen por COMPORTAMIENTO y no por no encontrar una función.
 function domSimulado(){
   const dom={};
-  const el=id=>dom[id]||(dom[id]={id,value:'',checked:false,classList:{add(){},remove(){},toggle(){}}});
+  const el=id=>dom[id]||(dom[id]=(()=>{const cls=new Set();return {id,value:'',checked:false,classList:{add:c=>cls.add(c),remove:c=>cls.delete(c),toggle(){},contains:c=>cls.has(c)}}})()); // v8.0.7: contains para C1
   return {dom,el};
 }
 const nada=()=>{};
@@ -2706,9 +2711,170 @@ await test('v8.0.6 r2 entrega, migración, cierre de ventanas y reintento usan e
   assert.match(functionSource('app-historial.js','_submitApproveProposalImpl'),/if\(\$\("am-num"\)\.dataset\.propId===propId\)closeApproveModal\(\)/);
   assert.match(functionSource('app-historial.js','_submitAnularImpl'),/if\(_anularCtx&&_anularCtx\.docId===docId\)closeAnularModal\(\)/);
   const imp=functionSource('app-historial.js','_submitPagoImpl');
-  assert.match(imp,/submitPago\(\{src,clientId,fotoUrl:nuevo\.fotoUrl\|\|null,foto:nuevo\.foto\|\|null,datos:\{fecha,monto:String\(monto\),metodo,tipo,notas\}\}\)/,'reintentar con destino, identidad, foto subida y datos'); // r3
+  assert.match(imp,/submitPago\(\{src,clientId,aceptados:\[\.\.\.aceptados\],fotoUrl:nuevo\.fotoUrl\|\|null,foto:nuevo\.foto\|\|null,datos:\{fecha,monto:String\(monto\),metodo,tipo,notas\}\}\)/,'reintentar con destino, identidad, foto subida y datos'); // r3
   assert.match(imp,/if\(intento&&pagoSrc!==src\)/,'si la ventana ya es de otro documento, no reintenta allí');
   assert.match(imp,/const clientId=\(intento&&intento\.clientId\)\|\|/);
   assert.match(functionSource('app-historial.js','onAdjuntarPagoFile'),/Otra sesión ya adjuntó un comprobante/);
+});
+// ─── v8.0.7: datos y dinero, segunda parte (D10-D18, C1-C4) ───
+await test('v8.0.7 D10 un pedido regresado a cotización y vuelto a confirmar suma en los KPI; una anulación desincronizada no',()=>{
+  const c=loadSourceFunctions(core('isAnulada','noSumaEnKpis'));
+  assert.equal(c.noSumaEnKpis({status:'pedido',anuladaData:{fecha:'2026-09-01',accion:'regresar'}}),false,'regresado y confirmado: suma');
+  assert.equal(c.isAnulada({status:'pedido',anuladaData:{fecha:'2026-09-01',accion:'anular'}}),true,'anulado con estado desincronizado: no suma');
+  assert.equal(c.isAnulada({status:'anulada'}),true);
+});
+function revert807(doc0){
+  const {fb,store}=fakeDb({'quotes/Q':structuredClone(doc0)});fb.deleteField=()=>'__BORRADO__';const toasts=[];
+  const c=loadSourceFunctions([...core('revertDelivery','gbDateToIso'),...h806('getPagos','pagoFechaIso')],{...common(),window:{fb},cloudOnline:true,
+    getCollectionName:()=>'quotes',auditTransition:()=>true,toast:(m,t)=>toasts.push([m,t]),gbMensajeError:e=>e.message,quotesCache:[]});
+  return {c,store,toasts};
+}
+await test('v8.0.7 D11 revertir una entrega de varios despachos revisa el cobro de cada fecha',async()=>{
+  const doc0={status:'entregado',fechaEntrega:'2026-10-09',entregaData:{fechaEntrega:'2026-10-09'},pagos:[{monto:100,fecha:'2026-10-07',tipo:'abono'}],
+    despachos:[{id:'d1',status:'entregado',entregadoEn:'2026-10-07T15:00:00Z',entregaData:{fechaReal:'2026-10-07',receptor:'Ana'}},{id:'d2',status:'entregado',entregadoEn:'2026-10-09T15:00:00Z',entregaData:{fechaReal:'2026-10-09'}}]};
+  const {c,store,toasts}=revert807(doc0);
+  assert.equal(await c.revertDelivery('Q','quote',{}),false);
+  assert.equal(store.get('quotes/Q').status,'entregado','con un cobro del 7 no se revierte');
+  assert.match(toasts.at(-1)[0],/2026-10-07/);assert.doesNotMatch(toasts.at(-1)[0],/Borra ese cobro/);
+});
+await test('v8.0.7 D11 revertir limpia la entrega de cada despacho y la deja en el historial',async()=>{
+  const doc0={status:'entregado',fechaEntrega:'2026-10-09',entregaData:{fechaEntrega:'2026-10-09',fotoUrl:'u-doc',receptor:'Ana'},pagos:[],
+    despachos:[{id:'d1',status:'entregado',entregadoEn:'2026-10-07T15:00:00Z',entregaData:{fechaReal:'2026-10-07',fotoUrl:'u1'}},{id:'d2',status:'producido'}]};
+  const {c,store}=revert807(doc0);
+  assert.equal(await c.revertDelivery('Q','quote',{reason:'error'}),true);
+  const d=store.get('quotes/Q');
+  assert.equal(d.status,'en_produccion');assert.equal(d.entregaData,'__BORRADO__');
+  assert.deepEqual(plain(d.despachos[0]),{id:'d1',status:'producido'},'sin entregadoEn ni entregaData');
+  const e=d.auditTrail.at(-1);
+  assert.equal(e.prevEntregaData.fotoUrl,'u-doc');assert.equal(e.prevDespachosEntrega[0].entregaData.fotoUrl,'u1');assert.equal(e.prevDespachosEntrega[0].id,'d1');
+});
+function saldo807(store0,clientsCache=[]){
+  const {fb,store}=fakeDb(store0);
+  fb.collection=(_,c)=>c;fb.getDocsFromServer=async c=>({docs:[...store].filter(([k])=>k.startsWith(c+'/')).map(([k,v])=>({id:k.split('/')[1],data:()=>structuredClone(v)}))});
+  const c=loadSourceFunctions(h806('_addSaldoAFavor'),{...common(),window:{fb},clientsCache});
+  return {c,store,fb};
+}
+await test('v8.0.7 D13 dos notas crédito simultáneas para un cliente nuevo quedan en una sola ficha con el saldo completo',async()=>{
+  const {c,store,fb}=saldo807({});
+  fb.getDocsFromServer=async()=>({docs:[]}); // las dos sesiones leen el directorio antes de que la otra cree la ficha
+  await Promise.all([c._addSaldoAFavor('Ana Pérez',30000,'nc','L1'),c._addSaldoAFavor('Ana Pérez',20000,'nc','L2')]);
+  const fichas=[...store.keys()].filter(k=>k.startsWith('clients/'));
+  assert.equal(fichas.length,1,'una sola ficha');
+  const f=store.get(fichas[0]);assert.equal(f.saldoAFavor,50000);assert.equal(f.saldoAFavorMovs.length,2);assert.equal(f.name,'Ana Pérez');
+  await c._addSaldoAFavor('Ana Pérez',30000,'nc','L1');assert.equal(store.get(fichas[0]).saldoAFavor,50000,'el reintento del mismo log no suma dos veces');
+});
+await test('v8.0.7 D13 usa la ficha existente aunque no esté en la caché y no mezcla clientes distintos',async()=>{
+  const {c,store}=saldo807({'clients/abc':{name:'Bea Ruiz',saldoAFavor:5000,saldoAFavorMovs:[]}});
+  await c._addSaldoAFavor('bea ruiz ',1000,'nc','L9');
+  assert.equal(store.get('clients/abc').saldoAFavor,6000);assert.equal([...store.keys()].length,1);
+  const t=saldo807({['clients/nc_'+encodeURIComponent('josé')]:{name:'Otra Persona',saldoAFavor:0}});
+  await assert.rejects(t.c._addSaldoAFavor('José',1000,'nc','LX'),/choca con otro cliente/);
+});
+await test('v8.0.7 D14 la remisión toma el menaje sólo del documento, nunca del editor',()=>{
+  const src=functionSource('app-propuesta.js','genRemisionDespachoPDF');
+  assert.doesNotMatch(src,/typeof menajeItems|typeof reposicionData/,'sin respaldo a los globales del editor');
+  assert.match(src,/const menajeItemsLocal=getMenajeItemsActivos\(q\)/);
+});
+await test('v8.0.7 D15 Urgente sólo considera documentos abiertos',()=>{
+  assert.match(functionSource('app-dashboard.js','renderUrgent3d'),/return GB_ESTADOS_ABIERTOS\.includes\(q\.status\|\|"enviada"\)/);
+});
+function cli807(clientes,proveedores){
+  const writes=[];
+  const fb={db:{},doc:(_,c,id)=>c+'/'+id,collection:(_,c)=>c,serverTimestamp:()=>'T',
+    updateDoc:async(ref,data)=>writes.push(['update',ref,data]),addDoc:async(coll,data)=>{writes.push(['add',coll,data]);return {id:'nuevo'}}};
+  const c=loadSourceFunctions(core('saveClientToCloud','_cleanClientObjForUpdate','saveProveedorToCloud','_cleanProveedorObjForUpdate'),{...common(),window:{fb},clientsCache:clientes,proveedoresCache:proveedores});
+  return {c,writes};
+}
+await test('v8.0.7 D16 el editor de clientes guarda por id: renombrar no duplica y no pisa a otro cliente',async()=>{
+  let t=cli807([{id:'c1',name:'Ana',tel:'1'},{id:'c2',name:'Bea',tel:'2'}],[]);
+  await t.c.saveClientToCloud({name:'Ana María',tel:'1'},{fullUpdate:true,id:'c1'});
+  assert.deepEqual(t.writes.map(w=>[w[0],w[1]]),[['update','clients/c1']],'renombrar actualiza la misma ficha');
+  t=cli807([{id:'c1',name:'Ana'},{id:'c2',name:'Bea',tel:'2'}],[]);
+  await assert.rejects(t.c.saveClientToCloud({name:'bea',tel:''},{fullUpdate:true,id:'c1'}),/Ya existe un cliente/);
+  await assert.rejects(t.c.saveClientToCloud({name:'Bea',tel:''},{fullUpdate:true}),/Ya existe un cliente/);
+  assert.equal(t.writes.length,0,'nada se escribe sobre Bea');
+  await t.c.saveClientToCloud({name:'Bea',tel:'3'});assert.deepEqual(t.writes.map(w=>[w[0],w[1]]),[['update','clients/c2']],'el guardado automático sigue fusionando por nombre');
+});
+await test('v8.0.7 D16 proveedores: un nombre existente no se sobrescribe y el archivado se reactiva con sus datos',async()=>{
+  const prov=[{id:'p1',nombre:'Panadería',tel:'555',archivado:true},{id:'p2',nombre:'Lácteos',tel:'777'}];
+  const t=cli807([],prov);
+  const r=await t.c.saveProveedorToCloud({nombre:'panadería'},{fullUpdate:true});
+  assert.deepEqual(plain(r),{id:'p1',yaExistia:true,reactivado:true});
+  assert.equal(t.writes.length,1);assert.deepEqual(plain(Object.keys(t.writes[0][2]).sort()),['archivado','updatedAt'],'sólo se reactiva; no se borran sus datos');
+  assert.equal(prov[0].tel,'555');assert.equal(prov[0].archivado,false);
+  const r2=await t.c.saveProveedorToCloud({nombre:'Lácteos'},{fullUpdate:true});assert.equal(r2.yaExistia,true);assert.equal(t.writes.length,1,'el existente activo no se toca');
+  await assert.rejects(t.c.saveProveedorToCloud({nombre:'Lácteos'},{fullUpdate:true,id:'p1'}),/Ya existe un proveedor/);
+});
+await test('v8.0.7 D17 «Generar PDF» de un pedido en producción con cambios deja historial y aviso',async()=>{
+  const {fb,store}=fakeDb({'quotes/q':{status:'en_produccion',pagos:[]}});const toasts=[];
+  const nodes=new Map();const $=id=>{if(!nodes.has(id))nodes.set(id,{value:id==='f-cli'?'Fixture':'',checked:false});return nodes.get(id)};
+  const c=loadSourceFunctions([...mergeEntries,...opcional('app-cotizar.js','formularioCotizacion'),['app-cotizar.js','_saveCurrentQuoteImpl'],['app-cotizar.js','saveCurrentQuote']],{
+    ...common(),window:{fb},$,cloudOnline:true,currentQuoteNumber:'q',APP_YEAR:2026,cart:[{id:'text-id',n:'fixture',p:100,qty:2}],cust:[],allIt:()=>[{}],curStep:'items',shouldVersionWithSuffix:()=>false,autoSaveClientFromCot:async()=>{},getIdStr:()=>'',getCityName:()=>'',getDelivStr:()=>'',getTotal:()=>200,gbNotasALegacy:()=>({}),notasCotLista:[],DEFAULT_NOTAS_COT:{},firmaCot:'km',tituloInstruccionesPago:'',tituloCondiciones:'',cambiosAfectanCliente:()=>false,
+    diffDocs:()=>[{campo:'cart',antes:1,despues:2}],buildEditHistoryEntry:(cambios,razon)=>({cambios,razon}),prompt:()=>'cliente pidió más',toast:(m,t)=>toasts.push([m,t])
+  });
+  c.rememberEditBase('quote','q',store.get('quotes/q'));
+  const r=await c.saveCurrentQuote(true);
+  assert.equal(r?.ok,true);
+  assert.equal(store.get('quotes/q').editHistory.length,1,'queda en el historial 🕒');assert.equal(store.get('quotes/q').editHistory[0].razon,'cliente pidió más');
+  assert.ok(toasts.some(t=>/producción modificado/.test(t[0])),'aviso al equipo');
+});
+await test('v8.0.7 D17 sin cambios el PDF no escribe (cotización y propuesta) y cancelar el entregado no es un error',()=>{
+  for(const [f,fn] of [['app-cotizar.js','_saveCurrentQuoteImpl'],['app-propuesta.js','_savePropQuoteImpl']]){
+    const s=functionSource(f,fn);
+    assert.match(s,/if\(silent&&!silentConCambios\)return \{ok:true,/,fn+': sin cambios no escribe');
+    assert.match(s,/oldDoc&&!creatingChild&&\(!silent\|\|silentConCambios\)/,fn+': historial también en el PDF');
+    assert.match(s,/if\(!ok\)return silent\?\{ok:false,cancelado:true\}/,fn+': cancelar devuelve cancelado');
+  }
+});
+await test('v8.0.7 D18 menaje A/B exige Propuesta Final en todos los botones y en la aprobación',()=>{
+  const c=loadSourceFunctions(core('getMenajeOpciones','propRequierePF'));
+  assert.equal(c.propRequierePF({sections:[{options:[{}]}],menajeOptions:[{id:'a'},{id:'b'}]}),true);
+  assert.equal(c.propRequierePF({sections:[{options:[{}]}],menajeOptions:[{id:'a'}]}),false);
+  assert.equal(c.propRequierePF({sections:[{options:[{},{}]}]}),true);
+  const toasts=[];let abrio=false;
+  const a=loadSourceFunctions([...core('getMenajeOpciones','propRequierePF'),...h806('openApproveModal')],{...common(),quotesCache:[{id:'P',kind:'proposal',status:'enviada',sections:[{options:[{}]}],menajeOptions:[{id:'a'},{id:'b'}]}],
+    toast:(m)=>toasts.push(m),getFollowUp:()=>null,$:()=>{abrio=true;return {value:'',classList:{remove(){},add(){}},dataset:{}}}});
+  a.openApproveModal('P','proposal');assert.equal(abrio,false,'no abre la aprobación');assert.match(toasts[0],/Generar Propuesta Final/);
+  assert.match(functionSource('app-historial.js','_submitApproveProposalImpl'),/propRequierePF\(fresh\)/,'también dentro de la transacción');
+  assert.match(functionSource('app-negocios.js','proximaAccion'),/propRequierePF\(q\)/);
+});
+await test('v8.0.7 D18 la Propuesta Final escoge el menaje y lleva sólo esa opción',()=>{
+  const nodes={'pf-sections-list':{},'pf-total':{}};
+  const src={sections:[{id:'s1',name:'Menu',options:[{id:'a',label:'A',items:[{name:'f',qty:1,price:100}]}]}],menaje:[{name:'vaso',qty:1,price:10}],
+    menajeOptions:[{id:'mA',label:'Opción A',items:[{name:'vaso',qty:1,price:10}]},{id:'mB',label:'Opción B',items:[{name:'copa',qty:1,price:50}]}],propFinalSelection:{menaje:'mA'},
+    reposicionByOption:{mA:{vaso:1},mB:{copa:9}}};
+  const c=loadSourceFunctions([...core('TR','computePropTotal','getMenajeOpciones','getMenajeOpcionActiva','getReposicionActivos'),['app-propuesta.js','renderPropFinalPicker'],['app-propuesta.js','pfMenajeEscogido'],['app-propuesta.js','pfSelectMenaje']],
+    {propFinalMenajeSel:'mA',propFinalSource:src,propFinalSelection:{s1:'a'},$:id=>nodes[id],h:String,fm:String,jsArg:jsArgReal});
+  c.renderPropFinalPicker();assert.equal(nodes['pf-total'].textContent,'110');assert.match(nodes['pf-sections-list'].innerHTML,/Menaje/);
+  c.pfSelectMenaje('mB');assert.equal(nodes['pf-total'].textContent,'150','el total usa el menaje escogido');
+  const e=c.pfMenajeEscogido(src);assert.equal(e.op.id,'mB');assert.deepEqual(plain(e.repo),{copa:9});
+  const gen=functionSource('app-propuesta.js','_generarPropuestaFinalImpl');
+  assert.match(gen,/const menEsc=pfMenajeEscogido\(src\)/);assert.doesNotMatch(gen,/JSON\.stringify\(src\.menajeOptions\)/,'ya no copia todas las opciones');
+});
+await test('v8.0.7 C1 cerrar «Ver pagos» olvida el documento y las reaperturas exigen la ventana visible',()=>{
+  const {el}=domSimulado();const w={__verPagosId:'Q',__verPagosKind:'quote'};
+  const c=loadSourceFunctions(h806('closeVerPagosModal'),{window:w,$:el});
+  c.closeVerPagosModal();assert.equal(w.__verPagosId,null);assert.equal(w.__verPagosKind,null);assert.ok(el('verpagos-modal').classList.contains('hidden'));
+  assert.match(functionSource('app-historial.js','savePagoEdit'),/!\$\("verpagos-modal"\)\.classList\.contains\("hidden"\)/);
+  assert.match(source('index.html'),/openPagoModal\(window\.__verPagosId,window\.__verPagosKind\);closeVerPagosModal\(\)/,'«Registrar otro pago» lee el documento antes de cerrar');
+});
+await test('v8.0.7 C2 y C3 la edición abierta durante un guardado se conserva y el reintento no se anuncia como repetido',()=>{
+  assert.match(functionSource('app-historial.js','savePagoEdit'),/if\(window\.__pagoEditBase===base\)window\.__pagoEditBase=null/);
+  const imp=functionSource('app-historial.js','_submitPagoImpl');
+  assert.match(imp,/if\(intento&&intento\.clientId\)aceptados\.add\(intento\.clientId\)/);
+  assert.match(imp,/intento\.aceptados\.forEach\(x=>aceptados\.add\(x\)\)/);
+  const c=loadSourceFunctions(h806('pagoFechaIso','getPagos','pagoClave','pagoPareceRepetido'));
+  const q={pagos:[{monto:100,fecha:'2026-10-01',tipo:'abono',clientId:'pago_1'}]};
+  assert.ok(c.pagoPareceRepetido(q,{fecha:'2026-10-01',monto:100,tipo:'abono'},new Set()),'un pago nuevo igual sí avisa');
+  assert.equal(c.pagoPareceRepetido(q,{fecha:'2026-10-01',monto:100,tipo:'abono'},new Set(['pago_1'])),null,'el reintento de ese mismo pago no avisa');
+});
+await test('v8.0.7 C4 «Migrar fotos» conserva el comentario que otra sesión cambió durante su subida',async()=>{
+  const doc0={comentarioCliente:{fotoBase64:'data:c1',texto:'ok'}};
+  const {fb,store}=fakeDb({'quotes/Q':structuredClone(doc0)});const {el}=domSimulado();
+  const c=loadSourceFunctions([['app-dashboard.js','migrarFotosStorage']],{...common(),window:{fb},$:el,currentUser:{email:'x'},quotesCache:[{id:'Q',kind:'quote',...structuredClone(doc0)}],
+    getCollectionName:()=>'quotes',confirmModal:async()=>true,loadAllHistory:async()=>{},renderDashboard(){},
+    uploadFotoFromBase64:async b=>{if(b==='data:c1')store.get('quotes/Q').comentarioCliente={fotoBase64:'data:c2',texto:'cambiado'};return {url:'url-'+b.slice(5)}}});
+  await c.migrarFotosStorage();
+  assert.deepEqual(store.get('quotes/Q').comentarioCliente,{fotoBase64:'data:c2',texto:'cambiado'},'el comentario nuevo no se pisa con la foto vieja');
 });
 console.log(`${passed} escenarios de integridad pasaron (adaptadores en memoria; no emulador Firebase).`);

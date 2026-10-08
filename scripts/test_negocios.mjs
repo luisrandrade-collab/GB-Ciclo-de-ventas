@@ -436,9 +436,9 @@ await test('F5 formularioConCambios compara con la firma del formulario abierto 
 
 // ═══ v8.0.0 (tramo 2): Inicio, Negocios, avisos y navegación (bandera GB_REDISENO_R1) ═══
 const hReal=s=>s==null?'':String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-const T2=neg('_r1Norm','_r1Manana','rangoInicio','etapaNegocio','ETAPAS_R1','proximaAccion','ACCIONES_R1','CHIPS_R1','CUADROS_R1','PERIODOS_R1','_r1Estado',
+const T2=[...neg('_r1Norm','_r1Manana','rangoInicio','etapaNegocio','ETAPAS_R1','proximaAccion','ACCIONES_R1','CHIPS_R1','CUADROS_R1','PERIODOS_R1','_r1Estado',
   'proyectarNegocios','proyeccionNegocios','invalidarProyeccionNegocios','filtrarNegocios','_r1Cuadro','_r1Boton','_r1HtmlCuadro','_r1HtmlFila','_r1HtmlFranja',
-  '_r1Cablear','renderInicio','renderNegocios','_r1PintarLista','accionR1','_r1Click','_r1Input','pintarNavR1','refrescarVistasR1','ESCRITURAS_FB_R1','programarRefrescoR1','vigilarEscriturasR1','iniciarRedisenoR1','_r1NavClick');
+  '_r1Cablear','renderInicio','renderNegocios','_r1PintarLista','accionR1','_r1Click','_r1Input','pintarNavR1','refrescarVistasR1','ESCRITURAS_FB_R1','programarRefrescoR1','vigilarEscriturasR1','iniciarRedisenoR1','_r1NavClick'),...['getMenajeOpciones','propRequierePF'].map(n=>['app-core.js',n])]; // v8.0.7 D18
 const HOY='2026-09-30',MAN='2026-10-01';
 const estadoR1=c=>vm.runInContext('_r1Estado',c); // const del script: no es propiedad del contexto
 function domR1(){
@@ -1824,7 +1824,7 @@ await test('T4 menú: el módulo del Dashboard viejo no repite la sección que l
 // ─── Carga en la app ───────────────────────────────────────
 await test('app-negocios.js se carga en index.html con ?v= de BUILD_VERSION y check.mjs lo revisa',()=>{
   const v=source('app-core.js').match(/const BUILD_VERSION="v([^"]+)"/)[1];
-  assert.equal(v,'8.0.6');
+  assert.equal(v,'8.0.7');
   assert.ok(source('index.html').includes('<script src="app-negocios.js?v='+v+'"></script>'));
   assert.ok(/"app-negocios\.js"/.test(source('scripts/check.mjs')));
   assert.ok(source('.github/workflows/check.yml').includes('node scripts/test_negocios.mjs'));

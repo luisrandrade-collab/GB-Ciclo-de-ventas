@@ -535,7 +535,7 @@ async function renderHist(){
     }else if(isProp&&status==="enviada"){
       // v5.0.5: bloquear PF/aprobada si es perdida; ofrecer Reactivar
       if(!_esPerdida){
-        const hasMulti=(q.sections||[]).some(s=>(s.options||[]).length>1);
+        const hasMulti=propRequierePF(q); // v8.0.7 D18: también con varias opciones de menaje
         if(hasMulti)actionBtns.push('<button class="btn hc-btn-final" onclick="openPropFinalFlow('+jsArg(q.id)+',event)">✓ Generar Propuesta Final</button>');
         else actionBtns.push('<button class="btn hc-btn-approve" onclick="openApproveModal('+jsArg(q.id)+',\'proposal\',event)">✓ Marcar como aprobada</button>');
       }else{
@@ -981,6 +981,8 @@ function openApproveModal(propId,kind,ev){
   // v8.0.6 N3: sólo se aprueba una propuesta enviada o una PF, no perdida.
   const _fuAM=typeof getFollowUp==="function"?getFollowUp(p):p.followUp;
   if(!["enviada","propfinal"].includes(p.status||"enviada")||_fuAM==="perdida"){toast("Esta propuesta ya no se puede aprobar (estado: "+((typeof STATUS_META!=="undefined"&&STATUS_META[p.status]?.label)||p.status||"enviada")+(_fuAM==="perdida"?", perdida":"")+").","warn",6000);return}
+  // v8.0.7 D18: una propuesta con opciones por escoger (secciones o menaje A/B) se cierra con la Propuesta Final.
+  if((p.status||"enviada")==="enviada"&&propRequierePF(p)){toast("Esta propuesta tiene opciones por escoger: usa «Generar Propuesta Final».","warn",6000);return}
   $("am-num").value=p.quoteNumber||p.id;
   $("am-cli").value=p.client||"";
   $("am-fecha").value=gbTodayIso();
@@ -1074,6 +1076,7 @@ async function _submitApproveProposalImpl(){
           if(!snap.exists())throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true});
           const fresh=snap.data();
           if(!["enviada","propfinal"].includes(fresh.status||"enviada")||fresh.followUp==="perdida")throw gbErrorDocCambio("La propuesta cambió en otra sesión (estado actual: "+(fresh.status||"enviada")+(fresh.followUp==="perdida"?", perdida":"")+").");
+          if((fresh.status||"enviada")==="enviada"&&propRequierePF(fresh))throw Object.assign(new Error("Esta propuesta tiene opciones por escoger: usa «Generar Propuesta Final»."),{paraUsuario:true}); // v8.0.7 D18
           const p={status:"aprobada",approvalData:approvalData,proximoContacto:null,updatedAt:serverTimestamp()}; // v8.0.0 F5: aprobar borra el próximo contacto (null)
           if(selloFiscal)Object.assign(p,selloFiscal); // v7.10.0
           if(fechaEntrega)p.eventDate=fechaEntrega;
@@ -1604,10 +1607,17 @@ function cargosVerPagosHtml(q){
 // Helper: agrega saldoAFavor a un cliente. Si el cliente no existe en
 // clientsCache, crea uno mínimo (solo nombre) para que el saldo persista.
 async function _addSaldoAFavor(clienteName,monto,motivo,logId){
-  const {db,collection,doc,addDoc,updateDoc,serverTimestamp}=window.fb;
+  const {db,collection,doc,serverTimestamp,runTransaction,getDocsFromServer}=window.fb;
   const k=(clienteName||"").toLowerCase().trim();
   if(!k)throw Object.assign(new Error("Nombre de cliente vacío"),{paraUsuario:true});
   let c=clientsCache.find(x=>(x.name||"").toLowerCase().trim()===k);
+  // v8.0.7 D13: la caché puede no tener un cliente que otra sesión acaba de crear; se lee el directorio del
+  // servidor con la misma regla de nombre de la caché (minúsculas y sin espacios en los extremos).
+  if(!c){
+    const snapCli=await getDocsFromServer(collection(db,"clients"));
+    const d0=snapCli.docs.find(d=>String(d.data().name||"").toLowerCase().trim()===k);
+    if(d0){c={id:d0.id,...d0.data()};clientsCache.push(c)}
+  }
   const nowIso=new Date().toISOString();
   const movimiento={
     monto:monto,
@@ -1620,7 +1630,6 @@ async function _addSaldoAFavor(clienteName,monto,motivo,logId){
     // v7.9.16 DAT2-B3: suma desde caché + updateDoc ciego → runTransaction.
     // Antes nuevoSaldo=(caché+monto): dos notas crédito concurrentes al mismo
     // cliente perdían una (y el array de movimientos se pisaba igual).
-    const {runTransaction}=window.fb;
     const ref=doc(db,"clients",c.id);
     let saldoCommit=0,movsCommit=null;
     await runTransaction(db,async(tx)=>{
@@ -1645,21 +1654,31 @@ async function _addSaldoAFavor(clienteName,monto,motivo,logId){
     c.saldoAFavor=saldoCommit;
     c.saldoAFavorMovs=movsCommit;
   }else{
-    // Cliente fantasma: crear mínimo
-    const obj={
-      name:clienteName,
-      tipo:"persona",
-      categoria:"particular",
-      saldoAFavor:monto,
-      saldoAFavorMovs:[movimiento],
-      createdAt:serverTimestamp(),
-      updatedAt:serverTimestamp(),
-      ...auditStamp(),
-      _autoCreated:true,
-      _autoCreatedFrom:"nota_credito"
-    };
-    const ref=await addDoc(collection(db,"clients"),obj);
-    clientsCache.push({id:ref.id,...obj});
+    // Cliente fantasma: crear mínimo.
+    // v8.0.7 D13: id derivado del nombre y transacción: dos notas crédito simultáneas escriben la misma ficha
+    // (la segunda suma) en vez de crear dos con el saldo repartido. Mismo nombre según la regla de la caché.
+    const idAuto="nc_"+encodeURIComponent(k); // José y Jose siguen siendo fichas distintas
+    const ref=doc(db,"clients",idAuto);
+    let objCommit=null;
+    await runTransaction(db,async(tx)=>{
+      const snap=await tx.get(ref);
+      const prev=snap.exists()?snap.data():null;
+      if(prev&&String(prev.name||"").toLowerCase().trim()!==k)throw Object.assign(new Error("No se registró la nota crédito: la ficha automática de «"+clienteName+"» choca con otro cliente. Avísale a Luis."),{paraUsuario:true,detalle:"clients/"+idAuto+" tiene name="+prev.name});
+      const movsTx=prev&&Array.isArray(prev.saldoAFavorMovs)?prev.saldoAFavorMovs.slice():[];
+      const yaEsta=movsTx.some(m=>m.logId===logId);
+      if(!yaEsta)movsTx.push(movimiento);
+      const saldoTx=(prev?(parseFloat(prev.saldoAFavor)||0):0)+(yaEsta?0:monto);
+      if(prev){
+        tx.update(ref,{saldoAFavor:saldoTx,saldoAFavorMovs:movsTx,updatedAt:serverTimestamp(),...auditStamp()});
+        objCommit={...prev,saldoAFavor:saldoTx,saldoAFavorMovs:movsTx};
+      }else{
+        objCommit={name:clienteName,tipo:"persona",categoria:"particular",saldoAFavor:saldoTx,saldoAFavorMovs:movsTx,
+          createdAt:serverTimestamp(),updatedAt:serverTimestamp(),...auditStamp(),_autoCreated:true,_autoCreatedFrom:"nota_credito"};
+        tx.set(ref,objCommit);
+      }
+    });
+    clientsCache=clientsCache.filter(x=>x.id!==idAuto);
+    clientsCache.push({id:idAuto,...objCommit});
     clientsCache.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
   }
   localStorage.setItem("gb_clients_cache",JSON.stringify(clientsCache));
@@ -1736,6 +1755,10 @@ async function _submitPagoImpl(intento){
   // a aplicar la regla a su snapshot: nunca añade un repetido que el usuario no confirmó.
   const datosPago={fecha,monto,tipo};
   const aceptados=new Set();
+  // v8.0.7 C3 (Codex): en el reintento, el pago con el clientId del intento es este mismo pago (quizás ya guardado),
+  // no un repetido; pagoClave usa el clientId, así los avisos lo saltan y la transacción lo reconoce.
+  if(intento&&intento.clientId)aceptados.add(intento.clientId);
+  if(intento&&Array.isArray(intento.aceptados))intento.aceptados.forEach(x=>aceptados.add(x)); // lo que el usuario ya confirmó como distinto no se vuelve a preguntar
   const confirmarRepetido=async previo=>{
     const dmy=s=>escapeHtml(String(s||"").split("-").reverse().join("/"));
     // R3 (P2-01 de Codex): se muestra el número que compara la regla; el monto guardado
@@ -1974,7 +1997,7 @@ async function _submitPagoImpl(intento){
     });
     if(reintentar){
       // Mantener pagoFotoBase64 para no re-subir foto. Llamar de nuevo.
-      setTimeout(()=>submitPago({src,clientId,fotoUrl:nuevo.fotoUrl||null,foto:nuevo.foto||null,datos:{fecha,monto:String(monto),metodo,tipo,notas}}),100);
+      setTimeout(()=>submitPago({src,clientId,aceptados:[...aceptados],fotoUrl:nuevo.fotoUrl||null,foto:nuevo.foto||null,datos:{fecha,monto:String(monto),metodo,tipo,notas}}),100); // v8.0.7 C3: con lo ya aceptado
       return;
     }
   }finally{
@@ -2068,7 +2091,8 @@ function openVerPagosModal(docId,kindOrEv,evMaybe){
   }
   $("verpagos-modal").classList.remove("hidden");
 }
-function closeVerPagosModal(){$("verpagos-modal").classList.add("hidden")}
+// v8.0.7 C1 (Codex): cerrar olvida el documento; así una reapertura tras guardar no revive una ventana cerrada.
+function closeVerPagosModal(){$("verpagos-modal").classList.add("hidden");window.__verPagosId=null;window.__verPagosKind=null}
 
 function editPago(idx){
   const docId=window.__verPagosId;
@@ -2191,8 +2215,8 @@ async function savePagoEdit(idx){
     });
     hideLoader();
     toast("✏️ Pago actualizado","success");
-    window.__pagoEditBase=null;
-    if(window.__verPagosId===docId&&window.__verPagosKind===kind)openVerPagosModal(docId,kind); // r3: no reabrir otro documento
+    if(window.__pagoEditBase===base)window.__pagoEditBase=null; // v8.0.7 C2: no borrar la edición que se abrió mientras guardaba
+    if(window.__verPagosId===docId&&window.__verPagosKind===kind&&!$("verpagos-modal").classList.contains("hidden"))openVerPagosModal(docId,kind); // r3: no reabrir otro documento; v8.0.7 C1: ni una ventana cerrada
     // v7.2 F5: auto-refresh Cartera y Historico tras editar pago.
     if(typeof renderHist==="function")renderHist();if(typeof refreshActiveView==="function")refreshActiveView(); // v8.0.6 N3: repinta la pantalla visible
     if(typeof renderCartera==="function")renderCartera();
@@ -2219,7 +2243,7 @@ async function onAdjuntarPagoFile(ev,idx){
   if(idx<0||idx>=pagos.length){alert("Pago no encontrado");return}
   // Preview mientras sube
   _compressImageFile(file,async b64=>{
-    const mismaVentana=()=>window.__verPagosId===docId&&window.__verPagosKind===kind; // r3 (Codex)
+    const mismaVentana=()=>window.__verPagosId===docId&&window.__verPagosKind===kind&&!$("verpagos-modal").classList.contains("hidden"); // r3 (Codex); v8.0.7 C1
     if(mismaVentana()&&$("vp-adj-prev-"+idx))$("vp-adj-prev-"+idx).innerHTML='<img src="'+b64+'" style="max-width:100%;max-height:120px;border-radius:6px;margin-top:6px;opacity:.6"><div style="font-size:10px;color:#666">Subiendo...</div>';
     try{
       showLoader("Subiendo comprobante...");
@@ -4317,7 +4341,7 @@ function _actionBtnsPorContexto(q,contexto){
       if(!isProp&&status==="enviada"){
         btns.push('<button class="btn hc-btn-order" onclick="openOrderModal('+jsArg(id)+',event)">✅ Marcar como pedido</button>');
       }else if(isProp&&status==="enviada"){
-        const hasMulti=(q.sections||[]).some(s=>(s.options||[]).length>1);
+        const hasMulti=propRequierePF(q); // v8.0.7 D18
         if(hasMulti)btns.push('<button class="btn hc-btn-final" onclick="openPropFinalFlow('+jsArg(id)+',event)">✓ Generar Propuesta Final</button>');
         else btns.push('<button class="btn hc-btn-approve" onclick="openApproveModal('+jsArg(id)+',\'proposal\',event)">✓ Marcar como aprobada</button>');
       }else if(isProp&&status==="propfinal"){

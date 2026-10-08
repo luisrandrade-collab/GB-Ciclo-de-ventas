@@ -109,7 +109,7 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v8.0.6";
+const BUILD_VERSION="v8.0.7";
 const BUILD_DATE="2026-09-20";
 // v8.0.0 (D-v8-09): bandera del rediseño R1. Tapa sólo lo nuevo: Inicio, Negocios (y la ficha en T3), barra
 // inferior, entradas del menú y arranque en Inicio. F5 y los campos nuevos quedan siempre activos. Apagada, la app
@@ -284,7 +284,9 @@ function computePropTotal(q){
   // Antes computePropTotal ignoraba q.despachos[] → el total guardado subestimaba
   // eventos multi-domicilio (Cartera/saldo/stats quedaban cortos).
   const despachos=Array.isArray(q.despachos)?q.despachos:[];
-  const totTranspDespachos=despachos.length>=2?despachos.reduce((s,d)=>s+(parseFloat(d.transporteCosto)||0),0):0;
+  // v8.0.7 D12: también con un solo despacho (antes se ignoraba su transporte y se cobraba el general).
+  // Una suma en 0 sigue cayendo al general: addDespacho deja 0 en ciudades de tarifa fija.
+  const totTranspDespachos=despachos.reduce((s,d)=>s+(parseFloat(d.transporteCosto)||0),0);
   let totTransp=0;
   if(totTranspDespachos>0){
     totTransp=totTranspDespachos;
@@ -345,6 +347,12 @@ function getMenajeOpciones(q){
 //  - Si q.propFinalSelection?.menaje existe y matchea una opción → esa.
 //  - Sino, primera del array.
 //  - Sino, null si no hay opciones.
+// v8.0.7 D18: una propuesta pide Propuesta Final (no aprobación directa) si hay algo por escoger:
+// una sección con varias opciones o varias opciones de menaje.
+function propRequierePF(q){
+  return (q.sections||[]).some(s=>(s.options||[]).length>1)||getMenajeOpciones(q).length>1;
+}
+
 function getMenajeOpcionActiva(q){
   const opciones=getMenajeOpciones(q);
   if(!opciones.length)return null;
@@ -921,6 +929,7 @@ let currentQuoteNumber=null;
 // abortando todo el archivo y rompiendo Historial + Dashboard KPIs.
 let propFinalSelection={};
 let propFinalSource=null;
+let propFinalMenajeSel=null; // v8.0.7 D18: opción de menaje escogida en la ventana de propuesta final
 
 // ─── CICLO DE VIDA: estados ────────────────────────────────
 const STATUS_META={
@@ -1051,8 +1060,9 @@ function canEdit(q){
 function isAnulada(q){
   if(!q)return false;
   if(q.status==="anulada")return true;
-  // Defensa: también detectar docs con anuladaData pero status desincronizado
-  if(q.anuladaData&&q.anuladaData.fecha&&q.status!=="superseded"&&q.status!=="convertida"){
+  // Defensa: también detectar docs con anuladaData pero status desincronizado.
+  // v8.0.7 D10: «regresar a cotización» también deja anuladaData (accion "regresar"); ese documento sigue vivo.
+  if(q.anuladaData&&q.anuladaData.fecha&&q.anuladaData.accion!=="regresar"&&q.status!=="superseded"&&q.status!=="convertida"){
     if(typeof window!=="undefined"&&window.__GB_DEBUG_ANULADAS){
       console.warn("[v6.4.0 P1] Doc con anuladaData pero status="+q.status,q.id||q.quoteNumber);
     }
@@ -1817,10 +1827,19 @@ function _cleanClientObjForUpdate(obj){
 }
 async function saveClientToCloud(obj,opts){
   const {db,collection,doc,addDoc,updateDoc,serverTimestamp}=window.fb;
-  const existing=clientsCache.find(c=>c.name.toLowerCase()===obj.name.toLowerCase());
   // v7.7.1: opts.fullUpdate=true → guarda obj tal cual (uso desde modal edición).
   //         opts.fullUpdate=false (default) → filtra vacíos (uso desde autosave).
   const fullUpdate=opts&&opts.fullUpdate===true;
+  // v8.0.7 D16: el editor guarda por id. Antes buscaba por nombre: renombrar duplicaba la ficha y un
+  // nombre igual al de otro cliente (o «Nuevo cliente» con un nombre existente) le borraba los datos.
+  const mismoNombre=c=>(c.name||"").toLowerCase()===(obj.name||"").toLowerCase();
+  const targetId=opts&&opts.id;
+  if(fullUpdate){
+    const otro=clientsCache.find(c=>mismoNombre(c)&&c.id!==targetId);
+    if(otro)throw Object.assign(new Error("Ya existe un cliente llamado «"+otro.name+"». Ábrelo desde el directorio o usa otro nombre."),{paraUsuario:true});
+  }
+  const existing=targetId?clientsCache.find(c=>c.id===targetId):(fullUpdate?null:clientsCache.find(mismoNombre));
+  if(targetId&&!existing)throw Object.assign(new Error("Este cliente ya no está en la lista. Recarga la página."),{paraUsuario:true});
   if(existing&&existing.id){
     const updateObj=fullUpdate?obj:_cleanClientObjForUpdate(obj);
     await updateDoc(doc(db,"clients",existing.id),{...updateObj,updatedAt:serverTimestamp()});
@@ -1874,9 +1893,27 @@ async function saveProveedorToCloud(obj,opts){
   const fullUpdate=opts&&opts.fullUpdate===true;
   // Si opts.id viene, edición directa por id (caso modal). Sin id → upsert por nombre.
   const targetId=opts&&opts.id;
+  const mismoNombre=p=>(p.nombre||"").toLowerCase()===(obj.nombre||"").toLowerCase();
+  // v8.0.7 D16: desde los editores un nombre existente no se sobrescribe (antes se le borraban los datos,
+  // también a los archivados, que además quedaban invisibles). Crear con el nombre de uno archivado lo
+  // reactiva con sus datos; el llamador recibe {id,yaExistia,reactivado}.
+  if(fullUpdate){
+    const otro=proveedoresCache.find(p=>mismoNombre(p)&&p.id!==targetId);
+    if(otro&&targetId)throw Object.assign(new Error("Ya existe un proveedor llamado «"+otro.nombre+"»"+(otro.archivado?" (archivado)":"")+". Usa otro nombre."),{paraUsuario:true});
+    if(otro){
+      const reactivado=!!otro.archivado;
+      if(reactivado){
+        await updateDoc(doc(db,"proveedores",otro.id),{archivado:false,updatedAt:serverTimestamp(),...auditStamp()});
+        otro.archivado=false;
+        localStorage.setItem("gb_proveedores_cache",JSON.stringify(proveedoresCache));
+      }
+      return {id:otro.id,yaExistia:true,reactivado};
+    }
+  }
   const existing=targetId
     ? proveedoresCache.find(p=>p.id===targetId)
-    : proveedoresCache.find(p=>(p.nombre||"").toLowerCase()===(obj.nombre||"").toLowerCase());
+    : proveedoresCache.find(mismoNombre);
+  if(targetId&&!existing)throw Object.assign(new Error("Este proveedor ya no está en la lista. Recarga la página."),{paraUsuario:true});
   if(existing&&existing.id){
     const updateObj=fullUpdate?obj:_cleanProveedorObjForUpdate(obj);
     await updateDoc(doc(db,"proveedores",existing.id),{...updateObj,updatedAt:serverTimestamp(),...auditStamp()});
@@ -3967,14 +4004,21 @@ async function revertDelivery(quoteId,kind,opts){
       // v8.0.6 (Codex): getPagos incluye los cobros legados (orderData/approvalData/saldoData); la fecha se normaliza.
       const pagos=(typeof getPagos==="function")?getPagos(q):(Array.isArray(q.pagos)?q.pagos:[]);
       const _fIso=v=>(typeof pagoFechaIso==="function")?pagoFechaIso(v):String(v||"").slice(0,10);
-      const pagoMismaFecha=pagos.find(p=>fechaEntrega&&_fIso(p.fecha)===fechaEntrega);
-      if(pagoMismaFecha)return {ok:false,reason:"pago_mismo_dia",fecha:fechaEntrega,pago:pagoMismaFecha};
+      // v8.0.7 D11: con varios despachos, cada uno tiene su propia fecha de entrega; se revisan todas
+      // (entregadoEn es UTC: se pasa a fecha local).
+      const despEntregados=(Array.isArray(q.despachos)?q.despachos:[]).filter(d=>d&&d.status==="entregado");
+      const fechas=[fechaEntrega,...despEntregados.map(d=>(d.entregaData&&d.entregaData.fechaReal)||(d.entregadoEn&&!isNaN(new Date(d.entregadoEn))?gbDateToIso(new Date(d.entregadoEn)):""))].filter(Boolean);
+      const pagoMismaFecha=pagos.find(p=>fechas.includes(_fIso(p.fecha)));
+      if(pagoMismaFecha)return {ok:false,reason:"pago_mismo_dia",fecha:_fIso(pagoMismaFecha.fecha),pago:pagoMismaFecha};
       const auditTrail=Array.isArray(q.auditTrail)?q.auditTrail.slice():[];
       const entry={
         type:"reverted_delivery",
         ts:new Date().toISOString(),
         user:currentUser?(currentUser.email||currentUser.uid):"(desconocido)",
         prevFechaEntrega:fechaEntrega||null,
+        // v8.0.7 D11: fotos, receptor y fechas de lo revertido quedan en el historial (antes se borraban).
+        prevEntregaData:q.entregaData||null,
+        prevDespachosEntrega:despEntregados.map(d=>({id:d.id,entregadoEn:d.entregadoEn||null,entregaData:d.entregaData||null})),
         reason:reasonClean||null
       };
       auditTrail.push(entry);
@@ -3986,9 +4030,14 @@ async function revertDelivery(quoteId,kind,opts){
       };
       // v7.9.13 DAT-05: revertir también despachos[].status — quedaban en 'entregado'
       // tras revertir el status global, dejando el doc inconsistente.
+      // v8.0.7 D11: y sin la evidencia de entrega del despacho (queda en el auditTrail).
       let despachosRevertidos=null;
       if(Array.isArray(q.despachos)&&q.despachos.length){
-        despachosRevertidos=q.despachos.map(d=>d&&d.status==="entregado"?{...d,status:"producido"}:d);
+        despachosRevertidos=q.despachos.map(d=>{
+          if(!d||d.status!=="entregado")return d;
+          const {entregadoEn,entregaData,...resto}=d;
+          return {...resto,status:"producido"};
+        });
         patch.despachos=despachosRevertidos;
       }
       if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
@@ -3998,7 +4047,7 @@ async function revertDelivery(quoteId,kind,opts){
     if(!result.ok){
       if(result.reason==="not_found")toast("Pedido no encontrado","error");
       else if(result.reason==="not_delivered")toast("El pedido ya no está marcado como entregado (estado actual: "+result.status+")","warn",6000);
-      else if(result.reason==="pago_mismo_dia")toast("⚠️ No se puede revertir: hay un cobro registrado el mismo día de la entrega ("+result.fecha+", "+(result.pago.tipo||"pago")+" $"+(result.pago.monto||0)+"). Borra ese cobro primero.","error",9000);
+      else if(result.reason==="pago_mismo_dia")toast("⚠️ No se puede revertir: hay un cobro registrado el mismo día de la entrega ("+result.fecha+", "+(result.pago.tipo||"pago")+" $"+(result.pago.monto||0)+"). Si el cobro es de esa entrega, la entrega fue real; si la fecha del cobro está mal, corrígela en Ver pagos y vuelve a intentar.","error",10000);
       else if(result.reason==="fsm_blocked")return false; // toast ya emitido por auditTransition
       return false;
     }

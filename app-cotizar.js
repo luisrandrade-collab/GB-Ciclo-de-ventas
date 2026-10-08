@@ -298,6 +298,9 @@ async function _saveCurrentQuoteImpl(silent){
   // v5.5.0: matriz de edición reemplaza el bloqueo duro v4.13.0
   let oldDoc=null; // snapshot previo para diff del audit trail
   let statusActual="enviada";
+  // v8.0.7 D17: «Generar PDF» (silencioso) con cambios guarda con las mismas reglas que «Guardar»:
+  // confirmar si está entregado, historial 🕒 con razón y aviso de pedido en producción modificado.
+  let silentConCambios=false;
   if(editingQuoteNumber){
     try{
       const {db,doc,getDoc}=window.fb;
@@ -305,6 +308,7 @@ async function _saveCurrentQuoteImpl(silent){
       if(snap.exists()){
         oldDoc=snap.data();
         statusActual=oldDoc.status||"enviada";
+        silentConCambios=!!silent&&formularioConCambios("quote",formularioCotizacion(),editingQuoteNumber);
         // Status bloqueados por la matriz
         if(["anulada","convertida","superseded"].includes(statusActual)){
           if(!silent){
@@ -313,15 +317,18 @@ async function _saveCurrentQuoteImpl(silent){
           }
           return;
         }
+        // v8.0.7 D17: sin cambios en el formulario el PDF no escribe; sale del documento recién leído.
+        if(silent&&!silentConCambios)return {ok:true,id:editingQuoteNumber,document:{...oldDoc,quoteNumber:editingQuoteNumber},sinCambios:true};
         // Status "entregado": solo notas internas. Avisamos pero permitimos (el usuario sabrá qué toca).
-        if(statusActual==="entregado"&&!silent){
+        if(statusActual==="entregado"&&(!silent||silentConCambios)){
+          if(silent)hideLoader();
           const ok=await confirmModal({
             title:"Pedido ya entregado",
             body:"ℹ️ Este pedido ya fue entregado.<br><br>Solo deberías cambiar <strong>NOTAS INTERNAS</strong> (no afectan PDF del cliente).<br><br>¿Continuar guardando?",
             okLabel:"Continuar",
             tone:"warn"
           });
-          if(!ok)return;
+          if(!ok)return silent?{ok:false,cancelado:true}:undefined; // v8.0.7 D17: cancelar no es un error del PDF
         }
       }
     }catch(e){console.warn("No se pudo verificar status previo:",e)}
@@ -445,7 +452,7 @@ async function _saveCurrentQuoteImpl(silent){
     // v5.5.0: construir nueva entrada de editHistory si hay cambios
     let nuevosHistory=prevEditHistory?[...prevEditHistory]:[];
     let cambiosDetectados=[];
-    if(oldDoc&&!creatingChild&&!silent){
+    if(oldDoc&&!creatingChild&&(!silent||silentConCambios)){
       cambiosDetectados=diffDocs(oldDoc,qObj);
       if(cambiosDetectados.length>0){
         // Pedir razón opcional
@@ -617,6 +624,7 @@ async function _saveCurrentQuoteImpl(silent){
           if(incorporados.length)toast("Se incorporaron cambios hechos en otra sesión: "+etiquetasDeCampos(incorporados).join(", ")+".","info",7000);
         }
       }
+      if(silent&&!creatingChild&&cambiosDetectados.length>0&&statusActual==="en_produccion"&&typeof toast==="function")toast("⚠️ Pedido en producción modificado. Aviso visible al equipo.","warn",5000); // v8.0.7 D17
       if(curStep==="review")renderR();
     }else if(!silent)hideLoader();
     return {ok:true,id:qNum,document:{...qObj}};

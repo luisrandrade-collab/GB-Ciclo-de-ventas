@@ -100,7 +100,9 @@ function computePropTotal(q){
   // Antes computePropTotal ignoraba q.despachos[] → el total guardado subestimaba
   // eventos multi-domicilio (Cartera/saldo/stats quedaban cortos).
   const despachos=Array.isArray(q.despachos)?q.despachos:[];
-  const totTranspDespachos=despachos.length>=2?despachos.reduce((s,d)=>s+(parseFloat(d.transporteCosto)||0),0):0;
+  // v8.0.7 D12: también con un solo despacho (antes se ignoraba su transporte y se cobraba el general).
+  // Una suma en 0 sigue cayendo al general: addDespacho deja 0 en ciudades de tarifa fija.
+  const totTranspDespachos=despachos.reduce((s,d)=>s+(parseFloat(d.transporteCosto)||0),0);
   let totTransp=0;
   if(totTranspDespachos>0){
     totTransp=totTranspDespachos;
@@ -211,7 +213,8 @@ describe("Caso 6: propuesta multi-despacho con transporte (fix v7.9.12)", () => 
   eq(getDocTotal(q), 1075000, "getDocTotal recalcula propuesta (no usa q.total viejo)");
   eq(saldoPendiente(q), 1075000, "saldoPendiente usa el total recalculado");
   const q1={...q,despachos:[{transporteCosto:30000}],cityType:"Bogotá"};
-  eq(computePropTotal(q1), 1020000, "1 solo despacho → cae al transporte legacy (TR Bogotá)");
+  eq(computePropTotal(q1), 1030000, "v8.0.7 D12: 1 solo despacho con transporte → usa el del despacho (antes caía al TR Bogotá)");
+  eq(computePropTotal({...q,despachos:[{transporteCosto:0}],cityType:"Bogotá"}), 1020000, "v8.0.7 D12: despacho en 0 → sigue el TR Bogotá");
 });
 
 describe("Caso 7: montos string vs number (mix parseInt/parseFloat)", () => {

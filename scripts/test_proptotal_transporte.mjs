@@ -20,6 +20,7 @@ function computePropTotal(q){
   if(!q)return 0;
   let totMenu=0,totCatering=0;
   (q.sections||[]).forEach(sec=>{
+    // v7.8.4.2: secciones marcadas como alternativas (incluirEnTotal===false) no se suman
     if(sec.incluirEnTotal===false)return;
     const isCateringSec=/servicio\s*de\s*catering|coordinaci[oó]n/i.test(sec.name||"");
     (sec.options||[]).forEach(opt=>{
@@ -38,8 +39,15 @@ function computePropTotal(q){
   const mSub=(parseFloat(pm.cantidad)||0)*((parseFloat(pm.valor4h)||0)+(parseFloat(pm.horasExtra)||0)*(parseFloat(pm.valorHoraExtra)||0));
   const aSub=(parseFloat(pa.cantidad)||0)*((parseFloat(pa.valor4h)||0)+(parseFloat(pa.horasExtra)||0)*(parseFloat(pa.valorHoraExtra)||0));
   const totPersonal=mSub+aSub;
+  // v7.9.12 FIX: transporte de despachos múltiples. Mismo criterio que el PDF
+  // (genPropPDF): si hay 2+ despachos, el transporte es la suma de cada uno;
+  // si no, se usa el transporte legacy (cityType/trCustom) de la entrega única.
+  // Antes computePropTotal ignoraba q.despachos[] → el total guardado subestimaba
+  // eventos multi-domicilio (Cartera/saldo/stats quedaban cortos).
   const despachos=Array.isArray(q.despachos)?q.despachos:[];
-  const totTranspDespachos=despachos.length>=2?despachos.reduce((s,d)=>s+(parseFloat(d.transporteCosto)||0),0):0;
+  // v8.0.7 D12: también con un solo despacho (antes se ignoraba su transporte y se cobraba el general).
+  // Una suma en 0 sigue cayendo al general: addDespacho deja 0 en ciudades de tarifa fija.
+  const totTranspDespachos=despachos.reduce((s,d)=>s+(parseFloat(d.transporteCosto)||0),0);
   let totTransp=0;
   if(totTranspDespachos>0){
     totTransp=totTranspDespachos;
@@ -84,10 +92,11 @@ describe("Caso 2: transporte legacy 'Otra' con trCustom", () => {
   eq(computePropTotal(q), 1035000, "base + trCustom $35.000");
 });
 
-describe("Caso 3: 1 solo despacho → usa transporte legacy (no el del despacho)", () => {
+describe("Caso 3: 1 solo despacho en 0 → usa transporte legacy (v8.0.7 D12: con valor usa el del despacho)", () => {
   // Un único despacho: el transporte real vive en trCustom, no en el objeto despacho.
   const q = { sections: baseSection(), cityType: "Otra", trCustom: "25000", despachos: [{ transporteCosto: 0 }] };
-  eq(computePropTotal(q), 1025000, "1 despacho → legacy trCustom $25.000 (umbral >=2)");
+  eq(computePropTotal(q), 1025000, "1 despacho en 0 → legacy trCustom $25.000");
+  eq(computePropTotal({ ...q, despachos: [{ transporteCosto: 40000 }] }), 1040000, "v8.0.7 D12: 1 despacho de $40.000 → $40.000, no el general");
 });
 
 describe("Caso 4: 2 despachos → suma los transportes de cada uno", () => {
