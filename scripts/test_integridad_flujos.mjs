@@ -3022,6 +3022,12 @@ await test('v8.0.7.1 r1 la remisión imprime todas las líneas de la dirección 
   assert.match(functionSource('app-dashboard.js','_heRenderFooterPdf'),/getHeight\(\)-18\)\{\s*pdf\.addPage\(\);[^}]*HOJA DE ENTREGAS \(continuación\)/);
   assert.equal((source('app-dashboard.js').match(/getHeight\(\)-18\)\{\s*pdf\.addPage\(\);[^}]*HOJA DE ENTREGAS \(continuación\)/g)||[]).length,2,'también la hoja anterior, con título');
 });
+await test('v8.0.7.4 la orden de producción (A) y el empaque (C) parten la dirección larga en líneas',()=>{
+  const a=functionSource('app-dashboard.js','generarPdfProduccionPorCliente'),c=functionSource('app-dashboard.js','generarPdfEmpaque');
+  assert.match(a,/splitTextToSize\("Dirección: "\+q\.dir[^;]*W-2\*M\);pdf\.text\(dl,M,y\);y\+=4\.5\*dl\.length/);
+  assert.match(c,/splitTextToSize\("Dirección: "\+dirText,W-2\*M\);pdf\.text\(dl,M,y\);y\+=4\.5\*dl\.length/);
+  for(const f of [a,c])assert.doesNotMatch(f,/pdf\.text\("Dirección: "[^;]*,M,y\),y\+=4\.5/,'sin dirección en una sola línea');
+});
 await test('v8.0.7.2 aviso de versión vieja: franja solo si la publicada difiere, sin recarga automática',async()=>{
   const run=async(publicada)=>{
     const els={},body=[];let reloads=0;

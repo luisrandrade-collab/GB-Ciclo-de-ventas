@@ -4150,7 +4150,7 @@ function generarPdfProduccionPorCliente(){
     }
     pdf.setFontSize(9.5);pdf.setFont("helvetica","normal");
     pdf.text("Para entrega: "+fecha+(hora?"  "+hora:""),M,y);y+=4.5;
-    if(q.dir)pdf.text("Dirección: "+q.dir+(q.city?", "+q.city:""),M,y),y+=4.5;
+    if(q.dir){const dl=pdf.splitTextToSize("Dirección: "+q.dir+(q.city?", "+q.city:""),W-2*M);pdf.text(dl,M,y);y+=4.5*dl.length} // v8.0.7.4: la dirección larga se parte en líneas (antes se salía del papel)
     if(q.tel)pdf.text("Teléfono: "+q.tel,M,y),y+=4.5;
     if(q.att)pdf.text("Atención: "+q.att,M,y),y+=4.5;
     y+=3;
@@ -4548,7 +4548,7 @@ function generarPdfEmpaque(){
       dirText=(q.dir||"")+(q.city?", "+q.city:"");
     }
     pdf.text("Entrega: "+fecha+(hora?"  "+hora:""),M,y);y+=4.5;
-    if(dirText.trim())pdf.text("Dirección: "+dirText,M,y),y+=4.5;
+    if(dirText.trim()){const dl=pdf.splitTextToSize("Dirección: "+dirText,W-2*M);pdf.text(dl,M,y);y+=4.5*dl.length} // v8.0.7.4: la dirección larga se parte en líneas (antes se salía del papel)
     if(q.tel)pdf.text("Teléfono: "+q.tel,M,y),y+=4.5;
     if(despacho&&despacho.notas){
       pdf.setFont("helvetica","italic");pdf.setTextColor(100,100,100);
