@@ -1,0 +1,13 @@
+{
+  "name": "Gourmet Bites",
+  "short_name": "Gourmet Bites",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1a1a1a",
+  "icons": [
+    { "src": "brand/icono-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "brand/icono-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

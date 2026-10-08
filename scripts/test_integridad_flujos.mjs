@@ -3022,4 +3022,18 @@ await test('v8.0.7.1 r1 la remisión imprime todas las líneas de la dirección 
   assert.match(functionSource('app-dashboard.js','_heRenderFooterPdf'),/getHeight\(\)-18\)\{\s*pdf\.addPage\(\);[^}]*HOJA DE ENTREGAS \(continuación\)/);
   assert.equal((source('app-dashboard.js').match(/getHeight\(\)-18\)\{\s*pdf\.addPage\(\);[^}]*HOJA DE ENTREGAS \(continuación\)/g)||[]).length,2,'también la hoja anterior, con título');
 });
+await test('v8.0.7.2 aviso de versión vieja: franja solo si la publicada difiere, sin recarga automática',async()=>{
+  const run=async(publicada)=>{
+    const els={},body=[];let reloads=0;
+    const ctx=loadSourceFunctions([['app-dashboard.js','revisarVersionPublicada']],{BUILD_VERSION:'v8.0.7.2',$:id=>els[id]||null,
+      fetch:async(url,opt)=>{assert.equal(opt.cache,'reload');return {text:async()=>`<script src="app-core.js?v=${publicada}"></script>`}},
+      location:{reload:()=>reloads++},
+      document:{createElement:()=>{const d={style:{},set id(v){els[v]=d},querySelector:()=>d.btn,btn:{}};return d},body:{appendChild:d=>body.push(d)}}});
+    await ctx.revisarVersionPublicada();await ctx.revisarVersionPublicada();
+    return {body,get reloads(){return reloads},click:()=>body[0].btn.onclick()};
+  };
+  assert.equal((await run('8.0.7.2')).body.length,0,'misma versión: sin franja');
+  const v=await run('8.0.7.3');assert.equal(v.body.length,1,'versión distinta: una sola franja');assert.equal(v.reloads,0,'no recarga sola');
+  v.click();assert.equal(v.reloads,1,'el botón recarga');
+});
 console.log(`${passed} escenarios de integridad pasaron (adaptadores en memoria; no emulador Firebase).`);
