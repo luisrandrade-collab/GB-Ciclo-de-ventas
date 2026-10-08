@@ -480,5 +480,23 @@ await test('H5: DEPLOY.md — sin gb_push_autorizado ni gh auth switch; todo git
   assert.ok(pushes>=5,'pushes: '+pushes);
 });
 
+await test('v8.0.8 r1: id de despacho que ya trae el sufijo (x~3, x, x) no choca',()=>{
+  const q=prop({despachos:[desp('x~3','2026-10-20T08:00'),desp('x','2026-10-21T08:00'),desp('x','2026-10-22T08:00')]});
+  const ids=tipos(ev({...q,id:Q},P),'entrega').map(e=>e.id);
+  assert.equal(ids.length,3);assert.equal(new Set(ids).size,3,'tres ids distintos');
+});
+await test('v8.0.8 r1: la agenda interna usa la lista del módulo (despachos sin eventDate, una entrega por despacho)',()=>{
+  const q={id:'GB-P-2026-0009',kind:'proposal',status:'aprobada',client:'C',despachos:[desp('a','2026-10-20T08:00'),desp('b','2026-10-22T15:30')]};
+  const fns=['eventsAllStatuses','_shouldShowProduccion','eventsForCalendarEntries'].map(n=>['app-dashboard.js',n]).concat([['app-core.js','getCollectionName']]);
+  const c=loadSourceFunctions(fns,{window:{GBAgenda:A},quotesCache:[q],getFollowUp:()=>null});
+  const e=c.eventsForCalendarEntries();
+  const ent=e.filter(x=>x.tipo==='entregar').map(x=>x.iso+' '+x.hora),prod=e.filter(x=>x.tipo==='producir').map(x=>x.iso);
+  assert.deepEqual([...ent],['2026-10-20 08:00','2026-10-22 15:30']);assert.deepEqual([...prod],['2026-10-19','2026-10-21']);
+  const c2=loadSourceFunctions(fns,{window:{GBAgenda:A},quotesCache:[{...q,produced:true}],getFollowUp:()=>null});
+  assert.equal(c2.eventsForCalendarEntries().filter(x=>x.tipo==='producir').length,0,'ya producido: sin «producir»');
+});
+await test('v8.0.8 r1: DEPLOY exige errores 0 y sinConverger 0 en la carga inicial',()=>{
+  assert.match(leer('DEPLOY.md'),/`errores: 0` \*\*y\*\* `sinConverger: 0`/);
+});
 console.log(`\n${ok} OK · ${fallos} fallo(s)`);
 process.exit(fallos?1:0);

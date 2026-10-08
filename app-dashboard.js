@@ -720,7 +720,8 @@ function eventsAllStatuses(){
     // v5.0.4: perdidas tampoco aparecen en agenda (aunque no deberían llegar aquí con esos estados)
     if(typeof getFollowUp==="function"&&getFollowUp(q)==="perdida")return false;
     const ok=q.kind==="quote"?statusQuote.includes(q.status):statusProp.includes(q.status);
-    return ok&&q.eventDate;
+    // v8.0.8 (Codex r1): también con fecha sólo en los despachos, como el calendario de Google y el .ics.
+    return ok&&(q.eventDate||(Array.isArray(q.despachos)&&q.despachos.some(d=>d&&d.fechaHora)));
   });
 }
 
@@ -743,12 +744,18 @@ function _shouldShowProduccion(q){
 // v7.6.5: devuelve entries [{iso,tipo:'producir'|'entregar',q}] para agenda.
 // Cada doc puede aportar 2: una en eventDate (entregar) y otra en prodDate (producir).
 // Si prodDate==eventDate (mismo día) NO se duplica — la tarjeta de entrega ya muestra chip "Por producir hoy".
+// v8.0.8 (Codex r1): las fechas salen de GBAgenda.eventosDeDoc (agenda-eventos.js), la misma lista que el
+// calendario de Google y el .ics: una entrega por despacho y la producción por fecha. Se conservan las reglas
+// de presentación: «producir» sólo si falta producir y no el mismo día de una entrega de ese documento.
 function eventsForCalendarEntries(){
   const out=[];
   eventsAllStatuses().forEach(q=>{
-    if(q.eventDate)out.push({iso:q.eventDate,tipo:"entregar",q:q});
-    const pd=_calProdDate(q);
-    if(pd&&pd!==q.eventDate&&_shouldShowProduccion(q))out.push({iso:pd,tipo:"producir",q:q});
+    const evs=window.GBAgenda.eventosDeDoc(q,getCollectionName(q.id,q.kind));
+    const diasEntrega=new Set(evs.filter(e=>e.tipo==="entrega").map(e=>e.fecha));
+    evs.forEach(e=>{
+      if(e.tipo==="entrega")out.push({iso:e.fecha,tipo:"entregar",q:q,hora:e.hora});
+      else if(_shouldShowProduccion(q)&&!diasEntrega.has(e.fecha))out.push({iso:e.fecha,tipo:"producir",q:q,hora:""});
+    });
   });
   return out;
 }
@@ -801,7 +808,7 @@ function renderWeek(){
     const evs=(byDay[iso]||[]).sort((a,b)=>{
       // Producir primero (qué cocinar hoy), luego entregas ordenadas por hora
       if(a.tipo!==b.tipo)return a.tipo==="producir"?-1:1;
-      return (a.q.horaEntrega||"").localeCompare(b.q.horaEntrega||"");
+      return ((a.hora??a.q.horaEntrega)||"").localeCompare((b.hora??b.q.horaEntrega)||""); // v8.0.8: hora del despacho
     });
     const isToday=iso===todayIso;
     const dayClass="week-day"+(isToday?" today":"")+(evs.length?"":" empty-day");
@@ -942,7 +949,7 @@ function entriesForMonth(year,month){
     if(a.iso!==b.iso)return a.iso.localeCompare(b.iso);
     // Mismo día: producir antes que entregar; entre entregas, por hora
     if(a.tipo!==b.tipo)return a.tipo==="producir"?-1:1;
-    return (a.q.horaEntrega||"").localeCompare(b.q.horaEntrega||"");
+    return ((a.hora??a.q.horaEntrega)||"").localeCompare((b.hora??b.q.horaEntrega)||""); // v8.0.8: hora del despacho
   });
 }
 

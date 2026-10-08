@@ -109,9 +109,13 @@
         idx:i+1,total:ds.length
       };
     }):(q.eventDate?[{clave:"desp_legacy",fecha:q.eventDate,hora:horaValida(q.horaEntrega),dir:q.dir||"",city:q.city||"",idx:1,total:1}]:[]);
-    // Un id de despacho repetido daría dos eventos con el mismo id (y nunca convergería): el repetido lleva su posición.
-    const vistas=new Set();
-    lista.forEach(e=>{if(vistas.has(e.clave))e.clave+="~"+e.idx;vistas.add(e.clave)});
+    // Un id de despacho repetido daría dos eventos con el mismo id (y nunca convergería): el repetido lleva un
+    // sufijo libre. v8.0.8 (Codex r1): se busca uno que no choque con otra clave (p. ej. un despacho que ya se llame «x~3»).
+    const originales=new Set(lista.map(e=>e.clave)),vistas=new Set();
+    lista.forEach(e=>{
+      if(vistas.has(e.clave)){let n=e.idx,c;do{c=e.clave+"~"+n++}while(vistas.has(c)||originales.has(c));e.clave=c}
+      vistas.add(e.clave);
+    });
     return lista.filter(e=>fechaValida(e.fecha));
   }
 
