@@ -6425,8 +6425,8 @@ async function cliDirRunMigration(){
   try{
     const r=await migrateClientsFromQuotes();
     hideLoader();
-    toast("✅ "+r.creados+" cliente"+(r.creados!==1?"s":"")+" importado"+(r.creados!==1?"s":"")+(r.errores?" · "+r.errores+" error(es)":""),"success",5000);
-    localStorage.setItem("gb_clients_migration_skipped","1"); // ya corrió, no preguntes más
+    toast("✅ "+r.creados+" cliente"+(r.creados!==1?"s":"")+" importado"+(r.creados!==1?"s":"")+(r.errores?" · "+r.errores+" error(es): vuelve a importar para completarlos":""),r.errores?"warn":"success",r.errores?8000:5000);
+    if(!r.errores)localStorage.setItem("gb_clients_migration_skipped","1"); // ya corrió, no preguntes más (v8.0.7: con errores el aviso sigue)
     renderClientesDirectorio();
   }catch(e){
     hideLoader();

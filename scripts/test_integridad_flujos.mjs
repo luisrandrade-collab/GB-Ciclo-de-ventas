@@ -2752,7 +2752,7 @@ function saldo807(store0,clientsCache=[]){
   const {fb,store}=fakeDb(store0);
   fb.collection=(_,c)=>c;fb.getDocsFromServer=async c=>({docs:[...store].filter(([k])=>k.startsWith(c+'/')).map(([k,v])=>({id:k.split('/')[1],data:()=>structuredClone(v)}))});
   let n=0;fb.addDoc=async(c,data)=>{const id='rnd'+(++n);store.set(c+'/'+id,structuredClone(data));return {id}};
-  const c=loadSourceFunctions([...core('clienteIdAuto','buscarClienteEnServidor'),...h806('_addSaldoAFavor')],{...common(),window:{fb},clientsCache});
+  const c=loadSourceFunctions([...core('clienteIdAuto','leerDirectorioClientesServidor','buscarClienteEnServidor'),...h806('_addSaldoAFavor')],{...common(),window:{fb},clientsCache});
   return {c,store,fb};
 }
 await test('v8.0.7 D13 dos notas crédito simultáneas para un cliente nuevo quedan en una sola ficha con el saldo completo',async()=>{
@@ -2784,8 +2784,11 @@ await test('v8.0.7 D15 Urgente sólo considera documentos abiertos',()=>{
 function cli807(clientes,proveedores){
   const writes=[];
   const fb={db:{},doc:(_,c,id)=>c+'/'+id,collection:(_,c)=>c,serverTimestamp:()=>'T',
-    updateDoc:async(ref,data)=>writes.push(['update',ref,data]),addDoc:async(coll,data)=>{writes.push(['add',coll,data]);return {id:'nuevo'}}};
-  const c=loadSourceFunctions(core('saveClientToCloud','_cleanClientObjForUpdate','saveProveedorToCloud','_cleanProveedorObjForUpdate'),{...common(),window:{fb},clientsCache:clientes,proveedoresCache:proveedores});
+    updateDoc:async(ref,data)=>writes.push(['update',ref,data]),addDoc:async(coll,data)=>{writes.push(['add',coll,data]);return {id:'nuevo'}},
+    // v8.0.7 r3: el directorio del servidor y las transacciones ven las mismas fichas que la caché inicial
+    getDocsFromServer:async()=>({docs:clientes.map(x=>({id:x.id,data:()=>({...x})}))}),
+    runTransaction:async(_,cb)=>cb({get:async ref=>{const x=clientes.find(y=>'clients/'+y.id===ref);return {exists:()=>!!x,data:()=>({...x})}},update:(ref,data)=>writes.push(['update',ref,data]),set:(ref,data)=>writes.push(['set',ref,data])})};
+  const c=loadSourceFunctions(core('saveClientToCloud','_cleanClientObjForUpdate','saveProveedorToCloud','_cleanProveedorObjForUpdate','leerDirectorioClientesServidor','buscarClienteEnServidor','clienteIdAuto'),{...common(),window:{fb},clientsCache:clientes,proveedoresCache:proveedores});
   return {c,writes};
 }
 await test('v8.0.7 D16 el editor de clientes guarda por id: renombrar no duplica y no pisa a otro cliente',async()=>{
@@ -2882,7 +2885,7 @@ await test('v8.0.7 C4 «Migrar fotos» conserva el comentario que otra sesión c
 });
 await test('v8.0.7 r1 crear el cliente en el editor y una nota crédito al mismo tiempo escriben una sola ficha',async()=>{
   const {fb,store}=fakeDb({});fb.collection=(_,c)=>c;fb.getDocsFromServer=async()=>({docs:[]});fb.updateDoc=async()=>{throw new Error('no debería usar updateDoc')};
-  const c=loadSourceFunctions([...core('clienteIdAuto','buscarClienteEnServidor','saveClientToCloud','_cleanClientObjForUpdate'),...h806('_addSaldoAFavor')],{...common(),window:{fb},clientsCache:[]});
+  const c=loadSourceFunctions([...core('clienteIdAuto','leerDirectorioClientesServidor','buscarClienteEnServidor','saveClientToCloud','_cleanClientObjForUpdate'),...h806('_addSaldoAFavor')],{...common(),window:{fb},clientsCache:[]});
   await Promise.all([c.saveClientToCloud({name:'Carla Gómez',tel:'300'}),c._addSaldoAFavor('Carla Gómez',10000,'nc','L1')]);
   const fichas=[...store.keys()].filter(k=>k.startsWith('clients/'));
   assert.equal(fichas.length,1,'una sola ficha');const f=store.get(fichas[0]);assert.equal(f.saldoAFavor,10000);assert.equal(f.tel,'300');
@@ -2909,7 +2912,7 @@ await test('v8.0.7 r2 una ficha antigua (id aleatorio, fuera de la caché) se us
   fb.collection=(_,c)=>c;fb.getDocsFromServer=async c=>({docs:[...store].filter(([k])=>k.startsWith(c+'/')).map(([k,v])=>({id:k.split('/')[1],data:()=>structuredClone(v)}))});
   let n=0;fb.addDoc=async(c,data)=>{const id='rnd'+(++n);store.set(c+'/'+id,structuredClone(data));return {id}};
   fb.updateDoc=async(ref,data)=>store.set(ref,{...store.get(ref),...structuredClone(data)});
-  const c=loadSourceFunctions(core('clienteIdAuto','buscarClienteEnServidor','saveClientToCloud','_cleanClientObjForUpdate'),{...common(),window:{fb},clientsCache:[]});
+  const c=loadSourceFunctions(core('clienteIdAuto','leerDirectorioClientesServidor','buscarClienteEnServidor','saveClientToCloud','_cleanClientObjForUpdate'),{...common(),window:{fb},clientsCache:[]});
   await c.saveClientToCloud({name:'dora paz',tel:'2'});
   assert.equal(store.get('clients/viejo1').tel,'2','el guardado automático completa la ficha antigua');assert.ok(![...store.keys()].some(k=>k.includes('dora')),'no crea otra');
   await assert.rejects(c.saveClientToCloud({name:'Dora Paz'},{fullUpdate:true}),/Ya existe un cliente/);
@@ -2927,20 +2930,40 @@ await test('v8.0.7 r2 si no se puede leer del servidor, el pago queda «sin comp
   assert.match(cuerpo,/No se pudo comprobar/);assert.doesNotMatch(cuerpo,/<strong>NO<\/strong> quedó guardado/);
   assert.match(functionSource('app-historial.js','anularCargo'),/if\(window\.__verPagosApertura===apertura&&!window\.__pagoEditBase&&/,'anular cargo tampoco repinta sobre una edición abierta');
 });
-await test('v8.0.7 r2 la Propuesta Final confirmada lleva sólo el menaje escogido, su reposición y su total',async()=>{
-  const src={client:'Fixture',sections:[{id:'s1',name:'Menu',options:[{id:'a',label:'A',items:[{name:'f',qty:1,price:100}]}]}],menaje:[{name:'vaso',qty:1,price:10}],
+await test('v8.0.7 r3 la Propuesta Final GUARDADA (commitPropFinal real) lleva sólo el menaje escogido, su reposición y su total',async()=>{
+  const src={client:'Fixture',status:'enviada',sections:[{id:'s1',name:'Menu',options:[{id:'a',label:'A',items:[{name:'f',qty:1,price:100}]}]}],menaje:[{name:'vaso',qty:1,price:10}],
     menajeOptions:[{id:'mA',label:'Opción A',items:[{name:'vaso',qty:1,price:10}]},{id:'mB',label:'Opción B',items:[{name:'copa',qty:2,price:50}]}],propFinalSelection:{menaje:'mA'},
     reposicionByOption:{mA:{vaso:1},mB:{copa:9}},reposicionData:{vaso:1}};
-  let pf=null;
-  const c=loadSourceFunctions([...core('TR','computePropTotal','getMenajeOpciones','getMenajeOpcionActiva','getReposicionActivos'),['app-propuesta.js','pfMenajeEscogido'],['app-propuesta.js','_generarPropuestaFinalImpl']],{...common(),
-    window:{},cloudOnline:true,propFinalSource:{id:'P1',...src},propFinalSelection:{s1:'a'},propFinalMenajeSel:'mB',getNextNumber:async()=>'GB-PF-2026-0001',APP_YEAR:2026,
-    gbNotasNormalizar:()=>[],gbNotasALegacy:()=>({}),DEFAULT_CONDICIONES:{},CONDICIONES_TITULOS:{},menajeAssignedTo:null,inheritPropFinalLogistics:()=>{},
-    commitPropFinal:async o=>{pf=structuredClone(o);throw Object.assign(new Error('fin de la prueba'),{paraUsuario:true})},gbMensajeError:e=>e.message,toast(){}});
-  c.window._propFinalFlowSeq=0;
+  const {fb,store}=fakeDb({'proposals/P1':structuredClone(src)});
+  const c=loadSourceFunctions([...mergeEntries,...core('TR','computePropTotal','getMenajeOpciones','getMenajeOpcionActiva','getReposicionActivos'),['app-propuesta.js','pfMenajeEscogido'],['app-propuesta.js','commitPropFinal'],['app-propuesta.js','_generarPropuestaFinalImpl']],{...common(),
+    window:{fb,_propFinalFlowSeq:0},cloudOnline:true,propFinalSource:{id:'P1',...structuredClone(src)},propFinalSelection:{s1:'a'},propFinalMenajeSel:'mB',getNextNumber:async()=>'GB-PF-2026-0001',APP_YEAR:2026,
+    gbNotasNormalizar:()=>[],gbNotasALegacy:()=>({}),DEFAULT_CONDICIONES:{},CONDICIONES_TITULOS:{},menajeAssignedTo:null,inheritPropFinalLogistics:o=>o,gbMensajeError:e=>e.message,toast(){}});
   await c._generarPropuestaFinalImpl();
-  assert.ok(pf,'llegó a confirmar');
+  const pf=store.get('propfinals/GB-PF-2026-0001');
+  assert.ok(pf,'la PF quedó guardada');assert.equal(store.get('proposals/P1').status,'convertida');
   assert.deepEqual(plain(pf.menajeOptions).map(o=>o.id),['mB']);assert.deepEqual(plain(pf.menaje),[{name:'copa',qty:2,price:50}]);
   assert.equal(pf.propFinalSelection.menaje,'mB');assert.deepEqual(plain(pf.reposicionByOption),{mB:{copa:9}});assert.deepEqual(plain(pf.reposicionData),{copa:9});
   assert.equal(pf.total,200,'menú 100 + menaje B 100');
+});
+await test('v8.0.7 r3 una ficha renombrada en otra sesión no recibe saldo ni guardado automático; renombrar valida el nombre en el servidor',async()=>{
+  const {fb,store}=fakeDb({'clients/c1':{name:'Bea',saldoAFavor:0,saldoAFavorMovs:[]},'clients/c2':{name:'Carlos'}});
+  fb.collection=(_,x)=>x;fb.getDocsFromServer=async x=>({docs:[...store].filter(([k])=>k.startsWith(x+'/')).map(([k,v])=>({id:k.split('/')[1],data:()=>structuredClone(v)}))});
+  fb.updateDoc=async(ref,data)=>store.set(ref,{...store.get(ref),...structuredClone(data)});
+  const cache=[{id:'c1',name:'Ana'},{id:'c3',name:'Dani'}]; // la caché aún cree que c1 se llama Ana y no conoce a Carlos
+  const c=loadSourceFunctions([...core('clienteIdAuto','leerDirectorioClientesServidor','buscarClienteEnServidor','saveClientToCloud','_cleanClientObjForUpdate'),...h806('_addSaldoAFavor')],{...common(),window:{fb},clientsCache:cache});
+  await assert.rejects(c._addSaldoAFavor('Ana',5000,'nc','L1'),/cambió de nombre/);assert.equal(store.get('clients/c1').saldoAFavor,0);
+  await assert.rejects(c.saveClientToCloud({name:'Ana',tel:'1'}),/se renombró/);assert.equal(store.get('clients/c1').tel,undefined);
+  store.set('clients/c3',{name:'Dani'});
+  await assert.rejects(c.saveClientToCloud({name:'carlos'},{fullUpdate:true,id:'c3'}),/Ya existe un cliente/,'renombrar a un nombre que otra sesión creó');
+  assert.equal(store.get('clients/c3').name,'Dani');
+});
+await test('v8.0.7 r3 importar clientes lee el directorio del servidor una sola vez y con errores conserva el aviso',async()=>{
+  const {fb,store}=fakeDb({});let lecturas=0;fb.collection=(_,x)=>x;
+  fb.getDocsFromServer=async x=>{lecturas++;return {docs:[...store].filter(([k])=>k.startsWith(x+'/')).map(([k,v])=>({id:k.split('/')[1],data:()=>structuredClone(v)}))}};
+  const c=loadSourceFunctions(core('clienteIdAuto','leerDirectorioClientesServidor','buscarClienteEnServidor','saveClientToCloud','_cleanClientObjForUpdate','migrateClientsFromQuotes','_clientScore'),{...common(),window:{fb},clientsCache:[],
+    quotesCache:[{client:'Uno'},{client:'Dos'},{client:'Tres'},{client:'uno'}],loadAllHistory:async()=>{}});
+  const r=await c.migrateClientsFromQuotes();
+  assert.equal(r.creados,3);assert.equal(lecturas,1,'una sola lectura del directorio para todo el lote');assert.equal(c.window.__gbLoteClientes,null);
+  assert.match(functionSource('app-dashboard.js','cliDirRunMigration'),/if\(!r\.errores\)localStorage\.setItem\("gb_clients_migration_skipped"/);
 });
 console.log(`${passed} escenarios de integridad pasaron (adaptadores en memoria; no emulador Firebase).`);

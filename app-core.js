@@ -1831,14 +1831,21 @@ function _cleanClientObjForUpdate(obj){
 function clienteIdAuto(nombre){return "nc_"+encodeURIComponent(String(nombre||"").toLowerCase().trim())}
 // v8.0.7 (Codex r2): antes de crear se busca en el SERVIDOR una ficha con ese nombre (también las antiguas con id
 // aleatorio, que no siguen clienteIdAuto). Si el servidor no responde no se crea nada: se pide reintentar.
-async function buscarClienteEnServidor(nombre){
+// Índice nombre → ficha del directorio leído del servidor. Una importación en lote lo lee una sola vez
+// (window.__gbLoteClientes) y lo va actualizando con lo que crea (v8.0.7, Codex r3).
+async function leerDirectorioClientesServidor(){
   const {db,collection,getDocsFromServer}=window.fb;
-  const k=String(nombre||"").toLowerCase().trim();
   let snap;
   try{snap=await getDocsFromServer(collection(db,"clients"))}
   catch(e){throw Object.assign(new Error("No se pudo comprobar el directorio de clientes en el servidor; no se creó nada. Revisa la conexión y vuelve a intentar."),{paraUsuario:true,detalle:String(e)})}
-  const d=snap.docs.find(x=>String(x.data().name||"").toLowerCase().trim()===k);
-  return d?{id:d.id,...d.data()}:null;
+  const idx=new Map();
+  snap.docs.forEach(x=>{const k=String(x.data().name||"").toLowerCase().trim();if(k&&!idx.has(k))idx.set(k,{id:x.id,...x.data()})});
+  return idx;
+}
+async function buscarClienteEnServidor(nombre){
+  const k=String(nombre||"").toLowerCase().trim();
+  const idx=window.__gbLoteClientes||await leerDirectorioClientesServidor();
+  return idx.get(k)||null;
 }
 
 async function saveClientToCloud(obj,opts){
@@ -1858,7 +1865,24 @@ async function saveClientToCloud(obj,opts){
   if(targetId&&!existing)throw Object.assign(new Error("Este cliente ya no está en la lista. Recarga la página."),{paraUsuario:true});
   if(existing&&existing.id){
     const updateObj=fullUpdate?obj:_cleanClientObjForUpdate(obj);
-    await updateDoc(doc(db,"clients",existing.id),{...updateObj,updatedAt:serverTimestamp()});
+    const k=String(obj.name||"").toLowerCase().trim();
+    if(targetId){
+      // v8.0.7 (Codex r3): al renombrar, el nombre nuevo se valida en el servidor (otra sesión pudo crearlo).
+      if(String(existing.name||"").toLowerCase().trim()!==k){
+        const otroSrv=await buscarClienteEnServidor(obj.name);
+        if(otroSrv&&otroSrv.id!==targetId)throw Object.assign(new Error("Ya existe un cliente llamado «"+otroSrv.name+"». Ábrelo desde el directorio o usa otro nombre."),{paraUsuario:true});
+      }
+      await updateDoc(doc(db,"clients",existing.id),{...updateObj,updatedAt:serverTimestamp()});
+    }else{
+      // v8.0.7 (Codex r3): guardado por nombre desde la caché: la ficha debe seguir llamándose así en el
+      // servidor (otra sesión pudo renombrarla); si no, no se escribe encima.
+      const ref=doc(db,"clients",existing.id);
+      await runTransaction(db,async tx=>{
+        const snap=await tx.get(ref);
+        if(!snap.exists()||String(snap.data().name||"").toLowerCase().trim()!==k)throw Object.assign(new Error("La ficha de «"+obj.name+"» cambió o se renombró en otra sesión. Recarga la página."),{paraUsuario:true});
+        tx.update(ref,{...updateObj,updatedAt:serverTimestamp()});
+      });
+    }
     Object.assign(existing,updateObj);
   }else{
     const hallado=await buscarClienteEnServidor(obj.name); // v8.0.7 (Codex r2): también fichas antiguas fuera de la caché
@@ -1891,6 +1915,7 @@ async function saveClientToCloud(obj,opts){
     clientsCache=clientsCache.filter(c=>c.id!==id);
     clientsCache.push({id,...final});
     clientsCache.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+    if(window.__gbLoteClientes)window.__gbLoteClientes.set(String(obj.name||"").toLowerCase().trim(),{id,...final});
   }
   localStorage.setItem("gb_clients_cache",JSON.stringify(clientsCache));
 }
@@ -2404,10 +2429,14 @@ async function migrateClientsFromQuotes(){
     if(score>prev.score)docsByName.set(key,{candidate,score});
   });
   let creados=0,errores=0;
-  for(const [,{candidate}] of docsByName){
-    try{await saveClientToCloud(candidate);creados++}
-    catch(e){console.warn("migrate cliente falló:",candidate.name,e);errores++}
-  }
+  // v8.0.7 (Codex r3): el directorio del servidor se lee una vez para todo el lote (antes una vez por candidato).
+  window.__gbLoteClientes=await leerDirectorioClientesServidor();
+  try{
+    for(const [,{candidate}] of docsByName){
+      try{await saveClientToCloud(candidate);creados++}
+      catch(e){console.warn("migrate cliente falló:",candidate.name,e);errores++}
+    }
+  }finally{window.__gbLoteClientes=null}
   return {creados,skipeados:seen.size,errores,total:docsByName.size};
 }
 function _clientScore(c){

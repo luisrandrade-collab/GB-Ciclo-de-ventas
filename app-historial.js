@@ -1637,6 +1637,8 @@ async function _addSaldoAFavor(clienteName,monto,motivo,logId){
       const snap=await tx.get(ref);
       if(!snap.exists())throw Object.assign(new Error("El cliente ya no existe en el sistema. Recarga la lista de clientes."),{paraUsuario:true,detalle:"Cliente "+c.id+" no existe en Firestore"});
       const dataTx=snap.data();
+      // v8.0.7 (Codex r3): la ficha de la caché pudo renombrarse en otra sesión; no se le abona a otro nombre.
+      if(String(dataTx.name||"").toLowerCase().trim()!==k)throw Object.assign(new Error("La ficha de «"+clienteName+"» cambió de nombre en otra sesión (ahora «"+(dataTx.name||"")+"»). Recarga la página y vuelve a registrar la nota crédito."),{paraUsuario:true});
       const movsTx=Array.isArray(dataTx.saldoAFavorMovs)?dataTx.saldoAFavorMovs.slice():[];
       // IDEMPOTENCY en reintentos: si el logId ya está, no sumar ni pushear de nuevo.
       // Misma fórmula acumulativa de siempre (saldo fresco + monto) — solo cambia
