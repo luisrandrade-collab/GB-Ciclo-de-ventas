@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-title" content="Gourmet Bites">
 <title>Gourmet Bites - Cotizador</title>
-<link rel="stylesheet" href="gb-tokens.css?v=8.0.8.1"><!-- v7.9.13 INF-05: cache-buster CSS -->
+<link rel="stylesheet" href="gb-tokens.css?v=8.1.0"><!-- v7.9.13 INF-05: cache-buster CSS -->
 <!-- VERSION: 2026-04-26-v7.0.0-α-cascaron-v7-dashboard-rediseñado-fsm-pedido-vs-produccion -->
 <!--
   v6.3.0 (2026-04-24) — Robustez técnica + higiene (Entrega 3 del roadmap).
@@ -1073,62 +1073,67 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
 .cal-ev-meta{font-size:11px;color:var(--gb-neutral-500);display:flex;gap:8px;flex-wrap:wrap}
 .saldo-pend{background:#FFF8E1;border-left:3px solid #DCE775;padding:10px 12px;border-radius:6px;margin-bottom:12px;font-size:13px;color:#5D4037}
 .saldo-pend strong{color:#F57F17}
-/* v4.12: Agenda semanal scrollable */
-.week-grid{display:flex;flex-direction:column;gap:8px;background:var(--gb-neutral-0);border-radius:10px;padding:10px;box-shadow:var(--gb-shadow-md)}
-.week-day{display:grid;grid-template-columns:60px 1fr;gap:10px;padding:8px;border-radius:8px;background:var(--gb-cream);min-height:60px}
-.week-day.today{background:#FFF3E0;border:1px solid #FB8C00}
-.week-day.empty-day{opacity:.55}
-.wd-date{text-align:center;background:var(--gb-neutral-0);border-radius:6px;padding:6px 4px;font-family:var(--gb-font-body);border:1px solid var(--gb-neutral-200)}
-.wd-date .wd-dow{font-size:9px;text-transform:uppercase;color:var(--gb-neutral-500);letter-spacing:.4px}
-.wd-date .wd-num{font-size:18px;font-weight:800;color:var(--gb-neutral-900);line-height:1.05}
-.wd-date .wd-mon{font-size:9px;color:var(--gb-neutral-400);text-transform:uppercase}
-.wd-evs{display:flex;flex-direction:column;gap:6px;min-width:0}
-/* v5.4.3: card de evento enriquecida — layout vertical con chips */
-.wd-ev{background:var(--gb-neutral-0);border-radius:8px;padding:9px 10px;font-size:12px;cursor:pointer;border-left:3px solid var(--gb-gold-500);min-width:0;box-shadow:0 1px 2px rgba(0,0,0,.04);transition:transform .1s}
-.wd-ev:active{transform:scale(.99)}
-.wd-ev.aprobada{border-left-color:#00897B}
-.wd-ev.en_produccion{border-left-color:#8E24AA}
-.wd-ev.entregado{border-left-color:#689F38}
-.wd-ev.op-atrasado{background:#FFEBEE;border-left-color:#C62828}
-.wd-ev.op-producido-hoy{background:#F1F8E9;border-left-color:#388E3C}
-.wd-ev.op-por-producir-hoy{background:#FFF3E0;border-left-color:#EF6C00}
-.wd-ev .we-row-top{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:5px;flex-wrap:wrap}
-.wd-ev .we-cli{font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;color:#1A1A1A}
-.wd-ev .we-hora-big{font-size:12.5px;font-weight:800;color:#E65100;white-space:nowrap;letter-spacing:.2px}
-.wd-ev .we-tag{display:inline-block;font-size:9px;font-weight:700;padding:2px 5px;border-radius:3px;margin-right:5px;vertical-align:middle}
-.wd-ev .we-tag.prod{background:#FFF3E0;color:#E65100}
-.wd-ev .we-tag.ent{background:#E1F5FE;color:#01579B}
-.wd-ev .we-chips-row{display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
-.wd-ev .we-total{font-size:11px;font-weight:700;color:#455A64;margin-left:auto;white-space:nowrap}
-.wd-ev .we-op-chip,.wd-ev .we-pago-chip{display:inline-flex;align-items:center;gap:3px;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:10px;white-space:nowrap;line-height:1.3}
-.wd-ev .we-op-enviada{background:#E3F2FD;color:#0D47A1}
-.wd-ev .we-op-propfinal{background:#F3E5F5;color:#4A148C}
-.wd-ev .we-op-aprobada{background:#E0F2F1;color:#004D40}
-.wd-ev .we-op-por-producir{background:#FFF3E0;color:#E65100}
-.wd-ev .we-op-por-producir-hoy{background:#FFE0B2;color:#BF360C;box-shadow:0 0 0 1px #FB8C00}
-.wd-ev .we-op-en-produccion{background:#F3E5F5;color:#6A1B9A}
-.wd-ev .we-op-producido{background:#E8F5E9;color:#1B5E20}
-.wd-ev .we-op-producido-hoy{background:#C8E6C9;color:#1B5E20;box-shadow:0 0 0 1px #388E3C}
-.wd-ev .we-op-entregado{background:#DCEDC8;color:#33691E}
-.wd-ev .we-op-atrasado{background:#FFCDD2;color:#B71C1C;box-shadow:0 0 0 1px #C62828}
-.wd-ev .we-op-anulada,.wd-ev .we-op-convertida{background:#ECEFF1;color:#455A64}
-.wd-ev .we-pago-pagado{background:#E8F5E9;color:#1B5E20}
-.wd-ev .we-pago-anticipo{background:#E3F2FD;color:#0D47A1}
-.wd-ev .we-pago-sin-anticipo{background:#FFEBEE;color:#B71C1C}
-.wd-ev .we-prods{font-size:10.5px;color:#607D8B;line-height:1.35;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.wd-ev .we-accion-row{margin-top:6px}
-.wd-ev .we-accion-chip{font-size:10px;font-weight:700;padding:4px 9px;border-radius:12px;background:#FFF3E0;color:#E65100;border:1px solid #FFB300;cursor:pointer;font-family:var(--gb-font-body)}
-.wd-ev .we-accion-chip:hover{background:#FFE0B2}
-.wd-ev .we-accion-chip:active{background:#FFB300;color:#fff;transform:scale(.95)}
-.wd-empty-msg{font-size:11px;color:var(--gb-neutral-400);font-style:italic;padding:6px;align-self:center}
-/* v7.6.5: tarjeta CHICA de "producir" en vista semana (Opción B).
-   Una sola línea, sin chips, sin productos, sin total destacado — solo accionable. */
-.wd-ev-prod{display:flex;align-items:center;gap:8px;background:#FFF3E0;border-left:3px solid #FB8C00;border-radius:6px;padding:6px 9px;font-size:11.5px;cursor:pointer;color:#5D4037;transition:transform .1s}
-.wd-ev-prod:active{transform:scale(.99);background:#FFE0B2}
-.wd-ev-prod .wep-icon{font-size:14px;line-height:1}
-.wd-ev-prod .wep-label{font-weight:700;color:#E65100;flex-shrink:0}
-.wd-ev-prod .wep-label strong{color:#1A1A1A;margin-left:3px}
-.wd-ev-prod .wep-meta{font-size:10.5px;color:#8D6E63;margin-left:auto;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+/* v8.1.0 r2: Semana tipo planeador — 7 días separados + Pendientes; 2 filas de 4 en computador, un día por pantalla en el celular */
+.week-grid{--sp:#b4521d;--sp-s:#fdf0e6;--se:#1f5f8b;--se-s:#e6f0f7;--sd:#2f7a3e;--sd-s:#e7f3ea;--sl:#6b7080;--sl-s:#eef0f3;--sw:#9a3412;--sw-s:#fde8e1;--sr:#b01a25;--sh:#13151c;display:flex;flex-direction:column;gap:10px}
+.sem-ver,.sem-chips{display:flex;flex-wrap:wrap;gap:4px}
+.sem-ver button,.sem-chips button{border:1px solid var(--gb-neutral-200);background:var(--gb-neutral-0);color:var(--gb-neutral-900);font:600 13px var(--gb-font-body);padding:7px 12px;border-radius:999px;cursor:pointer;min-height:36px}
+.sem-ver button[aria-pressed="true"],.sem-chips button[aria-pressed="true"]{background:var(--sh);color:#fff;border-color:var(--sh)}
+.sem-chips{display:none;flex-wrap:nowrap}
+.sem-chips button{flex:1 1 0;min-width:0;padding:4px 0;border-radius:10px;display:flex;flex-direction:column;align-items:center;line-height:1.15;font-size:11px}
+.sem-chips button b{font-size:15px}
+.sem-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:start}
+@media (max-width:1023px){.sem-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:767px){.sem-chips{display:flex}.sem-grid{grid-template-columns:minmax(0,1fr)}.sem-dia:not(.sem-act){display:none}}
+.sem-dia{background:var(--gb-neutral-0);border:1px solid var(--gb-neutral-200);border-radius:12px;display:flex;flex-direction:column;min-width:0;box-shadow:var(--gb-shadow-md)}
+.sem-dia>header{padding:8px 12px;border-bottom:1px solid var(--gb-neutral-200);display:flex;justify-content:space-between;align-items:baseline;gap:6px;border-radius:11px 11px 0 0}
+.sem-dia>header h3{margin:0;font-size:15px}
+.sem-dia.hoy>header{background:var(--sh);color:#fff}
+.sem-dia.pendientes>header{background:#f5efe0}
+.sem-cuerpo{padding:10px;display:flex;flex-direction:column;gap:10px}
+.sem-vacio{color:var(--gb-neutral-500);font-size:13px;margin:0}
+.sem-t{border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:4px;background:var(--sp-s);border:1px solid transparent;font-size:13px;min-width:0}
+.sem-t.ent{background:var(--se-s)}
+.sem-t.lock{background:var(--sl-s);border-color:var(--gb-neutral-200)}
+.sem-t.ok{background:var(--sd-s)}
+.sem-t.pend{background:#f5efe0}
+.sem-t.tarde{border-color:var(--sw)}
+.sem-cab{display:flex;justify-content:space-between;gap:6px;align-items:center}
+.sem-tipo{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--sp)}
+.sem-t.ent .sem-tipo{color:var(--se)}
+.sem-t.lock .sem-tipo{color:var(--sl)}
+.sem-t.ok .sem-tipo{color:var(--sd)}
+.sem-cli{background:none;border:0;padding:0;font:700 15px var(--gb-font-body);color:var(--sr);cursor:pointer;text-align:left;align-self:flex-start;overflow-wrap:anywhere}
+.sem-cli:hover{text-decoration:underline}
+.sem-det{font-size:12px;color:var(--gb-neutral-500)}
+.sem-alerta{font-size:12px;font-weight:700;color:var(--sw);background:var(--sw-s);border-radius:6px;padding:3px 7px;align-self:flex-start}
+.sem-candado{font-size:12px;font-weight:700;color:var(--sl)}
+.sem-items{list-style:none;margin:2px 0 0;padding:0;display:flex;flex-direction:column;gap:1px}
+.sem-it{display:flex;align-items:center;gap:4px}
+.sem-it-btn{flex:1;min-width:0;display:flex;gap:8px;align-items:flex-start;text-align:left;background:none;border:0;padding:5px 2px;color:var(--gb-neutral-900);font:14px/1.35 var(--gb-font-body);cursor:pointer;border-radius:6px}
+.sem-it.fijo .sem-txt{padding:2px}
+.sem-txt{min-width:0;overflow-wrap:anywhere}
+.sem-caja{flex:none;width:20px;height:20px;border:2px solid var(--gb-neutral-500);border-radius:5px;display:grid;place-items:center;font-size:13px;line-height:1;color:transparent;background:#fff;margin-top:1px}
+.sem-it.hecho .sem-caja{border-color:var(--sd);background:var(--sd);color:#fff}
+.sem-it.frio .sem-caja{border-color:var(--se);background:var(--se);color:#fff}
+.sem-it.hecho .sem-txt,.sem-it.frio .sem-txt{text-decoration:line-through;color:var(--gb-neutral-500)}
+.sem-frio{flex:none;width:32px;height:32px;border:1px solid var(--gb-neutral-200);border-radius:8px;background:#fff;cursor:pointer;font-size:14px;color:var(--se);opacity:.6}
+.sem-frio[aria-pressed="true"]{opacity:1;background:var(--se-s);border-color:var(--se)}
+.sem-acc{display:flex;gap:8px;flex-wrap:wrap;margin-top:2px}
+.sem-btn{padding:6px 11px;min-height:34px;border-radius:8px;border:1px solid var(--gb-neutral-200);background:#fff;color:var(--gb-neutral-900);font:600 12.5px var(--gb-font-body);cursor:pointer}
+.sem-btn.prim{background:var(--se);border-color:var(--se);color:#fff}
+.sem-btn:disabled{opacity:.45;cursor:not-allowed}
+.week-grid button:focus-visible{outline:3px solid var(--gb-gold-500);outline-offset:2px}
+/* v8.1.0 r3: ventana del panel de impresión y botones 🖨 */
+.gb-imp-velo{position:fixed;inset:0;z-index:290;background:rgba(19,21,28,.45);display:flex;align-items:flex-end;justify-content:center}
+.gb-imp-velo[hidden]{display:none!important}
+.gb-imp-ventana{background:var(--gb-neutral-0);width:100%;max-width:820px;max-height:90vh;overflow:auto;border-radius:16px 16px 0 0;padding:14px 16px calc(16px + env(safe-area-inset-bottom,0px));box-sizing:border-box}
+@media (min-width:768px){.gb-imp-velo{align-items:center}.gb-imp-ventana{border-radius:16px}}
+.gb-imp-cab{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;font-size:16px}
+.gb-imp-cerrar{border:1px solid var(--gb-neutral-200);background:#fff;border-radius:8px;width:36px;height:36px;font-size:16px;cursor:pointer}
+.gb-imp-abrir{border:1px solid var(--gb-neutral-200);background:#fff;color:var(--gb-neutral-900);border-radius:8px;padding:6px 11px;min-height:34px;font:600 12.5px var(--gb-font-body);cursor:pointer}
+.sem-dia>header .gb-imp-abrir{padding:2px 8px;min-height:28px}
+.sem-dia.hoy>header .gb-imp-abrir{background:transparent;color:#fff;border-color:currentColor}
+@media (max-width:767px){#cal-week-view .cal-header{flex-wrap:wrap}#cal-week-view .cal-title{order:-1;flex-basis:100%;font-size:17px}}
 /* v7.6.5: prefijo de acción en la lista debajo del calendario MES */
 .cal-ev-card .cal-ev-accion{display:inline-block;font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:3px;margin-right:4px;vertical-align:middle;letter-spacing:.2px}
 .cal-ev-card .cal-ev-accion.cal-ev-prod{background:#FFF3E0;color:#E65100;border:1px solid #FFB300}
@@ -1877,7 +1882,6 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       <div class="sb-submenu">
         <a href="javascript:void(0)" data-sub="inicio/dashboard">Dashboard</a>
         <a href="javascript:void(0)" data-sub="inicio/tareas">Tareas y follow-ups</a>
-        <a href="javascript:void(0)" data-sub="inicio/agenda">Agenda</a>
         <a href="javascript:void(0)" data-sub="inicio/buscar">🔍 Buscar</a>
       </div>
     </div>
@@ -1894,14 +1898,16 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
       </div>
     </div>
 
-    <div class="sb-module" data-mod="pedidos">
-      <button class="sb-module__btn"><span class="gb-shell-icon">📦</span><span class="sb-module__label">Pedidos</span></button>
+    <!-- v8.1.0 r3: «Producción» reemplaza a «Pedidos» y se lleva la Agenda (Semana). Las claves viejas pedidos/* e inicio/agenda siguen en SUB_TO_LEGACY. -->
+    <div class="sb-module" data-mod="produccion">
+      <button class="sb-module__btn"><span class="gb-shell-icon">🍳</span><span class="sb-module__label">Producción</span></button>
       <div class="sb-submenu">
-        <a href="javascript:void(0)" data-sub="pedidos/aprobados">Aprobados</a>
+        <a href="javascript:void(0)" data-sub="produccion/semana">Semana</a>
+        <a href="javascript:void(0)" data-sub="produccion/por-producir">Por producir</a>
         <!-- v7.8.7: "En producción" oculto — absorb por Aprobados. Modo mantenido para compatibilidad -->
         <!-- <a href="javascript:void(0)" data-sub="pedidos/produccion">En producción</a> -->
-        <a href="javascript:void(0)" data-sub="pedidos/producidos">Producidos</a>
-        <a href="javascript:void(0)" data-sub="pedidos/hojas-imprimibles">Hojas para imprimir</a>
+        <a href="javascript:void(0)" data-sub="produccion/listos">Listos para entregar</a>
+        <a href="javascript:void(0)" data-sub="produccion/hojas">Hojas para imprimir</a>
       </div>
     </div>
 
@@ -2038,7 +2044,12 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'herr/recetas':         'herr-recetas',
     'herr/catalogo-productos': 'herr-catalogo',
     'herr/auditoria':       'herr-auditoria',
-    'herr/negocios-ambiguos': 'herr-ambiguos'
+    'herr/negocios-ambiguos': 'herr-ambiguos',
+    // v8.1.0 r3: módulo Producción (las claves viejas pedidos/* e inicio/agenda siguen arriba y redirigen al mismo modo)
+    'produccion/semana':      'cal',
+    'produccion/por-producir':'pedidos-aprobados',
+    'produccion/listos':      'pedidos-producidos',
+    'produccion/hojas':       'pedidos-hojas'
     // Pipeline, ops/despacho, ops/historico-hojas, compras/*, clientes/*, herr/* → undefined → SOON
   };
 
@@ -2047,7 +2058,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   var LEGACY_TO_SUB = {
     'dash':   'inicio/dashboard',
     'seg':    'inicio/tareas',
-    'cal':    'inicio/agenda',
+    'cal':    'produccion/semana',
     'search': 'inicio/buscar',
     'ventas': 'ventas/crear',
     'cot':    'ventas/cotizar',
@@ -2067,10 +2078,10 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'cotizaciones':         'ventas/cotizaciones',
     'perdidas':             'ventas/perdidas',
     'lista-precios':        'ventas/lista-precios',
-    'pedidos-aprobados':    'pedidos/aprobados',
-    'pedidos-produccion':   'pedidos/produccion',
-    'pedidos-producidos':   'pedidos/producidos',
-    'pedidos-hojas':        'pedidos/hojas-imprimibles',
+    'pedidos-aprobados':    'produccion/por-producir',
+    'pedidos-produccion':   'produccion/por-producir',
+    'pedidos-producidos':   'produccion/listos',
+    'pedidos-hojas':        'produccion/hojas',
     'entregar':             'entregas/por-entregar',
     'entregadas':           'entregas/entregadas',
     'archivo-busqueda':     'archivo/buscar',
@@ -2087,7 +2098,6 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   var SUB_LABELS = {
     'inicio/dashboard':  ['Inicio', 'Dashboard'],
     'inicio/tareas':     ['Inicio', 'Tareas y follow-ups'],
-    'inicio/agenda':     ['Inicio', 'Agenda'],
     'ventas/crear':      ['Cotizaciones', 'Crear nueva'],
     'ventas/cotizar':    ['Cotizaciones', 'Nueva cotización'],
     'ventas/propuesta':  ['Cotizaciones', 'Nueva propuesta'],
@@ -2102,12 +2112,12 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
     'compras/historico':     ['Compras', 'Histórico'],
     'compras/catalogo':      ['Compras', 'Catálogo'],
     'reportes/excel':       ['Reportes', 'Exportar Excel'],
-    'pedidos/hojas-imprimibles': ['Pedidos', 'Hojas para imprimir'],
     'ventas/cotizaciones':  ['Cotizaciones', 'Cotizaciones activas'],
     'ventas/perdidas':      ['Cotizaciones', 'Perdidas'],
-    'pedidos/aprobados':    ['Pedidos', 'Aprobados'],
-    'pedidos/produccion':   ['Pedidos', 'En producción'],
-    'pedidos/producidos':   ['Pedidos', 'Producidos'],
+    'produccion/semana':       ['Producción', 'Semana'],
+    'produccion/por-producir': ['Producción', 'Por producir'],
+    'produccion/listos':       ['Producción', 'Listos para entregar'],
+    'produccion/hojas':        ['Producción', 'Hojas para imprimir'],
     'entregas/por-entregar':['Entregas', 'Por entregar'],
     'entregas/entregadas':  ['Entregas', 'Entregadas'],
     'archivo/buscar':       ['Archivo', 'Buscar todo'],
@@ -2129,8 +2139,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   // v8.0.0 T4b: con GB_REDISENO_R1 el módulo viejo «Inicio» se llama «Tablero» en el menú (iniciarRedisenoR1); el encabezado dice lo mismo
   var R1_SUB_LABELS = {
     'inicio/dashboard': ['Tablero', 'Tablero anterior'],
-    'inicio/tareas':    ['Tablero', 'Tareas y follow-ups'],
-    'inicio/agenda':    ['Tablero', 'Agenda']
+    'inicio/tareas':    ['Tablero', 'Tareas y follow-ups']
   };
 
   function gbShellEnsureCrumb(){
@@ -2214,6 +2223,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
           // v8.0.5: «Nueva cotización/propuesta» pregunta y empieza un documento vacío, como en la hoja Crear
           if (key === 'ventas/cotizar') window.nuevaCotizacion();
           else if (key === 'ventas/propuesta') window.nuevaPropuesta();
+          else if (legacy === 'cal' && typeof window.abrirProduccionSemana === 'function') window.abrirProduccionSemana(); // v8.1.0 r3: siempre en vista semana
           else window.setMode(legacy);
           // v7.5 BUG-V7.4-01 fix: el modulo Reportes tiene tabs internos (Excel/Imprimibles).
           // Como ambos sub-items mapean al mismo modo 'reportes', setMode no cambia
@@ -3126,7 +3136,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   <div class="sec">
     <div class="stit" style="color:#E65100;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
       <span>🚚 Por entregar (hoy y mañana)</span>
-      <span id="entregar-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+      <span id="entregar-summary" style="font-size:12px;font-weight:400;color:#888"></span><button type="button" class="gb-imp-abrir" onclick="abrirPanelImpresion('hoy-manana')" title="Hojas de hoy y mañana">🖨 Imprimir</button>
     </div>
     <div id="entregar-list" style="padding:0 4px"></div>
   </div>
@@ -3147,7 +3157,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   <div class="sec">
     <div class="stit" style="color:#E65100;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
       <span>📦 Pedidos aprobados (por producir)</span>
-      <span id="pedidos-aprobados-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+      <span id="pedidos-aprobados-summary" style="font-size:12px;font-weight:400;color:#888"></span><button type="button" class="gb-imp-abrir" onclick="abrirPanelImpresion('semana')" title="Hojas de esta semana">🖨 Imprimir</button>
     </div>
     <div id="pedidos-aprobados-list" style="padding:0 4px"></div>
   </div>
@@ -3167,7 +3177,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
   <div class="sec">
     <div class="stit" style="color:#1B5E20;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
       <span>✅ Pedidos producidos (listos para entregar)</span>
-      <span id="pedidos-producidos-summary" style="font-size:12px;font-weight:400;color:#888"></span>
+      <span id="pedidos-producidos-summary" style="font-size:12px;font-weight:400;color:#888"></span><button type="button" class="gb-imp-abrir" onclick="abrirPanelImpresion('semana')" title="Hojas de esta semana">🖨 Imprimir</button>
     </div>
     <div id="pedidos-producidos-list" style="padding:0 4px"></div>
   </div>
@@ -3431,6 +3441,7 @@ body{font-family:var(--gb-font-body);background:var(--gb-cream);color:var(--gb-n
         <div class="cal-title" id="week-title">—</div>
         <button class="cal-nav-btn" onclick="weekNext()" aria-label="Semana siguiente">▶</button>
         <button class="cal-today-btn" onclick="weekToday()">Hoy</button>
+        <button class="cal-today-btn gb-imp-abrir" onclick="abrirPanelImpresion('semana-visible')" title="Hojas de la semana que se ve">🖨 Imprimir</button>
       </div>
       <div class="week-grid" id="week-grid"></div>
     </div>
@@ -4879,22 +4890,29 @@ body{padding-bottom:84px}
 
 <!-- v7.3 F3: xlsx-js-style (fork de SheetJS con soporte de estilos) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js" integrity="sha384-OUW9euuUyxyHcAhTqbhI+Iyb8LMssXt/cpz0yXhs9UWG2/R/uaWdakx/4cfww7Vb" crossorigin="anonymous"></script><!-- v7.9.13 SEC-12: SRI -->
+<!-- v8.1.0 r3: ventana del panel de impresión (abrirPanelImpresion / cerrarPanelImpresion en app-dashboard.js) -->
+<div id="gb-imp-velo" class="gb-imp-velo" hidden onclick="if(event.target===this)cerrarPanelImpresion()">
+  <div class="gb-imp-ventana" role="dialog" aria-modal="true" aria-labelledby="gb-imp-titulo">
+    <div class="gb-imp-cab"><strong id="gb-imp-titulo">🖨 Imprimir</strong><button type="button" class="gb-imp-cerrar" onclick="cerrarPanelImpresion()" aria-label="Cerrar">✕</button></div>
+    <div id="gb-imp-cuerpo"></div>
+  </div>
+</div>
 <!-- v8.0.0 T2 · Barra inferior (ver style#r1-barra-estilos) -->
 <nav id="r1-barra" class="r1-barra" hidden aria-label="Navegación rápida">
   <button type="button" data-r1-ir="inicio"><span class="r1-barra-ic">🏠</span>Inicio<span id="r1-insignia-barra" class="r1-insignia" hidden></span></button>
   <button type="button" data-r1-ir="negocios"><span class="r1-barra-ic">📋</span>Negocios</button>
-  <button type="button" data-r1-ir="imprimir"><span class="r1-barra-ic">🖨️</span>Imprimir</button>
-  <button type="button" data-r1-ir="clientes"><span class="r1-barra-ic">👥</span>Clientes</button>
-  <button type="button" data-r1-ir="mas"><span class="r1-barra-ic">☰</span>Más</button>
+  <button type="button" data-r1-ir="produccion"><span class="r1-barra-ic">🍳</span>Producción</button>
+  <button type="button" data-r1-ir="entregas"><span class="r1-barra-ic">🚚</span>Entregas</button>
+  <button type="button" data-r1-ir="cobros"><span class="r1-barra-ic">💵</span>Cobros</button><!-- v8.1.0 r3: Imprimir, Clientes y ☰ Más salen; queda la hamburguesa del encabezado -->
 </nav>
-<script src="agenda-eventos.js?v=8.0.8.1"></script><!-- v8.0.8: eventos de agenda (window.GBAgenda) -->
-<script src="app-assets.js?v=8.0.8.1"></script>
-<script src="app-core.js?v=8.0.8.1"></script>
-<script src="app-cotizar.js?v=8.0.8.1"></script>
-<script src="app-propuesta.js?v=8.0.8.1"></script>
-<script src="app-historial.js?v=8.0.8.1"></script>
-<script src="app-seguimiento.js?v=8.0.8.1"></script>
-<script src="app-dashboard.js?v=8.0.8.1"></script>
-<script src="app-negocios.js?v=8.0.8.1"></script>
+<script src="agenda-eventos.js?v=8.1.0"></script><!-- v8.0.8: eventos de agenda (window.GBAgenda) -->
+<script src="app-assets.js?v=8.1.0"></script>
+<script src="app-core.js?v=8.1.0"></script>
+<script src="app-cotizar.js?v=8.1.0"></script>
+<script src="app-propuesta.js?v=8.1.0"></script>
+<script src="app-historial.js?v=8.1.0"></script>
+<script src="app-seguimiento.js?v=8.1.0"></script>
+<script src="app-dashboard.js?v=8.1.0"></script>
+<script src="app-negocios.js?v=8.1.0"></script>
 </body>
 </html>

@@ -109,8 +109,8 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v8.0.8.1";
-const BUILD_DATE="2026-10-08";
+const BUILD_VERSION="v8.1.0";
+const BUILD_DATE="2026-10-09";
 // v8.0.0 (D-v8-09): bandera del rediseño R1. Tapa sólo lo nuevo: Inicio, Negocios (y la ficha en T3), barra
 // inferior, entradas del menú y arranque en Inicio. F5 y los campos nuevos quedan siempre activos. Apagada, la app
 // es v7.10.2 más los arreglos de T1. Se enciende para todos a la vez tras la prueba de Kathy y JP (D-v8-03).
@@ -2024,13 +2024,117 @@ async function deleteOrArchiveProveedor(id){
   return {modo:"borrado",comprasVinculadas:0};
 }
 
-// ─── v7.8.6: PRODUCCIÓN ANTICIPADA — itemsProducidos por pedido ───
-// Guarda array de nombres (lowercase+trim) de items ya producidos en un pedido.
-// v7.8.7.1: detección de colección consistente con el resto de la app — docs GB-PF-* viven en propfinals/
-async function saveItemsProducidosToCloud(docId,kind,itemsProducidos){
-  const {db,doc,updateDoc,serverTimestamp}=window.fb;
-  const coll=getCollectionName(docId,kind);
-  await updateDoc(doc(db,coll,docId),{itemsProducidos:itemsProducidos,updatedAt:serverTimestamp(),...auditStamp()});
+// ─── v8.1.0: PREPARACIÓN POR PRODUCTO — ✓ hecho (itemsProducidos) y ❄ congelado (itemsCongelados) ───
+// Plan v8.1.0 (reglas R1–R13). Las marcas son por pedido y por nombre (minúsculas, sin espacios
+// sobrantes). «Listo» es SIEMPRE el campo produced; listoPorMarcas dice si lo pusieron las marcas.
+// Funciones puras: las usan las transacciones (marcarPreparacion, confirmar, editor) con el
+// documento fresco y el kind explícito (el documento leído en la transacción no trae kind).
+function gbClaveItem(n){return String(n||"").toLowerCase().trim()}
+// Productos a preparar. Propuestas: la misma regla que computePropTotal (secciones que suman y
+// la «Opción A» o la única opción), no todas las opciones.
+function gbItemsAPreparar(q,kind){
+  const porClave=new Map();
+  const add=(nombre,qty,catId)=>{
+    if(!_esProductoProducible(nombre||""))return;
+    const key=gbClaveItem(nombre);if(!key)return;
+    const prev=porClave.get(key);
+    if(prev)prev.qty+=Number(qty||0);
+    else porClave.set(key,{nombre:nombre||"",key,qty:Number(qty||0),catId});
+  };
+  if(kind==="quote"){
+    (q.cart||[]).forEach(it=>add(it.n,it.qty,it.id));
+    (q.cust||[]).forEach(it=>add(it.n,it.qty,null));
+  }else{
+    (q.sections||[]).forEach(sec=>{
+      if(sec.incluirEnTotal===false)return;
+      (sec.options||[]).forEach(opt=>{
+        if(opt.label==="Opción A"||sec.options.length===1)(opt.items||[]).forEach(it=>add(it.name,it.qty,it.catId));
+      });
+    });
+  }
+  return [...porClave.values()];
+}
+// ¿El producto del catálogo es de la categoría «Congelados»? Firestore primero, luego el catálogo fijo C.
+// Personalizados (sin id de catálogo) nunca.
+function gbEsCongeladoCatalogo(catId){
+  if(catId==null||catId==="")return false;
+  const p=(typeof productosCache!=="undefined"&&productosCache)?productosCache[catId]:null;
+  const cat=p?((typeof categoriasCache!=="undefined"&&categoriasCache&&categoriasCache[p.categoriaId])||{}).nombre
+    :((C.find(x=>String(x.id)===String(catId))||{}).c);
+  return /^congelad/i.test(String(cat||"").trim());
+}
+// Despachos al cambiar «listo»: pendiente→producido (con producedAt) o producido→pendiente (sin producedAt).
+// Los entregados no se tocan. null si el documento no tiene despachos explícitos.
+function gbDespachosSegunListo(despachos,listo,ahoraIso){
+  if(!Array.isArray(despachos)||!despachos.length)return null;
+  return despachos.map(d=>{
+    if(!d||d.status==="entregado")return d;
+    if(listo&&(d.status||"pendiente")==="pendiente")return {...d,status:"producido",producedAt:ahoraIso}; // r1: sólo pendiente
+    if(!listo&&d.status==="producido")return {...d,status:"pendiente",producedAt:null};
+    return d;
+  });
+}
+function _gbPatchListo(fresh,listo,porMarcas,ahoraIso){
+  const p={produced:listo,producedAt:listo?ahoraIso:null,listoPorMarcas:listo&&porMarcas};
+  const ds=gbDespachosSegunListo(fresh.despachos,listo,ahoraIso);
+  if(ds)p.despachos=ds;
+  return p;
+}
+// Aplica marcas al documento fresco. cambios: {clave:"hecho"|"congelado"|"quitarHecho"|"quitarCongelado"|null (ambas)},
+// o "todo" para «Todo listo»
+// (marca ✓ lo que falte; sin productos a preparar, pone listo directo con listoPorMarcas=false).
+// Devuelve el patch (sin updatedAt/auditoría).
+function gbPatchPreparacion(fresh,kind,cambios,ahoraIso){
+  const items=gbItemsAPreparar(fresh,kind);
+  const hechos=new Set((fresh.itemsProducidos||[]).map(gbClaveItem)),frios=new Set((fresh.itemsCongelados||[]).map(gbClaveItem));
+  const marcado=k=>hechos.has(k)||frios.has(k);
+  const completoAntes=items.length>0&&items.every(it=>marcado(it.key)),todo=cambios==="todo";
+  if(cambios==="todo"){
+    if(!items.length)return fresh.produced?{}:_gbPatchListo(fresh,true,false,ahoraIso);
+    cambios={};items.forEach(it=>{if(!marcado(it.key))cambios[it.key]="hecho"});
+  }
+  let quito=false;
+  const actuales=new Set(items.map(it=>it.key));
+  for(const [k0,v] of Object.entries(cambios||{})){
+    const k=gbClaveItem(k0);
+    // r2: «quitarHecho»/«quitarCongelado» sólo quitan esa marca (un ❄ puesto por otro teléfono sobrevive)
+    const habia=v==="quitarHecho"?hechos.delete(k):v==="quitarCongelado"?frios.delete(k):(hechos.delete(k)|frios.delete(k)); // excluyentes
+    if(v==="hecho")hechos.add(k);else if(v==="congelado")frios.add(k);
+    // r1/r2: baja el listo sólo una marca que existía y es de un producto actual (una huérfana no cuenta)
+    else if(habia&&actuales.has(k))quito=true;
+  }
+  const completo=items.length>0&&items.every(it=>marcado(it.key));
+  const patch={itemsProducidos:[...hechos],itemsCongelados:[...frios]};
+  // r4 (Codex): sube a listo sólo si esta acción completó lo que faltaba o es «Todo listo»; guardar sin cambios
+  // no revierte un «producido» quitado con el botón de siempre.
+  if(completo&&!fresh.produced&&(todo||!completoAntes))Object.assign(patch,_gbPatchListo(fresh,true,true,ahoraIso));
+  else if(quito&&fresh.produced)Object.assign(patch,_gbPatchListo(fresh,false,false,ahoraIso));
+  return patch;
+}
+// R7: al confirmar el pedido (cotización) o aprobar la propuesta. La casilla «ya producido» gana;
+// si no, ❄ para lo de la categoría «Congelados» y, si todo lo que hay que preparar quedó marcado, nace listo.
+function gbPreparacionAlConfirmar(fresh,kind,casillaProducido,ahoraIso){
+  const items=gbItemsAPreparar(fresh,kind);
+  const frios=new Set((fresh.itemsCongelados||[]).map(gbClaveItem));
+  items.forEach(it=>{if(gbEsCongeladoCatalogo(it.catId))frios.add(it.key)});
+  const p={};
+  if(frios.size)p.itemsCongelados=[...frios];
+  const previosHechos=(fresh.itemsProducidos||[]).map(gbClaveItem);
+  if(previosHechos.some(k=>frios.has(k)))p.itemsProducidos=previosHechos.filter(k=>!frios.has(k)); // r2: ✓ y ❄ excluyentes también al reconfirmar
+  if(casillaProducido)return Object.assign(p,{produced:true,producedAt:ahoraIso,listoPorMarcas:false}); // r1: ❄ también con la casilla
+  const hechos=new Set(previosHechos);
+  if(items.length&&items.every(it=>frios.has(it.key)||hechos.has(it.key)))Object.assign(p,_gbPatchListo(fresh,true,true,ahoraIso));
+  else if(kind==="quote")Object.assign(p,{produced:false,producedAt:null,listoPorMarcas:false});
+  return p;
+}
+// R6/R13: tras fusionar el editor con el documento fresco. Un listo puesto por las marcas se baja si
+// con los productos nuevos falta alguno por marcar (o ya no queda ninguno). Un listo manual se conserva.
+function gbReconciliarListoTrasEdicion(obj,kind,ahoraIso){
+  if(!obj||obj.listoPorMarcas!==true||!obj.produced||obj.status==="entregado")return obj;
+  const hechos=new Set((obj.itemsProducidos||[]).map(gbClaveItem)),frios=new Set((obj.itemsCongelados||[]).map(gbClaveItem));
+  const items=gbItemsAPreparar(obj,kind);
+  if(items.length&&items.every(it=>hechos.has(it.key)||frios.has(it.key)))return obj;
+  return Object.assign(obj,_gbPatchListo(obj,false,false,ahoraIso));
 }
 
 // ─── v7.8.5: RECETAS INTERNAS (collection 'recetasInternas') ───
@@ -2616,7 +2720,8 @@ async function getNextNumber(kind){
 // v8.0.0: businessId (sistema: se fija al crear y nunca se edita), proximoContacto (lo ponen Seguimiento y
 // la ficha) y negocioManual (unir/separar) van aquí para que la fusión conserve SIEMPRE el valor del
 // servidor, también su borrado con null; el editor nunca los escribe desde el formulario.
-const OPERATIONAL_FIELDS=["status","supersededBy","pagos","orderData","entregaData","produced","productionDate","approvalData","propFinalRef","comentarioCliente","pdfHistorial","pdfRegenCount","ajustes","cargos","saldoData","pago_changelog","auditTrail","itemsProducidos","followUpStatus","followUpLog","followUp","followUpUpdatedAt","notasSeguimiento","perdidaData","feData","replacedBy","replaces","expectsReplacement","needsSync","anuladaData","createdAt","accountingEntityId","emisorSnapshot","clienteFiscal","businessId","proximoContacto","negocioManual"];
+// v8.1.0: itemsCongelados (❄), listoPorMarcas y ultimaEntregaAccion (Deshacer de la entrega por despacho).
+const OPERATIONAL_FIELDS=["status","supersededBy","pagos","orderData","entregaData","produced","productionDate","approvalData","propFinalRef","comentarioCliente","pdfHistorial","pdfRegenCount","ajustes","cargos","saldoData","pago_changelog","auditTrail","itemsProducidos","itemsCongelados","listoPorMarcas","ultimaEntregaAccion","followUpStatus","followUpLog","followUp","followUpUpdatedAt","notasSeguimiento","perdidaData","feData","replacedBy","replaces","expectsReplacement","needsSync","anuladaData","createdAt","accountingEntityId","emisorSnapshot","clienteFiscal","businessId","proximoContacto","negocioManual"];
 
 // v7.9.25: comparar el contenido guardado al ABRIR el editor, no al pulsar Guardar.
 // Los avances operativos (pagos/evidencias) se reconcilian por separado.
@@ -4107,6 +4212,7 @@ async function revertDelivery(quoteId,kind,opts){
       const patch={
         status:"en_produccion",
         entregaData:deleteField(),
+        ultimaEntregaAccion:null, // v8.1.0 R12.d: invalida el Deshacer de un toque
         auditTrail:auditTrail,
         updatedAt:serverTimestamp()
       };

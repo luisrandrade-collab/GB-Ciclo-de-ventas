@@ -2,7 +2,7 @@
 // con Firestore y Calendar en memoria. Sin red ni datos reales (plan v7_11_0, pruebas y C1–C4).
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-import {readFileSync} from 'node:fs';
+import {readFileSync,readdirSync} from 'node:fs';
 import {resolve,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import vm from 'node:vm';
@@ -498,18 +498,193 @@ await test('v8.0.8 r1: la agenda interna usa la lista del módulo (despachos sin
 await test('v8.0.8 r1: DEPLOY exige errores 0 y sinConverger 0 en la carga inicial',()=>{
   assert.match(leer('DEPLOY.md'),/`errores: 0` \*\*y\*\* `sinConverger: 0`/);
 });
-await test('v8.0.8 r2: las tarjetas usan la fecha y hora del despacho; «Marcar producido» en la semana pasa el kind',()=>{
-  const q={id:'GB-P-2026-0009',kind:'proposal',status:'aprobada',client:'C',horaEntrega:'07:00',despachos:[desp('a','2026-10-20T08:00'),desp('b','2026-10-22T15:30')]};
-  const fns=['eventsAllStatuses','_shouldShowProduccion','eventsForCalendarEntries','renderWeekProductionCard'].map(n=>['app-dashboard.js',n]).concat([['app-core.js','getCollectionName']]);
-  const c=loadSourceFunctions(fns,{window:{GBAgenda:A},quotesCache:[q],getFollowUp:()=>null,fm:String,getDocTotal:()=>0,jsArg:JSON.stringify,_calEntregaLabel:iso=>'«'+iso+'»'});
-  const e=c.eventsForCalendarEntries();
-  const p=e.filter(x=>x.tipo==='producir');
-  assert.deepEqual([...p.map(x=>x.entregaIso+' '+x.entregaHora)],['2026-10-20 08:00','2026-10-22 15:30'],'cada producción nombra su entrega');
-  const html=c.renderWeekProductionCard(q,p[1]);
-  assert.match(html,/«2026-10-22» 15:30/);assert.doesNotMatch(html,/07:00/,'no la hora vieja del documento');
+// v8.1.0 r2: la Semana tipo planeador reemplaza las tarjetas de v8.0.8 (renderWeekEventCard/renderWeekProductionCard).
+function semana(docs,lunes,hoy){
+  const fns=['gbSemanaEntregas','gbSemanaDespachoListo','gbSemanaIdUnico','gbSemanaCasillas'].map(n=>['app-dashboard.js',n]).concat([['app-core.js','getDespachos'],['app-core.js','getCollectionName']]);
+  const c=loadSourceFunctions(fns,{window:{GBAgenda:A},GB_ESTADOS_ABIERTOS:['pedido','aprobada','en_produccion'],GB_SEM_ATRASO_DIAS:60});
+  return c.gbSemanaCasillas(docs,lunes,hoy);
+}
+const resumen=s=>s.dias.map(x=>x.iso.slice(8)+':'+x.prep.map(p=>'P'+p.q.id+(p.atrasado?'!':'')).concat(x.ent.map(e=>'E'+e.q.id+'/'+e.idx+(e.hora?'@'+e.hora:'')+(e.atrasado?'!':'')+(e.listo?'+':''))).join(',')).join(' ');
+await test('v8.1.0 r2: sábado y domingo son casillas separadas; la entrega usa fecha y hora del despacho; preparar el día antes',()=>{
+  const q={id:'P1',kind:'proposal',status:'aprobada',client:'C',horaEntrega:'07:00',despachos:[desp('a','2026-10-17T09:00'),desp('b','2026-10-18T12:00')]};
+  const s=semana([q],'2026-10-12','2026-10-14');
+  assert.equal(s.dias.length,7);
+  assert.equal(resumen(s),'12: 13: 14: 15: 16:PP1 17:PP1,EP1/0@09:00 18:EP1/1@12:00');
+  assert.deepEqual([s.dias[4].prep[0].entFecha,s.dias[4].prep[0].entHora],['2026-10-17','09:00'],'la preparación del viernes es para el sábado');
+  assert.deepEqual([s.dias[5].prep[0].entFecha,s.dias[5].prep[0].entHora],['2026-10-18','12:00'],'la del sábado, para el domingo');
+});
+await test('v8.1.0 r2: lo atrasado de semanas pasadas sube a Hoy (sólo en la semana actual y hasta 60 días); lo entregado no',()=>{
+  const viejo={id:'V',kind:'quote',status:'pedido',client:'C',eventDate:'2026-10-05',horaEntrega:'10:00'};
+  const entregado={id:'X',kind:'quote',status:'entregado',client:'C',eventDate:'2026-10-05'};
+  const antiguo={id:'Z',kind:'quote',status:'pedido',client:'C',eventDate:'2026-07-01'};
+  const s=semana([viejo,entregado,antiguo],'2026-10-12','2026-10-14');
+  assert.equal(resumen(s),'12: 13: 14:PV!,EV/0@10:00! 15: 16: 17: 18:');
+  assert.equal(resumen(semana([viejo],'2026-10-19','2026-10-14')),'19: 20: 21: 22: 23: 24: 25:','otra semana: no sube');
+  assert.equal(resumen(semana([{...viejo,produced:true}],'2026-10-12','2026-10-14')),'12: 13: 14:EV/0@10:00!+ 15: 16: 17: 18:','listo: sólo la entrega atrasada');
+});
+await test('v8.1.0 r2: Pendientes = abiertos sin fecha; despacho listo como entregarDespachoUnToque; sin despachos[] usa produced',()=>{
+  const sin={id:'S',kind:'quote',status:'pedido',client:'C'};
+  const q={id:'D',kind:'proposal',status:'aprobada',client:'C',produced:true,despachos:[desp('a','2026-10-13T08:00',{status:'entregado'}),desp('b','2026-10-15T08:00'),desp('c','2026-10-16T08:00',{status:'producido'})]};
+  const cerrado={id:'E',kind:'quote',status:'entregado',client:'C'};
+  const s=semana([sin,cerrado,q,{id:'L',kind:'quote',status:'pedido',client:'C',eventDate:'2026-10-16'}],'2026-10-12','2026-10-14');
+  assert.deepEqual([...s.pendientes.map(x=>x.id)],['S']);
+  assert.equal(resumen(s),'12:PD 13:ED/0@08:00 14:PD 15:PD,PL,ED/1@08:00+ 16:EL/0,ED/2@08:00+ 17: 18:');
+  assert.equal(s.dias[1].ent[0].entregado,true);assert.equal(s.dias[1].ent[0].atrasado,false,'entregado no es atrasado');
+  const s2=semana([{...q,produced:false}],'2026-10-12','2026-10-14');
+  assert.deepEqual([...s2.dias.flatMap(x=>x.ent).map(e=>e.listo)],[false,false,true],'pendiente sin listo: bloqueado; producido: listo');
+});
+await test('v8.1.0 r2: las tarjetas de la Semana llaman a las funciones de la ronda 1 y al formulario viejo sólo sin despachos[]',()=>{
   const dash=leer('app-dashboard.js');
-  assert.match(dash,/renderWeekEventCard\(e\.q,iso,todayIso,e\.hora\)/);assert.match(dash,/const horaE=e\.tipo==="entregar"\?e\.hora:e\.entregaHora;/);
-  assert.match(dash,/toggleProduced\('\+jsArg\(q\.id\)\+','\+jsArg\(q\.kind\)\+',event\)" title="Marcar como producido"/);
+  assert.match(dash,/marcarPreparacion\(id,kind,\{\[clave\]:accion\}\)/);
+  assert.match(dash,/marcarPreparacion\(id,kind,"todo"\)/);
+  assert.match(dash,/entregarDespachoUnToque\(id,kind,despId\)/);
+  assert.match(dash,/deshacerEntregaDespacho\(id,kind,r\.accionId\)/);
+  assert.match(dash,/d\._legacy\?'openDeliveryModal\('\+id\+','\+kind\+',event\)'/);
+  assert.match(dash,/genRemisionDespachoPDF\(q,idx\)/);
+});
+await test('v8.1.0 Semana r1 (Codex): fecha inválida → Pendientes por revisar; id de despacho repetido o ausente no permite el toque único',()=>{
+  const malo={id:'M',kind:'quote',status:'pedido',client:'C',eventDate:'2026-02-30'};
+  const s=semana([malo],'2026-10-12','2026-10-14');
+  assert.deepEqual([...s.pendientes.map(x=>x.id)],['M']);assert.equal(resumen(s),'12: 13: 14: 15: 16: 17: 18:');
+  const q={id:'R',kind:'proposal',status:'aprobada',client:'C',produced:true,despachos:[desp('a','2026-10-15T08:00'),desp('a','2026-10-16T08:00'),desp('','2026-10-17T08:00'),desp('u','2026-10-18T08:00')]};
+  assert.deepEqual([...semana([q],'2026-10-12','2026-10-14').dias.flatMap(x=>x.ent).map(e=>e.unico)],[false,false,false,true]);
+  assert.deepEqual([...semana([{id:'L',kind:'quote',status:'pedido',client:'C',eventDate:'2026-10-15'}],'2026-10-12','2026-10-14').dias.flatMap(x=>x.ent).map(e=>e.unico)],[true],'sin despachos[] va al formulario');
+});
+await test('v8.1.0 Semana r1 (Codex): Pendientes con la elegibilidad de la agenda; lo atrasado arriba de la casilla de Hoy',()=>{
+  const c=loadSourceFunctions([['app-dashboard.js','gbSemanaSinFecha']],{getFollowUp:q=>q.fu||null});
+  const docs=[{id:'1',kind:'quote',status:'pedido'},{id:'2',kind:'quote',status:'aprobada'},{id:'3',kind:'proposal',status:'pedido'},{id:'4',kind:'proposal',status:'aprobada'},
+    {id:'5',kind:'propfinal',status:'en_produccion'},{id:'6',kind:'quote',status:'pedido',_wrongCollection:true},{id:'7',kind:'quote',status:'pedido',fu:'perdida'},{id:'8',kind:'quote',status:'anulada'}];
+  const con=[docs[0]];
+  assert.deepEqual([...c.gbSemanaSinFecha(docs,con).map(q=>q.id)],['4','5']);
+  const dash=leer('app-dashboard.js');
+  assert.match(dash,/\.sort\(\(a,b\)=>b\[0\]\.atrasado-a\[0\]\.atrasado\)\.map\(\(\[c,f\]\)=>f\(c\)\)/,'preparar y entregar se ordenan juntos por atrasado');
+  assert.match(dash,/gbSemanaCasillas\(conFecha\.concat\(gbSemanaSinFecha\(quotesCache,conFecha\)\)/);
+});
+// ═══ v8.1.0 ronda 3: menú Producción, barra del celular, panel de impresión en ventana, ❄ en hojas A/B, no filtración ═══
+function tablaIndex(nombre){
+  const idx=leer('index.html'),i=idx.indexOf('var '+nombre+' = {');
+  return Function('return '+idx.slice(idx.indexOf('{',i),idx.indexOf('};',i)+1))();
+}
+await test('v8.1.0 r3 menú: «Producción» (Semana · Por producir · Listos · Hojas) reemplaza a Pedidos; Agenda sale de Tablero; las rutas viejas redirigen',()=>{
+  const idx=leer('index.html').replace(/<!--[\s\S]*?-->/g,''); // sin comentarios (queda uno viejo de «En producción»)
+  const mod=idx.slice(idx.indexOf('<div class="sb-module" data-mod="produccion">'),idx.indexOf('<div class="sb-module" data-mod="entregas">'));
+  assert.deepEqual([...mod.matchAll(/data-sub="([^"]+)">([^<]+)</g)].map(m=>m[1]+'='+m[2]),
+    ['produccion/semana=Semana','produccion/por-producir=Por producir','produccion/listos=Listos para entregar','produccion/hojas=Hojas para imprimir']);
+  assert.doesNotMatch(idx,/data-mod="pedidos"/);assert.doesNotMatch(idx,/data-sub="inicio\/agenda"/);assert.doesNotMatch(idx,/data-sub="pedidos\//);
+  const S=tablaIndex('SUB_TO_LEGACY'),L=tablaIndex('LEGACY_TO_SUB'),T=tablaIndex('SUB_LABELS');
+  for(const [vieja,nueva] of [['inicio/agenda','produccion/semana'],['pedidos/aprobados','produccion/por-producir'],['pedidos/producidos','produccion/listos'],['pedidos/hojas-imprimibles','produccion/hojas']]){
+    assert.equal(S[vieja],S[nueva],vieja+' redirige al mismo modo');assert.equal(L[S[nueva]],nueva);assert.equal(T[nueva][0],'Producción');
+  }
+  assert.equal(L['pedidos-produccion'],'produccion/por-producir');
+  for(const [k,v] of Object.entries(L))assert.ok(S[v],'LEGACY_TO_SUB '+k+' → '+v+' existe en SUB_TO_LEGACY');
+});
+await test('v8.1.0 r3 barra del celular: Inicio · Negocios · Producción · Entregas · Cobros; marca el destino de cada modo',()=>{
+  const idx=leer('index.html'),barra=idx.slice(idx.indexOf('<nav id="r1-barra"'),idx.indexOf('</nav>',idx.indexOf('<nav id="r1-barra"')));
+  assert.deepEqual([...barra.matchAll(/data-r1-ir="(\w+)"/g)].map(m=>m[1]),['inicio','negocios','produccion','entregas','cobros']);
+  const btns=['inicio','negocios','produccion','entregas','cobros'].map(ir=>({dataset:{r1Ir:ir},act:false}));
+  btns.forEach(b=>{b.classList={toggle(c,v){b.act=v}}});
+  const caja={querySelectorAll:()=>btns};
+  const c=loadSourceFunctions([['app-negocios.js','pintarNavR1']],{GB_REDISENO_R1:true,invalidarProyeccionNegocios(){},proyeccionNegocios:()=>({avisos:[]}),
+    $:id=>id==='r1-barra'?caja:null,document:{querySelectorAll:()=>[]}});
+  const marcado=m=>{c.pintarNavR1(m);return btns.filter(b=>b.act).map(b=>b.dataset.r1Ir).join()};
+  assert.deepEqual(['inicio','negocios','ficha','cal','pedidos-aprobados','pedidos-producidos','pedidos-hojas','entregar','entregadas','cartera','cartera-historico','clientes-directorio','dash'].map(marcado),
+    ['inicio','negocios','negocios','produccion','produccion','produccion','produccion','entregas','entregas','cobros','cobros','','']);
+});
+await test('v8.1.0 r3 panel de impresión: rango por 🖨, Desde/Hasta antes de pintar, una sola instancia, D primero desde Entregas',async()=>{
+  const fns=['gbRangoImpresion','abrirPanelImpresion','cerrarPanelImpresion','_impEsc','getMondayIso','isoToDate','dateToIso'].map(n=>['app-dashboard.js',n]);
+  const els={'pedidos-hojas-content':{innerHTML:'<input id="rep-imp-desde">'},'gb-imp-cuerpo':{innerHTML:''},'gb-imp-velo':{hidden:true,querySelector:()=>({focus(){}})}};
+  const pintados=[],F={desde:'',hasta:''};
+  const c=loadSourceFunctions(fns,{window:{GBAgenda:A},$:id=>els[id],quotesCache:[1],reportesFiltrosImpr:F,weekAnchor:'2026-10-19',gbTodayIso:()=>'2026-10-14',
+    document:{addEventListener(){},removeEventListener(){}},renderReportesImprimibles:(el,primero)=>pintados.push([el===els['gb-imp-cuerpo'],F.desde,F.hasta,primero,els['pedidos-hojas-content'].innerHTML])});
+  assert.deepEqual({...c.gbRangoImpresion('semana','2026-10-14','2026-10-19')},{desde:'2026-10-12',hasta:'2026-10-18'});
+  assert.deepEqual({...c.gbRangoImpresion('semana-visible','2026-10-14','2026-10-19')},{desde:'2026-10-19',hasta:'2026-10-25'});
+  assert.deepEqual({...c.gbRangoImpresion('hoy-manana','2026-10-31',null)},{desde:'2026-10-31',hasta:'2026-11-01',primero:'D'});
+  assert.deepEqual({...c.gbRangoImpresion('2026-10-17','2026-10-14',null)},{desde:'2026-10-17',hasta:'2026-10-17'},'el 🖨 del sábado');
+  await c.abrirPanelImpresion('hoy-manana');
+  assert.deepEqual(pintados[0],[true,'2026-10-14','2026-10-15','D',''],'pinta en la ventana con el rango ya puesto y la página de Hojas vacía');
+  assert.equal(els['gb-imp-velo'].hidden,false);
+  c.cerrarPanelImpresion();assert.equal(els['gb-imp-velo'].hidden,true);assert.equal(els['gb-imp-cuerpo'].innerHTML,'');
+  const dash=leer('app-dashboard.js'),ini=dash.indexOf('async function renderPedidosHojas'),hojas=dash.slice(ini,dash.indexOf('renderReportesImprimibles(contentEl);',ini));
+  assert.match(hojas,/cerrarPanelImpresion\(\);/,'entrar a Hojas cierra la ventana');
+  const r=loadSourceFunctions([['app-dashboard.js','renderReportesImprimibles'],['app-dashboard.js','_impCard']],{reportesFiltrosImpr:{desde:'x',hasta:'x'},_reportesHoy:()=>'x',reportesIncluirEntregados:false,renderReportesImprimiblesPreview(){}});
+  const orden=p=>{const el={innerHTML:''};r.renderReportesImprimibles(el,p);return [...el.innerHTML.matchAll(/>PDF ([A-E])<\/div>/g)].map(m=>m[1]).join('')};
+  assert.equal(orden(undefined),'ABCDE');assert.equal(orden('D'),'DABCE','ninguna hoja se quita');
+  const idx=leer('index.html');
+  for(const [vista,arg] of [['entregar-summary',"'hoy-manana'"],['pedidos-aprobados-summary',"'semana'"],['pedidos-producidos-summary',"'semana'"]])
+    assert.ok(idx.includes('<span id="'+vista+'" style="font-size:12px;font-weight:400;color:#888"></span><button type="button" class="gb-imp-abrir" onclick="abrirPanelImpresion('+arg+')"'),vista);
+  assert.match(idx,/onclick="abrirPanelImpresion\('semana-visible'\)"/);assert.match(dash,/onclick="abrirPanelImpresion\('\+jsArg\(x\.iso\)\+'\)"/,'🖨 de cada día');
+  assert.equal((idx.match(/id="gb-imp-cuerpo"/g)||[]).length,1);
+});
+await test('v8.1.0 r3 (Codex r1/r2): las hojas usan la fecha de cada despacho (el que no tiene hereda la del pedido); C y D sólo los del rango',()=>{
+  const F={desde:'2026-10-18',hasta:'2026-10-18'};
+  const c=loadSourceFunctions(['_impDocEnRango','_impDespachoEnRango','_impFechaDespacho','_impFechasDoc','_impFechaEnRango','_reportesGetFecha'].map(n=>['app-dashboard.js',n]).concat([['app-core.js','getDespachos']]),{reportesFiltrosImpr:F});
+  const soloDesp={id:'S',despachos:[desp('a','2026-10-17T09:00'),desp('b','2026-10-18T12:00')]};
+  const conEvento={id:'E',eventDate:'2026-10-17',despachos:[desp('a','2026-10-17T09:00'),desp('b','2026-10-18T12:00')]};
+  const fueraDelDia={id:'G',eventDate:'2026-10-18',despachos:[desp('a','2026-10-17T09:00'),desp('b','2026-10-19T09:00')]};
+  const heredado={id:'H',eventDate:'2026-10-17',despachos:[desp('a',''),desp('b','2026-10-18T12:00')]};
+  assert.deepEqual([soloDesp,conEvento,{id:'L',eventDate:'2026-10-18'},{id:'N',eventDate:'2026-10-17'},fueraDelDia,heredado].map(q=>c._impDocEnRango(q,F.desde,F.hasta)),
+    [true,true,true,false,false,true],'entra por el despacho del domingo; la fecha general sola no basta si sus despachos son de otros días (D sin filas)');
+  const filtrar=q=>q.despachos.map((d,i)=>({q,despacho:d,idx:i})).filter(c._impDespachoEnRango).map(e=>e.idx);
+  assert.deepEqual([...filtrar(conEvento)],[1],'D y C del domingo: sólo el despacho 2');
+  assert.deepEqual([...filtrar(heredado)],[1],'el despacho sin fecha hereda el sábado del pedido: no sale el domingo');
+  assert.deepEqual([...filtrar({id:'X',despachos:[desp('a',''),desp('b','2026-10-18T12:00')]})],[1],'sin fecha propia ni del pedido: no sale en ningún día');
+  assert.equal(c._impDespachoEnRango({q:{id:'L',eventDate:'2026-10-18'},despacho:null}),true,'sin despachos[]: el pedido');
+  assert.equal(c._impFechaEnRango(conEvento),'2026-10-18','A, B y el título de D dicen el domingo, no el sábado general');
+  const h=loadSourceFunctions([['app-dashboard.js','_impHoraDe'],['app-core.js','getDespachos']],{});
+  assert.equal(h._impHoraDe({...conEvento,horaEntrega:'09:00'},'2026-10-18'),'12:00','A: la hora del despacho del domingo, no la general (Codex r3)');
+  assert.equal(h._impHoraDe({...heredado,horaEntrega:'09:00'},'2026-10-17'),'','despacho sin fecha propia: la hoja usa la hora del pedido');
+  assert.match(leer('app-dashboard.js'),/const hora=_impHoraDe\(q,fecha\)\|\|q\.horaEntrega\|\|/,'hoja A');
+  const dash=leer('app-dashboard.js');
+  assert.match(dash,/return _impDocEnRango\(q,desde,hasta\);/);
+  assert.match(dash,/entries\.filter\(_impDespachoEnRango\)\.forEach\(e=>_entradas\.push/,'hoja C');
+  assert.match(dash,/exp\.filter\(_impDespachoEnRango\)\.forEach\(e=>entries\.push\(e\)\)/,'hoja D');
+  assert.match(dash,/const mostrarCobro=!conCobro\.has\(q\.id\);conCobro\.add\(q\.id\);/,'D: el cobro en la primera fila incluida');
+  assert.match(dash,/const fecha=_impFechaEnRango\(q\); \/\/ v8\.1\.0 r3: la entrega de este rango/,'hoja A');
+  assert.match(dash,/const f=_impFechaEnRango\(q\)\|\|"\(sin fecha\)"; \/\/ v8\.1\.0 r3: el día de este rango/,'hoja B');
+  assert.equal((dash.match(/const fecha=_impFechaEnRango\((s\.docs|sorted)\[0\]\)\|\|reportesFiltrosImpr\.desde;/g)||[]).length,3,'títulos de D');
+});
+await test('v8.1.0 r3 (Codex r1): la ventana retiene el foco con Tab, lo devuelve al cerrar y sólo atiende Esc si está arriba',()=>{
+  const mk=n=>({n,disabled:false,offsetParent:{},focus(){doc.activeElement=this}});
+  const b1=mk('cerrar'),b2=mk('pdf'),fuera=mk('barra'),otraCapa={};
+  const velo={hidden:false,getBoundingClientRect:()=>({left:0,top:0,width:100}),contains:x=>x===velo||x===b1||x===b2,querySelectorAll:()=>[b1,b2]};
+  const doc={activeElement:b2,top:velo,elementFromPoint(){return doc.top},addEventListener(){},removeEventListener(){},contains:()=>true};
+  const els={'gb-imp-velo':velo,'gb-imp-cuerpo':{innerHTML:'x'}};
+  const c=loadSourceFunctions([['app-dashboard.js','_impEsc'],['app-dashboard.js','cerrarPanelImpresion']],{$:id=>els[id],document:doc,_impFocoPrevio:fuera});
+  let evitado=0;const tecla=(key,shiftKey)=>c._impEsc({key,shiftKey,preventDefault(){evitado++}});
+  tecla('Tab',false);assert.equal(doc.activeElement,b1,'del último vuelve al primero');assert.equal(evitado,1);
+  tecla('Tab',true);assert.equal(doc.activeElement,b2,'del primero hacia atrás va al último');
+  doc.activeElement=fuera;tecla('Tab',false);assert.equal(doc.activeElement,b1,'foco afuera: vuelve adentro');
+  doc.top=otraCapa;tecla('Escape');assert.equal(velo.hidden,false,'con el asistente D o la lista E encima, Esc no cierra la ventana');
+  doc.top=velo;tecla('Escape');assert.equal(velo.hidden,true);assert.equal(doc.activeElement,fuera,'el foco vuelve adonde estaba');
+});
+await test('v8.1.0 r3: Producción › Semana y la barra abren la Cal en vista semana aunque se haya dejado en Mes',()=>{
+  for(const [vista,esperado] of [['month',[['setMode','cal'],['setCalView','week']]],['week',[['setMode','cal']]]]){
+    const l=[];const c=loadSourceFunctions([['app-dashboard.js','abrirProduccionSemana']],{calView:vista,setMode:m=>l.push(['setMode',m]),setCalView:v=>l.push(['setCalView',v])});
+    c.abrirProduccionSemana();assert.deepEqual(l,esperado,vista);
+  }
+});
+await test('v8.1.0 r3 (R8): hoja A marca ❄ con [CONGELADO]; hoja B no lo suma',()=>{
+  const dash=leer('app-dashboard.js'),fn=n=>{const i=dash.indexOf('function '+n+'(');return dash.slice(i,dash.indexOf('\nfunction ',i+10))};
+  assert.match(fn('generarPdfProduccionPorCliente'),/const congelado=\(q\.itemsCongelados\|\|\[\]\)\.some\(p=>p===matchKey\);[\s\S]*\(congelado\?"\[CONGELADO\] ":"\[YA PROD\.\] "\)/);
+  assert.match(fn('generarPdfProduccionConsolidada'),/if\(\(q\.itemsCongelados\|\|\[\]\)\.some\(p=>p===\(name\|\|""\)\.toLowerCase\(\)\.trim\(\)\)\)return;/);
+  assert.match(fn('generarListaCompras'),/const yaSet=new Set\(\(q\.itemsProducidos\|\|\[\]\)\.concat\(q\.itemsCongelados\|\|\[\]\)/,'hoja E: lo ❄ tampoco se compra');
+});
+await test('v8.1.0 r3 (R11): ❄ e itemsCongelados no salen de las funciones internas (ningún documento del cliente, facturación ni exporte los lee)',()=>{
+  const permitidas={itemsCongelados:['gbPatchPreparacion','gbPreparacionAlConfirmar','gbReconciliarListoTrasEdicion','OPERATIONAL_FIELDS','_semFaltan','_semTarjetaPrep',
+    'generarPdfProduccionPorCliente','generarPdfProduccionConsolidada','generarListaCompras','_submitMarkAsOrderImpl','_submitApproveProposalImpl'],'❄':['_semTarjetaPrep'],'[CONGELADO]':['generarPdfProduccionPorCliente']};
+  const vistos={};
+  for(const f of readdirSync(root).filter(x=>/^app-.*\.js$/.test(x))){
+    const s=leer(f),lineas=s.split('\n');
+    for(const pat of Object.keys(permitidas)){let i=-1;
+      while((i=s.indexOf(pat,i+1))>=0){
+        const n=s.slice(0,i).split('\n').length,txt=lineas[n-1];
+        if(txt.slice(0,txt.indexOf(pat)).includes('//'))continue; // comentario
+        const m=[...s.slice(0,i).matchAll(/^(?:async\s+)?function\s+(\w+)|^(?:const|let|var)\s+(\w+)/gm)].pop();
+        const quien=m?(m[1]||m[2]):'?';(vistos[pat]=vistos[pat]||new Set()).add(quien);
+        assert.ok(permitidas[pat].includes(quien),pat+' en '+f+':'+n+' ('+quien+')');
+      }}
+  }
+  assert.ok(vistos.itemsCongelados.size>=8&&vistos['❄'].size===1&&vistos['[CONGELADO]'].size===1,'la búsqueda encontró los usos esperados');
 });
 await test('v8.0.8.1: producir naranja (6), entrega azul (9); un evento sin color o con otro no coincide',()=>{
   const l=ev(base({status:'pedido',eventDate:'2026-10-10'}),'quotes').map(SYNC.aRecurso);

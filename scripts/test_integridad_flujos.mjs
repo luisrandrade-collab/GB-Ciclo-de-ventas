@@ -8,7 +8,9 @@ async function test(name,fn){await fn();passed++;console.log('OK '+name)}
 const plain=x=>JSON.parse(JSON.stringify(x));
 const quiet={log(){},error(){},warn(){}};
 const core=(...names)=>names.map(n=>['app-core.js',n]);
-const common=()=>({jsArg:jsArgReal,TextEncoder,console:quiet,toast(){},alert(){},showLoader(){},hideLoader(){},localStorage:{setItem(){},getItem(){return null}},currentUser:{email:'fixture@example.invalid'},gbTodayIso:()=> '2026-09-20',auditStamp:()=>({}),quotesCache:[],ajustesLogCache:[],autoSaveClientDocument:async()=>{}});
+// v8.1.0: la regla de no producibles se lee de la fuente (el extractor no maneja esa expresión regular).
+const NO_PRODUCIBLES_RX=new RegExp(source('app-dashboard.js').match(/const _NO_PRODUCIBLES_RX=\/(.+)\/;/)[1]);
+const common=()=>({_NO_PRODUCIBLES_RX:NO_PRODUCIBLES_RX,C:[],jsArg:jsArgReal,TextEncoder,console:quiet,toast(){},alert(){},showLoader(){},hideLoader(){},localStorage:{setItem(){},getItem(){return null}},currentUser:{email:'fixture@example.invalid'},gbTodayIso:()=> '2026-09-20',auditStamp:()=>({}),quotesCache:[],ajustesLogCache:[],autoSaveClientDocument:async()=>{}});
 function fakeDb(initial={},rejectWrite=()=>false,onTxGet=async()=>{}){
   const store=new Map(Object.entries(initial));
   const snap=path=>({exists:()=>store.has(path),data:()=>structuredClone(store.get(path))});
@@ -37,6 +39,9 @@ const jsArgReal=existe('app-core.js','jsArg')?loadSourceFunctions(core('jsArg'),
 const negEntries=['_negMsDe','_negMs','ENLACES_HACIA_PADRE','ENLACES_HACIA_HIJO','_resolverNegociosDetalle','resolverNegocios','businessIdHeredado','formularioConCambios'].map(n=>['app-negocios.js',n]);
 const editEntries=[...core('EDITABLE_FIELDS','EDITABLE_FIELD_LABELS','etiquetasDeCampos','gbStableJson','editableFieldSignatures','editableDocumentSignature','rememberEditBase',...(existe('app-core.js','recordarFormularioAbierto')?['recordarFormularioAbierto']:[]),'assertEditableUnchanged','resolveEditableConflicts'),...negEntries];
 const mergeEntries=[...core('OPERATIONAL_FIELDS','QUOTE_TOTAL_INPUTS','computeQuoteTotal','recalcularTotalTrasAdoptar','aplicarAdopcion','mergeDespachosForSave','mergeOperationalFields'),...editEntries];
+// v8.1.0: preparación por producto (✓/❄, listo por marcas); el guardado del editor la usa (R6).
+const prepEntries=[['app-dashboard.js','_esProductoProducible'],...core('gbClaveItem','gbItemsAPreparar','gbEsCongeladoCatalogo','gbDespachosSegunListo','_gbPatchListo','gbPatchPreparacion','gbPreparacionAlConfirmar','gbReconciliarListoTrasEdicion')];
+mergeEntries.push(...prepEntries);
 await test('editar conserva seguimiento, evidencia y factura fresca',()=>{
   const c=loadSourceFunctions(mergeEntries);
   const result=c.mergeOperationalFields({client:'editado',feData:{id:'viejo'},despachos:[{id:'d1',status:'pendiente',notas:'editar'}]},{client:'antes',followUp:'perdida',notasSeguimiento:['nota'],perdidaData:{motivo:'precio'},feData:{id:'nuevo'},despachos:[{id:'d1',status:'entregado',entregaData:{foto:'fixture'},entregadoEn:'hoy'}],campoFuturo:42});
@@ -2398,13 +2403,23 @@ await test('v8.0.0 PF regenerada: businessId de la propuesta fresca y próximo c
 function confirmacionFixture(fn,doc){
   const escrituras=[];const {el}=domSimulado();
   // v8.0.6: la confirmación es un envoltorio de una vez (gbUnaVez) sobre _<fn>Impl, y escribe en una transacción.
-  const c=loadSourceFunctions([['app-historial.js',fn],['app-historial.js','_'+fn+'Impl'],...['gbUnaVez','gbErrorDocCambio','gbRecargarTrasCambio','GB_ESTADOS_ABIERTOS','pagosBaseParaEscribir','getPagos'].map(n=>['app-historial.js',n])],{...common(),$:el,cloudOnline:true,quotesCache:[structuredClone(doc)],
+  const c=loadSourceFunctions([['app-historial.js',fn],['app-historial.js','_'+fn+'Impl'],...['gbUnaVez','gbErrorDocCambio','gbRecargarTrasCambio','GB_ESTADOS_ABIERTOS','pagosBaseParaEscribir','getPagos'].map(n=>['app-historial.js',n]),...prepEntries],{...common(),$:el,cloudOnline:true,quotesCache:[structuredClone(doc)],
     gbFiscalLeerSello:()=>null,auditTransition:()=>true,logOperacion:async({runner})=>runner(),confirmModal:async()=>true,gbMensajeError:e=>e.message,
     closeOrderModal(){},closeApproveModal(){},renderHist(){},renderDashboard(){},refreshActiveView(){},curMode:'hist',getCollectionName:()=>doc.kind==='quote'?'quotes':'proposals',
     window:{fb:{db:{},doc:(_,coll,id)=>coll+'/'+id,serverTimestamp:()=>'TS',getDoc:async()=>({exists:()=>true,data:()=>structuredClone(doc)}),updateDoc:async(ref,patch)=>{escrituras.push({ref,patch:plain(patch)})},
       runTransaction:async(_,cb)=>cb({get:async()=>({exists:()=>true,data:()=>structuredClone(doc)}),update:(ref,patch)=>{escrituras.push({ref,patch:plain(patch)})}})}}});
   return {c,el,escrituras};
 }
+await test('v8.1.0 r3 confirmar un pedido: la caché queda igual que lo guardado (❄ retira el ✓)',async()=>{
+  const a=confirmacionFixture('submitMarkAsOrder',{id:'Q',kind:'quote',status:'enviada',client:'Ana',cart:[{id:130,n:'Mini quibbe',qty:1},{id:5,n:'Torta',qty:1}],itemsProducidos:['mini quibbe']});
+  a.c.C=[{id:130,c:'Congelados',n:'Mini quibbe'}];
+  a.el('om-num').dataset={quoteId:'Q'};a.el('om-num').value='Q';
+  a.el('om-fecha').value='2026-09-20';a.el('om-entrega-fecha').value='2026-09-25';a.el('om-entrega-hora').value='10:00';a.el('om-prod-fecha').value='2026-09-24';
+  await a.c.submitMarkAsOrder();
+  const p=a.escrituras[0].patch,l=a.c.quotesCache[0];
+  assert.deepEqual(plain([p.itemsCongelados,p.itemsProducidos]),[['mini quibbe'],[]]);
+  assert.deepEqual(plain([l.itemsCongelados,l.itemsProducidos]),[['mini quibbe'],[]],'la caché copia también el ✓ retirado');
+});
 await test('v8.0.0 confirmar pedido y aprobar propuesta borran el próximo contacto con null en su misma escritura',async()=>{
   const a=confirmacionFixture('submitMarkAsOrder',{id:'Q',kind:'quote',status:'enviada',client:'Ana',proximoContacto:pcFijo});
   a.el('om-num').dataset={quoteId:'Q'};a.el('om-num').value='Q';
@@ -3041,5 +3056,209 @@ await test('v8.0.7.2 aviso de versión vieja: franja solo si la publicada difier
   assert.equal((await run('8.0.7.2')).body.length,0,'misma versión: sin franja');
   const v=await run('8.0.7.3');assert.equal(v.body.length,1,'versión distinta: una sola franja');assert.equal(v.reloads,0,'no recarga sola');
   v.click();assert.equal(v.reloads,1,'el botón recarga');
+});
+// ═══ v8.1.0 ronda 1: preparación por producto y entrega por despacho (plan v8.1.0, R1–R13) ═══
+const prepCtx=(doc,coll='quotes',extra={})=>{
+  const {fb,store}=fakeDb({[coll+'/'+doc.id]:doc},()=>false,extra.onTxGet);const toasts=[];
+  const c=loadSourceFunctions([...prepEntries,...h806('marcarPreparacion','entregarDespachoUnToque','deshacerEntregaDespacho','_gbCopiarEnCache','toggleProduced','toggleEntregadoDespacho','gbErrorDocCambio','gbRecargarTrasCambio','GB_ESTADOS_ABIERTOS'),...core('gbDateToIso')],
+    {...common(),window:{fb},cloudOnline:true,quotesCache:[{...structuredClone(doc),kind:coll==='quotes'?'quote':'proposal'}],getCollectionName:()=>coll,
+     refreshActiveView(){},confirm:()=>true,setTimeout(){},toast:(m,t)=>toasts.push([m,t]),gbMensajeError:e=>e.message,curMode:'x',...(extra.globals||{})});
+  return {c,store,toasts,get:()=>store.get(coll+'/'+doc.id)};
+};
+const pedido=(extra={})=>({id:'Q',status:'pedido',cart:[{id:1,n:'Kibbe',qty:40},{id:2,n:'Tabla de quesos',qty:2},{id:3,n:'Transporte Bogotá',qty:1}],...extra});
+await test('v8.1.0 R5/R12.a productos a preparar: kind explícito, sin servicios, en propuestas sólo la opción que suma',()=>{
+  const c=loadSourceFunctions(prepEntries,{...common()});
+  assert.deepEqual(plain(c.gbItemsAPreparar(pedido(),'quote').map(i=>i.key)),['kibbe','tabla de quesos'],'transporte no se prepara; el doc no trae kind');
+  const prop={sections:[{name:'Menú',options:[{label:'Opción A',items:[{name:'Falafel',qty:10}]},{label:'Opción B',items:[{name:'Hummus',qty:5}]}]},
+    {name:'Alternativa',incluirEnTotal:false,options:[{label:'Opción A',items:[{name:'Tabule',qty:3}]}]},{name:'Postres',options:[{label:'Única',items:[{name:'Baklava',qty:20},{name:'falafel ',qty:2}]}]}]};
+  assert.deepEqual(plain(c.gbItemsAPreparar(prop,'proposal').map(i=>[i.key,i.qty])),[['falafel',12],['baklava',20]],'ni la Opción B ni la sección alternativa; mismo nombre se suma');
+});
+await test('v8.1.0 R1/R2 el último ✓ deja listo (despachos producidos); quitar uno lo baja; ✓ y ❄ son excluyentes',async()=>{
+  const m=prepCtx(pedido({despachos:[{id:'a',status:'pendiente'},{id:'b',status:'entregado',entregadoEn:'x'}]}));
+  await m.c.marcarPreparacion('Q','quote',{Kibbe:'hecho'});
+  assert.equal(m.get().produced,undefined,'falta uno: no queda listo');
+  await m.c.marcarPreparacion('Q','quote',{'tabla de quesos':'congelado'});
+  let d=m.get();assert.equal(d.produced,true);assert.equal(d.listoPorMarcas,true);assert.ok(d.producedAt);
+  assert.equal(d.despachos[0].status,'producido');assert.ok(d.despachos[0].producedAt);assert.equal(d.despachos[1].status,'entregado','el entregado no se toca');
+  await m.c.marcarPreparacion('Q','quote',{'tabla de quesos':'hecho'});
+  d=m.get();assert.deepEqual(plain(d.itemsCongelados),[]);assert.deepEqual(plain(d.itemsProducidos).sort(),['kibbe','tabla de quesos']);assert.equal(d.produced,true,'cambiar ❄ por ✓ no baja');
+  await m.c.marcarPreparacion('Q','quote',{kibbe:null});
+  d=m.get();assert.equal(d.produced,false);assert.equal(d.listoPorMarcas,false);assert.equal(d.producedAt,null);
+  assert.equal(d.despachos[0].status,'pendiente');assert.equal(d.despachos[0].producedAt,null);assert.equal(d.despachos[1].status,'entregado');
+  assert.equal(m.c.quotesCache[0].produced,false,'la caché sigue a lo guardado');
+});
+await test('v8.1.0 R1.b quitar un ✓ baja también un listo puesto por un botón viejo; el botón viejo marca listo manual',async()=>{
+  const m=prepCtx(pedido({itemsProducidos:['kibbe']}));
+  await m.c.toggleProduced('Q','quote');
+  assert.equal(m.get().produced,true);assert.equal(m.get().listoPorMarcas,false,'listo manual');
+  await m.c.marcarPreparacion('Q','quote',{kibbe:null});
+  assert.equal(m.get().produced,false,'quitar un ✓ siempre baja el listo');
+});
+await test('v8.1.0 «Todo listo»: marca ✓ lo que falta; sin nada que preparar pone listo manual; entregado no admite marcas',async()=>{
+  let m=prepCtx(pedido({itemsCongelados:['kibbe']}));
+  await m.c.marcarPreparacion('Q','quote','todo');
+  let d=m.get();assert.deepEqual(plain(d.itemsProducidos),['tabla de quesos']);assert.deepEqual(plain(d.itemsCongelados),['kibbe']);assert.equal(d.listoPorMarcas,true);
+  m=prepCtx({id:'S',status:'pedido',cart:[{id:9,n:'Meseros',qty:2}]});
+  await m.c.marcarPreparacion('S','quote',{kibbe:'hecho'});
+  assert.ok(!m.get().produced,'una lista vacía nunca queda lista sola');
+  await m.c.marcarPreparacion('S','quote','todo');
+  d=m.get();assert.equal(d.produced,true);assert.equal(d.listoPorMarcas,false);
+  m=prepCtx(pedido({status:'entregado',produced:true}));
+  assert.equal(await m.c.marcarPreparacion('Q','quote',{kibbe:null}),null);assert.equal(m.get().produced,true,'un entregado no cambia');
+});
+await test('v8.1.0 R2 dos teléfonos marcan a la vez productos distintos: no se pisan',async()=>{
+  let otro=null,lanzado=false;
+  const m=prepCtx(pedido(),'quotes',{onTxGet:async()=>{if(!lanzado){lanzado=true;otro=m.c.marcarPreparacion('Q','quote',{'tabla de quesos':'hecho'});await otro}}});
+  await m.c.marcarPreparacion('Q','quote',{kibbe:'hecho'});await otro;
+  const d=m.get();assert.deepEqual(plain(d.itemsProducidos).sort(),['kibbe','tabla de quesos']);assert.equal(d.produced,true);
+});
+await test('v8.1.0 R6/R13.b el editor baja un listo por marcas con un producto sin marcar o sin productos; conserva el manual',()=>{
+  const c=loadSourceFunctions(prepEntries,{...common()});
+  const listo=x=>({...pedido(),itemsProducidos:['kibbe','tabla de quesos'],produced:true,producedAt:'t',listoPorMarcas:true,despachos:[{id:'a',status:'producido',producedAt:'t'},{id:'b',status:'entregado'}],...x});
+  let o=c.gbReconciliarListoTrasEdicion(listo(),'quote','n');assert.equal(o.produced,true,'sin cambios de productos sigue listo');
+  o=c.gbReconciliarListoTrasEdicion(listo({cart:[...pedido().cart,{id:4,n:'Hummus',qty:1}]}),'quote','n');
+  assert.equal(o.produced,false);assert.equal(o.listoPorMarcas,false);assert.equal(o.despachos[0].status,'pendiente');assert.equal(o.despachos[1].status,'entregado');
+  o=c.gbReconciliarListoTrasEdicion(listo({cart:[{id:1,n:'Kibbe frito',qty:40},{id:2,n:'Tabla de quesos',qty:2}]}),'quote','n');assert.equal(o.produced,false,'renombrado');
+  o=c.gbReconciliarListoTrasEdicion(listo({cart:[{id:9,n:'Meseros',qty:2}]}),'quote','n');assert.equal(o.produced,false,'ya no queda nada que preparar');
+  o=c.gbReconciliarListoTrasEdicion(listo({listoPorMarcas:false,cart:[...pedido().cart,{id:4,n:'Hummus',qty:1}]}),'quote','n');assert.equal(o.produced,true,'listo manual se conserva');
+});
+await test('v8.1.0 R6 guardar desde el editor conserva ✓ y ❄ del servidor (campos operativos)',()=>{
+  const c=loadSourceFunctions(mergeEntries,{...common()});
+  const fresco={...pedido(),itemsProducidos:['kibbe'],itemsCongelados:['tabla de quesos'],listoPorMarcas:true,produced:true,ultimaEntregaAccion:{accionId:'x'}};
+  const out=c.mergeOperationalFields({...pedido(),itemsProducidos:[],itemsCongelados:[]},fresco,[]);
+  assert.deepEqual(plain([out.itemsProducidos,out.itemsCongelados,out.listoPorMarcas,out.ultimaEntregaAccion]),[['kibbe'],['tabla de quesos'],true,{accionId:'x'}]);
+});
+await test('v8.1.0 R7 al confirmar: ❄ desde «Congelados»; todo congelado nace listo; la casilla gana; personalizados no',()=>{
+  const c=loadSourceFunctions(prepEntries,{...common(),C:[{id:130,c:'Congelados',n:'Mini quibbe'},{id:5,c:'Tortas',n:'Torta'}],productosCache:{px:{categoriaId:'k'}},categoriasCache:{k:{nombre:'Congelados'}}});
+  let p=c.gbPreparacionAlConfirmar({cart:[{id:130,n:'Mini quibbe',qty:10},{id:'px',n:'Sopa',qty:1}],despachos:[{id:'a',status:'pendiente'}]},'quote',false,'n');
+  assert.deepEqual(plain([p.itemsCongelados,p.produced,p.listoPorMarcas,p.despachos[0].status]),[['mini quibbe','sopa'],true,true,'producido']);
+  p=c.gbPreparacionAlConfirmar({cart:[{id:130,n:'Mini quibbe',qty:10},{id:5,n:'Torta',qty:1}],cust:[{n:'Mini quibbe casero',qty:1}]},'quote',false,'n');
+  assert.deepEqual(plain([p.itemsCongelados,p.produced]),[['mini quibbe'],false]);
+  p=c.gbPreparacionAlConfirmar({cart:[{id:5,n:'Torta',qty:1}]},'quote',true,'n');assert.deepEqual(plain(p),{produced:true,producedAt:'n',listoPorMarcas:false});
+  p=c.gbPreparacionAlConfirmar({sections:[{options:[{label:'Opción A',items:[{name:'Torta',catId:5,qty:1}]}]}]},'proposal',false,'n');assert.ok(!('produced' in p),'aprobar propuesta sin congelados no toca producido');
+});
+await test('v8.1.0 R3/R12.c entregar con un toque: no repite un entregado; pendiente sólo si el pedido está listo; el último cierra',async()=>{
+  let m=prepCtx({id:'P',status:'aprobada',produced:false,despachos:[{id:'a',status:'pendiente'},{id:'b',status:'producido'}]},'proposals');
+  assert.equal(await m.c.entregarDespachoUnToque('P','proposal','a'),null,'pendiente y sin listo: no');
+  const r=await m.c.entregarDespachoUnToque('P','proposal','b');assert.equal(r.cerro,false);
+  assert.equal(m.get().despachos[1].status,'entregado');assert.equal(m.get().ultimaEntregaAccion.accionId,r.accionId);
+  assert.equal(await m.c.entregarDespachoUnToque('P','proposal','b'),null,'un segundo toque sobre el entregado se rechaza');
+  m=prepCtx({id:'P',status:'aprobada',produced:true,despachos:[{id:'a',status:'entregado',entregadoEn:'x'},{id:'b',status:'pendiente'}]},'proposals');
+  assert.equal(await m.c.entregarDespachoUnToque('P','proposal','a'),null,'con el pedido listo, un entregado tampoco se repite');assert.equal(m.get().despachos[0].entregadoEn,'x');
+  m=prepCtx({id:'P',status:'aprobada',produced:true,fechaEntrega:'2026-10-20',despachos:[{id:'a',status:'pendiente'}]},'proposals');
+  const r2=await m.c.entregarDespachoUnToque('P','proposal','a');assert.equal(r2.cerro,true,'pendiente con listo manual sí');
+  assert.equal(m.get().status,'entregado');
+});
+await test('v8.1.0 R3/R12.d Deshacer: sólo la última entrega; restaura estado y fecha previa; evidencia al auditTrail',async()=>{
+  const base={id:'P',status:'aprobada',produced:true,producedAt:'p0',fechaEntrega:'2026-10-20',despachos:[{id:'a',status:'producido',producedAt:'pa'},{id:'b',status:'producido',producedAt:'pb'}]};
+  let m=prepCtx(structuredClone(base),'proposals');
+  const ra=await m.c.entregarDespachoUnToque('P','proposal','a');const rb=await m.c.entregarDespachoUnToque('P','proposal','b');
+  assert.equal(m.get().status,'entregado');
+  assert.equal(await m.c.deshacerEntregaDespacho('P','proposal',ra.accionId),false,'deshacer A después de B: rechazado');
+  assert.equal(await m.c.deshacerEntregaDespacho('P','proposal',rb.accionId),true);
+  let d=m.get();
+  assert.deepEqual(plain([d.status,d.fechaEntrega,d.produced,d.producedAt]),['aprobada','2026-10-20',true,'p0'],'vuelve al estado previo sin borrar la fecha programada');
+  assert.deepEqual(plain([d.despachos[1].status,d.despachos[1].producedAt,'entregadoEn' in d.despachos[1],'entregaData' in d.despachos[1]]),['producido','pb',false,false]);
+  assert.equal(d.despachos[0].status,'entregado','A sigue entregado');assert.equal(d.ultimaEntregaAccion,null);
+  assert.equal(d.auditTrail.at(-1).type,'deshacer_entrega_despacho');assert.equal(d.auditTrail.at(-1).despachoId,'b');assert.ok(d.auditTrail.at(-1).prevEntregadoEn);
+  assert.equal(await m.c.deshacerEntregaDespacho('P','proposal',rb.accionId),false,'no se deshace dos veces');
+  m=prepCtx(structuredClone(base),'proposals');
+  const r1=await m.c.entregarDespachoUnToque('P','proposal','a');
+  m.c.quotesCache[0].despachos=structuredClone(m.get().despachos);
+  await m.c.toggleEntregadoDespacho('P','b','proposal');
+  assert.equal(await m.c.deshacerEntregaDespacho('P','proposal',r1.accionId),false,'otra entrega por el camino viejo invalida el Deshacer');
+});
+await test('v8.1.0 R13.a el formulario de entrega completa entrega el único despacho que faltaba (con dos o más, se rechaza)',async()=>{
+  const doc={id:'A',status:'aprobada',produced:true,despachos:[{id:'a',status:'entregado',entregadoEn:'x'},{id:'b',status:'producido'}],ultimaEntregaAccion:{accionId:'z'}};
+  const {fb,store}=fakeDb({'proposals/A':structuredClone(doc)});const {el}=domSimulado();
+  el('dm-fecha').value='2026-10-09';el('dm-entregado-por').value='Kathy';
+  const c=loadSourceFunctions(h806('submitDelivery','_submitDeliveryImpl','_conTopeSubida','gbUnaVez','gbErrorDocCambio','gbRecargarTrasCambio','GB_ESTADOS_ABIERTOS'),{...common(),
+    window:{fb},$:el,document:{querySelector:()=>null},setTimeout(){},cloudOnline:true,getCollectionName:()=>'proposals',deliverySrc:{id:'A',kind:'proposal',doc:structuredClone(doc)},
+    entregaFotoBase64:null,entregaFoto2Base64:null,closeDeliveryModal(){},renderHist(){},gbMensajeError:e=>e.message});
+  await c.submitDelivery();
+  const d=store.get('proposals/A');
+  assert.equal(d.status,'entregado');assert.deepEqual(plain(d.despachos.map(x=>x.status)),['entregado','entregado']);
+  assert.equal(d.despachos[0].entregadoEn,'x','el ya entregado conserva su evidencia');assert.equal(d.despachos[1].entregaData.fechaReal,'2026-10-09');
+  assert.equal(d.ultimaEntregaAccion,null,'invalida el Deshacer de un toque');
+  const doc2={id:'B',status:'aprobada',produced:true,despachos:[{id:'a',status:'entregado'},{id:'b',status:'producido'},{id:'c',status:'pendiente'}]};
+  const db2=fakeDb({'proposals/B':structuredClone(doc2)});const toasts=[];
+  const c2=loadSourceFunctions(h806('submitDelivery','_submitDeliveryImpl','_conTopeSubida','gbUnaVez','gbErrorDocCambio','gbRecargarTrasCambio','GB_ESTADOS_ABIERTOS'),{...common(),
+    window:{fb:db2.fb},$:el,document:{querySelector:()=>null},setTimeout(){},cloudOnline:true,getCollectionName:()=>'proposals',deliverySrc:{id:'B',kind:'proposal',doc:structuredClone(doc2)},
+    entregaFotoBase64:null,entregaFoto2Base64:null,closeDeliveryModal(){},renderHist(){},gbMensajeError:e=>e.message,toast:(m,t)=>toasts.push([m,t])});
+  await c2.submitDelivery();
+  assert.deepEqual(plain(db2.store.get('proposals/B')),doc2,'con dos sin entregar no escribe nada');assert.match(toasts.at(-1)[0],/2 despachos sin entregar/);
+});
+await test('v8.1.0 r1 Anticipados manda sólo lo que cambió en la ventana: no revierte la marca de otro teléfono',async()=>{
+  const doc=pedido({itemsProducidos:['kibbe']});
+  const m=prepCtx(doc,'quotes',{globals:{_itemsProdDocId:null,_itemsProdKind:null,_itemsProdAlAbrir:null}});
+  const checks=[{value:'Kibbe',checked:true},{value:'Tabla de quesos',checked:false}];
+  const {el}=domSimulado();
+  const c=loadSourceFunctions([['app-dashboard.js','_getItemsProduciblesDeDoc'],['app-dashboard.js','openItemsProducidosModal'],['app-dashboard.js','closeItemsProducidosModal'],['app-dashboard.js','saveItemsProducidosModal']],
+    Object.assign(m.c,{$:el,escapeHtml:x=>x,document:{querySelectorAll:()=>checks},renderPedidosAprobados(){},renderPedidosProduccion(){}}));
+  c.openItemsProducidosModal('Q','quote');
+  m.store.set('quotes/Q',{...m.get(),itemsProducidos:[],itemsCongelados:['kibbe']}); // otro teléfono: ✓ → ❄
+  await c.saveItemsProducidosModal();
+  assert.deepEqual(plain(m.get().itemsCongelados),['kibbe'],'guardar sin tocar no revierte el ❄');
+  checks[0].checked=false; // la ventana se vuelve a dibujar: kibbe ya no es ✓ (es ❄)
+  c.openItemsProducidosModal('Q','quote');checks[1].checked=true;
+  await c.saveItemsProducidosModal();
+  assert.deepEqual(plain(m.get().itemsProducidos),['tabla de quesos']);assert.equal(m.get().produced,true,'❄ + ✓ = listo');
+});
+await test('v8.1.0 r1 la casilla «ya producido» también deja los ❄ de catálogo',()=>{
+  const c=loadSourceFunctions(prepEntries,{...common(),C:[{id:130,c:'Congelados',n:'Mini quibbe'}]});
+  const p=c.gbPreparacionAlConfirmar({cart:[{id:130,n:'Mini quibbe',qty:10},{id:5,n:'Torta',qty:1}]},'quote',true,'n');
+  assert.deepEqual(plain(p),{itemsCongelados:['mini quibbe'],produced:true,producedAt:'n',listoPorMarcas:false});
+});
+await test('v8.1.0 r1 un toque atrasado sobre una marca que ya no está no baja un listo manual',async()=>{
+  const m=prepCtx(pedido({produced:true,listoPorMarcas:false}));
+  await m.c.marcarPreparacion('Q','quote',{kibbe:null});
+  assert.equal(m.get().produced,true);
+});
+await test('v8.1.0 r1 un estado de despacho desconocido no se convierte ni se entrega',async()=>{
+  const c=loadSourceFunctions(prepEntries,{...common()});
+  assert.deepEqual(plain(c.gbDespachosSegunListo([{id:'a',status:'en_ruta'},{id:'b'}],true,'n').map(d=>d.status)),['en_ruta','producido'],'sin estado = pendiente');
+  const m=prepCtx({id:'P',status:'aprobada',produced:true,despachos:[{id:'a',status:'en_ruta'}]},'proposals');
+  assert.equal(await m.c.entregarDespachoUnToque('P','proposal','a'),null);assert.equal(m.get().despachos[0].status,'en_ruta');
+});
+await test('v8.1.0 Semana r1 (Codex) el toque único rechaza un despacho con id repetido o sin id y no escribe',async()=>{
+  let m=prepCtx({id:'P',status:'aprobada',produced:true,despachos:[{id:'a',status:'producido'},{id:'a',status:'producido'}]},'proposals');
+  assert.equal(await m.c.entregarDespachoUnToque('P','proposal','a'),null,'id repetido');
+  assert.deepEqual(plain(m.get().despachos.map(d=>d.status)),['producido','producido']);assert.ok(!m.get().ultimaEntregaAccion);
+  m=prepCtx({id:'P',status:'aprobada',produced:true,despachos:[{status:'producido'}]},'proposals');
+  assert.equal(await m.c.entregarDespachoUnToque('P','proposal',undefined),null,'sin id');assert.equal(m.get().despachos[0].status,'producido');
+});
+await test('v8.1.0 r1 regresar a enviada limpia también listoPorMarcas (escritura y caché)',()=>{
+  const f=functionSource('app-historial.js','_submitAnularImpl');
+  assert.match(f,/patch\.produced=false;\n\s*patch\.producedAt=null;\n\s*patch\.listoPorMarcas=false;/);
+  assert.match(f,/local\.produced=false;\n\s*local\.producedAt=null;\n\s*local\.listoPorMarcas=false;/);
+});
+await test('v8.1.0 r2 Anticipados: desmarcar un ✓ que otro teléfono volvió ❄ no borra el ❄ ni baja el listo',async()=>{
+  const m=prepCtx(pedido({itemsProducidos:['kibbe']}),'quotes',{globals:{_itemsProdDocId:null,_itemsProdKind:null,_itemsProdAlAbrir:null}});
+  const checks=[{value:'Kibbe',checked:true},{value:'Tabla de quesos',checked:false}];const {el}=domSimulado();
+  const c=loadSourceFunctions([['app-dashboard.js','_getItemsProduciblesDeDoc'],['app-dashboard.js','openItemsProducidosModal'],['app-dashboard.js','closeItemsProducidosModal'],['app-dashboard.js','saveItemsProducidosModal']],
+    Object.assign(m.c,{$:el,escapeHtml:x=>x,document:{querySelectorAll:()=>checks},renderPedidosAprobados(){},renderPedidosProduccion(){}}));
+  c.openItemsProducidosModal('Q','quote');
+  m.store.set('quotes/Q',{...m.get(),itemsProducidos:['tabla de quesos'],itemsCongelados:['kibbe'],produced:true,listoPorMarcas:true});
+  checks[0].checked=false;await c.saveItemsProducidosModal();
+  const d=m.get();assert.deepEqual(plain(d.itemsCongelados),['kibbe']);assert.equal(d.produced,true);
+});
+await test('v8.1.0 r2 quitar una marca huérfana no baja el listo; quitar la de un producto actual sí',async()=>{
+  const m=prepCtx(pedido({itemsProducidos:['kibbe','tabla de quesos','producto viejo'],produced:true,listoPorMarcas:true}));
+  await m.c.marcarPreparacion('Q','quote',{'producto viejo':null});
+  assert.equal(m.get().produced,true);assert.deepEqual(plain(m.get().itemsProducidos).sort(),['kibbe','tabla de quesos']);
+  await m.c.marcarPreparacion('Q','quote',{kibbe:'quitarHecho'});
+  assert.equal(m.get().produced,false);
+});
+await test('v8.1.0 r2 reconfirmar: el ❄ de catálogo retira el ✓ previo del mismo producto',()=>{
+  const c=loadSourceFunctions(prepEntries,{...common(),C:[{id:130,c:'Congelados',n:'Mini quibbe'}]});
+  const p=c.gbPreparacionAlConfirmar({cart:[{id:130,n:'Mini quibbe',qty:10},{id:5,n:'Torta',qty:1}],itemsProducidos:['mini quibbe','torta']},'quote',false,'n');
+  assert.deepEqual(plain([p.itemsCongelados,p.itemsProducidos,p.produced,p.listoPorMarcas]),[['mini quibbe'],['torta'],true,true]);
+});
+await test('v8.1.0 r4 guardar sin cambios no vuelve listo un pedido al que se le quitó «producido»; «Todo listo» sí',async()=>{
+  const m=prepCtx(pedido({itemsProducidos:['kibbe','tabla de quesos'],produced:false,despachos:[{id:'a',status:'pendiente'}]}));
+  await m.c.marcarPreparacion('Q','quote',{});
+  assert.equal(m.get().produced,false);assert.equal(m.get().despachos[0].status,'pendiente');
+  await m.c.marcarPreparacion('Q','quote','todo');
+  assert.equal(m.get().produced,true,'«Todo listo» expreso sí sube');
 });
 console.log(`${passed} escenarios de integridad pasaron (adaptadores en memoria; no emulador Firebase).`);

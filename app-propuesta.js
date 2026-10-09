@@ -1219,6 +1219,7 @@ async function _savePropQuoteImpl(silent){
             // v8.0.0 F5: ver app-cotizar.js — nunca se escribe directo sobre una propuesta enviada.
             if(shouldVersionWithSuffix(fresh,"proposal"))throw Object.assign(new Error("La propuesta está enviada: los cambios se guardan como versión nueva. Vuelve a guardar."),{paraUsuario:true});
             const finalObj=mergeOperationalFields(pObj,fresh,adoptar);
+            gbReconciliarListoTrasEdicion(finalObj,"proposal",new Date().toISOString()); // v8.1.0 R6: un listo por marcas no sobrevive a un producto sin marcar
             recalcularTotalTrasAdoptar(finalObj,adoptar,"proposal"); // v7.9.30: total coherente con lo adoptado
             ensureSameEditor();
             tx.set(ref,{...finalObj,createdAt:fresh.createdAt||serverTimestamp(),updatedAt:serverTimestamp()});

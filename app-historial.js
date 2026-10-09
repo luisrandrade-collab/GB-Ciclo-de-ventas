@@ -903,6 +903,7 @@ async function _submitMarkAsOrderImpl(){
             updatedAt:serverTimestamp()
           };
           if(selloFiscal)Object.assign(p,selloFiscal); // v7.10.0
+          Object.assign(p,gbPreparacionAlConfirmar(fresh,"quote",produced,new Date().toISOString())); // v8.1.0 R7: ❄ de catálogo; la casilla gana
           if(pagos.length){ // N1: parte de los pagos frescos, legados incluidos; el anticipo no se repite en reintentos
             const base=pagosBaseParaEscribir(fresh);
             p.pagos=base.some(x=>x.tipo==="anticipo"&&x.registradoEn===pagos[0].registradoEn)?base:base.concat(pagos);
@@ -916,8 +917,9 @@ async function _submitMarkAsOrderImpl(){
         if(local){
           local.status=initialStatus;local.orderData=orderData;
           local.eventDate=fechaEntrega;local.horaEntrega=horaEntrega;
-          local.productionDate=productionDate;local.produced=produced;
+          local.productionDate=productionDate;local.produced=patch.produced;
           local.producedAt=patch.producedAt;
+          ["listoPorMarcas","itemsCongelados","itemsProducidos","despachos"].forEach(k=>{if(k in patch)local[k]=patch[k]}); // v8.1.0 R7 (r3: también el ✓ que pasa a ❄)
           local.proximoContacto=null; // v8.0.0 F5
           if(selloFiscal)Object.assign(local,selloFiscal); // v7.10.0
           if(patch.pagos)local.pagos=patch.pagos; // v7.9.13 DAT-02: cache con el array completo (frescos + anticipo)
@@ -1079,6 +1081,7 @@ async function _submitApproveProposalImpl(){
           if((fresh.status||"enviada")==="enviada"&&propRequierePF(fresh))throw Object.assign(new Error("Esta propuesta tiene opciones por escoger: usa «Generar Propuesta Final»."),{paraUsuario:true}); // v8.0.7 D18
           const p={status:"aprobada",approvalData:approvalData,proximoContacto:null,updatedAt:serverTimestamp()}; // v8.0.0 F5: aprobar borra el próximo contacto (null)
           if(selloFiscal)Object.assign(p,selloFiscal); // v7.10.0
+          Object.assign(p,gbPreparacionAlConfirmar(fresh,kind==="quote"?"quote":"proposal",false,new Date().toISOString())); // v8.1.0 R7
           if(fechaEntrega)p.eventDate=fechaEntrega;
           if(horaEntrega)p.horaEntrega=horaEntrega;
           if(pagos.length){ // N1: pagos frescos con legados; el anticipo no se repite en reintentos
@@ -1093,6 +1096,7 @@ async function _submitApproveProposalImpl(){
         const local=quotesCache.find(x=>x.id===propId&&x.kind===kind);
         if(local){local.status="aprobada";local.approvalData=approvalData;local.proximoContacto=null;if(fechaEntrega)local.eventDate=fechaEntrega;if(horaEntrega)local.horaEntrega=horaEntrega;if(patch.pagos)local.pagos=patch.pagos;if(patch.needsSync)local.needsSync=true} // v7.9.13 DAT-02: cache con array completo
         if(local&&selloFiscal)Object.assign(local,selloFiscal); // v7.10.0
+        if(local)["itemsCongelados","itemsProducidos","produced","producedAt","listoPorMarcas","despachos"].forEach(k=>{if(k in patch)local[k]=patch[k]}); // v8.1.0 R7
       }
     });
     hideLoader();if($("am-num").dataset.propId===propId)closeApproveModal(); // r2: no cerrar la ventana de otro documento
@@ -2384,7 +2388,7 @@ async function toggleProduced(docId,kind,ev){
       if(!snap.exists())throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true});
       const fresh=snap.data();
       if(!GB_ESTADOS_ABIERTOS.includes(fresh.status||"enviada")||!!fresh.produced===newVal)throw gbErrorDocCambio("El pedido cambió en otra sesión (estado actual: "+(fresh.status||"enviada")+(fresh.produced?", producido":", sin producir")+").");
-      tx.update(ref,{produced:newVal,producedAt:producedAt,updatedAt:serverTimestamp()});
+      tx.update(ref,{produced:newVal,producedAt:producedAt,listoPorMarcas:false,updatedAt:serverTimestamp()}); // v8.1.0 R12.b: listo manual
     });
     q.produced=newVal;q.producedAt=producedAt;
     hideLoader();refreshActiveView(); // v7.9.9 F1
@@ -2445,6 +2449,7 @@ async function toggleProducedDespacho(docId,despachoId,kind,ev){
       if(nuevoProduced!==!!freshTx.produced){
         patch.produced=nuevoProduced;
         patch.producedAt=nuevoProduced?new Date().toISOString():null;
+        patch.listoPorMarcas=false; // v8.1.0 R12.b: listo manual
       }
       tx.update(ref,patch);
       patchCommit=patch;
@@ -2526,13 +2531,14 @@ async function toggleEntregadoDespacho(docId,despachoId,kind,ev){
         return {...d,status:"entregado",entregadoEn:nowIso,entregaData:entregaDataDesp};
       });
       todosEntregados=nuevoArr.every(d=>d.status==="entregado");
-      const patch={despachos:nuevoArr,updatedAt:serverTimestamp()};
+      const patch={despachos:nuevoArr,ultimaEntregaAccion:null,updatedAt:serverTimestamp()}; // v8.1.0 R12.d: invalida el Deshacer de un toque
       if(typeof auditStamp==="function")Object.assign(patch,auditStamp());
       if(todosEntregados&&freshTx.status!=="entregado"){
         // Opción B: solo cuando todos los despachos están entregado, el doc pasa a entregado.
         patch.status="entregado";
         patch.fechaEntrega=nowLocalDate;
         patch.produced=true;
+        if(!freshTx.produced)patch.listoPorMarcas=false; // v8.1.0 R12.b: sólo si cambia produced
         if(!freshTx.producedAt)patch.producedAt=nowIso;
       }
       tx.update(ref,patch);
@@ -2580,6 +2586,103 @@ function _setRecibidoConforme(val){
     }
   }
   if(receptor)receptor.style.display=val?"":"none";
+}
+
+// ═══════════════════════════════════════════════════════════
+// v8.1.0: PREPARACIÓN POR PRODUCTO Y ENTREGA POR DESPACHO CON UN TOQUE (plan v8.1.0, R1–R13)
+// ═══════════════════════════════════════════════════════════
+function _gbCopiarEnCache(docId,kind,patch){
+  const q=(quotesCache||[]).find(x=>x.id===docId&&x.kind===kind);
+  if(q)Object.keys(patch).forEach(k=>{if(k!=="updatedAt")q[k]=patch[k]});
+}
+// Marca ✓/❄ (cambios: {nombre:"hecho"|"congelado"|"quitarHecho"|"quitarCongelado"|null}) o «Todo listo» ("todo") sobre el
+// documento fresco; el pedido debe estar abierto (un entregado no cambia). Devuelve el patch o null.
+async function marcarPreparacion(docId,kind,cambios){
+  if(!cloudOnline){toast("Sin conexión","error");return null}
+  try{
+    const {db,doc,runTransaction,serverTimestamp}=window.fb;
+    const ref=doc(db,getCollectionName(docId,kind),docId);
+    let patch=null;
+    await runTransaction(db,async tx=>{
+      const snap=await tx.get(ref);
+      if(!snap.exists())throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true});
+      const fresh=snap.data();
+      if(!GB_ESTADOS_ABIERTOS.includes(fresh.status||"enviada"))throw gbErrorDocCambio("El pedido cambió en otra sesión (estado actual: "+(fresh.status||"enviada")+").");
+      patch=gbPatchPreparacion(fresh,kind==="quote"?"quote":"proposal",cambios,new Date().toISOString());
+      if(Object.keys(patch).length)tx.update(ref,{...patch,updatedAt:serverTimestamp(),...auditStamp()});
+    });
+    _gbCopiarEnCache(docId,kind,patch);
+    return patch;
+  }catch(e){toast("Error: "+gbMensajeError(e),"error");gbRecargarTrasCambio(e);return null}
+}
+// R3/R12.c: entrega UN despacho (tarjeta de la Semana), sin preguntas. Exige pedido abierto y el despacho sin
+// entregar: «producido», o «pendiente» sólo si el pedido ya está listo (produced). Si es el último, cierra el
+// pedido como toggleEntregadoDespacho. Guarda ultimaEntregaAccion para el Deshacer. Devuelve {accionId,cerro} o null.
+async function entregarDespachoUnToque(docId,kind,despachoId){
+  if(!cloudOnline){toast("Sin conexión","error");return null}
+  try{
+    const {db,doc,runTransaction,serverTimestamp}=window.fb;
+    const ref=doc(db,getCollectionName(docId,kind),docId);
+    const now=new Date(),nowIso=now.toISOString(),fechaLocal=gbDateToIso(now);
+    const hora=String(now.getHours()).padStart(2,"0")+":"+String(now.getMinutes()).padStart(2,"0");
+    const accionId=despachoId+"@"+nowIso+"#"+Math.random().toString(36).slice(2,8);
+    const quien=(typeof currentUser!=="undefined"&&currentUser&&currentUser.email)||"(sin email)";
+    let res=null;
+    await runTransaction(db,async tx=>{
+      const snap=await tx.get(ref);
+      if(!snap.exists())throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true});
+      const fresh=snap.data();
+      const ds=Array.isArray(fresh.despachos)?fresh.despachos:[];
+      const i=ds.findIndex(d=>d&&d.id===despachoId);
+      if(i<0||!despachoId||ds.filter(d=>d&&d.id===despachoId).length!==1)throw Object.assign(new Error("Este pedido no tiene ese despacho o lo tiene repetido. Ábrelo para registrar la entrega."),{paraUsuario:true}); // v8.1.0 Semana r1 (Codex): id único
+      const d=ds[i];
+      const puede=d.status==="producido"||((d.status||"pendiente")==="pendiente"&&!!fresh.produced); // r1: ningún otro estado
+      if(!GB_ESTADOS_ABIERTOS.includes(fresh.status||"enviada")||!puede)throw gbErrorDocCambio("El despacho no se puede entregar (despacho "+(d.status||"pendiente")+", pedido "+(fresh.status||"enviada")+(fresh.produced?"":", falta preparar")+").");
+      const nuevos=ds.map((x,j)=>j!==i?x:{...x,status:"entregado",entregadoEn:nowIso,
+        entregaData:{fechaReal:fechaLocal,horaReal:hora,entregadoPor:quien,marcadoEn:nowIso,modo:"un-toque-v8.1.0"}});
+      const cerro=nuevos.every(x=>x&&x.status==="entregado");
+      const patch={despachos:nuevos,
+        ultimaEntregaAccion:{accionId,despId:despachoId,estadoPrevio:fresh.status||"enviada",fechaEntregaPrevia:fresh.fechaEntrega||null,
+          producedPrevio:!!fresh.produced,producedAtPrevio:fresh.producedAt||null,listoPorMarcasPrevio:fresh.listoPorMarcas===true,despachoPrevio:{status:d.status||"pendiente",producedAt:d.producedAt||null}}};
+      if(cerro){patch.status="entregado";patch.fechaEntrega=fechaLocal;patch.produced=true;if(!fresh.produced)patch.listoPorMarcas=false;if(!fresh.producedAt)patch.producedAt=nowIso}
+      tx.update(ref,{...patch,updatedAt:serverTimestamp(),...auditStamp()});
+      res={accionId,cerro,patch};
+    });
+    _gbCopiarEnCache(docId,kind,res.patch);
+    return {accionId:res.accionId,cerro:res.cerro};
+  }catch(e){toast("Error: "+gbMensajeError(e),"error");gbRecargarTrasCambio(e);return null}
+}
+// R3/R12.d: deshace la entrega de un toque SÓLO si sigue siendo la última acción de entrega del pedido
+// (cualquier otra entrega o reversión borra ultimaEntregaAccion). El despacho vuelve a su estado previo y su
+// evidencia pasa al auditTrail; si la entrega había cerrado el pedido, vuelven estado, fechaEntrega y producido
+// previos (la fecha no se borra: también es la entrega programada). No toca pagos. Devuelve true/false.
+async function deshacerEntregaDespacho(docId,kind,accionId){
+  if(!cloudOnline){toast("Sin conexión","error");return false}
+  try{
+    const {db,doc,runTransaction,serverTimestamp}=window.fb;
+    const ref=doc(db,getCollectionName(docId,kind),docId);
+    const quien=(typeof currentUser!=="undefined"&&currentUser&&currentUser.email)||"(sin email)";
+    let patch=null;
+    await runTransaction(db,async tx=>{
+      const snap=await tx.get(ref);
+      if(!snap.exists())throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true});
+      const fresh=snap.data(),u=fresh.ultimaEntregaAccion;
+      const ds=Array.isArray(fresh.despachos)?fresh.despachos:[];
+      const i=u?ds.findIndex(d=>d&&d.id===u.despId):-1;
+      if(!u||u.accionId!==accionId||i<0||ds[i].status!=="entregado")throw gbErrorDocCambio("Ya hubo otro cambio de entrega en este pedido; ábrelo para revisarlo.");
+      const {entregadoEn,entregaData,...resto}=ds[i];
+      const nuevos=ds.map((x,j)=>j!==i?x:{...resto,status:u.despachoPrevio.status,producedAt:u.despachoPrevio.producedAt??null});
+      const trail=(Array.isArray(fresh.auditTrail)?fresh.auditTrail:[]).concat([{type:"deshacer_entrega_despacho",ts:new Date().toISOString(),user:quien,
+        despachoId:u.despId,prevEntregadoEn:entregadoEn??null,prevEntregaData:entregaData??null}]);
+      patch={despachos:nuevos,auditTrail:trail,ultimaEntregaAccion:null};
+      if(fresh.status==="entregado"&&!nuevos.every(x=>x&&x.status==="entregado")){
+        Object.assign(patch,{status:u.estadoPrevio,fechaEntrega:u.fechaEntregaPrevia??null,produced:!!u.producedPrevio,producedAt:u.producedAtPrevio??null,listoPorMarcas:u.listoPorMarcasPrevio===true});
+      }
+      tx.update(ref,{...patch,updatedAt:serverTimestamp(),...auditStamp()});
+    });
+    _gbCopiarEnCache(docId,kind,patch);
+    return true;
+  }catch(e){toast("Error: "+gbMensajeError(e),"error");gbRecargarTrasCambio(e);return false}
 }
 
 // v7.0-α FIX-02b: confirmación antes de desmarcar producido (con bullet de impacto).
@@ -2863,6 +2966,7 @@ async function _submitDeliveryImpl(){
     const propId=src.id;
     const coll=getCollectionName(propId,src.kind);
     const ref=doc(db,coll,propId);
+    let despachosEnt=null; // v8.1.0 R13.a
     // v8.0.6 N7: transacción que exige pedido abierto y producido en el snapshot. Antes un updateDoc ciego
     // podía volver «entregado» un pedido que otra sesión había anulado. Entregar desde «aprobada» sigue valiendo.
     await runTransaction(db,async tx=>{
@@ -2870,8 +2974,20 @@ async function _submitDeliveryImpl(){
       if(!snap.exists())throw Object.assign(new Error("El documento ya no existe en el sistema; no se registró ningún cambio. Recarga el historial."),{paraUsuario:true});
       const fresh=snap.data();
       if(!GB_ESTADOS_ABIERTOS.includes(fresh.status||"enviada")||!fresh.produced)throw gbErrorDocCambio("El pedido cambió en otra sesión (estado actual: "+(fresh.status||"enviada")+(fresh.produced?"":", sin producir")+").");
-      tx.update(ref,{status:"entregado",fechaEntrega:fecha,entregaData:entregaData,updatedAt:serverTimestamp(),...auditStamp()});
+      const patchEnt={status:"entregado",fechaEntrega:fecha,entregaData:entregaData,ultimaEntregaAccion:null,updatedAt:serverTimestamp(),...auditStamp()};
+      // v8.1.0 R13.a (error previo: cerraba el pedido con despachos sin entregar). Con despachos explícitos, el
+      // formulario sólo sirve si queda UNO sin entregar (lo entrega con su foto y receptor); con varios se rechaza
+      // y se entregan uno por uno (r3 de Codex: no cerrar un despacho de otra fecha).
+      despachosEnt=null;
+      if(Array.isArray(fresh.despachos)&&fresh.despachos.length){
+        const faltan=fresh.despachos.filter(d=>d&&d.status!=="entregado").length;
+        if(faltan>1)throw Object.assign(new Error("Este pedido tiene "+faltan+" despachos sin entregar: márcalos uno por uno en cada despacho."),{paraUsuario:true});
+        despachosEnt=patchEnt.despachos=fresh.despachos.map(d=>(!d||d.status==="entregado")?d:{...d,status:"entregado",entregadoEn:entregaData.marcadoEn,
+          entregaData:{fechaReal:fecha,entregadoPor:entregaData.entregadoPor||"",marcadoEn:entregaData.marcadoEn,modo:"entrega-completa-v8.1.0"}});
+      }
+      tx.update(ref,patchEnt);
     });
+    if(despachosEnt)src.doc.despachos=despachosEnt;
     src.doc.status="entregado";
     src.doc.fechaEntrega=fecha;
     src.doc.entregaData=entregaData;
@@ -3419,6 +3535,7 @@ async function _submitAnularImpl(){
             patch.productionDate=null;
             patch.produced=false;
             patch.producedAt=null;
+            patch.listoPorMarcas=false; // v8.1.0 R12.b
             patch.needsSync=false;
             patch.lastSyncAt=null;
             // v7.10.0: el sello fiscal se borra; la nueva confirmación decide la empresa.
@@ -3451,6 +3568,7 @@ async function _submitAnularImpl(){
             local.productionDate=null;
             local.produced=false;
             local.producedAt=null;
+            local.listoPorMarcas=false; // v8.1.0 R12.b
             local.accountingEntityId=null;local.emisorSnapshot=null;local.clienteFiscal=null; // v7.10.0
           }
           if(pagosCommit)local.pagos=pagosCommit;

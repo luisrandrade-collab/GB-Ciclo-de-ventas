@@ -518,7 +518,9 @@ function pintarNavR1(m){
   invalidarProyeccionNegocios();
   const n=proyeccionNegocios().avisos.length;
   for(const id of ["r1-insignia-menu","r1-insignia-barra"]){const b=$(id);if(b){b.textContent=String(n);b.hidden=!n}}
-  const destino=m==="inicio"||m==="negocios"?m:m==="ficha"?"negocios":m==="pedidos-hojas"?"imprimir":m==="clientes-directorio"||m==="clientes-ficha"?"clientes":"";
+  // v8.1.0 r3: barra Inicio · Negocios · Producción · Entregas · Cobros
+  const destino=m==="inicio"||m==="negocios"?m:m==="ficha"?"negocios":m==="cal"||String(m).startsWith("pedidos-")?"produccion":
+    m==="entregar"||m==="entregadas"?"entregas":String(m).startsWith("cartera")?"cobros":"";
   for(const id of ["r1-menu","r1-barra"]){const box=$(id);if(box&&box.querySelectorAll)box.querySelectorAll("[data-r1-ir]").forEach(b=>b.classList.toggle("is-active",b.dataset.r1Ir===destino))}
   if(destino==="inicio"||destino==="negocios")document.querySelectorAll(".sb-module.is-active").forEach(el=>el.classList.remove("is-active"));
 }
@@ -570,8 +572,8 @@ function iniciarRedisenoR1(){
 function _r1NavClick(e){
   const b=e.target&&e.target.closest&&e.target.closest("[data-r1-ir]");if(!b)return;
   const ir=b.dataset.r1Ir;
-  if(ir==="mas"){if(typeof gbShellMobileOpen==="function")gbShellMobileOpen();return}
-  const modo={inicio:"inicio",negocios:"negocios",imprimir:"pedidos-hojas",clientes:"clientes-directorio"}[ir];
+  if(ir==="produccion"){abrirProduccionSemana();return} // v8.1.0 r3: siempre en vista semana
+  const modo={inicio:"inicio",negocios:"negocios",entregas:"entregar",cobros:"cartera"}[ir];
   if(modo)setMode(modo);
 }
 

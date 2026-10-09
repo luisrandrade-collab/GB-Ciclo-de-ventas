@@ -459,7 +459,7 @@ function ctxR1(docs,{escribe=true,empresa=false,flag=true,curMode='negocios',tim
   const g={$,document,window:{fb:trampa},console:quiet,quotesCache:docs,GB_REDISENO_R1:flag,curMode,h:hReal,
     gbTodayIso:()=>HOY,canCurrentUserWrite:()=>escribe,gbEmisorConfigurado:()=>empresa,GB_EMISOR:{accountingEntityId:'GB_SAS_SIMPLE'},
     openOrderModal:spy('openOrderModal'),openPropFinalFlow:spy('openPropFinalFlow'),openApproveModal:spy('openApproveModal'),toggleProduced:spy('toggleProduced'),
-    openDeliveryModal:spy('openDeliveryModal'),openPagoModal:spy('openPagoModal'),openFeModal:spy('openFeModal'),markFollowUp:spy('markFollowUp'),gbShellMobileOpen:spy('gbShellMobileOpen'),
+    openDeliveryModal:spy('openDeliveryModal'),openPagoModal:spy('openPagoModal'),openFeModal:spy('openFeModal'),markFollowUp:spy('markFollowUp'),gbShellMobileOpen:spy('gbShellMobileOpen'),abrirProduccionSemana:spy('abrirProduccionSemana'),
     setTimeout:timers?timers.set:setTimeout,clearTimeout:timers?timers.clear:clearTimeout,...extra};
   const c=loadSourceFunctions([...DINERO,...RESOLVER,...METRICAS,...neg('diasSinContacto','avisoContacto'),['app-core.js','isFollowable'],['app-core.js','gbDateToIso'],
     ['app-dashboard.js','gbPorFacturar'],['app-core.js','renderMode'],['app-core.js','refreshActiveView'],['app-core.js','fm'],...T2,...mas],g); // fm real: no convierte (P-36)
@@ -840,7 +840,8 @@ await test('T2 bandera apagada: no aparece nada nuevo y el arranque sigue en el 
   assert.equal(e2['r1-menu'].hidden,false);assert.equal(e2['r1-barra'].hidden,false);
   assert.match(e2['r1-menu'].innerHTML,/data-r1-ir="inicio"[\s\S]*Inicio[\s\S]*data-r1-ir="negocios"[\s\S]*Negocios/);
   assert.equal(x2.dashboard.textContent,'Tablero anterior');
-  for(const [ir,fn,arg] of [['imprimir','setMode','pedidos-hojas'],['clientes','setMode','clientes-directorio'],['negocios','setMode','negocios'],['mas','gbShellMobileOpen',undefined]]){
+  // v8.1.0 r3: barra Inicio · Negocios · Producción · Entregas · Cobros (sin Imprimir, Clientes ni ☰ Más)
+  for(const [ir,fn,arg] of [['produccion','abrirProduccionSemana',undefined],['entregas','setMode','entregar'],['cobros','setMode','cartera'],['negocios','setMode','negocios'],['inicio','setMode','inicio']]){
     l2.length=0;on._r1NavClick({target:{closest:()=>({dataset:{r1Ir:ir}})}});
     assert.equal(l2[0][0],fn,ir);if(arg)assert.equal(l2[0][1],arg);
   }
@@ -1710,10 +1711,10 @@ await test('T4b encabezado: con la bandera, ningún título dice «Inicio» salv
   for(const m of modos)if(m!=='inicio')assert.ok(!/^Inicio/.test(on(m).visible),m+' dice «'+on(m).visible+'»');
   assert.equal(on('inicio').visible,'Inicio');
   assert.deepEqual(on('dash'),{visible:'Tablero·Tablero anterior',marcado:'<span class="crumb-mod">Tablero</span><span class="crumb-sep">·</span><span class="crumb-current">Tablero anterior</span>'});
-  assert.equal(on('seg').visible,'Tablero·Tareas y follow-ups');assert.equal(on('cal').visible,'Tablero·Agenda');
+  assert.equal(on('seg').visible,'Tablero·Tareas y follow-ups');assert.equal(on('cal').visible,'Producción·Semana'); // v8.1.0 r3: la Agenda pasa a Producción
   assert.equal(on('cot').visible,'Cotizaciones·Nueva cotización','los demás módulos no cambian');
   // Bandera apagada (o sin definir): sin cambio.
-  for(const off of [encabezadoD5(false),encabezadoD5()])for(const [m,t] of [['dash','Inicio·Dashboard'],['seg','Inicio·Tareas y follow-ups'],['cal','Inicio·Agenda']])assert.equal(off(m).visible,t,m);
+  for(const off of [encabezadoD5(false),encabezadoD5()])for(const [m,t] of [['dash','Inicio·Dashboard'],['seg','Inicio·Tareas y follow-ups'],['cal','Producción·Semana']])assert.equal(off(m).visible,t,m);
 });
 await test('T4 botón «+»: cualquier modal u hoja inferior queda encima; sigue encima de la barra inferior y de la barra de cotizar, que no tapa',()=>{
   const idx=source('index.html'),todo=idx+readdirSync(new URL('..',import.meta.url)).filter(f=>/^app-.*\.js$/.test(f)).map(f=>source(f)).join('\n');
@@ -1749,7 +1750,7 @@ await test('v8.0.5 la hoja Crear cerrada no recibe clics y «Nueva cotización/p
   // Antes «Nueva» sólo cambiaba de modo y dejaba cargado el documento anterior (se podía guardar encima de un pedido).
   assert.match(idx,/if\(action==='cot'&&typeof window\.nuevaCotizacion==='function'\)window\.nuevaCotizacion\(\);/,'hoja Crear: Nueva cotización');
   assert.match(idx,/else if\(action==='prop'&&typeof window\.nuevaPropuesta==='function'\)window\.nuevaPropuesta\(\);/,'hoja Crear: Nueva propuesta');
-  assert.match(idx,/if \(key === 'ventas\/cotizar'\) window\.nuevaCotizacion\(\);\s*else if \(key === 'ventas\/propuesta'\) window\.nuevaPropuesta\(\);\s*else window\.setMode\(legacy\);/,'menú lateral: Nueva cotización/propuesta');
+  assert.match(idx,/if \(key === 'ventas\/cotizar'\) window\.nuevaCotizacion\(\);\s*else if \(key === 'ventas\/propuesta'\) window\.nuevaPropuesta\(\);\s*else if \(legacy === 'cal' && typeof window\.abrirProduccionSemana === 'function'\) window\.abrirProduccionSemana\(\);[^\n]*\s*else window\.setMode\(legacy\);/,'menú lateral: Nueva cotización/propuesta; Semana en vista semana (v8.1.0 r3)');
   assert.match(idx,/<button onclick="nuevaCotizacion\(\)"[^>]*>\s*<div[^>]*>📋/,'selector «Nueva venta»: Cotización');
   assert.match(idx,/<button onclick="nuevaPropuesta\(\)"[^>]*>\s*<div[^>]*>🎪/,'selector «Nueva venta»: Evento');
   assert.ok(!/onclick="setMode\('(cot|prop)'\)"/.test(idx),'ningún botón entra al editor sin pasar por «Nueva»');
@@ -1824,7 +1825,7 @@ await test('T4 menú: el módulo del Dashboard viejo no repite la sección que l
 // ─── Carga en la app ───────────────────────────────────────
 await test('app-negocios.js se carga en index.html con ?v= de BUILD_VERSION y check.mjs lo revisa',()=>{
   const v=source('app-core.js').match(/const BUILD_VERSION="v([^"]+)"/)[1];
-  assert.equal(v,'8.0.8.1');
+  assert.equal(v,'8.1.0');
   assert.ok(source('index.html').includes('<script src="app-negocios.js?v='+v+'"></script>'));
   assert.ok(/"app-negocios\.js"/.test(source('scripts/check.mjs')));
   assert.ok(source('.github/workflows/check.yml').includes('node scripts/test_negocios.mjs'));

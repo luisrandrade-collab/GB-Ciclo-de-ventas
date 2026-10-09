@@ -764,141 +764,224 @@ function eventsForCalendarEntries(){
   });
   return out;
 }
-// v7.6.5: label corto de cuándo entrega ("hoy", "mañana", "DD MMM")
-function _calEntregaLabel(iso){
-  if(!iso)return "—";
-  const todayIso=gbTodayIso();
-  if(iso===todayIso)return "hoy";
-  const t=new Date();t.setDate(t.getDate()+1);
-  const tomorrowIso=t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(t.getDate()).padStart(2,"0");
-  if(iso===tomorrowIso)return "mañana";
-  const p=parseIsoDate(iso);if(!p)return iso;
-  const mShort=["ENE","FEB","MAR","ABR","MAY","JUN","JUL","AGO","SEP","OCT","NOV","DIC"];
-  return p.d+" "+mShort[p.m];
+// ─── v8.1.0 r2: SEMANA TIPO PLANEADOR (plan v8.1.0 → ronda2_diseno) ───
+// Como el planeador de papel de Kathy: una casilla por día (sábado y domingo separados: GB produce y entrega
+// uno o los dos días, Luis 2026-10-09) + Pendientes (pedidos abiertos sin fecha). En cada día, 🔥 Preparar
+// (día de producción, el mismo de la agenda) y 🚚 Entrega (una por despacho). Lo de semanas pasadas sin
+// preparar o sin entregar sube a la casilla de Hoy con ⚠ (hasta 60 días atrás).
+const GB_SEM_ATRASO_DIAS=60;
+let semVer="todo";      // "todo" | "prep" | "ent"
+let semDiaMovil=null;   // 0–6 = día, 7 = Pendientes (celular: una casilla por pantalla)
+let semDiaMovilSemana=null;
+const _semOcupado=new Set();
+
+// Entregas del documento: una por despacho con su fecha y hora (como GBAgenda: sin fecha propia, la del documento).
+function gbSemanaEntregas(q){
+  return getDespachos(q).map((d,i,ds)=>{
+    const fh=d._legacy?"":String((d&&d.fechaHora)||"").trim(),t=fh.indexOf("T");
+    return {d,idx:i,total:ds.length,
+      fecha:fh?(t>0?fh.slice(0,t):fh.slice(0,10)):(q.eventDate||""),
+      hora:fh?(t>0?fh.slice(t+1,t+6):""):(q.horaEntrega||"")};
+  }).filter(e=>/^\d{4}-\d{2}-\d{2}$/.test(e.fecha)&&window.GBAgenda.sumarDias(e.fecha,0)===e.fecha); // Codex r1: fecha real, como la agenda
 }
-// v7.6.5: tarjeta CHICA de "producir" — Opción B confirmada con Luis.
-// Una sola línea: cliente + cuándo entrega + monto. Click → abre doc.
-function renderWeekProductionCard(q,e){
-  const cli=(q.client||"—").replace(/[<>]/g,"");
-  const total=fm(getDocTotal(q));
-  // v8.0.8 (Codex r2): fecha y hora de la entrega que atiende (despacho), no las del documento.
-  const entStr=_calEntregaLabel(e?e.entregaIso:q.eventDate);
-  const horaE=e?e.entregaHora:q.horaEntrega;
-  const hora=horaE?" "+horaE:"";
-  return '<div class="wd-ev-prod" onclick="openDocument('+jsArg(q.kind)+','+jsArg(q.id)+')">'+
-    '<span class="wep-icon">🔥</span>'+
-    '<span class="wep-label">Producir <strong>'+cli+'</strong></span>'+
-    '<span class="wep-meta">entrega '+entStr+hora+' · '+total+'</span>'+
+// Codex r1: el toque único sólo con un id de despacho que exista y no se repita (la transacción busca por id).
+function gbSemanaIdUnico(q,d){
+  if(!d||!d.id)return false;
+  return (q.despachos||[]).filter(x=>x&&x.id===d.id).length===1;
+}
+// Codex r1: misma elegibilidad que eventsAllStatuses (estado según colección), sin exigir fecha.
+function gbSemanaSinFecha(docs,conFecha){
+  return docs.filter(q=>{
+    if(q._wrongCollection||conFecha.includes(q))return false;
+    if(typeof getFollowUp==="function"&&getFollowUp(q)==="perdida")return false;
+    return (q.kind==="quote"?["pedido","en_produccion"]:["aprobada","en_produccion"]).includes(q.status);
+  });
+}
+// ¿El despacho se puede entregar ya? Mismo criterio que entregarDespachoUnToque (R12.c); sin despachos[], q.produced.
+function gbSemanaDespachoListo(q,d){
+  if(!d||d._legacy)return !!q.produced;
+  return d.status==="producido"||((d.status||"pendiente")==="pendiente"&&!!q.produced);
+}
+// Pura: documentos → {dias:[{iso,prep:[],ent:[]}×7], pendientes:[q]}. Tarjeta prep {q,fecha,atrasado,entFecha,entHora};
+// tarjeta ent {q,d,idx,total,fecha,hora,entregado,listo,atrasado}.
+function gbSemanaCasillas(docs,lunesIso,hoyIso){
+  const A=window.GBAgenda,dias=[];
+  for(let i=0;i<7;i++)dias.push({iso:A.sumarDias(lunesIso,i),prep:[],ent:[]});
+  const domingo=dias[6].iso,iHoy=dias.findIndex(x=>x.iso===hoyIso),desde=A.sumarDias(hoyIso,-GB_SEM_ATRASO_DIAS);
+  const pendientes=[];
+  // Casilla de la fecha; si es de antes de esta semana y sigue atrasado, la de hoy (sólo en la semana actual).
+  function casilla(fecha,atrasado){
+    if(fecha>=lunesIso&&fecha<=domingo)return dias.find(x=>x.iso===fecha);
+    if(atrasado&&iHoy>=0&&fecha<lunesIso&&fecha>=desde)return dias[iHoy];
+    return null;
+  }
+  docs.forEach(q=>{
+    const abierto=GB_ESTADOS_ABIERTOS.includes(q.status||"enviada");
+    const ents=gbSemanaEntregas(q);
+    if(!ents.length){if(abierto)pendientes.push(q);return}
+    ents.forEach(e=>{
+      const entregado=q.status==="entregado"||e.d.status==="entregado";
+      const atrasado=abierto&&!entregado&&e.fecha<hoyIso;
+      const c=casilla(e.fecha,atrasado);
+      if(c)c.ent.push({q,d:e.d,idx:e.idx,total:e.total,fecha:e.fecha,hora:e.hora,entregado,listo:gbSemanaDespachoListo(q,e.d),atrasado,unico:!!e.d._legacy||gbSemanaIdUnico(q,e.d)});
+    });
+    if(!abierto)return;
+    const orden=ents.slice().sort((a,b)=>(a.fecha+a.hora).localeCompare(b.fecha+b.hora));
+    A.eventosDeDoc(q,getCollectionName(q.id,q.kind)).filter(e=>e.tipo==="produccion").forEach(p=>{
+      const atrasado=!q.produced&&p.fecha<hoyIso;
+      const c=casilla(p.fecha,atrasado);
+      // Sin productionDate, la producción es el día antes de cada entrega: atiende la del día siguiente.
+      const sig=(!q.productionDate&&orden.find(x=>x.fecha===A.sumarDias(p.fecha,1)))||orden.find(x=>x.fecha>=p.fecha)||orden[orden.length-1];
+      if(c)c.prep.push({q,fecha:p.fecha,atrasado,entFecha:sig.fecha,entHora:sig.hora});
+    });
+  });
+  dias.forEach(x=>{
+    x.prep.sort((a,b)=>(b.atrasado-a.atrasado)||a.fecha.localeCompare(b.fecha));
+    x.ent.sort((a,b)=>(b.atrasado-a.atrasado)||(a.fecha+a.hora).localeCompare(b.fecha+b.hora));
+  });
+  return {dias,pendientes};
+}
+
+const _SEM_DOW=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
+const _SEM_MES=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+function _semFechaCorta(iso){
+  const d=isoToDate(iso);let w=d.getDay();if(w===0)w=7;
+  return _SEM_DOW[w-1].slice(0,3).toLowerCase()+" "+d.getDate()+" "+_SEM_MES[d.getMonth()];
+}
+function _semCuando(fecha,hora){return _semFechaCorta(fecha)+(hora?" · "+hora:"")}
+function _semKind(q){return q.kind==="quote"?"quote":"proposal"}
+function _semCliente(q){
+  return '<button class="sem-cli" onclick="openDocument('+jsArg(q.kind)+','+jsArg(q.id)+')" title="Abrir el pedido">'+h(q.client||"Sin cliente")+'</button>';
+}
+function _semFaltan(q){
+  const hechos=new Set((q.itemsProducidos||[]).map(gbClaveItem)),frios=new Set((q.itemsCongelados||[]).map(gbClaveItem));
+  return gbItemsAPreparar(q,_semKind(q)).filter(it=>!hechos.has(it.key)&&!frios.has(it.key)).length;
+}
+
+function _semTarjetaPrep(c){
+  const q=c.q,items=gbItemsAPreparar(q,_semKind(q));
+  const hechos=new Set((q.itemsProducidos||[]).map(gbClaveItem)),frios=new Set((q.itemsCongelados||[]).map(gbClaveItem));
+  const ok=!!q.produced,todoFrio=items.length>0&&items.every(it=>frios.has(it.key));
+  const id=jsArg(q.id),kind=jsArg(q.kind);
+  const lis=items.map(it=>{
+    const hecho=hechos.has(it.key),frio=frios.has(it.key),k=jsArg(it.key);
+    return '<li class="sem-it'+(hecho?' hecho':'')+(frio?' frio':'')+'">'+
+      '<button class="sem-it-btn" aria-pressed="'+(hecho||frio)+'" onclick="semanaMarcar('+id+','+kind+','+k+','+jsArg(hecho?"quitarHecho":"hecho")+')">'+
+        '<span class="sem-caja">'+(frio?'❄':'✓')+'</span><span class="sem-txt"><b>'+h(String(it.qty||""))+'</b> '+h(it.nombre)+'</span></button>'+
+      '<button class="sem-frio" aria-pressed="'+frio+'" aria-label="'+(frio?'Quitar congelado: ':'Congelado: ')+h(it.nombre)+'" title="Ya estaba hecho (congelador)" '+
+        'onclick="semanaMarcar('+id+','+kind+','+k+','+jsArg(frio?"quitarCongelado":"congelado")+')">❄</button></li>';
+  }).join("");
+  return '<div class="sem-t prep'+(ok?' ok':'')+(c.atrasado?' tarde':'')+'">'+
+    '<span class="sem-tipo">'+(todoFrio&&ok?'❄ Todo ya estaba hecho':ok?'✓ Listo':'🔥 Preparar')+'</span>'+
+    _semCliente(q)+
+    '<span class="sem-det">Para la entrega del '+h(_semCuando(c.entFecha,c.entHora))+'</span>'+
+    (c.atrasado?'<span class="sem-alerta">⚠ Atrasado: debía quedar listo el '+h(_semFechaCorta(c.fecha))+'</span>':'')+
+    (lis?'<ul class="sem-items">'+lis+'</ul>':'<span class="sem-det">Sin productos para preparar en la lista.</span>')+
+    (ok?'':'<div class="sem-acc"><button class="sem-btn" onclick="semanaTodoListo('+id+','+kind+')">Todo listo</button></div>')+
+  '</div>';
+}
+
+function _semTarjetaEnt(c){
+  const q=c.q,d=c.d,id=jsArg(q.id),kind=jsArg(q.kind);
+  const dir=getDespachoDireccion(d._legacy?null:d,q),lugar=[dir.dir,dir.city].filter(Boolean).join(", ");
+  const cls=c.entregado?" ok":c.listo?"":" lock";
+  const faltan=c.entregado||c.listo?0:_semFaltan(q);
+  let accion="";
+  if(!c.entregado&&!c.unico){
+    accion='<span class="sem-det">Este despacho no tiene un identificador único: ábrelo para entregarlo.</span>'+
+      '<div class="sem-acc"><button class="sem-btn" onclick="openDocument('+kind+','+id+')">Abrir el pedido</button></div>';
+  }else if(!c.entregado){
+    const onclick=d._legacy?'openDeliveryModal('+id+','+kind+',event)':'semanaEntregar('+id+','+kind+','+jsArg(d.id)+')';
+    accion='<div class="sem-acc"><button class="sem-btn prim" '+(c.listo?'':'disabled ')+'onclick="'+onclick+'">Marcar entregado</button></div>';
+  }
+  return '<div class="sem-t ent'+cls+(c.atrasado?' tarde':'')+'">'+
+    '<div class="sem-cab"><span class="sem-tipo">'+(c.entregado?'✓ Entregado':'🚚 Entrega')+'</span>'+
+      '<button class="sem-btn" onclick="semanaRemision('+id+','+kind+','+c.idx+')" title="Imprimir la remisión de este despacho">🖨 Remisión</button></div>'+
+    _semCliente(q)+
+    '<span class="sem-det">'+h(_semCuando(c.fecha,c.hora))+(c.total>1?' · despacho '+(c.idx+1)+' de '+c.total:'')+(lugar?'<br>'+h(lugar):'')+'</span>'+
+    (c.atrasado?'<span class="sem-alerta">⚠ Atrasado: era para el '+h(_semFechaCorta(c.fecha))+'</span>':'')+
+    (!c.entregado&&!c.listo?'<span class="sem-candado">🔒 Falta preparar'+(faltan?': '+faltan+' producto'+(faltan===1?'':'s'):' (marcar «Todo listo»)')+'</span>':'')+
+    accion+
+  '</div>';
+}
+
+function _semTarjetaPend(q){
+  const items=gbItemsAPreparar(q,_semKind(q));
+  const conFechaMala=!!q.eventDate||(q.despachos||[]).some(d=>d&&d.fechaHora); // Codex r1: fecha que no es válida
+  return '<div class="sem-t pend">'+_semCliente(q)+'<span class="sem-det">'+(conFechaMala?'⚠ Fecha de entrega por revisar':'Pedido confirmado, sin fecha de entrega')+'</span>'+
+    (items.length?'<ul class="sem-items">'+items.map(it=>'<li class="sem-it fijo"><span class="sem-txt"><b>'+h(String(it.qty||""))+'</b> '+h(it.nombre)+'</span></li>').join("")+'</ul>':'')+
   '</div>';
 }
 
 function renderWeek(){
   if(!weekAnchor)weekAnchor=getMondayIso(gbTodayIso());
-  const start=isoToDate(weekAnchor);
-  const end=new Date(start);end.setDate(end.getDate()+6);
-  const todayIso=gbTodayIso();
-  const monthNames=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
-  const mShort=["ENE","FEB","MAR","ABR","MAY","JUN","JUL","AGO","SEP","OCT","NOV","DIC"];
-  const dows=["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
-  const startStr=start.getDate()+" "+mShort[start.getMonth()];
-  const endStr=end.getDate()+" "+mShort[end.getMonth()]+" "+end.getFullYear();
-  $("week-title").textContent="Semana del "+startStr+" al "+endStr;
-  // v7.6.5: ahora cada doc puede aportar 2 entries (producir + entregar)
-  const entries=eventsForCalendarEntries();
-  const byDay={};
-  entries.forEach(e=>{(byDay[e.iso]=byDay[e.iso]||[]).push(e)});
-  // Render 7 días
-  let html="";
-  for(let i=0;i<7;i++){
-    const d=new Date(start);d.setDate(start.getDate()+i);
-    const iso=dateToIso(d);
-    const evs=(byDay[iso]||[]).sort((a,b)=>{
-      // Producir primero (qué cocinar hoy), luego entregas ordenadas por hora
-      if(a.tipo!==b.tipo)return a.tipo==="producir"?-1:1;
-      return ((a.hora??a.q.horaEntrega)||"").localeCompare((b.hora??b.q.horaEntrega)||""); // v8.0.8: hora del despacho
-    });
-    const isToday=iso===todayIso;
-    const dayClass="week-day"+(isToday?" today":"")+(evs.length?"":" empty-day");
-    const dateBox='<div class="wd-date"><div class="wd-dow">'+dows[i]+'</div><div class="wd-num">'+d.getDate()+'</div><div class="wd-mon">'+mShort[d.getMonth()]+'</div></div>';
-    let evsHtml;
-    if(!evs.length){evsHtml='<div class="wd-empty-msg">Sin eventos</div>'}
-    else{
-      evsHtml='<div class="wd-evs">'+evs.map(e=>{
-        return e.tipo==="producir"?renderWeekProductionCard(e.q,e):renderWeekEventCard(e.q,iso,todayIso,e.hora);
-      }).join("")+'</div>';
-    }
-    html+='<div class="'+dayClass+'">'+dateBox+evsHtml+'</div>';
+  const hoyIso=gbTodayIso();
+  const fin=window.GBAgenda.sumarDias(weekAnchor,6),a=isoToDate(weekAnchor),b=isoToDate(fin);
+  $("week-title").textContent="Semana del "+a.getDate()+" "+_SEM_MES[a.getMonth()]+" al "+b.getDate()+" "+_SEM_MES[b.getMonth()]+" "+b.getFullYear();
+  const conFecha=eventsAllStatuses();
+  const {dias,pendientes}=gbSemanaCasillas(conFecha.concat(gbSemanaSinFecha(quotesCache,conFecha)),weekAnchor,hoyIso);
+  if(semDiaMovilSemana!==weekAnchor){
+    const i=dias.findIndex(x=>x.iso===hoyIso);
+    semDiaMovil=i>=0?i:0;semDiaMovilSemana=weekAnchor;
   }
-  $("week-grid").innerHTML=html;
+  const vacio=semVer==="prep"?"Nada para preparar.":semVer==="ent"?"Nada para entregar.":"Día libre.";
+  const casillas=dias.map((x,i)=>{
+    // Codex r1: lo atrasado (preparar o entregar) arriba de todo; el sort es estable y conserva preparar → entregar.
+    const t=(semVer!=="ent"?x.prep.map(c=>[c,_semTarjetaPrep]):[]).concat(semVer!=="prep"?x.ent.map(c=>[c,_semTarjetaEnt]):[])
+      .sort((a,b)=>b[0].atrasado-a[0].atrasado).map(([c,f])=>f(c));
+    const d=isoToDate(x.iso),hoy=x.iso===hoyIso;
+    return '<section class="sem-dia'+(hoy?' hoy':'')+(i===semDiaMovil?' sem-act':'')+'">'+
+      '<header><h3>'+_SEM_DOW[i]+' '+d.getDate()+' '+_SEM_MES[d.getMonth()]+(hoy?' · Hoy':'')+'</h3>'+
+        '<button type="button" class="gb-imp-abrir" onclick="abrirPanelImpresion('+jsArg(x.iso)+')" aria-label="Imprimir hojas del '+_SEM_DOW[i].toLowerCase()+'">🖨</button></header>'+
+      '<div class="sem-cuerpo">'+(t.join("")||'<p class="sem-vacio">'+vacio+'</p>')+'</div></section>';
+  });
+  if(semVer!=="ent")casillas.push('<section class="sem-dia pendientes'+(semDiaMovil===7?' sem-act':'')+'"><header><h3>Pendientes</h3><span class="sem-det">sin fecha</span></header>'+
+    '<div class="sem-cuerpo">'+(pendientes.map(_semTarjetaPend).join("")||'<p class="sem-vacio">Nada pendiente.</p>')+'</div></section>');
+  const ver=[["todo","Todo"],["prep","🔥 Preparar"],["ent","🚚 Entregar"]].map(([k,t])=>
+    '<button aria-pressed="'+(semVer===k)+'" onclick="semanaVer('+jsArg(k)+')">'+t+'</button>').join("");
+  const chips=dias.map((x,i)=>'<button aria-pressed="'+(i===semDiaMovil)+'" onclick="semanaDiaMovil('+i+')">'+_SEM_DOW[i].slice(0,3)+'<b>'+isoToDate(x.iso).getDate()+'</b></button>')
+    .concat(semVer!=="ent"?['<button aria-pressed="'+(semDiaMovil===7)+'" onclick="semanaDiaMovil(7)">Pend.<b>'+pendientes.length+'</b></button>']:[]).join("");
+  $("week-grid").innerHTML='<div class="sem-ver" role="group" aria-label="Qué ver">'+ver+'</div>'+
+    '<div class="sem-chips" role="group" aria-label="Día">'+chips+'</div>'+
+    '<div class="sem-grid">'+casillas.join("")+'</div>';
 }
+function semanaVer(v){semVer=v;if(v==="ent"&&semDiaMovil===7)semDiaMovil=0;renderWeek()}
+function semanaDiaMovil(i){semDiaMovil=i;renderWeek()}
 
-// ─── v5.4.3: Tarjeta de evento enriquecida para agenda semanal ──
-// Muestra chip de estado operativo (por producir / en producción /
-// producido / entregado), chip de pago (pagado / anticipo / sin
-// anticipo), hora destacada y resumen de productos clave.
-function renderWeekEventCard(q,iso,todayIso,horaDespacho){
-  const tag=q.kind==="quote"?'<span class="we-tag prod">Pedido</span>':'<span class="we-tag ent">Evento</span>';
-  const hora=(horaDespacho!==undefined?horaDespacho:q.horaEntrega)||""; // v8.0.8 (Codex r2): hora del despacho
-  const total=fm(getDocTotal(q));
-  const sCls=q.status||"enviada";
-  // Estado operativo (chip principal)
-  const opEstado=_estadoOperativo(q,iso,todayIso);
-  const opChip=opEstado?'<span class="we-op-chip we-op-'+opEstado.cls+'">'+opEstado.emoji+' '+opEstado.label+'</span>':'';
-  // Estado de pago (chip secundario)
-  const pagoEstado=_estadoPago(q);
-  const pagoChip=pagoEstado?'<span class="we-pago-chip we-pago-'+pagoEstado.cls+'">'+pagoEstado.emoji+' '+pagoEstado.label+'</span>':'';
-  // Resumen productos (primeros 2 items, max 40 chars)
-  let prodResumen="";
-  if(q.kind==="quote"&&Array.isArray(q.items)){
-    prodResumen=q.items.slice(0,2).map(it=>(it.name||it.n||"").trim()).filter(Boolean).join(" · ");
-    if(q.items.length>2)prodResumen+=" · +"+(q.items.length-2);
-  }else if(q.kind==="proposal"&&Array.isArray(q.sections)){
-    prodResumen=q.sections.slice(0,2).map(s=>(s.title||"").trim()).filter(Boolean).join(" · ");
-    if(q.sections.length>2)prodResumen+=" · +"+(q.sections.length-2);
-  }
-  if(prodResumen.length>55)prodResumen=prodResumen.slice(0,52)+"…";
-  const prodHtml=prodResumen?'<div class="we-prods">📋 '+prodResumen.replace(/[<>]/g,"")+'</div>':'';
-  // Chip 🔪 acción rápida: solo si es pedido en un día próximo sin producir aún
-  let accionChip="";
-  if(q.kind==="quote"&&["pedido","en_produccion"].includes(sCls)&&!q.produced&&iso>=todayIso){
-    accionChip='<button class="we-accion-chip" onclick="event.stopPropagation();toggleProduced('+jsArg(q.id)+','+jsArg(q.kind)+',event)" title="Marcar como producido">🔪 Marcar producido</button>'; // v8.0.8 (Codex r2): faltaba el kind
-  }
-  return '<div class="wd-ev '+sCls+(opEstado?' op-'+opEstado.cls:'')+'" onclick="openDocument('+jsArg(q.kind)+','+jsArg(q.id)+')">'+
-    '<div class="we-row-top">'+
-      '<span class="we-cli">'+tag+(q.client||"—").replace(/[<>]/g,"")+'</span>'+
-      (hora?'<span class="we-hora-big">⏰ '+hora+'</span>':'')+
-    '</div>'+
-    '<div class="we-chips-row">'+opChip+pagoChip+'<span class="we-total">'+total+'</span></div>'+
-    prodHtml+
-    (accionChip?'<div class="we-accion-row">'+accionChip+'</div>':'')+
-  '</div>';
+async function semanaMarcar(id,kind,clave,accion){
+  if(_semOcupado.has(id))return;
+  _semOcupado.add(id);
+  try{
+    const antes=!!(quotesCache.find(x=>x.id===id&&x.kind===kind)||{}).produced;
+    const patch=await marcarPreparacion(id,kind,{[clave]:accion});
+    const q=quotesCache.find(x=>x.id===id&&x.kind===kind);
+    if(patch&&q&&!antes&&q.produced)toast((q.client||"Pedido")+": todo listo. Ya se puede entregar.","success");
+  }finally{_semOcupado.delete(id);renderWeek()}
 }
-
-// Determina estado operativo del pedido según status + produced + fecha
-function _estadoOperativo(q,iso,todayIso){
-  const s=q.status||"enviada";
-  // Cotización sin aprobar: solo etiqueta simple
-  if(s==="enviada")return {cls:"enviada",emoji:"📄",label:"Cotización enviada"};
-  if(s==="propfinal")return {cls:"propfinal",emoji:"📋",label:"PF enviada"};
-  if(s==="aprobada")return {cls:"aprobada",emoji:"✓",label:"Aprobada"};
-  if(s==="entregado")return {cls:"entregado",emoji:"🎉",label:"Entregado"};
-  if(s==="anulada")return {cls:"anulada",emoji:"↩️",label:"Anulada"};
-  if(s==="convertida"||s==="superseded")return {cls:"convertida",emoji:"🔄",label:"Reemplazada"};
-  // Pedido / en_produccion: cruza con produced + fechas
-  if(["pedido","en_produccion"].includes(s)){
-    if(q.produced){
-      if(iso===todayIso)return {cls:"producido-hoy",emoji:"✅",label:"Producido · entrega HOY"};
-      return {cls:"producido",emoji:"✅",label:"Producido"};
-    }
-    const prodDate=q.productionDate||"";
-    if(prodDate&&prodDate<=todayIso&&iso>=todayIso){
-      return {cls:"en-produccion",emoji:"🔪",label:"En producción"};
-    }
-    if(iso===todayIso)return {cls:"por-producir-hoy",emoji:"🔥",label:"Por producir · entrega HOY"};
-    if(iso<todayIso)return {cls:"atrasado",emoji:"⚠️",label:"Atrasado"};
-    return {cls:"por-producir",emoji:"🟠",label:"Por producir"};
-  }
-  return null;
+async function semanaTodoListo(id,kind){
+  if(_semOcupado.has(id))return;
+  _semOcupado.add(id);
+  try{
+    const patch=await marcarPreparacion(id,kind,"todo");
+    const q=quotesCache.find(x=>x.id===id&&x.kind===kind);
+    if(patch&&q)toast((q.client||"Pedido")+": marcado todo listo.","success");
+  }finally{_semOcupado.delete(id);renderWeek()}
+}
+async function semanaEntregar(id,kind,despId){
+  if(_semOcupado.has(id))return;
+  _semOcupado.add(id);
+  let r=null;
+  try{r=await entregarDespachoUnToque(id,kind,despId)}finally{_semOcupado.delete(id);renderWeek()}
+  if(!r)return;
+  const q=quotesCache.find(x=>x.id===id&&x.kind===kind);
+  toastUndo((q&&q.client||"Pedido")+": entregado.",async()=>{
+    if(await deshacerEntregaDespacho(id,kind,r.accionId))toast("Entrega deshecha.","success");
+    renderWeek();
+  },10000);
+}
+function semanaRemision(id,kind,idx){
+  const q=quotesCache.find(x=>x.id===id&&x.kind===kind);
+  if(q&&typeof genRemisionDespachoPDF==="function")genRemisionDespachoPDF(q,idx);
 }
 
 // Determina estado de pago según monto abonado vs total
@@ -3631,15 +3714,62 @@ async function renderPedidosHojas(){
   if(!quotesCache.length){try{await loadAllHistory()}catch{}}
   const contentEl=$("pedidos-hojas-content");
   if(!contentEl)return;
+  cerrarPanelImpresion(); // v8.1.0 r3: una sola instancia de los IDs rep-imp-*
   renderReportesImprimibles(contentEl);
 }
+
+// ─── v8.1.0 r3 (R10): el mismo panel de Hojas en una ventana, desde cualquier 🖨 ───
+// Rango: "semana" (la actual), "semana-visible" (la que muestra la Semana), "hoy-manana" (D primero) o un día AAAA-MM-DD.
+function gbRangoImpresion(rango,hoyIso,lunesVisible){
+  const A=window.GBAgenda,lunes=getMondayIso(hoyIso);
+  if(rango==="hoy-manana")return {desde:hoyIso,hasta:A.sumarDias(hoyIso,1),primero:"D"};
+  if(rango==="semana")return {desde:lunes,hasta:A.sumarDias(lunes,6)};
+  if(rango==="semana-visible"){const l=lunesVisible||lunes;return {desde:l,hasta:A.sumarDias(l,6)}}
+  return {desde:rango,hasta:rango};
+}
+// Fija Desde/Hasta ANTES de pintar; vacía la página de Hojas para no repetir los IDs rep-imp-*.
+async function abrirPanelImpresion(rango){
+  if(!quotesCache.length){try{await loadAllHistory()}catch{}}
+  const r=gbRangoImpresion(rango,gbTodayIso(),weekAnchor);
+  reportesFiltrosImpr.desde=r.desde;reportesFiltrosImpr.hasta=r.hasta;
+  const pagina=$("pedidos-hojas-content");if(pagina)pagina.innerHTML="";
+  renderReportesImprimibles($("gb-imp-cuerpo"),r.primero);
+  const v=$("gb-imp-velo");
+  if(v.hidden)_impFocoPrevio=document.activeElement; // Codex r1: el foco vuelve adonde estaba
+  v.hidden=false;
+  document.addEventListener("keydown",_impEsc);
+  v.querySelector(".gb-imp-cerrar").focus();
+}
+let _impFocoPrevio=null;
+function cerrarPanelImpresion(){
+  const v=$("gb-imp-velo");if(!v||v.hidden)return;
+  v.hidden=true;$("gb-imp-cuerpo").innerHTML="";
+  document.removeEventListener("keydown",_impEsc);
+  const f=_impFocoPrevio;_impFocoPrevio=null;
+  if(f&&typeof f.focus==="function"&&document.contains(f))f.focus();
+}
+// Codex r1: la ventana sólo atiende el teclado si es la capa de arriba (no con el asistente D o la lista E encima):
+// Esc la cierra y Tab no sale de ella.
+function _impEsc(e){
+  const v=$("gb-imp-velo"),r=v.getBoundingClientRect();
+  const arriba=document.elementFromPoint(r.left+r.width/2,r.top+8);
+  if(!arriba||!v.contains(arriba))return;
+  if(e.key==="Escape"){cerrarPanelImpresion();return}
+  if(e.key!=="Tab")return;
+  const f=[...v.querySelectorAll('button,input,select,textarea,a[href],[tabindex]:not([tabindex="-1"])')].filter(x=>!x.disabled&&x.offsetParent!==null);
+  if(!f.length)return;
+  const a=document.activeElement,i=f.indexOf(a);
+  if(i<0||(e.shiftKey&&i===0)||(!e.shiftKey&&i===f.length-1)){e.preventDefault();f[e.shiftKey?f.length-1:0].focus()}
+}
+// Producción › Semana y la barra del celular: siempre en vista semana (el Mes es un botón dentro).
+function abrirProduccionSemana(){setMode("cal");if(calView!=="week")setCalView("week")}
 
 // ─── F4: Tab Imprimibles ─────────────────────────────────────
 
 // Flag para PDF D: si true, incluye entregados ademas de pendientes
 let reportesIncluirEntregados=false;
 
-function renderReportesImprimibles(contentEl){
+function renderReportesImprimibles(contentEl,primero){ // v8.1.0 r3: primero="D" la pone adelante (desde Entregas)
   // v7.8.0.1: default SIEMPRE hoy/hoy al entrar al tab. Filtros separados de Excel.
   // Si el usuario ya cambió manualmente y vuelve, se respeta su selección (porque
   // los inputs guardan en reportesFiltrosImpr y no se resetean entre entradas
@@ -3667,11 +3797,12 @@ function renderReportesImprimibles(contentEl){
       '<div id="rep-imp-preview" style="margin-top:10px;font-size:12px;color:#555"></div>'+
     '</div>'+
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">'+
-      _impCard("A","🍳","Orden de Producción - Comanda","1 hoja por cliente. Productos a producir, datos de entrega, espacio para notas y firma de quien lo hizo.","JP / cocina","generarPdfProduccionPorCliente()",false)+
-      _impCard("B","👨‍🍳","Producción consolidada","Suma de cantidades por producto del rango. Permite planificar cocina sin abrir cliente por cliente.","JP / cocina","generarPdfProduccionConsolidada()",false)+
-      _impCard("C","📦","Empaque con chequeo","1 hoja por cliente con casillas por cada item. Para verificar antes de despachar.","Empacador","generarPdfEmpaque()",false)+
-      _impCard("D","🚚","Entregas con chequeo + firma","Ruta del día con casillas de salió/entregado/firma del receptor.","Conductor","generarPdfEntregas()",false)+
-      _impCard("E","🛒","Lista de compras","Ingredientes necesarios para los pedidos del rango, calculados desde las recetas. Items sin receta aparecen tal cual. Excluye anticipados.","Kathy / compras","generarListaCompras()",false,"🛒 Ver lista")+
+      [["A",_impCard("A","🍳","Orden de Producción - Comanda","1 hoja por cliente. Productos a producir, datos de entrega, espacio para notas y firma de quien lo hizo.","JP / cocina","generarPdfProduccionPorCliente()",false)],
+       ["B",_impCard("B","👨‍🍳","Producción consolidada","Suma de cantidades por producto del rango. Permite planificar cocina sin abrir cliente por cliente.","JP / cocina","generarPdfProduccionConsolidada()",false)],
+       ["C",_impCard("C","📦","Empaque con chequeo","1 hoja por cliente con casillas por cada item. Para verificar antes de despachar.","Empacador","generarPdfEmpaque()",false)],
+       ["D",_impCard("D","🚚","Entregas con chequeo + firma","Ruta del día con casillas de salió/entregado/firma del receptor.","Conductor","generarPdfEntregas()",false)],
+       ["E",_impCard("E","🛒","Lista de compras","Ingredientes necesarios para los pedidos del rango, calculados desde las recetas. Items sin receta aparecen tal cual. Excluye anticipados.","Kathy / compras","generarListaCompras()",false,"🛒 Ver lista")]]
+        .sort((a,b)=>(b[0]===primero)-(a[0]===primero)).map(x=>x[1]).join("")+
     '</div>';
   renderReportesImprimiblesPreview();
 }
@@ -3708,13 +3839,40 @@ function _impGetDocsRango(includeEntregados){
     if(q._wrongCollection)return false;
     if(typeof getFollowUp==="function"&&getFollowUp(q)==="perdida")return false;
     if(!(validStatus[q.kind]||[]).includes(q.status))return false;
-    const f=_reportesGetFecha(q);
-    return f&&f>=desde&&f<=hasta;
+    return _impDocEnRango(q,desde,hasta);
   }).sort((a,b)=>{
-    const fa=_reportesGetFecha(a),fb=_reportesGetFecha(b);
+    const fa=_impFechaEnRango(a),fb=_impFechaEnRango(b);
     if(fa!==fb)return fa.localeCompare(fb);
     return (a.client||"").localeCompare(b.client||"");
   });
+}
+
+// v8.1.0 r3 (Codex r1/r2): las hojas usan la fecha de cada despacho, como la Semana. Un despacho sin fecha propia
+// hereda la del pedido (_reportesGetFecha); un pedido sin despachos[] es su propia entrega.
+function _impFechaDespacho(q,d){
+  const fh=d&&!d._legacy?String(d.fechaHora||"").trim():"";
+  return fh?fh.slice(0,10):_reportesGetFecha(q);
+}
+function _impFechasDoc(q){return getDespachos(q).map(d=>_impFechaDespacho(q,d)).filter(Boolean).sort()}
+// Un pedido entra a las hojas sólo si alguno de sus despachos cae en el rango (no basta la fecha general).
+function _impDocEnRango(q,desde,hasta){return _impFechasDoc(q).some(f=>f>=desde&&f<=hasta)}
+// La fecha que A, B y D muestran: la primera del pedido dentro del rango.
+function _impFechaEnRango(q){
+  const d=reportesFiltrosImpr.desde,h=reportesFiltrosImpr.hasta;
+  return _impFechasDoc(q).find(f=>f>=d&&f<=h)||_reportesGetFecha(q);
+}
+// Hora del primer despacho con fecha propia en ese día ("" si no la tiene: quien llama usa la del pedido).
+function _impHoraDe(q,fecha){
+  for(const d of getDespachos(q)){
+    const fh=d&&!d._legacy?String(d.fechaHora||"").trim():"",t=fh.indexOf("T");
+    if(fh&&fh.slice(0,10)===fecha)return t>0?fh.slice(t+1,t+6):"";
+  }
+  return "";
+}
+// C y D sacan una hoja/fila por despacho: sólo los del rango.
+function _impDespachoEnRango(e){
+  const f=_impFechaDespacho(e.q,e.despacho);
+  return !!f&&f>=reportesFiltrosImpr.desde&&f<=reportesFiltrosImpr.hasta;
 }
 
 function renderReportesImprimiblesPreview(){
@@ -3823,7 +3981,8 @@ function generarListaCompras(){
   };
 
   docs.forEach(q=>{
-    const yaSet=new Set((q.itemsProducidos||[]).map(s=>(s||"").toLowerCase().trim()));
+    // v8.1.0 r3: lo ❄ ya está hecho; tampoco se compran sus ingredientes (como lo ✓)
+    const yaSet=new Set((q.itemsProducidos||[]).concat(q.itemsCongelados||[]).map(s=>(s||"").toLowerCase().trim()));
     const proc=(nombre,qty,desc,unit)=>{
       if(!nombre||!_esProductoProducible(nombre))return;
       if(yaSet.has((nombre||"").toLowerCase().trim()))return;
@@ -4012,8 +4171,8 @@ function generarPdfProduccionPorCliente(){
     if(idx>0)pdf.addPage();
 
     // v7.8.4: la producción se hace el día ANTERIOR a la entrega.
-    const fecha=_reportesGetFecha(q);
-    const hora=q.horaEntrega||(q.orderData||{}).horaEntrega||"";
+    const fecha=_impFechaEnRango(q); // v8.1.0 r3: la entrega de este rango (no siempre la general)
+    const hora=_impHoraDe(q,fecha)||q.horaEntrega||(q.orderData||{}).horaEntrega||""; // v8.1.0 r3 (Codex r3): hora del mismo despacho
     const fechaProd=_fechaProduccion(fecha);
 
     // Header con logo + dorado. Subtitle ahora destaca FECHA DE PRODUCCIÓN.
@@ -4053,13 +4212,14 @@ function generarPdfProduccionPorCliente(){
       // sección/opción) para que el match funcione también en proposals.
       const matchKey=((nombreBase||nombre)||"").toLowerCase().trim();
       const yaProducido=(q.itemsProducidos||[]).some(p=>p===matchKey);
-      if(yaProducido){
+      const congelado=(q.itemsCongelados||[]).some(p=>p===matchKey); // v8.1.0 r3 (R8): ❄ ya estaba hecho
+      if(yaProducido||congelado){
         // v7.8.6: fila ya-producida en gris, sin casilla de check, sin sub-filas
         const gs={textColor:[160,160,160],fontStyle:"italic"};
         items.push([
           {content:"OK",styles:{...gs,halign:"center",fontSize:7}},
           {content:"--",styles:{...gs,halign:"center"}},
-          {content:"[YA PROD.] "+(nombre||""),styles:gs},
+          {content:(congelado?"[CONGELADO] ":"[YA PROD.] ")+(nombre||""),styles:gs},
           {content:desc||"",styles:gs},
           {content:unidad||"",styles:{...gs,halign:"center"}}
         ]);
@@ -4217,7 +4377,7 @@ function generarPdfProduccionConsolidada(){
   // mezclar variantes (ej: Lasagna Pollo vs Lasagna Cerdo vs Lasagna Res).
   const porDia={};
   docs.forEach(q=>{
-    const f=_reportesGetFecha(q)||"(sin fecha)";
+    const f=_impFechaEnRango(q)||"(sin fecha)"; // v8.1.0 r3: el día de este rango
     if(!porDia[f])porDia[f]={docs:[],productos:{}};
     porDia[f].docs.push(q);
     const procItem=(name,qty,desc,unit)=>{
@@ -4226,6 +4386,7 @@ function generarPdfProduccionConsolidada(){
       if(!_esProductoProducible(name))return;
       // v7.8.6: skip items marcados como ya producidos anticipadamente
       if((q.itemsProducidos||[]).some(p=>p===(name||"").toLowerCase().trim()))return;
+      if((q.itemsCongelados||[]).some(p=>p===(name||"").toLowerCase().trim()))return; // v8.1.0 r3 (R8): ❄ no se produce
       const key=name+"|"+(desc||"");
       if(!porDia[f].productos[key])porDia[f].productos[key]={name:name,qty:0,desc:desc||"",unit:unit||"",pedidos:new Set()};
       porDia[f].productos[key].qty+=qty;
@@ -4397,7 +4558,7 @@ function generarPdfEmpaque(){
     const entries=(typeof expandDespachoEntries==="function")
       ?expandDespachoEntries(q)
       :[{q,despacho:null,idx:0,total:1,multi:false,_despachosArr:[]}];
-    entries.forEach(e=>_entradas.push({q:e.q,despacho:e.despacho,despachoIdx:e.idx,totalDespachos:e.total,multi:e.multi,_despachosArr:e._despachosArr}));
+    entries.filter(_impDespachoEnRango).forEach(e=>_entradas.push({q:e.q,despacho:e.despacho,despachoIdx:e.idx,totalDespachos:e.total,multi:e.multi,_despachosArr:e._despachosArr})); // v8.1.0 r3: sólo despachos del rango
   });
   const _totalHojas=_entradas.length;
   _entradas.forEach((entrada,idx)=>{
@@ -5128,7 +5289,7 @@ async function _heWizardGenerate(){
   // Footer en cada página (paginación)
   _repPdfFooter(pdf,W,H);
   // Guardar UN solo archivo
-  const fecha=_reportesGetFecha(s.docs[0])||reportesFiltrosImpr.desde;
+  const fecha=_impFechaEnRango(s.docs[0])||reportesFiltrosImpr.desde;
   pdf.save("HojasReparto_"+fecha+".pdf");
   if(typeof toast==="function")toast("✅ PDF generado con "+hojasGeneradas+" hoja"+(hojasGeneradas===1?"":"s"),"success");
   _heWizardClose();
@@ -5141,7 +5302,7 @@ function _heRenderHojaCarro(pdf,docs,numCarro,state,W,H,M,fmt){
     const hb=state.horaOverride.get(b.id)||b.horaEntrega||"99:99";
     return ha.localeCompare(hb);
   });
-  const fecha=_reportesGetFecha(sorted[0])||reportesFiltrosImpr.desde;
+  const fecha=_impFechaEnRango(sorted[0])||reportesFiltrosImpr.desde;
   const subtitle=hojaFormatFecha(fecha)+"  ·  Carro "+numCarro+"  ·  "+sorted.length+" entrega"+(sorted.length===1?"":"s");
   let y=_repPdfHeader(pdf,W,"HOJA DE ENTREGAS — CARRO "+numCarro,subtitle);
   _heRenderTablaPdf(pdf,sorted,state,W,M,y,false);
@@ -5155,7 +5316,7 @@ function _heRenderHojaRecogidas(pdf,docs,state,W,H,M,fmt){
     const hb=state.horaOverride.get(b.id)||b.horaEntrega||"99:99";
     return ha.localeCompare(hb);
   });
-  const fecha=_reportesGetFecha(sorted[0])||reportesFiltrosImpr.desde;
+  const fecha=_impFechaEnRango(sorted[0])||reportesFiltrosImpr.desde;
   const subtitle=hojaFormatFecha(fecha)+"  ·  "+sorted.length+" recogida"+(sorted.length===1?"":"s");
   let y=_repPdfHeader(pdf,W,"HOJA DE RECOGIDAS EN LA CASA",subtitle);
   _heRenderTablaPdf(pdf,sorted,state,W,M,y,true);
@@ -5180,10 +5341,11 @@ function _heRenderTablaPdf(pdf,docs,state,W,M,startY,esRecogida){
     const exp=(typeof expandDespachoEntries==="function")
       ?expandDespachoEntries(q)
       :[{q,despacho:null,idx:0,total:1,multi:false,_despachosArr:[]}];
-    exp.forEach(e=>entries.push(e));
+    exp.filter(_impDespachoEnRango).forEach(e=>entries.push(e)); // v8.1.0 r3: sólo despachos del rango
   });
   // Construir filas
   const rows=[];
+  const conCobro=new Set(); // v8.1.0 r3 (Codex r2): el cobro va en la primera fila INCLUIDA de cada pedido
   entries.forEach(e=>{
     const q=e.q;
     const despacho=e.despacho;
@@ -5215,7 +5377,7 @@ function _heRenderTablaPdf(pdf,docs,state,W,M,startY,esRecogida){
     fila.push(q.tel||"");
     // Cobro: solo en la primera entrada del doc (no repetir cobro en cada despacho)
     if(incluirCobro){
-      const mostrarCobro=!e.multi||e.idx===0;
+      const mostrarCobro=!conCobro.has(q.id);conCobro.add(q.id);
       fila.push((mostrarCobro&&cobra&&saldo>0)?fmt(saldo):"—");
     }
     fila.push("");  // QUIEN RECIBE
@@ -8249,30 +8411,11 @@ function renderCarteraCard(q,urgencia){
 // ─── v7.8.6: PRODUCCIÓN ANTICIPADA — modal checklist ────────────────────────
 
 function _getItemsProduciblesDeDoc(q){
-  // v7.8.8: dedupe por nombre lowercase. En proposals, un mismo producto puede aparecer en
-  // múltiples opciones (ej. "Tabbule" en Opt A y Opt B); el modal de anticipados debe mostrarlo
-  // una sola vez sumando qty, porque q.itemsProducidos[] es un set por nombre, no por opción.
-  const byKey=new Map();
-  const _add=(nombre,qty,custom)=>{
-    if(!_esProductoProducible(nombre||""))return;
-    const key=(nombre||"").toLowerCase().trim();
-    if(!key)return;
-    const prev=byKey.get(key);
-    if(prev){prev.qty+=Number(qty||0)}
-    else byKey.set(key,{nombre:nombre||"",qty:Number(qty||0),custom:!!custom});
-  };
-  if(q.kind==="quote"){
-    (q.cart||[]).forEach(it=>_add(it.n,it.qty,false));
-    (q.cust||[]).forEach(it=>_add(it.n,it.qty,true));
-  }else{
-    (q.sections||[]).forEach(sec=>(sec.options||[]).forEach(opt=>(opt.items||[]).forEach(it=>{
-      _add(it.name,it.qty,false);
-    })));
-  }
-  return Array.from(byKey.values());
+  // v8.1.0 R5: misma lista que las marcas ✓/❄ (gbItemsAPreparar): en propuestas sólo la opción que suma.
+  return gbItemsAPreparar(q,q.kind==="quote"?"quote":"proposal");
 }
 
-let _itemsProdDocId=null,_itemsProdKind=null;
+let _itemsProdDocId=null,_itemsProdKind=null,_itemsProdAlAbrir=null; // v8.1.0 r1: casillas marcadas al abrir
 
 function openItemsProducidosModal(docId,kind,ev){
   if(ev)ev.stopPropagation();
@@ -8283,6 +8426,7 @@ function openItemsProducidosModal(docId,kind,ev){
   if(titleEl)titleEl.textContent=(q.client||docId)+" · "+docId;
   const items=_getItemsProduciblesDeDoc(q);
   const yaSet=new Set((q.itemsProducidos||[]).map(s=>(s||"").toLowerCase().trim()));
+  _itemsProdAlAbrir=new Set([...yaSet]);
   const wrap=$("items-prod-checklist");
   if(!wrap)return;
   if(!items.length){
@@ -8310,11 +8454,20 @@ async function saveItemsProducidosModal(){
   if(!_itemsProdDocId)return;
   const checks=document.querySelectorAll('#items-prod-checklist .prod-ant-check:checked');
   const nombres=Array.from(checks).map(c=>(c.value||"").toLowerCase().trim()).filter(Boolean);
+  // v8.1.0 R2: antes reemplazaba el arreglo completo a ciegas (dos teléfonos se pisaban). Ahora manda sólo lo
+  // que cambió a marcarPreparacion (transacción): ✓ lo marcado; quita ✓ a lo desmarcado; ❄ no se toca aquí.
+  // r1 (Codex): sólo lo que cambió en ESTA ventana respecto de cómo se abrió; así no revierte lo que otro
+  // teléfono marcó mientras estaba abierta.
+  const previos=_itemsProdAlAbrir||new Set();
+  const cambios={};
+  document.querySelectorAll('#items-prod-checklist .prod-ant-check').forEach(c=>{
+    const k=gbClaveItem(c.value);if(!k)return;
+    if(c.checked&&!previos.has(k))cambios[k]="hecho";else if(!c.checked&&previos.has(k))cambios[k]="quitarHecho"; // r2: no borra un ❄
+  });
   showLoader("Guardando...");
   try{
-    await saveItemsProducidosToCloud(_itemsProdDocId,_itemsProdKind,nombres);
-    const q=(typeof quotesCache!=="undefined")?quotesCache.find(x=>x.id===_itemsProdDocId):null;
-    if(q)q.itemsProducidos=nombres;
+    const patch=await marcarPreparacion(_itemsProdDocId,_itemsProdKind,cambios);
+    if(!patch){hideLoader();return}
     hideLoader();
     const msg=nombres.length?nombres.length+" item(s) marcados como anticipados":"Sin items anticipados";
     toast("✅ "+msg,"success");

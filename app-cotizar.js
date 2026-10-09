@@ -551,6 +551,7 @@ async function _saveCurrentQuoteImpl(silent){
             // la regresó a cotización, o no se pudo leer su estado antes): esos cambios van como versión nueva.
             if(shouldVersionWithSuffix(fresh,"quote"))throw Object.assign(new Error("La cotización está enviada: los cambios se guardan como versión nueva. Vuelve a guardar."),{paraUsuario:true});
             const finalObj=mergeOperationalFields(qObj,fresh,adoptar);
+            gbReconciliarListoTrasEdicion(finalObj,"quote",new Date().toISOString()); // v8.1.0 R6: un listo por marcas no sobrevive a un producto sin marcar
             recalcularTotalTrasAdoptar(finalObj,adoptar,"quote"); // v7.9.30: total coherente con lo adoptado
             ensureSameEditor();
             tx.set(ref,{...finalObj,createdAt:fresh.createdAt||serverTimestamp(),updatedAt:serverTimestamp()});
