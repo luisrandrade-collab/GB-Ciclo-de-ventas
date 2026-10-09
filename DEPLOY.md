@@ -121,7 +121,7 @@ Editar `_internos/Onboarding_chat_nuevo.json`:
 
 ---
 
-## v8.0.8 — Agenda con Google Calendar API (pendiente: F0 y F5)
+## v8.0.8 — Agenda con Google Calendar API (desplegada 2026-10-08)
 
 Plan: `_internos/Plan_de_accion_v7_11_0_agenda_google_calendar_2026-10-06.json` (D1–D7, C1–C4). El código (F1–F3) no despliega nada por sí solo. Funciones nuevas: `agendaQuotes`, `agendaProposals` y `agendaPropfinals` (trigger por documento) y `agendaReconciliar` (todos los días a las 03:00 de Bogotá; también hace la carga inicial). Se **elimina** `agendaIcs` (D3). Parámetros (no son secretos): `GB_CALENDAR_ID` y `GB_AGENDA_SA`.
 
@@ -130,18 +130,18 @@ Plan: `_internos/Plan_de_accion_v7_11_0_agenda_google_calendar_2026-10-06.json` 
 Claude no toca la consola. En el proyecto `gourmet-bites-cotizador`:
 
 1. Google Cloud → APIs y servicios → Biblioteca → **Google Calendar API** → Habilitar.
-2. IAM → Cuentas de servicio → Crear: `gb-agenda`, con **un solo rol de proyecto**: `Visualizador de Cloud Datastore` (`roles/datastore.viewer`, D7). **Sin claves**: no descargar ningún JSON.
-3. En la cuenta de Google de D1: Google Calendar → Otros calendarios → + → Crear calendario **«Gourmet Bites — Pedidos»**, zona horaria Bogotá.
+2. IAM → Cuentas de servicio → Crear: `gb-agenda`, con **dos roles de proyecto**: `Visualizador de Cloud Datastore` (`roles/datastore.viewer`, D7) y `Receptor de eventos de Eventarc` (`roles/eventarc.eventReceiver`, lo exigen los disparadores; Luis lo aprobó el 2026-10-08). **Sin claves**: no descargar ningún JSON.
+3. En la cuenta de Google de D1: Google Calendar → Otros calendarios → + → Crear calendario **«Gourmet Bites — Producción y entregas»** (así quedó en producción), zona horaria Bogotá.
 4. Configuración de ese calendario → Compartir con personas:
    - el correo de `gb-agenda@…iam.gserviceaccount.com` con **«Hacer cambios en eventos»** (no «Hacer cambios y administrar el uso compartido»);
    - Kathy y JP con **«Ver todos los detalles del evento»**.
 5. Configuración del calendario → Integrar el calendario → copiar el **ID del calendario**.
 6. Valores de los parámetros: `GB_CALENDAR_ID` = ese id; `GB_AGENDA_SA` = el correo de la cuenta de servicio. En el primer despliegue la CLI los pide y los guarda en `functions/.env.<proyecto>`. Ese archivo no lleva secretos, pero no se añade al commit (el repositorio es público).
 
-Verificación de F0: la cuenta de servicio figura en «Compartir con personas» con «Hacer cambios en eventos» y su único rol de proyecto es `datastore.viewer`.
+Verificación de F0: la cuenta de servicio figura en «Compartir con personas» con «Hacer cambios en eventos» y sus roles de proyecto son sólo `datastore.viewer` y `eventarc.eventReceiver`.
 
 **Por comprobar en F0/F5, sin mostrar tokens** (no verificable sin red; viene de la revisión de código):
-- **Permisos de los disparadores.** En funciones de 2.ª generación, Eventarc (trigger de Firestore) y Cloud Scheduler invocan la función con una identidad. Si la CLI usa para ello la cuenta dedicada, puede pedir `roles/eventarc.eventReceiver` o `roles/run.invoker`, además de `datastore.viewer`. Un segundo rol de proyecto choca con D4/D7 («un solo rol»): si la CLI lo pide, **parar y decide Luis**.
+- **Permisos de los disparadores.** En funciones de 2.ª generación, Eventarc (trigger de Firestore) y Cloud Scheduler invocan la función con una identidad. En v8.0.8 la CLI pidió `roles/eventarc.eventReceiver` (ya incluido en el paso 2). Si pide otro más (p. ej. `roles/run.invoker`), **parar y decide Luis**.
 - **Región.** Las funciones van en `us-central1`, como `agendaIcs`. Si la ubicación de Firestore no es compatible, la CLI lo rechaza al desplegar: parar.
 - **Alcance del token.** El servidor de metadatos debe entregar el token con `calendar.events`. Si el primer registro dice `HTTP 403` en Calendar, revisar el alcance y la compartición del calendario.
 
@@ -168,12 +168,29 @@ Verificación de F0: la cuenta de servicio figura en «Compartir con personas» 
 8. **C4** — `_internos/Sync_agenda_token_PRIVADO.md` **no se mueve ni lo lee la IA**. Después del paso 4, Luis lo revisa sin mostrar el valor a la IA y lo borra él, o autoriza su borrado con frase.
 9. F6: prueba con Kathy y JP en sus teléfonos, los dos a la vez.
 
+### Lecciones del despliegue (2026-10-08)
+
+1. **Windows: análisis local lento.** La CLI corta a los 10 s al leer `functions/`. Antes de desplegar: `export FUNCTIONS_DISCOVERY_TIMEOUT=60` (PowerShell: `$env:FUNCTIONS_DISCOVERY_TIMEOUT=60`).
+2. **Primera vez con 2.ª generación:** Google tarda minutos en preparar el agente de Eventarc. Si el primer despliegue falla por eso, esperar unos minutos y repetir; no tocar permisos.
+3. **Los disparadores de Firestore exigen `roles/eventarc.eventReceiver`** en la cuenta del servicio (`gb-agenda`), además de `datastore.viewer`. Luis lo aprobó (cambia D4/D7 «un solo rol»: son dos). En IAM el clic de Guardar lo hace Luis.
+4. **`403` de Calendar al listar:** revisar primero que la Google Calendar API esté habilitada (la página de la API debe decir «Administrar», no «Habilitar»). En F0 no había quedado habilitada.
+
 ### Rollback de v8.0.8
 
 - **El calendario es sólo una vista**: borrar eventos o el calendario entero no toca Firestore. La reconciliación de las 03:00 lo vuelve a llenar.
 - **Detener la sincronización sin volver atrás**, con frase: `firebase functions:delete agendaQuotes agendaProposals agendaPropfinals agendaReconciliar --project gourmet-bites-cotizador`.
 - **Volver a `agendaIcs`**, con frase antes: `git checkout 2e7df15 -- functions/` y desplegar. Sólo funciona **antes del paso 4**. Después, `agendaIcs` exige un secreto nuevo (rotar el token) y eso lo decide Luis.
 - **App**: `git revert <commit de v8.0.8>` y push con frase (`.git/push_autorizado` y `con_cuenta.sh`, como en «Deploy completo», paso 4). Vuelve el panel, pero sin `agendaIcs` su link ya no sirve.
+
+## v8.0.8.1 — Colores por tipo de evento en el calendario
+
+Plan: `_internos/Plan_de_accion_v8_0_8_1_colores_agenda_2026-10-08.json`. Cada evento lleva un `colorId` (`functions/agenda-sync.js`): producir naranja (`6`), entrega azul (`9`). La comparación incluye el color, así que la reconciliación recolorea los eventos ya creados.
+
+1. Con su frase, desplegar funciones (con `FUNCTIONS_DISCOVERY_TIMEOUT=60`): `firebase deploy --only functions --project gourmet-bites-cotizador`. Sólo actualiza las cuatro funciones de la agenda; no crea ni borra ninguna.
+2. Forzar `agendaReconciliar` (Cloud Scheduler, como F5 paso 5): `errores: 0` y `sinConverger: 0`; si no, forzar otra vez. Ver los colores en el calendario. Si no se fuerza, la corrida de las 03:00 hace lo mismo.
+3. Push de la app con su frase (como «Deploy completo», paso 4).
+
+Rollback: `git checkout 89c775e -- functions/agenda-sync.js` y desplegar funciones con frase. Eso **no quita** los colores ya puestos: el código de v8.0.8 no compara el color y un PATCH sin `colorId` no lo borra. Son inofensivos; si se quieren quitar, borrar los eventos del calendario (es sólo una vista) y forzar `agendaReconciliar`, que los recrea sin color.
 
 ---
 

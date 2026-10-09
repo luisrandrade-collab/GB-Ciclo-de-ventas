@@ -16,10 +16,13 @@ const {esAgendable,eventosDeDoc,bogotaAUtc,sumarDias}=require("./agenda-eventos.
 const COLECCIONES=["quotes","proposals","propfinals"];
 const INTENTOS=3;
 
+// v8.0.8.1: color por tipo (paleta de eventos de Google): producir = 6 Tangerine (naranja), entrega = 9 Blueberry (azul).
+const COLORES={produccion:"6",entrega:"9"};
+
 // Evento del módulo → recurso de Calendar. Con hora: 1 h, en UTC y zona Bogotá; sin hora: día completo.
 function aRecurso(ev){
   const r={
-    id:ev.id,summary:ev.titulo,description:ev.descripcion,location:ev.lugar,status:"confirmed",
+    id:ev.id,summary:ev.titulo,description:ev.descripcion,location:ev.lugar,colorId:COLORES[ev.tipo],status:"confirmed",
     extendedProperties:{private:{gbApp:"1",gbDoc:ev.gbDoc}}
   };
   if(ev.hora){
@@ -41,6 +44,7 @@ function deseadosDe(doc,coleccion){
 const momento=x=>!x?"":(x.date?"d"+x.date:"t"+Date.parse(x.dateTime));
 function igual(d,a){
   return (d.summary||"")===(a.summary||"")&&(d.description||"")===(a.description||"")&&(d.location||"")===(a.location||"")
+    &&(d.colorId||"")===(a.colorId||"") // v8.0.8.1: así la reconciliación recolorea los eventos creados sin color
     &&momento(d.start)===momento(a.start)&&momento(d.end)===momento(a.end);
 }
 function coincide(deseados,actuales){

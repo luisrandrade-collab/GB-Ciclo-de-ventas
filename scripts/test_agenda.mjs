@@ -511,5 +511,13 @@ await test('v8.0.8 r2: las tarjetas usan la fecha y hora del despacho; «Marcar 
   assert.match(dash,/renderWeekEventCard\(e\.q,iso,todayIso,e\.hora\)/);assert.match(dash,/const horaE=e\.tipo==="entregar"\?e\.hora:e\.entregaHora;/);
   assert.match(dash,/toggleProduced\('\+jsArg\(q\.id\)\+','\+jsArg\(q\.kind\)\+',event\)" title="Marcar como producido"/);
 });
+await test('v8.0.8.1: producir naranja (6), entrega azul (9); un evento sin color o con otro no coincide',()=>{
+  const l=ev(base({status:'pedido',eventDate:'2026-10-10'}),'quotes').map(SYNC.aRecurso);
+  const [p]=l.filter(r=>r.summary.startsWith('🔥')),[e]=l.filter(r=>r.summary.startsWith('🚚'));
+  assert.equal(p.colorId,'6');assert.equal(e.colorId,'9');
+  assert.ok(SYNC.coincide(l,l.map(r=>({...r}))),'mismo color: coincide');
+  assert.ok(!SYNC.coincide(l,l.map(r=>({...r,colorId:undefined}))),'creado antes de v8.0.8.1 (sin color): se recolorea');
+  assert.ok(!SYNC.coincide(l,l.map(r=>({...r,colorId:'11'}))),'otro color: se corrige');
+});
 console.log(`\n${ok} OK · ${fallos} fallo(s)`);
 process.exit(fallos?1:0);
