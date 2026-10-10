@@ -575,7 +575,7 @@ await test('v8.1.0 r3 menú: «Producción» (Semana · Por producir · Listos �
   for(const [vieja,nueva] of [['inicio/agenda','produccion/semana'],['pedidos/aprobados','produccion/por-producir'],['pedidos/producidos','produccion/listos'],['pedidos/hojas-imprimibles','produccion/hojas']]){
     assert.equal(S[vieja],S[nueva],vieja+' redirige al mismo modo');assert.equal(L[S[nueva]],nueva);assert.equal(T[nueva][0],'Producción');
   }
-  assert.equal(L['pedidos-produccion'],'produccion/por-producir');
+  assert.match(leer('app-core.js'),/"pedidos-produccion":"pedidos-aprobados"/,'v8.2.0: setMode redirige «En producción» a Por producir');
   for(const [k,v] of Object.entries(L))assert.ok(S[v],'LEGACY_TO_SUB '+k+' → '+v+' existe en SUB_TO_LEGACY');
 });
 await test('v8.1.0 r3 barra del celular: Inicio · Negocios · Producción · Entregas · Cobros; marca el destino de cada modo',()=>{

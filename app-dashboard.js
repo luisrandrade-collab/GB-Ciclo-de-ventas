@@ -573,7 +573,7 @@ async function renderDashboard(){
       if(q.eventDate>=todayIso2&&q.eventDate<=t14Iso)upcoming.push(q);
     });
     upcoming.sort((a,b)=>(a.eventDate+(a.horaEntrega||"")).localeCompare(b.eventDate+(b.horaEntrega||"")));
-    const sinFechaHtml=sinFecha.length?'<div class="dash-met-empty" style="background:#FFF3E0;color:#E65100;border:1px solid #FFB74D;border-radius:8px;padding:10px 14px;margin-top:8px;cursor:pointer" onclick="if(typeof switchSection===\'function\')switchSection(\'ventas\')">⚠️ '+sinFecha.length+' pedido'+(sinFecha.length>1?'s':'')+' sin fecha de entrega: '+sinFecha.map(q=>h(q.client||q.id)).join(", ")/* v7.9.13: SEC-07 escape cliente */+'</div>':"";
+    const sinFechaHtml=sinFecha.length?'<div class="dash-met-empty" style="background:#FFF3E0;color:#E65100;border:1px solid #FFB74D;border-radius:8px;padding:10px 14px;margin-top:8px;cursor:pointer" onclick="abrirNegociosChip(\'confirmados\')">⚠️ '/* v8.2.0 (Codex r3): switchSection no existe; abre los pedidos confirmados */+sinFecha.length+' pedido'+(sinFecha.length>1?'s':'')+' sin fecha de entrega: '+sinFecha.map(q=>h(q.client||q.id)).join(", ")/* v7.9.13: SEC-07 escape cliente */+'</div>':"";
     if(!upcoming.length){$("dash-upcoming").innerHTML='<div class="dash-met-empty">No hay entregas en los próximos 14 días.</div>'+sinFechaHtml}
     else{
       const byDay={};upcoming.forEach(q=>{(byDay[q.eventDate]=byDay[q.eventDate]||[]).push(q)});

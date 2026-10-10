@@ -109,8 +109,8 @@
 // ═══════════════════════════════════════════════════════════
 
 // ─── BUILD METADATA ────────────────────────────────────────
-const BUILD_VERSION="v8.1.0";
-const BUILD_DATE="2026-10-09";
+const BUILD_VERSION="v8.2.0";
+const BUILD_DATE="2026-10-10";
 // v8.0.0 (D-v8-09): bandera del rediseño R1. Tapa sólo lo nuevo: Inicio, Negocios (y la ficha en T3), barra
 // inferior, entradas del menú y arranque en Inicio. F5 y los campos nuevos quedan siempre activos. Apagada, la app
 // es v7.10.2 más los arreglos de T1. Se enciende para todos a la vez tras la prueba de Kathy y JP (D-v8-03).
@@ -3548,7 +3548,15 @@ function showLoader(msg){
 function hideLoader(){const el=$("loader");if(el)el.style.display="none"}
 
 // ─── MODE SWITCHING ────────────────────────────────────────
+// v8.2.0: pantallas que salieron del menú → su lugar nuevo, para que ningún enlace interno quede roto.
+// El código de dash, cotizaciones, perdidas y archivo-* sigue hasta que F2 traslade sus bloques (inventario §3).
+// dash (Dashboard viejo) NO se redirige: Inicio › «Resumen anterior (temporal)» lo abre hasta v8.2.1 (decisión de Luis 2026-10-10).
 function setMode(m){
+  const MODOS_RETIRADOS={hist:"inicio","archivo-busqueda":"search","pedidos-produccion":"pedidos-aprobados"};
+  const MODOS_A_CHIP={cotizaciones:"cotizaciones",perdidas:"perdidas","archivo-anuladas":"perdidas"}; // archivo-convertidas sigue abriendo su pantalla hasta v8.2.1 (Codex r3: «Cerrados» no las muestra)
+  if(MODOS_A_CHIP[m]&&typeof abrirNegociosChip==="function")return abrirNegociosChip(MODOS_A_CHIP[m]);
+  if(m==="ventas"&&typeof window.gbAbrirCrear==="function")return window.gbAbrirCrear(); // «Nueva venta» = hoja ＋ Crear
+  m=MODOS_RETIRADOS[m]||m;
   curMode=m;
   // v8.0.4 (Codex r1): cualquier navegación apaga el pedido directo, también «Nueva cotización» (gbPedidoDirecto
   // lo enciende después de newQuote); si la revisión mostraba su botón, se repinta como cotización normal.
@@ -3757,9 +3765,10 @@ async function doSearch(){
   quotesCache.forEach(q=>{
     const qn=(q.quoteNumber||q.id||"").toLowerCase();
     const cli=(q.client||"").toLowerCase();
-    let match=qn.includes(qStr)||cli.includes(qStr);
-    if(!match){const items=[...(q.cart||[]),...(q.cust||[])];match=items.some(it=>(it.n||"").toLowerCase().includes(qStr))}
-    if(!match&&q.sections){match=q.sections.some(s=>s.options&&s.options.some(o=>o.items&&o.items.some(it=>(it.name||"").toLowerCase().includes(qStr))))}
+    // v8.2.0: también teléfono y descripción del producto (lo que buscaba Archivo › Buscar todo, que se retira)
+    let match=qn.includes(qStr)||cli.includes(qStr)||String(q.tel||"").toLowerCase().includes(qStr);
+    if(!match){const items=[...(q.cart||[]),...(q.cust||[])];match=items.some(it=>(it.n||"").toLowerCase().includes(qStr)||(it.d||"").toLowerCase().includes(qStr))}
+    if(!match&&q.sections){match=q.sections.some(s=>s.options&&s.options.some(o=>o.items&&o.items.some(it=>(it.name||"").toLowerCase().includes(qStr)||(it.desc||"").toLowerCase().includes(qStr))))}
     if(match)results.push({type:q.kind==="proposal"?"prop":"cot",id:q.id,data:q});
   });
   const seen=new Set();

@@ -305,14 +305,15 @@ const ACCIONES_R1={
 // Chips de la lista; «Por facturar» sólo con la empresa encendida (D-v8-06).
 const CHIPS_R1=[
   {clave:"abiertos",label:"Abiertos",si:n=>["cotizacion","confirmado","listo","por_cobrar","otro"].includes(n.etapa)},
-  {clave:"cotizaciones",label:"Cotizaciones",si:n=>n.etapa==="cotizacion"},
+  {clave:"cotizaciones",label:"Cotizaciones abiertas",si:n=>n.etapa==="cotizacion"}, // v8.2.0: mismo nombre que la entrada del menú
   {clave:"confirmados",label:"Confirmados",si:n=>n.etapa==="confirmado"||n.etapa==="listo"},
   {clave:"manana",label:"Entregar mañana",si:(n,p)=>(n.etapa==="confirmado"||n.etapa==="listo")&&n.cabeza.eventDate===p.manana},
   // Decisión de Luis (Codex r1 v8.0.1, hallazgo 3): manda la cabeza; si difiere del Pipeline por historia anómala, se corrige con «Unir».
   {clave:"por_cobrar",label:"Por cobrar",si:n=>n.etapa==="por_cobrar"}, // v8.0.1: sólo entregados con saldo; el número del Inicio sigue con metricaPorCobrar
   {clave:"por_facturar",label:"Por facturar",empresa:true,si:n=>n.porFacturar},
-  {clave:"perdidas",label:"Perdidas",si:n=>n.etapa==="perdida"},
-  {clave:"cerrados",label:"Cerrados",si:n=>n.etapa==="cerrado"||n.etapa==="anulada"}
+  // v8.2.0: las anuladas salen de «Cerrados» y van con las perdidas (absorbe Archivo › Anuladas)
+  {clave:"perdidas",label:"Perdidas y anuladas",si:n=>n.etapa==="perdida"||n.etapa==="anulada"},
+  {clave:"cerrados",label:"Cerrados",si:n=>n.etapa==="cerrado"}
 ];
 // Cuadros del Inicio: la misma métrica pinta el número y filtra la lista.
 const CUADROS_R1=[
@@ -493,8 +494,10 @@ function accionR1(ds){
     _r1Estado.rango={start:d,end:a,label:"Fechas",propio:true};_r1Estado.periodo="rango";_r1Estado.borrador=null;renderInicio();
   }else if(ds.r1==="chip"){
     f.chip=ds.chip;f.metrica=null;f.pagina=1;_r1PintarLista();
+    if(typeof window!=="undefined"&&typeof window.gbShellSync==="function")window.gbShellSync(); // v8.2.0: menú y encabezado siguen al chip
   }else if(ds.r1==="quitar-metrica"){
     f.metrica=null;f.chip="abiertos";f.pagina=1;_r1PintarLista();
+    if(typeof window!=="undefined"&&typeof window.gbShellSync==="function")window.gbShellSync();
   }else if(ds.r1==="mas"){
     f.pagina++;_r1PintarLista();
   }else accionFichaR1(ds); // T3: ficha, reporte y unir/separar
@@ -521,9 +524,15 @@ function pintarNavR1(m){
   // v8.1.0 r3: barra Inicio · Negocios · Producción · Entregas · Cobros
   const destino=m==="inicio"||m==="negocios"?m:m==="ficha"?"negocios":m==="cal"||String(m).startsWith("pedidos-")?"produccion":
     m==="entregar"||m==="entregadas"?"entregas":String(m).startsWith("cartera")?"cobros":"";
-  for(const id of ["r1-menu","r1-barra"]){const box=$(id);if(box&&box.querySelectorAll)box.querySelectorAll("[data-r1-ir]").forEach(b=>b.classList.toggle("is-active",b.dataset.r1Ir===destino))}
-  if(destino==="inicio"||destino==="negocios")document.querySelectorAll(".sb-module.is-active").forEach(el=>el.classList.remove("is-active"));
+  const barra=$("r1-barra");if(barra&&barra.querySelectorAll)barra.querySelectorAll("[data-r1-ir]").forEach(b=>b.classList.toggle("is-active",b.dataset.r1Ir===destino));
 }
+// v8.2.0: las entradas Negocios › Cotizaciones abiertas / Perdidas y anuladas / Cerrados abren la lista con su chip.
+function abrirNegociosChip(chip){
+  _r1Estado.filtro={chip:CHIPS_R1.some(c=>c.clave===chip)?chip:"abiertos",metrica:null,texto:"",pagina:1};_r1Estado.unir=null;
+  setMode("negocios");
+}
+// El menú marca la entrada del chip abierto (index.html, subActivo).
+function gbNegociosChip(){return _r1Estado.filtro.metrica?null:_r1Estado.filtro.chip}
 // Tras una acción terminada en cualquier pantalla: repinta Inicio, Negocios, la ficha o el reporte si están a la vista y, si no, las insignias.
 function refrescarVistasR1(){
   if(!GB_REDISENO_R1)return;
@@ -549,21 +558,11 @@ function vigilarEscriturasR1(fb){
   }
   fb._r1Vigilado=true;
 }
-// Arranque con la bandera encendida: entradas del menú, barra inferior (bajo 1024 px) y la app abre en Inicio.
+// Arranque con la bandera encendida: barra inferior (bajo 1024 px) y la app abre en Inicio.
+// v8.2.0: el menú lateral ya no se arma aquí; vive entero en index.html (un solo menú).
 function iniciarRedisenoR1(){
   if(!GB_REDISENO_R1)return false;
   vigilarEscriturasR1(window.fb);
-  const menu=$("r1-menu");
-  if(menu&&menu.hidden){
-    menu.innerHTML='<button type="button" class="gb-shell-sidebar__item" data-r1-ir="inicio"><span class="gb-shell-icon">🏠</span><span class="gb-shell-sidebar__label">Inicio</span> <span id="r1-insignia-menu" class="r1-insignia" hidden></span></button>'+
-      '<button type="button" class="gb-shell-sidebar__item" data-r1-ir="negocios"><span class="gb-shell-icon">📋</span><span class="gb-shell-sidebar__label">Negocios</span></button>';
-    menu.hidden=false;
-    menu.addEventListener("click",_r1NavClick);
-  }
-  // El Dashboard actual sigue como «Tablero anterior»; el módulo viejo deja de llamarse «Inicio» y no repite su sección «Tu día» (T4).
-  const tablero=document.querySelector('.sb-submenu a[data-sub="inicio/dashboard"]');if(tablero)tablero.textContent="Tablero anterior";
-  const modulo=document.querySelector('.sb-module[data-mod="inicio"] .sb-module__label');if(modulo)modulo.textContent="Tablero";
-  const ambiguos=document.querySelector('.sb-submenu a[data-sub="herr/negocios-ambiguos"]');if(ambiguos)ambiguos.hidden=false; // T3: reporte en Herramientas
   const barra=$("r1-barra");
   if(barra&&barra.hidden){barra.hidden=false;barra.addEventListener("click",_r1NavClick);document.body.classList.add("r1-con-barra")}
   setMode("inicio");
@@ -573,6 +572,7 @@ function _r1NavClick(e){
   const b=e.target&&e.target.closest&&e.target.closest("[data-r1-ir]");if(!b)return;
   const ir=b.dataset.r1Ir;
   if(ir==="produccion"){abrirProduccionSemana();return} // v8.1.0 r3: siempre en vista semana
+  if(ir==="negocios")_r1Estado.unir=null; // v8.2.0 (B10): navegar no deja pegado el modo «Unir»; el chip y la búsqueda se conservan
   const modo={inicio:"inicio",negocios:"negocios",entregas:"entregar",cobros:"cartera"}[ir];
   if(modo)setMode(modo);
 }

@@ -438,7 +438,7 @@ await test('F5 formularioConCambios compara con la firma del formulario abierto 
 const hReal=s=>s==null?'':String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 const T2=[...neg('_r1Norm','_r1Manana','rangoInicio','etapaNegocio','ETAPAS_R1','proximaAccion','ACCIONES_R1','CHIPS_R1','CUADROS_R1','PERIODOS_R1','_r1Estado',
   'proyectarNegocios','proyeccionNegocios','invalidarProyeccionNegocios','filtrarNegocios','_r1Cuadro','_r1Boton','_r1HtmlCuadro','_r1HtmlFila','_r1HtmlFranja',
-  '_r1Cablear','renderInicio','renderNegocios','_r1PintarLista','accionR1','_r1Click','_r1Input','pintarNavR1','refrescarVistasR1','ESCRITURAS_FB_R1','programarRefrescoR1','vigilarEscriturasR1','iniciarRedisenoR1','_r1NavClick'),...['getMenajeOpciones','propRequierePF'].map(n=>['app-core.js',n])]; // v8.0.7 D18
+  '_r1Cablear','renderInicio','renderNegocios','_r1PintarLista','accionR1','_r1Click','_r1Input','pintarNavR1','refrescarVistasR1','ESCRITURAS_FB_R1','programarRefrescoR1','vigilarEscriturasR1','iniciarRedisenoR1','_r1NavClick','abrirNegociosChip','gbNegociosChip'),...['getMenajeOpciones','propRequierePF'].map(n=>['app-core.js',n])]; // v8.0.7 D18
 const HOY='2026-09-30',MAN='2026-10-01';
 const estadoR1=c=>vm.runInContext('_r1Estado',c); // const del script: no es propiedad del contexto
 function domR1(){
@@ -695,15 +695,18 @@ await test('T2 chips con conteo: Abiertos · Cotizaciones · Confirmados · Entr
   const {c}=ctxR1(mundoR1());
   const p=c.proyeccionNegocios();
   const r=c.filtrarNegocios(p,{chip:'abiertos',metrica:null,texto:'',pagina:1});
-  assert.deepEqual(plain(r.conteos),{abiertos:10,cotizaciones:6,confirmados:3,manana:1,por_cobrar:1,perdidas:1,cerrados:2}); // v8.0.1: por_cobrar 3 → 1
+  // v8.2.0: la anulada A1 pasa de «Cerrados» a «Perdidas y anuladas»
+  assert.deepEqual(plain(r.conteos),{abiertos:10,cotizaciones:6,confirmados:3,manana:1,por_cobrar:1,perdidas:2,cerrados:1}); // v8.0.1: por_cobrar 3 → 1
   const ids=chip=>plain(c.filtrarNegocios(p,{chip,metrica:null,texto:'',pagina:1}).filas.map(n=>n.cabeza.id)).sort();
-  assert.deepEqual(ids('manana'),['Q5']);assert.deepEqual(ids('por_cobrar'),['Q8']);assert.deepEqual(ids('cerrados'),['A1','Q9']);assert.deepEqual(ids('perdidas'),['L1']);
+  assert.deepEqual(ids('manana'),['Q5']);assert.deepEqual(ids('por_cobrar'),['Q8']);assert.deepEqual(ids('cerrados'),['Q9']);assert.deepEqual(ids('perdidas'),['A1','L1']);
   assert.ok(ids('abiertos').includes('R1-1'),'la historia incompleta nunca se pierde de la lista');
   c.renderMode('negocios');
   const chips=c.$('r1-neg-chips').innerHTML;
   assert.match(chips,/data-chip="abiertos"[^>]*aria-pressed="true"[^>]*>Abiertos <span class="r1-chip-n">10</);
   assert.ok(!/Por facturar|por_facturar/.test(chips),'empresa apagada: sin Por facturar');
   c.accionR1({r1:'chip',chip:'cerrados'});
+  assert.equal((c.$('r1-neg-lista').innerHTML.match(/class="r1-fila[ "]/g)||[]).length,1); // v8.2.0: la anulada ya no está en Cerrados
+  c.accionR1({r1:'chip',chip:'perdidas'});
   assert.equal((c.$('r1-neg-lista').innerHTML.match(/class="r1-fila[ "]/g)||[]).length,2);
 });
 await test('v8.0.1 chip «Por cobrar»: sólo lo entregado con saldo; el número «Por cobrar» del Inicio no cambia',()=>{
@@ -829,7 +832,7 @@ await test('T2 bandera apagada: no aparece nada nuevo y el arranque sigue en el 
   assert.match(core,/let cart=\[\],cust=\[\],selCat="Todas",curStep="info",curMode="dash";/);
   assert.match(core,/const GB_REDISENO_R1=(true|false);/);
   assert.ok(/iniciarRedisenoR1\(\)/.test(functionSource('app-core.js','initApp')));
-  assert.match(html,/<div id="r1-menu" hidden><\/div>/);assert.match(html,/<nav id="r1-barra" class="r1-barra" hidden/);
+  assert.doesNotMatch(html,/id="r1-menu"/,'v8.2.0: el menú lateral vive entero en index.html');assert.match(html,/<nav id="r1-barra" class="r1-barra" hidden/);
   assert.match(html,/<div id="mode-inicio" class="hidden"><\/div>/);assert.match(html,/<div id="mode-negocios" class="hidden"><\/div>/);
   const barra=html.slice(html.indexOf('<style id="r1-barra-estilos">'));
   assert.ok(/\.r1-barra\[hidden\]\{display:none!important\}/.test(barra.slice(0,barra.indexOf('</style>'))),'el hidden de la barra gana');
@@ -837,14 +840,15 @@ await test('T2 bandera apagada: no aparece nada nuevo y el arranque sigue en el 
   const {c:on,els:e2,llamadas:l2,extras:x2}=ctxR1(mundoR1(),{flag:true,curMode:'dash'});
   assert.equal(on.iniciarRedisenoR1(),true);
   assert.deepEqual(l2.at(-1),['setMode','inicio']);
-  assert.equal(e2['r1-menu'].hidden,false);assert.equal(e2['r1-barra'].hidden,false);
-  assert.match(e2['r1-menu'].innerHTML,/data-r1-ir="inicio"[\s\S]*Inicio[\s\S]*data-r1-ir="negocios"[\s\S]*Negocios/);
-  assert.equal(x2.dashboard.textContent,'Tablero anterior');
+  assert.equal(e2['r1-menu'],undefined,'v8.2.0: no arma menú');assert.equal(e2['r1-barra'].hidden,false);
+  assert.equal(x2.dashboard.textContent,'Dashboard','v8.2.0: no renombra entradas del menú');
   // v8.1.0 r3: barra Inicio · Negocios · Producción · Entregas · Cobros (sin Imprimir, Clientes ni ☰ Más)
   for(const [ir,fn,arg] of [['produccion','abrirProduccionSemana',undefined],['entregas','setMode','entregar'],['cobros','setMode','cartera'],['negocios','setMode','negocios'],['inicio','setMode','inicio']]){
     l2.length=0;on._r1NavClick({target:{closest:()=>({dataset:{r1Ir:ir}})}});
     assert.equal(l2[0][0],fn,ir);if(arg)assert.equal(l2[0][1],arg);
   }
+  estadoR1(on).unir={origen:'X'};on._r1NavClick({target:{closest:()=>({dataset:{r1Ir:'negocios'}})}});
+  assert.equal(estadoR1(on).unir,null,'v8.2.0 (B10): la barra sale del modo «Unir»');
 });
 await test('T2 usuario de sólo lectura: ve Inicio y Negocios sin botones de escritura',()=>{
   for(const escribe of [false,true]){
@@ -863,8 +867,7 @@ await test('T2 HTML generado: datos escapados (cliente e id hostiles) y sin on*=
   docs.push({id:'X" onmouseover="alert(1)',kind:'quote',status:'entregado',client:'Zoe',dateLocal:'2026-09-02',eventDate:'2026-09-20',total:30});
   const {c}=ctxR1(docs,{empresa:true});
   c.renderMode('inicio');estadoR1(c).filtro.chip=null;c.renderMode('negocios');
-  const {c:c2}=ctxR1(docs);c2.iniciarRedisenoR1();
-  const todo=['mode-inicio','mode-negocios','r1-neg-franja','r1-neg-chips','r1-neg-resumen','r1-neg-lista','r1-neg-mas'].map(id=>c.$(id).innerHTML).join('')+c2.$('r1-menu').innerHTML;
+  const todo=['mode-inicio','mode-negocios','r1-neg-franja','r1-neg-chips','r1-neg-resumen','r1-neg-lista','r1-neg-mas'].map(id=>c.$(id).innerHTML).join(''); // v8.2.0: r1-menu ya no existe
   assert.ok(!/<img|<b>/.test(todo),'sin marcado del usuario');
   assert.ok(todo.includes('&lt;img src=x onerror=alert(1)&gt;&quot;&#39;'));
   assert.ok(todo.includes('data-id="X&quot; onmouseover=&quot;alert(1)"'),'el id va como dato escapado');
@@ -1585,9 +1588,9 @@ await test('T3 reporte de negocios ambiguos (Herramientas): enlace roto, ciclo y
   const {c:ro}=ctxR3(docs,{escribe:false,curMode:'herr-ambiguos'});ro.renderMode('herr-ambiguos');
   assert.ok(!/data-r1="unir"/.test(ro.$('mode-herr-ambiguos').innerHTML)&&/data-r1="ficha"/.test(ro.$('mode-herr-ambiguos').innerHTML));
   const idx=source('index.html');
-  assert.match(idx,/<a href="javascript:void\(0\)" data-sub="herr\/negocios-ambiguos" hidden>Negocios ambiguos<\/a>/);
-  assert.ok(/'herr\/negocios-ambiguos':\s*'herr-ambiguos'/.test(idx)&&/'herr-ambiguos':\s*'herr\/negocios-ambiguos'/.test(idx));
-  assert.ok(/negocios-ambiguos/.test(functionSource('app-negocios.js','iniciarRedisenoR1')),'la entrada sólo se muestra con la bandera');
+  // v8.2.0: Configuración › Negocios ambiguos, siempre visible (la bandera está encendida)
+  assert.match(idx,/<a href="javascript:void\(0\)" data-sub="config\/negocios-ambiguos">Negocios ambiguos<\/a>/);
+  assert.ok(/'config\/negocios-ambiguos':\s*'herr-ambiguos'/.test(idx)&&/'herr-ambiguos':\s*'config\/negocios-ambiguos'/.test(idx));
 });
 await test('T3 sólo lectura: ve la ficha y el reporte sin botones de escritura (sólo estado de cuenta y PDFs)',()=>{
   const docs=[...mundoR3(),{id:'PD',kind:'quote',status:'pedido',client:'Con PDF',dateLocal:'2026-09-06',eventDate:'2026-10-30',total:10,pdfHistorial:[{version:1,url:'u'}]}];
@@ -1691,30 +1694,19 @@ function encabezadoD5(flag){
   load();
   return m=>{window.setMode(m);return {visible,marcado}};
 }
-await test('T4 encabezado: las vistas nuevas con título en mayúscula y la forma de los viejos; los títulos viejos no cambian',()=>{
+await test('v8.2.0 encabezado: cada vista dice el módulo y la entrada del menú nuevo; un modo sin título no muestra su nombre interno',()=>{
   const ir=encabezadoD5();
-  assert.deepEqual(ir('inicio'),{visible:'Inicio',marcado:'<span class="crumb-current">Inicio</span>'});
+  assert.deepEqual(ir('inicio'),{visible:'Inicio·Trabajo de hoy',marcado:'<span class="crumb-mod">Inicio</span><span class="crumb-sep">·</span><span class="crumb-current">Trabajo de hoy</span>'});
   assert.deepEqual(ir('negocios'),{visible:'Negocios',marcado:'<span class="crumb-current">Negocios</span>'});
   assert.equal(ir('ficha').visible,'Negocios·Negocio');assert.match(ir('ficha').marcado,/^<span class="crumb-mod">Negocios<\/span><span class="crumb-sep">·<\/span><span class="crumb-current">Negocio<\/span>$/);
-  assert.equal(ir('herr-ambiguos').visible,'Herramientas·Negocios ambiguos');
-  // Bandera apagada: esas tres vistas no existen (la app no navega a ellas) y los títulos viejos quedan igual.
-  for(const [m,t] of [['dash','Inicio·Dashboard'],['seg','Inicio·Tareas y follow-ups'],['cot','Cotizaciones·Nueva cotización'],['clientes-ficha','Clientes·Directorio'],['backup','Herramientas·Mantenimiento y backups']])assert.equal(ir(m).visible,t,m);
-  assert.deepEqual(ir('modo-sin-titulo'),{visible:'modo-sin-titulo',marcado:null},'un modo sin título sigue mostrando su nombre');
-  const {c,els}=ctxR1(mundoR1(),{flag:false,curMode:'dash'});
-  assert.equal(c.iniciarRedisenoR1(),false);assert.equal(c.curMode,'dash');assert.equal(els['r1-menu'],undefined);
-});
-await test('T4b encabezado: con la bandera, ningún título dice «Inicio» salvo el Inicio nuevo; el Tablero anterior dice lo mismo que el menú',()=>{
+  for(const [m,t] of [['seg','Inicio·Seguimiento'],['cal','Producción·Semana'],['cartera','Cobros y facturas·Por cobrar'],['proveedores-directorio','Compras·Proveedores'],
+    ['clientes-ficha','Clientes'],['herr-catalogo','Productos y precios·Productos'],['reportes','Configuración·Exportar a Excel'],['herr-ambiguos','Configuración·Negocios ambiguos'],
+    ['backup','Configuración·Mantenimiento y backups'],['cot','Cotización'],['prop','Propuesta de evento'],['search','Buscar']])assert.equal(ir(m).visible,t,m);
+  assert.deepEqual(ir('modo-sin-titulo'),{visible:'',marcado:null},'antes mostraba el nombre interno (p. ej. «search»)');
   const idx=source('index.html'),legado=idx.slice(idx.indexOf('var LEGACY_TO_SUB = {'),idx.indexOf('};',idx.indexOf('var LEGACY_TO_SUB = {')));
-  const modos=[...legado.matchAll(/'([\w-]+)':\s*'([\w/-]+)'/g)].map(m=>m[1]).concat(['inicio','negocios','ficha']);
-  assert.ok(modos.length>=35,'se encontraron los modos ('+modos.length+')');
-  const on=encabezadoD5(true);
-  for(const m of modos)if(m!=='inicio')assert.ok(!/^Inicio/.test(on(m).visible),m+' dice «'+on(m).visible+'»');
-  assert.equal(on('inicio').visible,'Inicio');
-  assert.deepEqual(on('dash'),{visible:'Tablero·Tablero anterior',marcado:'<span class="crumb-mod">Tablero</span><span class="crumb-sep">·</span><span class="crumb-current">Tablero anterior</span>'});
-  assert.equal(on('seg').visible,'Tablero·Tareas y follow-ups');assert.equal(on('cal').visible,'Producción·Semana'); // v8.1.0 r3: la Agenda pasa a Producción
-  assert.equal(on('cot').visible,'Cotizaciones·Nueva cotización','los demás módulos no cambian');
-  // Bandera apagada (o sin definir): sin cambio.
-  for(const off of [encabezadoD5(false),encabezadoD5()])for(const [m,t] of [['dash','Inicio·Dashboard'],['seg','Inicio·Tareas y follow-ups'],['cal','Producción·Semana']])assert.equal(off(m).visible,t,m);
+  const modos=[...legado.matchAll(/'([\w-]+)':\s*'([\w/-]+)'/g)].map(m=>m[1]);
+  assert.ok(modos.length>=25,'se encontraron los modos ('+modos.length+')');
+  for(const m of modos){const v=ir(m).visible;assert.ok(v&&!/Tablero|Herramientas|Cartera|Archivo|Reportes/.test(v),m+' dice «'+v+'»')}
 });
 await test('T4 botón «+»: cualquier modal u hoja inferior queda encima; sigue encima de la barra inferior y de la barra de cotizar, que no tapa',()=>{
   const idx=source('index.html'),todo=idx+readdirSync(new URL('..',import.meta.url)).filter(f=>/^app-.*\.js$/.test(f)).map(f=>source(f)).join('\n');
@@ -1750,7 +1742,7 @@ await test('v8.0.5 la hoja Crear cerrada no recibe clics y «Nueva cotización/p
   // Antes «Nueva» sólo cambiaba de modo y dejaba cargado el documento anterior (se podía guardar encima de un pedido).
   assert.match(idx,/if\(action==='cot'&&typeof window\.nuevaCotizacion==='function'\)window\.nuevaCotizacion\(\);/,'hoja Crear: Nueva cotización');
   assert.match(idx,/else if\(action==='prop'&&typeof window\.nuevaPropuesta==='function'\)window\.nuevaPropuesta\(\);/,'hoja Crear: Nueva propuesta');
-  assert.match(idx,/if \(key === 'ventas\/cotizar'\) window\.nuevaCotizacion\(\);\s*else if \(key === 'ventas\/propuesta'\) window\.nuevaPropuesta\(\);\s*else if \(legacy === 'cal' && typeof window\.abrirProduccionSemana === 'function'\) window\.abrirProduccionSemana\(\);[^\n]*\s*else window\.setMode\(legacy\);/,'menú lateral: Nueva cotización/propuesta; Semana en vista semana (v8.1.0 r3)');
+  assert.match(idx,/if \(key === 'ventas\/cotizar'\) window\.nuevaCotizacion\(\);\s*else if \(key === 'ventas\/propuesta'\) window\.nuevaPropuesta\(\);\s*else if \(SUB_TO_CHIP\[key\] && typeof window\.abrirNegociosChip === 'function'\) window\.abrirNegociosChip\(SUB_TO_CHIP\[key\]\);[^\n]*\s*else if \(legacy === 'cal' && typeof window\.abrirProduccionSemana === 'function'\) window\.abrirProduccionSemana\(\);[^\n]*\s*else window\.setMode\(legacy\);/,'menú lateral: Nueva cotización/propuesta; Negocios con su chip (v8.2.0); Semana en vista semana (v8.1.0 r3)');
   assert.match(idx,/<button onclick="nuevaCotizacion\(\)"[^>]*>\s*<div[^>]*>📋/,'selector «Nueva venta»: Cotización');
   assert.match(idx,/<button onclick="nuevaPropuesta\(\)"[^>]*>\s*<div[^>]*>🎪/,'selector «Nueva venta»: Evento');
   assert.ok(!/onclick="setMode\('(cot|prop)'\)"/.test(idx),'ningún botón entra al editor sin pasar por «Nueva»');
@@ -1810,22 +1802,117 @@ await test('v8.0.4 perdidas del cliente desde su ficha y menú sin letreros «Pr
   const idx=source('index.html');
   assert.ok(!/class="[^"]*is-soon/.test(idx),'ningún elemento queda como «Pronto»');
   assert.ok(!/data-sub="(ventas\/pipeline|clientes\/perdidas|herr\/configuracion)"/.test(idx),'se quitan Pipeline, Perdidas de Clientes y Configuración');
-  assert.match(idx,/data-sub="ventas\/perdidas"/,'Cotizaciones › Perdidas sigue');
+  assert.match(idx,/data-sub="negocios\/perdidas">Perdidas y anuladas</,'v8.2.0: Negocios › Perdidas y anuladas');
 });
-await test('T4 menú: el módulo del Dashboard viejo no repite la sección que lo contiene (sólo con la bandera)',()=>{
-  const secciones=[...source('index.html').matchAll(/<div class="sb-section-label">([^<]*)<\/div>/g)].map(m=>m[1]);
-  assert.ok(secciones.includes('Tu día'),'la sección sigue como está');
-  const {c:on,extras:x}=ctxR1(mundoR1(),{flag:true,curMode:'dash'});on.iniciarRedisenoR1();
-  assert.equal(x.moduloViejo.textContent,'Tablero');assert.equal(x.dashboard.textContent,'Tablero anterior');
-  assert.ok(!secciones.includes(x.moduloViejo.textContent),'no repite ninguna sección');
-  const {c:off,extras:y}=ctxR1(mundoR1(),{flag:false,curMode:'dash'});off.iniciarRedisenoR1();
-  assert.equal(y.moduloViejo.textContent,'Inicio');assert.equal(y.dashboard.textContent,'Dashboard');
+// v8.2.0 (comité de UX): un solo menú. Esta prueba es la regla «una entrada = una pantalla»: falla si dos entradas
+// abren lo mismo, si una no abre nada, si vuelve un módulo viejo o si una clave vieja deja de llevar a algún lado.
+await test('v8.2.0 un solo menú: 9 módulos, una entrada = una pantalla, las claves viejas redirigen',()=>{
+  const idx=source('index.html'),sin=idx.replace(/<!--[\s\S]*?-->/g,'');
+  const tabla=n=>{const i=idx.indexOf('var '+n+' = {');return Function('return '+idx.slice(idx.indexOf('{',i),idx.indexOf('};',i)+1))()};
+  const S=tabla('SUB_TO_LEGACY'),L=tabla('LEGACY_TO_SUB'),CH=tabla('SUB_TO_CHIP'),CS=tabla('CHIP_TO_SUB'),T=tabla('SUB_LABELS');
+  const nav=sin.slice(sin.indexOf('<nav class="gb-shell-sidebar__nav">'),sin.indexOf('</nav>',sin.indexOf('<nav class="gb-shell-sidebar__nav">')));
+  const mods=[...nav.matchAll(/<div class="sb-module" data-mod="([^"]+)">[\s\S]*?class="sb-module__label">([^<]+)</g)].map(m=>m[1]+'='+m[2]);
+  assert.deepEqual(mods,['inicio=Inicio','negocios=Negocios','produccion=Producción','entregas=Entregas','cobros=Cobros y facturas','compras=Compras','clientes=Clientes','productos=Productos y precios','config=Configuración']);
+  assert.match(nav,/id="gb-crear-btn"/);assert.match(nav,/id="gb-buscar-btn"[^>]*onclick="setMode\('search'\)"/,'un solo Buscar, fuera del árbol');
+  const subs=[...nav.matchAll(/data-sub="([^"]+)"/g)].map(m=>m[1]);
+  assert.equal(subs.length,27); // 3+3+4+2+3+4+1+3+4 (Por facturar entra en F2; Inicio lleva el «Resumen anterior» TEMPORAL)
+  const pantallas=new Set();
+  for(const s of subs){
+    assert.ok(S[s],s+' no abre nada');assert.ok(T[s],s+' sin título');
+    const p=S[s]+(CH[s]?'#'+CH[s]:'');assert.ok(!pantallas.has(p),s+' repite la pantalla '+p);pantallas.add(p);
+    if(CH[s])assert.equal(CS[CH[s]],s,s+' se marca activa por su chip');else assert.equal(L[S[s]],s,s+' se marca activa');
+  }
+  for(const [modo,s] of Object.entries(L))assert.ok(subs.includes(s),'el modo '+modo+' marca '+s+', que no está en el menú');
+  // Claves viejas: fuera del menú, pero cada una sigue llevando a una pantalla que existe.
+  for(const vieja of ['inicio/dashboard','inicio/tareas','inicio/agenda','inicio/buscar','ventas/cotizaciones','ventas/perdidas','pedidos/aprobados','pedidos/producidos','pedidos/hojas-imprimibles',
+    'cartera/pendientes','cartera/historico','cartera/ajustes-log','reportes/excel','archivo/buscar','archivo/anuladas','archivo/convertidas','proveedores/directorio','herr/backup','herr/recetas','herr/catalogo-productos','herr/auditoria','herr/negocios-ambiguos']){
+    assert.ok(!subs.includes(vieja),vieja+' ya no está en el menú');assert.ok(S[vieja],vieja+' redirige');
+  }
+  for(const m of ['Tablero','Cartera','Archivo','Herramientas','Reportes','Proveedores'])assert.ok(!new RegExp('class="sb-module__label">'+m+'<').test(nav),'vuelve el módulo viejo '+m);
+  // setMode: los modos retirados van a su lugar nuevo
+  const sm=functionSource('app-core.js','setMode');
+  assert.equal(S['inicio/resumen-anterior'],'dash');assert.ok(!/dash:/.test(sm),'v8.2.0: dash no se redirige mientras exista el Resumen anterior temporal');
+  for(const [m,a] of [['hist','inicio'],['archivo-busqueda','search'],['pedidos-produccion','pedidos-aprobados']])assert.match(sm,new RegExp('"?'+m+'"?:"'+a+'"'),m+' → '+a);
+  for(const [m,ch] of [['cotizaciones','cotizaciones'],['perdidas','perdidas'],['archivo-anuladas','perdidas']])assert.match(sm,new RegExp('"?'+m+'"?:"'+ch+'"'),m+' → chip '+ch);
+});
+// v8.2.0 (Codex r1 F1, hallazgo 4): el bloque D5 real con un menú falso armado desde el HTML; los clics pasan por su manejador.
+function menuD5(){
+  const html=source('index.html'),sin=html.replace(/<!--[\s\S]*?-->/g,''),i=html.indexOf('// v7.0-α · Bloque D5');
+  const code=html.slice(html.lastIndexOf('<script>',i)+8,html.indexOf('</script>',i));
+  const nav=sin.slice(sin.indexOf('<nav class="gb-shell-sidebar__nav">'),sin.indexOf('</nav>',sin.indexOf('<nav class="gb-shell-sidebar__nav">')));
+  const clases=()=>{const s=new Set();return {add:c=>s.add(c),remove:c=>s.delete(c),contains:c=>s.has(c),toggle:(c,on)=>{if(on)s.add(c);else s.delete(c)}}};
+  let manejador=null,visible='',chip=null;
+  const mods=[],links=[];
+  for(const m of nav.matchAll(/<div class="sb-module" data-mod="([^"]+)">[\s\S]*?<div class="sb-submenu">([\s\S]*?)<\/div>/g)){
+    const mod={clave:m[1],classList:clases(),getAttribute:a=>a==='data-mod'?m[1]:null,propios:[]};
+    for(const a of m[2].matchAll(/<a href="javascript:void\(0\)" data-sub="([^"]+)"( hidden)?>([^<]+)<\/a>/g)){
+      const l={sub:a[1],oculto:!!a[2],mod,classList:clases(),getAttribute:x=>x==='data-sub'?a[1]:null,
+        click(){manejador({target:{closest:s=>s==='.sb-submenu a'?l:null},preventDefault(){}})}};
+      links.push(l);mod.propios.push(l);
+    }
+    mod.querySelector=s=>s==='.sb-submenu a:not(.is-soon)'?mod.propios[0]:null;
+    mods.push(mod);
+  }
+  const crumb={set innerHTML(v){visible=v.replace(/<[^>]*>/g,'')},get innerHTML(){return ''},set textContent(v){visible=String(v)}};
+  const aside={dataset:{},setAttribute(){},getAttribute(){return null},addEventListener:(t,f)=>{if(t==='click')manejador=f}};
+  const buscar={classList:clases()};
+  const document={querySelector:s=>s==='.hdr'?{querySelector:()=>crumb,insertBefore(){}}:null,
+    querySelectorAll:s=>s==='.sb-module'?mods:s==='.sb-submenu a'?links:[],
+    getElementById:id=>id==='gb-shell-sidebar'?aside:id==='gb-buscar-btn'?buscar:null,body:{classList:clases()}};
+  let load=null;
+  const ctx={document,localStorage:{getItem:()=>null},console:quiet,setTimeout,curMode:'inicio'};
+  const window={addEventListener:(t,f)=>{if(t==='load')load=f},
+    setMode:m=>{ctx.curMode=m},
+    abrirNegociosChip:ch=>{chip=ch;window.setMode('negocios')},gbNegociosChip:()=>chip,
+    abrirProduccionSemana:()=>window.setMode('cal'),nuevaCotizacion:()=>window.setMode('cot'),nuevaPropuesta:()=>window.setMode('prop')};
+  ctx.window=window;vm.runInNewContext(code,ctx);load();
+  const actual=()=>({modo:ctx.curMode,chip:ctx.curMode==='negocios'?chip:null,titulo:visible,
+    modulos:mods.filter(m=>m.classList.contains('is-active')).map(m=>m.clave),entradas:links.filter(l=>l.classList.contains('is-current')).map(l=>l.sub),buscar:buscar.classList.contains('is-active')});
+  return {mods,links,window,actual,setChip:c=>{chip=c},
+    clicModulo:clave=>{const mod=mods.find(m=>m.clave===clave);manejador({target:{closest:s=>s==='.sb-module__btn'?{parentElement:mod}:null},preventDefault(){}})}};
+}
+await test('v8.2.0 clics del menú: cada entrada visible abre su pantalla, con su chip, su entrada activa y su título (manejador real)',()=>{
+  const idx=source('index.html'),tabla=n=>{const i=idx.indexOf('var '+n+' = {');return Function('return '+idx.slice(idx.indexOf('{',i),idx.indexOf('};',i)+1))()};
+  const S=tabla('SUB_TO_LEGACY'),CH=tabla('SUB_TO_CHIP'),T=tabla('SUB_LABELS');
+  const m=menuD5(),visibles=m.links.filter(l=>!l.oculto);
+  assert.equal(visibles.length,26);assert.deepEqual(m.links.filter(l=>l.oculto).map(l=>l.sub),['clientes/directorio'],'el único enlace oculto es el de Clientes');
+  for(const l of visibles){
+    l.click();
+    assert.deepEqual(m.actual(),{modo:S[l.sub],chip:CH[l.sub]||null,titulo:T[l.sub].join('·'),modulos:[l.mod.clave],entradas:[l.sub],buscar:false},l.sub);
+  }
+  // Botón de módulo: abre su primera entrada (Clientes no tiene submenú visible)
+  m.clicModulo('clientes');assert.deepEqual(m.actual(),{modo:'clientes-directorio',chip:null,titulo:'Clientes',modulos:['clientes'],entradas:['clientes/directorio'],buscar:false});
+  m.clicModulo('negocios');assert.equal(m.actual().chip,'cotizaciones');assert.deepEqual(m.actual().entradas,['negocios/abiertas']);
+  // Hallazgo 3: Buscar se marca y lo demás se apaga
+  m.window.setMode('search');assert.deepEqual(m.actual(),{modo:'search',chip:null,titulo:'Buscar',modulos:[],entradas:[],buscar:true});
+  m.window.setMode('inicio');assert.equal(m.actual().buscar,false);
+  // Hallazgo 2: cambiar de chip dentro de Negocios vuelve a marcar el menú y el título (gbShellSync)
+  m.window.abrirNegociosChip('cotizaciones');m.setChip('cerrados');m.window.gbShellSync();
+  assert.deepEqual(m.actual().entradas,['negocios/cerrados']);assert.equal(m.actual().titulo,'Negocios·Cerrados');
+  m.setChip('abiertos');m.window.gbShellSync();assert.deepEqual([m.actual().modulos,m.actual().entradas,m.actual().titulo],[['negocios'],[],'Negocios'],'un chip sin entrada propia marca sólo el módulo');
+  // Hallazgo 1: Comentarios se abre desde Clientes, marca el módulo y tiene título propio
+  m.window.setMode('archivo-convertidas');assert.deepEqual([m.actual().modulos,m.actual().entradas,m.actual().titulo],[['negocios'],[],'Negocios·Convertidas y versiones viejas'],'v8.2.0 (Codex r3): convertidas abre su pantalla hasta v8.2.1');
+  assert.ok(!/"archivo-convertidas":"/.test(functionSource('app-core.js','setMode')),'archivo-convertidas no se redirige a un chip que no las muestra');
+  assert.match(source('app-dashboard.js'),/onclick="abrirNegociosChip\(\\'confirmados\\'\)">⚠️/,'aviso de pedidos sin fecha: abre los confirmados');assert.ok(!/switchSection/.test(source('app-dashboard.js').replace(/\/\*[\s\S]*?\*\//g,'')),'sin llamadas a switchSection, que no existe');
+  m.window.setMode('clientes-comentarios');assert.deepEqual([m.actual().modulos,m.actual().entradas,m.actual().titulo],[['clientes'],[],'Clientes·Comentarios']);
+  assert.match(idx,/id="cli-dir-comentarios" onclick="setMode\('clientes-comentarios'\)"/,'botón Comentarios en el directorio');
+  const acc=functionSource('app-negocios.js','accionR1');
+  for(const k of ['chip','quitar-metrica']){const i=acc.indexOf('ds.r1==="'+k+'"');assert.ok(i>0&&/gbShellSync\(\)/.test(acc.slice(i,acc.indexOf('}else if',i+5))),k+' llama a gbShellSync')}
+});
+await test('v8.2.0 entradas de Negocios: abren la lista con su chip y el menú marca la entrada del chip abierto',()=>{
+  const {c,llamadas}=ctxR1(mundoR1());
+  for(const [chip,esperado] of [['cotizaciones','cotizaciones'],['perdidas','perdidas'],['cerrados','cerrados'],['inventado','abiertos']]){
+    llamadas.length=0;c.abrirNegociosChip(chip);
+    assert.equal(estadoR1(c).filtro.chip,esperado);assert.deepEqual(llamadas.at(-1),['setMode','negocios']);assert.equal(c.gbNegociosChip(),esperado);
+  }
+  estadoR1(c).filtro.metrica={clave:'vendido'};assert.equal(c.gbNegociosChip(),null,'con un cuadro del Inicio no se marca ningún chip');
+  assert.ok(/label:"Cotizaciones abiertas"/.test(source('app-negocios.js'))&&/label:"Perdidas y anuladas"/.test(source('app-negocios.js')),'el chip se llama como la entrada del menú');
 });
 
 // ─── Carga en la app ───────────────────────────────────────
 await test('app-negocios.js se carga en index.html con ?v= de BUILD_VERSION y check.mjs lo revisa',()=>{
   const v=source('app-core.js').match(/const BUILD_VERSION="v([^"]+)"/)[1];
-  assert.equal(v,'8.1.0');
+  assert.equal(v,'8.2.0');
   assert.ok(source('index.html').includes('<script src="app-negocios.js?v='+v+'"></script>'));
   assert.ok(/"app-negocios\.js"/.test(source('scripts/check.mjs')));
   assert.ok(source('.github/workflows/check.yml').includes('node scripts/test_negocios.mjs'));
